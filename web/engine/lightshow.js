@@ -44,3 +44,10 @@ export const chase = (seconds, hz = 4, bounce = true) => {
   const step = Math.floor(seconds * hz);
   return bounce ? [0, 1, 2, 1][step % 4] : step % 3;
 };
+// Multiply nine lamp values by a 0..1 level. A lit channel stays lit (at least 1) while the
+// level is above zero, so a dim colour never vanishes only because of rounding.
+export function scaleLeds(values, level) {
+  if (!Array.isArray(values) || values.length !== 9 || values.some((v) => typeof v !== "number" || !Number.isFinite(v))) return values;
+  const k = clamp(level, 0, 1);
+  return values.map(byte).map((v) => (v && k > 0 ? Math.max(1, Math.round(v * k)) : 0));
+}

@@ -82,6 +82,7 @@ let browser;
     let ctx; meta.create = (c) => { ctx = c; return create(c); };
     vesper.launch("runner");
     meta.create = create;
+    vesper.lights.setScale(1); // this check is about rounding; the lamp level has its own tests
     vesper.lights.set(Array(9).fill(40));
     ctx.leds([0.5, 300, -4, 1, 2, 3, 4, 5, 6.6]);
     const rounded = vesper.lights.desired.slice();

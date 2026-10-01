@@ -41,8 +41,10 @@ DEFAULT_SETTINGS = CATALOG['settings']
 
 def validate_setting(key, value):
     import math
-    if key in ('sound', 'crt', 'reducedMotion'):
+    if key in ('sound', 'crt', 'reducedMotion', 'lampAmbient'):
         valid = type(value) is bool
+    elif key == 'lampLevel':
+        valid = value in ('full', 'medium', 'low', 'off')
     elif key == 'menuClicks':
         valid = type(value) is int and value in (0, 3, 4)
     elif key == 'scanMs':

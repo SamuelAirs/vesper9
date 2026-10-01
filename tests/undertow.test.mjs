@@ -3,11 +3,12 @@
 // still cover the column rules, the lamps and the menu gesture.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Undertow, ZONES, CRAFTS, FEATS, migrateSave, dailyGoal, nextGate, undertowSpeed, gateInterval } from "../web/apps/undertow.js";
+import { Undertow, ZONES, CRAFTS, FEATS, UPGRADES, SPECIES, migrateSave, dailyGoal, nextGate, undertowSpeed, gateInterval } from "../web/apps/undertow.js";
 import { appContext, fakeCanvas, run } from "./helpers/app-context.mjs";
 import { Random } from "../web/engine/math.js";
 
 const DT = 1 / 60;
+const CX_TEST = 220; // the craft's screen x
 const dark = (v) => v.every((x) => x === 0);
 const lampsOk = (ctx) => ctx.calls.leds.every((v) => v.length === 9 && v.every((x) => Number.isInteger(x) && x >= 0 && x <= 255));
 const tap = (g) => { g.down(); g.up(); };
@@ -131,8 +132,9 @@ test("a run ends, banks its pearls, reaches feats and is scored once; only dives
   run(g, 2);
   assert.equal(ctx.calls.score.length, 1);
   const save = ctx.calls.saved.at(-1);
-  assert.equal(save.schema, 2);
+  assert.equal(save.schema, 3);
   assert.equal(save.runs, 1);
+  assert.ok(save.dm > 0 && save.dm === save.last.metres, "the deepest dive in metres was not kept");
   assert.ok(save.bank >= g.R.pearls);
   assert.ok(save.ft.includes("kelp"));
   assert.equal(save.last.passages, g.points);
@@ -158,11 +160,14 @@ test("the dock: tap moves, hold chooses; crafts are bought with pearls; start zo
   assert.equal(g.sv.bank, 160 - CRAFTS[1].cost);
   hold(g);
   assert.equal(g.sv.sel.craft, 0, "the unaffordable bulwark was chosen");
-  tap(g); hold(g); // START
+  tap(g); tap(g); hold(g); // START (past REFIT)
   assert.equal(g.sv.sel.start, 1);
   hold(g); hold(g);
   assert.equal(g.sv.sel.start, 0, "start zones do not wrap");
-  tap(g); tap(g); hold(g); // FEATS
+  tap(g); tap(g); hold(g); // GUIDE
+  assert.equal(g.view, "guide");
+  tap(g); assert.equal(g.view, "menu");
+  tap(g); hold(g); // FEATS
   assert.equal(g.view, "feats");
   tap(g); assert.equal(g.page, 1);
   hold(g); assert.equal(g.view, "menu");
@@ -170,8 +175,9 @@ test("the dock: tap moves, hold chooses; crafts are bought with pearls; start zo
   assert.equal(g.view, "log");
   tap(g); assert.equal(g.view, "menu");
   const canvas = fakeCanvas();
-  for (const view of ["menu", "feats", "log"]) { g.view = view; g.draw(canvas); }
-  tap(g); tap(g); hold(g); // DIVE
+  for (const view of ["menu", "refit", "guide", "feats", "log"]) { g.view = view; g.draw(canvas); }
+  g.view = "menu";
+  tap(g); hold(g); // DIVE (from LOG, the last line)
   assert.equal(g.phase, "play");
   assert.ok(ctx.calls.saved.length >= 3);
 });
@@ -207,7 +213,7 @@ test("the daily dive is the same for everyone on the same date, uses the skiff, 
 test("a first-release save migrates: runs, last result and milestone kept, reached zones open", () => {
   const old = { schema: 1, runs: 37, last: { passages: 23, reason: "COLUMN CONTACT", milestone: 4 }, milestone: 6 };
   const s = migrateSave(old);
-  assert.equal(s.schema, 2);
+  assert.equal(s.schema, 3);
   assert.equal(s.runs, 37);
   assert.deepEqual(s.last, old.last);
   assert.equal(s.milestone, 6);
@@ -217,17 +223,17 @@ test("a first-release save migrates: runs, last result and milestone kept, reach
   assert.deepEqual(migrateSave(s), s, "migration is not idempotent");
   for (const junk of [null, undefined, 5, "x", [], { runs: -3, far: 99, ft: ["nope", "kelp", "kelp"], sel: { craft: 2 } }]) {
     const m = migrateSave(junk);
-    assert.equal(m.schema, 2);
+    assert.equal(m.schema, 3);
     assert.ok(m.runs >= 0 && m.far >= 0 && m.far < ZONES.length);
     assert.equal(m.sel.craft, 0, "an unowned craft stayed selected");
   }
   assert.deepEqual(migrateSave({ ft: ["nope", "kelp", "kelp"] }).ft, ["kelp"]);
-  // The game loads the old save and the next run writes schema 2 with the history intact.
+  // The game loads the old save and the next run writes schema 3 with the history intact.
   const ctx = appContext({ seed: 2, progress: old });
   const g = new Undertow(ctx);
   tap(g); g.hull = 1; g.y = 600; g.update(DT); run(g, 2);
   const saved = ctx.calls.saved.at(-1);
-  assert.equal(saved.schema, 2);
+  assert.equal(saved.schema, 3);
   assert.equal(saved.runs, 38);
   assert.equal(saved.milestone, 6);
 });
@@ -238,7 +244,7 @@ test("feats: every feat can be reached by its counter, and each pays pearls once
   const { g } = dive(12);
   const bank = g.sv.bank;
   g.R.zone = 5; g.R.cleanBest = 10; g.R.noHitBest = 25; g.R.pearls = 20; g.sv.st.pearls = 480; g.R.shielded = 1;
-  g.sv.runs = 24; g.R.daily = 1; g.R.skims = 5; g.R.lastBest = 15;
+  g.sv.runs = 24; g.R.daily = 1; g.R.skims = 5; g.R.lastBest = 15; g.R.found = SPECIES.map((s) => s.id);
   g.checkFeats();
   assert.equal(g.sv.ft.length, FEATS.length);
   assert.equal(g.sv.bank, bank + 15 * FEATS.length);
@@ -263,7 +269,8 @@ test("three quick taps then cancel() keep the dive and leave the lamps off; disp
 test("long dive: lamps valid and varied, no NaN, lists bounded, draw never throws in any phase or zone", () => {
   const { ctx, g } = dive(14);
   const canvas = fakeCanvas();
-  let maxGates = 0, maxPearls = 0;
+  let maxGates = 0, maxPearls = 0, maxLife = 0;
+  const seenLife = new Set();
   for (let i = 0; i < 60 * 240 && g.phase === "play"; i++) {
     const gate = g.gates.find((q) => q.x + 65 > 202);
     const want = g.y + g.vy * 0.36 > (gate ? gate.center : 270);
@@ -271,9 +278,12 @@ test("long dive: lamps valid and varied, no NaN, lists bounded, draw never throw
     g.update(DT);
     maxGates = Math.max(maxGates, g.gates.length);
     maxPearls = Math.max(maxPearls, g.pearls.length);
+    maxLife = Math.max(maxLife, g.life.length);
+    for (const f of g.life) seenLife.add(f.id);
     if (i % 30 === 0) { g.draw(canvas); finite(g); }
   }
-  assert.ok(maxGates <= 8 && maxPearls <= 24 && g.trail.length <= 30);
+  assert.ok(maxGates <= 8 && maxPearls <= 24 && g.trail.length <= 30 && maxLife <= 6);
+  assert.ok(seenLife.size >= 6, "sea life from only " + seenLife.size + " species was seen");
   assert.ok(lampsOk(ctx));
   assert.ok(new Set(ctx.calls.leds.map((v) => v.join())).size > 20);
   if (g.phase === "play") { g.hull = 1; g.y = 600; g.update(DT); }
@@ -288,8 +298,83 @@ test("canvas text is at least 16 px on every screen", () => {
   const { g } = dive(15, { progress: { schema: 2, runs: 3, bank: 20 } });
   pilot(g, 20); g.draw(g2d);
   g.hull = 1; g.y = 600; g.update(DT); run(g, 1); g.draw(g2d);
-  g.openDock(); for (const view of ["menu", "feats", "log"]) { g.view = view; g.draw(g2d); }
+  g.sv.sp = SPECIES.map((s) => s.id);
+  g.openDock(); for (const view of ["menu", "refit", "guide", "feats", "log"]) { g.view = view; g.draw(g2d); }
   g.phase = "title"; g.draw(g2d);
   assert.ok(sizes.length > 30);
   assert.ok(Math.min(...sizes) >= 16, "smallest text " + Math.min(...sizes));
+});
+
+test("sea life: each zone has its own two species; flying close logs one once and banks pearls", () => {
+  assert.equal(SPECIES.length, 12);
+  for (let z = 0; z < ZONES.length; z++) assert.equal(SPECIES.filter((s) => s.zone === z).length, 2);
+  const { ctx, g } = dive(21);
+  g.parked = 0; g.next = 99;
+  run(g, 3, () => { g.y = 270; g.vy = 0; g.grace = 1; });
+  assert.ok(g.life.length >= 1, "no sea life came in the first three seconds");
+  assert.ok(g.life.every((f) => SPECIES.find((s) => s.id === f.id).zone === 0), "a creature from another zone");
+  // Park a creature next to the craft: it is logged after a moment, and only once.
+  g.life = [{ id: "moon", x: CX_TEST, y: 280, vx: 0, ph: 0, scan: 0, done: 0, fl: 0 }];
+  const keep = () => { g.y = 270; g.vy = 0; g.grace = 1; g.life[0].x = CX_TEST; g.life[0].y = 280; };
+  run(g, 0.3, keep);
+  assert.equal(g.R.found.length, 0, "logged too soon");
+  run(g, 0.3, keep);
+  assert.deepEqual(g.R.found, ["moon"]);
+  run(g, 1, keep);
+  assert.equal(g.R.lifeP, 10, "a species paid twice");
+  const bank = g.sv.bank;
+  g.hull = 1; g.grace = 0; g.y = 600; g.update(DT); run(g, 1);
+  assert.equal(g.sv.bank, bank + g.R.pearls + 10);
+  assert.deepEqual(ctx.calls.saved.at(-1).sp, ["moon"]);
+  // A logged species does not pay again on the next dive.
+  tap(g);
+  assert.ok(g.known("moon"));
+  assert.equal(g.R.lifeP, 0);
+});
+
+test("refits: bought level by level with pearls at the dock, used in dives, not on the daily dive", () => {
+  const ctx = appContext({ seed: 22, progress: { schema: 2, runs: 4, bank: 700, far: 3 } });
+  const g = new Undertow(ctx);
+  hold(g); tap(g); tap(g); hold(g); // REFIT
+  assert.equal(g.view, "refit");
+  hold(g); hold(g); hold(g); // the magnet twice, then it is full
+  assert.deepEqual(g.sv.up, [2, 0, 0, 0]);
+  assert.equal(g.sv.bank, 700 - 120 - 260);
+  tap(g); hold(g); // plating
+  assert.equal(g.sv.up[1], 1);
+  assert.equal(g.sv.bank, 20);
+  tap(g); hold(g); // sonar: too dear
+  assert.equal(g.sv.up[2], 0);
+  assert.equal(g.sv.bank, 20);
+  tap(g); tap(g); hold(g); // BACK
+  assert.equal(g.view, "menu");
+  assert.equal(ctx.calls.saved.at(-1).up[0], 2);
+  g.view = "menu"; g.cur = 0; hold(g); // DIVE
+  assert.equal(g.phase, "play");
+  assert.equal(g.hull, CRAFTS[0].hull + 1, "plating did not add a hull");
+  // The magnet reaches a pearl the bare craft would miss.
+  g.parked = 0; g.next = 99;
+  g.pearls = [{ x: 260, y: 305, gate: false, kind: 0, got: 0 }];
+  run(g, 0.3, () => { g.y = 270; g.vy = 0; });
+  assert.equal(g.R.pearls, 1, "the magnet did not reach");
+  const d = new Undertow(appContext({ seed: 23, progress: { schema: 3, up: [2, 1, 1, 1] } }));
+  d.daily = true; d.start();
+  assert.equal(d.hull, CRAFTS[0].hull, "the daily dive used the plating");
+  assert.equal(d.lv("magnet"), 0);
+});
+
+test("a schema-2 save migrates to schema 3 with empty refits and guide, and junk is cleaned", () => {
+  const two = { schema: 2, runs: 9, last: { passages: 30 }, milestone: 6, far: 2, bank: 55, own: [1, 1, 0], cb: [30, 12, 0], ft: ["kelp"], st: { pearls: 80, daily: 1, passages: 120 }, sel: { craft: 1, start: 2 }, dl: {} };
+  const s = migrateSave(two);
+  assert.equal(s.schema, 3);
+  assert.deepEqual(s.up, [0, 0, 0, 0]);
+  assert.deepEqual(s.sp, []);
+  assert.equal(s.dm, 0);
+  assert.equal(s.st.passages, 120);
+  assert.deepEqual([s.runs, s.bank, s.far, s.sel.craft, s.sel.start], [9, 55, 2, 1, 2]);
+  const junk = migrateSave({ schema: 3, up: [9, -1, "x"], sp: ["moon", "moon", "kraken"], dm: -4 });
+  assert.deepEqual(junk.up, [UPGRADES[0].costs.length, 0, 0, 0]);
+  assert.deepEqual(junk.sp, ["moon"]);
+  assert.equal(junk.dm, 0);
+  assert.deepEqual(migrateSave(s), s);
 });

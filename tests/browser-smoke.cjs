@@ -180,6 +180,8 @@ async function button(page, ms = 80) {
   // Older sessions and long notes are both navigable.
   await page.evaluate(()=>vesper.launch('transcribe'));
   await page.waitForFunction(()=>vesper.app.sessions.length===12);
+  // The list of saved notes is its own screen now (the note itself gets the room).
+  await page.getByRole('button',{name:'SAVED NOTES',exact:true}).click();
   await page.getByRole('button',{name:'OLDER NOTES',exact:true}).click();
   await page.waitForFunction(()=>vesper.app.offset===5&&vesper.app.sessions.length===7);
   const older=await page.evaluate(()=>vesper.app.sessions[0].id);

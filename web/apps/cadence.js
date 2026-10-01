@@ -1,6 +1,8 @@
-// CADENCE — tempo and time under the hands. An instrument with three tools: a metronome
-// with tap tempo, a stopwatch with laps, and work/rest intervals. The lamps carry each one:
-// the conductor's beat, a slow second-sweep, a draining bar.
+// CADENCE — tempo and time under the hands. An instrument with four tools: a metronome
+// with tap tempo, a stopwatch with laps, work/rest intervals, and a timer. The lamps carry
+// each one: the conductor's beat, a slow second-sweep, a draining bar. The timer is only a
+// front end for the service's own persistent timers (the `timer` command and `timers` in the
+// state): they keep running when this app closes, survive a restart and announce themselves.
 //
 // Timing. An instrument gets tick() once a second, far too coarse for a beat, and the host
 // has no per-frame hook for instruments. So this file runs a requestAnimationFrame loop of
@@ -23,6 +25,7 @@
 // chooses. A short press also "advances" focus, which with a single action is a no-op.
 import { LAMP, dim, blend, lamps, only, spot, meter, fill, lightsOff } from "../engine/lightshow.js";
 import { clamp, escapeHTML as esc } from "../engine/math.js";
+import { timerLamps } from "./utilities.js";
 
 export const BPM_MIN = 40, BPM_MAX = 220;
 export const SIGNATURES = [2, 3, 4, 6];
@@ -39,9 +42,24 @@ const SHOWN_LAPS = 5;
 const TAP_GAP_MS = 2000; // a longer pause starts a fresh run of taps
 const TAP_WINDOW = 5; // the tempo comes from the last five taps (four intervals)
 const LATE_MS = 150; // a beat later than this (hidden page) is skipped rather than clicked
+// Two quick taps and then a hold are the host's menu gesture (four quick taps in a game, by
+// default): the taps arrive here as ordinary input and cancel() follows. Taps no further
+// apart than this, ending at the press that was cancelled, are taken back by cancel().
+const GESTURE_GAP_MS = 1000;
+const MAX_UNDO = 3;
+
+// ---- the timer tool ----
+// One hold starts any of these. The first row of the start list repeats the last length.
+export const TIMER_PRESETS = [300, 600, 900, 1500];
+export const TIMER_MORE = [1800, 2700, 1200, 3600, 180, 60, 30];
+export const TIMER_DEFAULT = 300;
+export const TIMER_MIN = 5, TIMER_MAX = 86400;
+const ADD_SECONDS = 60;
+const SHOWN_TIMERS = 2; // timers listed under the large one
 
 const byte = (v) => Math.round(clamp(Number.isFinite(v) ? v : 0, 0, 255));
 const finite = (v, d = 0) => (Number.isFinite(v) ? v : d);
+const timerKey = (t) => t.remaining + "|" + !!t.running + "|" + !!t.finished;
 
 // ---- pure functions (tested directly) ----
 
@@ -142,6 +160,35 @@ export function formatClock(seconds) {
 }
 const spoken = (s) => (s >= 60 && s % 60 === 0 ? s / 60 + " MIN" : s + " S");
 
+// A length in words for a label: "5 MIN", "1 H", "1 H 5 MIN", "30 S", "12 MIN 30 S".
+export function lengthLabel(seconds) {
+  const t = Math.max(0, Math.round(finite(seconds)));
+  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), r = t % 60;
+  return [h && h + " H", m && m + " MIN", r && r + " S"].filter(Boolean).join(" ") || "0 S";
+}
+// A countdown clock: MM:SS, or H:MM:SS from an hour up. Rounds up, like a kitchen timer.
+export function longClock(seconds) {
+  const t = Math.max(0, Math.ceil(finite(seconds) - 1e-9));
+  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), r = t % 60;
+  return (h ? h + ":" + String(m).padStart(2, "0") : String(m).padStart(2, "0")) + ":" + String(r).padStart(2, "0");
+}
+// The dial is two digits of minutes: a tens stage (tap = +10) and a units stage (tap = +1).
+export const dialSeconds = (d) => ((d?.tens | 0) * 10 + (d?.units | 0)) * 60;
+
+// Lamps of a timer that has just finished: three amber blinks (the service plays the same
+// triple blink only while the dashboard, Chronometer or Atmosphere is focused, never here).
+export function doneFlashLamps(sinceMs) {
+  if (!Number.isFinite(sinceMs) || sinceMs < 0 || sinceMs >= 2400) return lightsOff();
+  return fill(LAMP.amber, sinceMs % 800 < 400 ? 0.5 : 0);
+}
+// Lamps while the dial is being turned: a cyan bar of the minutes so far (full at an hour,
+// the host's lamp conventions), brightened by each tap.
+export function dialLamps(minutes, sinceTapMs) {
+  const m = clamp(finite(minutes), 0, 99);
+  const flash = Number.isFinite(sinceTapMs) && sinceTapMs >= 0 && sinceTapMs < 300 ? 0.15 * (1 - sinceTapMs / 300) : 0;
+  return m > 0 ? meter(Math.min(1, m / 60), dim(LAMP.cyan, 0.22 + flash)) : fill(LAMP.cyan, flash * 2);
+}
+
 // Index of the fastest lap, or -1.
 export function bestLap(laps) {
   let best = -1;
@@ -157,7 +204,8 @@ export function sanitize(raw) {
     bpm: Number.isFinite(o.bpm) ? clampBpm(o.bpm) : 100,
     sig: pick(o.sig, SIGNATURES, 4),
     preset: [...PRESETS.map((p) => p.id), "custom"].includes(o.preset) ? o.preset : "focus",
-    tool: ["metro", "stop", "int"].includes(o.tool) ? o.tool : "metro",
+    tool: ["metro", "stop", "int", "timer"].includes(o.tool) ? o.tool : "metro",
+    lastTimer: Number.isFinite(o.lastTimer) && o.lastTimer >= TIMER_MIN && o.lastTimer <= TIMER_MAX ? Math.round(o.lastTimer) : TIMER_DEFAULT,
     custom: { work: pick(c.work, WORK_CHOICES, 45), rest: pick(c.rest, REST_CHOICES, 15), rounds: pick(c.rounds, ROUND_CHOICES, 6) },
   };
 }
@@ -166,7 +214,10 @@ const TOOLS = [
   { id: "metro", label: "METRONOME" },
   { id: "stop", label: "STOPWATCH" },
   { id: "int", label: "INTERVALS" },
+  { id: "timer", label: "TIMER" },
 ];
+const TIMER_TOOLS = ["timer", "tnew", "tmore", "tdial"];
+const isTimerTool = (tool) => TIMER_TOOLS.includes(tool);
 
 export class Cadence {
   constructor(ctx) {
@@ -175,6 +226,7 @@ export class Cadence {
     this.clock = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
     const s = sanitize(ctx.progress?.());
     this.bpm = s.bpm; this.sig = s.sig; this.preset = s.preset; this.custom = s.custom; this.lastTool = s.tool;
+    this.lastTimer = s.lastTimer;
     this.tool = "menu";
     this.paused = false; this.dead = false;
     this.raf = 0;
@@ -192,7 +244,12 @@ export class Cadence {
     this.tap = { times: [], src: null, flashAt: -1e9 };
     this.sw = { running: false, startAt: 0, before: 0, laps: [], lapAt: -1e9, startedAt: 0 };
     this.iv = { running: false, startAt: 0, before: 0, cfg: null, key: "", ceil: -1, changeAt: -1e9, doneAt: -1, paused: false };
+    // the timer tool: what was last seen of each service timer, which one is large, a start or
+    // a +1 MIN waiting for the service to answer, and the dial being turned
+    this.tm = { seen: new Map(), sel: null, announced: new Set(), doneAt: -1e9, flashAt: -1e9, starting: null, adding: null, sig: "", dial: { stage: 0, tens: 0, units: 0 } };
+    this.taps = []; // taps that changed something, newest last, each with its undo (see cancel)
     this.leds = lightsOff();
+    for (const t of this.rawTimers()) if (t.finished) this.tm.announced.add(t.id);
     this.menu();
   }
 
@@ -211,6 +268,7 @@ export class Cadence {
   busy(now) {
     return this.m.running || this.sw.running || this.iv.running || this.cues.length > 0 ||
       now - this.tap.flashAt < 400 || now - this.sw.lapAt < 500 || now - this.iv.changeAt < 500 ||
+      now - this.tm.flashAt < 500 || now - this.tm.doneAt < 2500 ||
       (this.iv.doneAt >= 0 && now - this.iv.doneAt < 8500);
   }
   // After an action or a button edge: bring the lamps and the screen up to date at once and
@@ -228,7 +286,14 @@ export class Cadence {
   // shorter than the hold threshold is a tap (the host treated it as "next"); a longer one
   // was a choice and is not counted.
   event(e) {
-    if (!e || e.type !== "button" || this.paused || this.dead) return;
+    if (!e || this.dead) return;
+    // The service's timers changed (every second while any exists), or one finished.
+    if (e.type === "timers" || e.type === "state" || e.type === "timer_done") {
+      if (e.type === "timer_done") this.announce(e.timer);
+      if (isTimerTool(this.tool) && !this.paused) this.wake();
+      return;
+    }
+    if (e.type !== "button" || this.paused) return;
     if (e.pressed) {
       if (e.repeat) return;
       const node = Number.isFinite(e.at_us);
@@ -242,10 +307,35 @@ export class Cadence {
     if (!(dur >= 0) || dur >= finite(this.ctx.settings?.().holdMs, 650)) return;
     if (this.tool === "tap") this.tapAt(d.stamp, d.src, d.arrival);
     else if (this.tool === "stop" && this.sw.running) this.lap(d.arrival);
+    else if (this.tool === "tdial") this.dialTap(d.arrival);
     else return;
     this.wake();
   }
-  cancel() { this.down = null; }
+  // Held input is dropped. When the host takes a gesture as the system menu (quick taps and a
+  // hold, or four quick taps), the taps came here first as ordinary input: the ones that
+  // changed something (a lap, a tempo, a minute on the dial) are taken back, so a gesture
+  // for the menu never leaves a trace. Nothing else is touched: a timer is only ever started,
+  // paused or removed by choosing its action, which a gesture never does.
+  cancel() {
+    const d = this.down;
+    this.down = null;
+    this.undoBurst(d ? d.arrival : this.clock());
+  }
+  noteTap(press, undo) {
+    this.taps.push({ press, release: this.clock(), undo });
+    if (this.taps.length > MAX_UNDO + 1) this.taps.shift();
+  }
+  undoBurst(ref) {
+    for (let n = 0; n < MAX_UNDO && this.taps.length; n++) {
+      const t = this.taps[this.taps.length - 1];
+      if (!(ref - t.release <= GESTURE_GAP_MS)) break;
+      this.taps.pop();
+      try { t.undo(); } catch {}
+      ref = t.press;
+    }
+    this.taps.length = 0;
+    if (!this.dead) this.wake();
+  }
   // The system menu opened. A running metronome keeps clicking and a running interval keeps
   // its time and its tones (the owner may be adjusting volume or looking something up); a
   // stopwatch must keep counting, and does, because it is computed from the clock. Only the
@@ -270,7 +360,7 @@ export class Cadence {
   }
 
   persist() {
-    const saved = { schema: 1, bpm: this.bpm, sig: this.sig, preset: this.preset, tool: this.lastTool, custom: { ...this.custom } };
+    const saved = { schema: 1, bpm: this.bpm, sig: this.sig, preset: this.preset, tool: this.lastTool, custom: { ...this.custom }, lastTimer: this.lastTimer };
     const key = JSON.stringify(saved);
     if (key === this.lastTune) return;
     this.lastTune = key;
@@ -286,6 +376,7 @@ export class Cadence {
     this.playCues(now);
     this.stepMetronome(now);
     this.stepInterval(now);
+    this.stepTimers(now);
     this.show(this.lampsAt(now));
     if (now - this.lastRender >= 50 || now < this.lastRender) { this.lastRender = now; this.render(now); }
   }
@@ -370,6 +461,7 @@ export class Cadence {
       const since = now - this.tap.flashAt;
       return since >= 0 && since < 300 ? only(1, LAMP.cyan, 0.5 * (1 - since / 300)) : lightsOff();
     }
+    if (isTimerTool(this.tool)) return this.timerLampsAt(now);
     if (this.tool === "stop") return stopwatchLamps(this.swElapsed(now), now - this.sw.lapAt, this.sw.running);
     if (this.tool === "int" && this.iv.paused) return only(1, LAMP.amber, 0.1); // paused: one dim amber lamp
     if (this.tool === "int" && (this.iv.running || this.iv.doneAt >= 0)) {
@@ -407,8 +499,10 @@ export class Cadence {
         (t.times.length && stamp - t.times[t.times.length - 1] < 0)) t.times = [];
     // A press under 200 ms after the last is a bounce, not a beat.
     if (t.times.length && stamp - t.times[t.times.length - 1] < 200) return;
+    const before = { times: t.times.slice(), src: t.src, bpm: this.bpm };
     t.src = src; t.times.push(stamp);
     if (t.times.length > TAP_WINDOW) t.times.shift();
+    this.noteTap(arrival, () => { t.times = before.times; t.src = before.src; this.setBpm(before.bpm); });
     t.flashAt = Number.isFinite(arrival) ? arrival : this.clock();
     const bpm = tapTempo(t.times);
     if (bpm !== null) this.setBpm(bpm);
@@ -436,8 +530,10 @@ export class Cadence {
     if (!sw.running || sw.laps.length >= MAX_LAPS) return;
     const total = sw.before + Math.max(0, at - sw.startAt);
     const prev = sw.laps.length ? sw.laps[sw.laps.length - 1].total : 0;
-    sw.laps.push({ split: Math.max(0, total - prev), total });
+    const lap = { split: Math.max(0, total - prev), total };
+    sw.laps.push(lap);
     sw.lapAt = this.clock();
+    this.noteTap(Number.isFinite(at) ? at : this.clock(), () => { const i = sw.laps.lastIndexOf(lap); if (i >= 0) sw.laps.splice(i, 1); sw.lapAt = -1e9; });
     this.render(this.clock(), true);
   }
   resetStopwatch() {
@@ -471,12 +567,155 @@ export class Cadence {
     this.render(this.clock(), true);
   }
 
+  // ---- the timer tool ----
+
+  // The service's timers as the state last gave them (at most eight, as the service allows).
+  rawTimers() {
+    const list = this.ctx.state?.()?.timers;
+    return Array.isArray(list) ? list.filter((t) => t && typeof t.id === "string").slice(0, 8) : [];
+  }
+  // Each timer with the time left worked out from the clock between the service's updates, so
+  // the readout runs smoothly and survives a late message. The service reports every second.
+  timersView(now) {
+    return this.rawTimers().map((t) => {
+      const s = this.tm.seen.get(t.id), base = Math.max(0, finite(t.remaining)), dur = finite(t.duration, base);
+      const finished = !!t.finished, running = !!t.running && !finished;
+      const left = finished ? 0 : running ? Math.max(0, s && s.key === timerKey(t) ? s.remaining - (now - s.at) / 1000 : base) : base;
+      return { id: t.id, label: String(t.label || "TIMER"), duration: dur, running, finished, left, fraction: dur > 0 ? clamp(left / dur, 0, 1) : 0 };
+    });
+  }
+  // The large timer: the one chosen with NEXT TIMER (or just started), else the nearest to
+  // finishing, else the first paused, else the first finished.
+  leadOf(view) {
+    const chosen = view.find((t) => t.id === this.tm.sel);
+    if (chosen) return chosen;
+    let best = null;
+    for (const t of view) if (t.running && (!best || t.left < best.left)) best = t;
+    return best || view.find((t) => !t.finished) || view[0] || null;
+  }
+  announce(timer) {
+    const id = timer && typeof timer.id === "string" ? timer.id : null;
+    if (!id || this.tm.announced.has(id)) return;
+    this.tm.announced.add(id);
+    this.tm.doneAt = this.clock();
+  }
+  // Called every frame while a timer screen is showing: remember each timer's last report,
+  // notice a start or +1 MIN the service has answered and a timer that has finished, and
+  // publish the actions again when what can be done has changed.
+  stepTimers(now) {
+    if (!isTimerTool(this.tool)) return;
+    const tm = this.tm, list = this.rawTimers(), ids = new Set(list.map((t) => t.id));
+    for (const t of list) {
+      const key = timerKey(t), seen = tm.seen.get(t.id);
+      if (!seen || seen.key !== key) tm.seen.set(t.id, { key, remaining: Math.max(0, finite(t.remaining)), at: now });
+    }
+    for (const id of [...tm.seen.keys()]) if (!ids.has(id)) tm.seen.delete(id);
+    for (const id of [...tm.announced]) if (!ids.has(id)) tm.announced.delete(id);
+    if (tm.starting) {
+      const fresh = list.find((t) => !tm.starting.before.has(t.id));
+      if (fresh) { tm.sel = fresh.id; tm.starting = null; }
+      else if (now - tm.starting.at > 4000) tm.starting = null;
+    }
+    if (tm.adding) {
+      const add = tm.adding, fresh = list.find((t) => !add.before.has(t.id));
+      if (fresh) {
+        tm.adding = null; tm.sel = fresh.id;
+        if (add.paused) this.timerCommand({ op: "toggle", id: fresh.id });
+        this.timerCommand({ op: "remove", id: add.oldId });
+      } else if (now - add.at > 5000) tm.adding = null;
+    }
+    for (const t of list) if (t.finished && !tm.announced.has(t.id)) { tm.announced.add(t.id); tm.doneAt = now; }
+    if (tm.sel && !ids.has(tm.sel)) tm.sel = null;
+    // When the kind of screen changes under the hand (a timer started by voice, one finishing,
+    // the last one removed) the highlight goes to the first row; otherwise it stays put.
+    if (this.timerSig() !== tm.sig) this.build(...(this.timerKind() !== tm.kind ? ["first", true] : []));
+  }
+  timerKind() {
+    const lead = this.leadOf(this.timersView(this.clock()));
+    return this.tool + "|" + (lead ? (lead.finished ? "done" : "live") : "none");
+  }
+  // What decides which actions the timer screen offers.
+  timerSig() {
+    const view = this.timersView(this.clock()), lead = this.leadOf(view);
+    return [this.tool, view.map((t) => t.id + (t.finished ? "F" : t.running ? "R" : "P")).join(","), lead ? lead.id : "-", this.tm.starting ? 1 : 0].join("|");
+  }
+  // Resolves to the service's answer, or to undefined when it was refused (the error is shown).
+  timerCommand(data) {
+    try { return Promise.resolve(this.ctx.command("timer", data)).catch((error) => { this.ctx.error(error); }); } catch (error) { this.ctx.error(error); return Promise.resolve(); }
+  }
+  // Start a service timer of `seconds` and show it. Labels are never asked for.
+  startTimer(seconds) {
+    const sec = clamp(Math.round(finite(seconds, TIMER_DEFAULT)), TIMER_MIN, TIMER_MAX);
+    this.lastTimer = sec; this.lastTool = "timer";
+    this.persist();
+    this.tm.starting = { at: this.clock(), before: new Set(this.rawTimers().map((t) => t.id)) };
+    this.go("timer", "first");
+    return this.timerCommand({ op: "create", seconds: sec, label: lengthLabel(sec) }).then((r) => { if (r === undefined) { this.tm.starting = null; this.wake(); } return r; });
+  }
+  timerById(id) { return this.timersView(this.clock()).find((t) => t.id === id) || null; }
+  removeTimer(id) {
+    if (this.tm.sel === id) this.tm.sel = null;
+    return this.timerCommand({ op: "remove", id });
+  }
+  // The service has no "add time" operation, so a minute is added by starting a timer for what
+  // is left plus a minute (paused again at once if the old one was paused) and removing the
+  // old one when the new one has been seen. If the create is refused (eight timers) nothing
+  // is lost.
+  addMinute(id) {
+    const t = this.timerById(id);
+    if (!t || this.tm.adding) return null;
+    const seconds = clamp(Math.ceil(t.left) + ADD_SECONDS, TIMER_MIN, TIMER_MAX);
+    this.tm.adding = { oldId: id, paused: !t.running && !t.finished, at: this.clock(), before: new Set(this.rawTimers().map((x) => x.id)) };
+    return this.timerCommand({ op: "create", seconds, label: t.label }).then((r) => { if (r === undefined) this.tm.adding = null; return r; });
+  }
+  nextTimer() {
+    const view = this.timersView(this.clock());
+    if (view.length < 2) return;
+    const at = view.findIndex((t) => t.id === (this.leadOf(view) || {}).id);
+    this.tm.sel = view[(at + 1) % view.length].id;
+    this.build(); this.render(this.clock(), true);
+  }
+  openDial() { this.tm.dial = { stage: 0, tens: 0, units: 0 }; this.go("tdial"); }
+  // A tap on the dial adds a minute (or ten, on the tens stage). The host's own "next" for a
+  // single action does nothing, so the tap is free to count.
+  dialTap(press) {
+    const d = this.tm.dial, key = d.stage === 0 ? "tens" : "units", before = d[key], stage = d.stage;
+    d[key] = (before + 1) % 10;
+    this.tm.flashAt = this.clock();
+    this.noteTap(press, () => { if (d.stage === stage) d[key] = before; this.build(); });
+    this.build(); this.render(this.clock(), true);
+  }
+  timerLampsAt(now) {
+    if (this.tool === "tdial") return dialLamps(dialSeconds(this.tm.dial) / 60, now - this.tm.flashAt);
+    const since = now - this.tm.doneAt;
+    if (since >= 0 && since < 2400) return doneFlashLamps(since);
+    const view = this.timersView(now);
+    let near = null;
+    for (const t of view) if (t.running && t.left > 0 && (!near || t.left < near.left)) near = t;
+    if (near) return timerLamps({ remaining: near.left, duration: near.duration });
+    if (view.some((t) => t.finished)) return only(1, LAMP.amber, 0.12); // waiting to be dismissed
+    if (view.length) return only(1, LAMP.amber, 0.08); // paused
+    return lightsOff();
+  }
+
+  // The ready-made choices that start a timer with one hold, and the way into the dial.
+  timerStartItems(a, back) {
+    return [
+      a("t-last", "START " + lengthLabel(this.lastTimer) + " / LAST", () => this.startTimer(this.lastTimer)),
+      a("t-dial", "DIAL / TAP ADDS MINUTES", () => this.openDial()),
+      ...TIMER_PRESETS.map((s) => a("t-" + s, "START " + lengthLabel(s), () => this.startTimer(s))),
+      a("t-more", "MORE LENGTHS", () => this.go("tmore")),
+      back,
+    ];
+  }
+
   // ---- screens ----
 
   // `want` says where the highlight lands in the new list (see focusOn).
   go(tool, want = "first") {
     this.tool = tool;
-    if (tool === "metro" || tool === "stop" || tool === "int") this.lastTool = tool;
+    if (tool === "metro" || tool === "stop" || tool === "int" || tool === "timer") this.lastTool = tool;
+    this.taps.length = 0;
     this.build(want); this.render(this.clock(), true);
   }
 
@@ -532,9 +771,42 @@ export class Cadence {
         const c = this.intervalConfig(), p = PRESETS.find((x) => x.id === this.preset);
         return `<div class="utility-panel">${label("INTERVALS / " + (p ? p.name : "CUSTOM"))}${big(spoken(c.work) + " / " + spoken(c.rest), 56)}<p>${c.rounds} ROUNDS / WORK THEN REST</p></div>`;
       }
+      case "timer":
+      case "tnew":
+      case "tmore":
+        return this.timerHtml(now);
+      case "tdial":
+        return this.dialHtml();
       default:
-        return `<div class="utility-panel"><h2>CADENCE</h2><p>METRONOME, STOPWATCH AND INTERVALS. THE LAMPS KEEP THE TIME.</p></div>`;
+        return `<div class="utility-panel"><h2>CADENCE</h2><p>METRONOME, STOPWATCH, INTERVALS AND TIMER. THE LAMPS KEEP THE TIME.</p></div>`;
     }
+  }
+
+  // Running timers, large: the chosen one on top with its bar, the next two beneath.
+  timerHtml(now) {
+    const label = (t) => `<div class="data-label">${t}</div>`;
+    const voice = '<p class="cad-voice">VOICE: SAY “COMPUTER TIMER TWELVE MINUTES” AT ANY TIME</p>';
+    const view = this.timersView(now), lead = this.leadOf(view);
+    if (!lead) {
+      return `<div class="utility-panel">${label("TIMER / " + (this.tm.starting ? "STARTING" : "NONE RUNNING"))}<div class="big-readout cad-timer-big" style="color:#657b5b">00:00</div>` +
+        `<p>LAST LENGTH ${longClock(this.lastTimer)} / TIMERS KEEP RUNNING AFTER YOU LEAVE</p></div>${voice}`;
+    }
+    const state = lead.finished ? "DONE" : lead.running ? "RUNNING" : "PAUSED";
+    const colour = lead.finished || !lead.running || lead.left <= 10 ? "#ffb347" : "";
+    const big = lead.finished ? "DONE" : longClock(lead.left);
+    const others = view.filter((t) => t !== lead).sort((x, y) => x.left - y.left);
+    const row = (t) => `<div class="timer-row"><div><div class="data-label">${esc(t.label)}</div><span class="recording-tag">${t.finished ? "DONE" : t.running ? "RUNNING" : "PAUSED"}</span></div><div class="big-readout">${t.finished ? "DONE" : longClock(t.left)}</div></div>`;
+    return `<div class="utility-panel"><div class="data-label cad-timer-head"><span>${esc(lead.label)} / OF ${longClock(lead.duration)}${view.length > 1 ? " / 1 OF " + view.length : ""}</span><span class="recording-tag">${state}</span></div>` +
+      `<div class="big-readout cad-timer-big"${colour ? ` style="color:${colour}"` : ""}>${big}</div>` +
+      `<div class="timer-bar" role="img" aria-label="${Math.round(lead.fraction * 100)} percent remaining"><i style="width:${(lead.fraction * 100).toFixed(1)}%"></i></div>` +
+      others.slice(0, SHOWN_TIMERS).map(row).join("") + (others.length > SHOWN_TIMERS ? `<p>+ ${others.length - SHOWN_TIMERS} MORE</p>` : "") + `</div>${voice}`;
+  }
+  dialHtml() {
+    const d = this.tm.dial, total = dialSeconds(d), on = (i, v) => (d.stage === i ? `<span class="cad-dial-on">${v}</span>` : v);
+    return `<div class="utility-panel"><div class="data-label">DIAL / ${d.stage === 0 ? "TENS OF MINUTES: EACH TAP ADDS 10" : "MINUTES: EACH TAP ADDS 1"}</div>` +
+      `<div class="big-readout cad-timer-big">${on(0, d.tens)}${on(1, d.units)}<span style="color:#657b5b">:00</span></div>` +
+      `<p>${total ? lengthLabel(total) : "TAP TO SET A LENGTH"} / HOLD = ${d.stage === 0 ? "NEXT" : total ? "START" : "BACK"}</p></div>` +
+      '<p class="cad-voice">VOICE: SAY “COMPUTER TIMER TWELVE MINUTES” AT ANY TIME</p>';
   }
 
   // The host keeps the highlight on the action with the same id, else on the same row number,
@@ -627,6 +899,45 @@ export class Cadence {
         hint = "Each choice steps to its next value. DONE returns to the start screen.";
         break;
       }
+      case "timer":
+      case "tnew": {
+        const now = this.clock(), view = this.timersView(now), lead = this.leadOf(view);
+        const toStart = () => this.go(view.length ? "timer" : "menu");
+        if (this.tool === "timer" && lead) {
+          const id = lead.id;
+          items = lead.finished
+            ? [a("t-main", "DISMISS", () => this.removeTimer(id)), a("t-restart", "RESTART " + lengthLabel(lead.duration), () => this.timerCommand({ op: "toggle", id }))]
+            : [
+              a("t-main", lead.running ? "PAUSE" : "RESUME", () => this.timerCommand({ op: "toggle", id })),
+              a("t-add", "ADD 1 MIN", () => this.addMinute(id)),
+              a("t-cancel", "CANCEL TIMER", () => this.removeTimer(id)),
+            ];
+          items.push(a("t-new", "NEW TIMER", () => this.go("tnew")));
+          if (view.length > 1) items.push(a("t-next", "NEXT TIMER / " + view.length + " SET", () => this.nextTimer()));
+          items.push(back);
+          hint = "Tap to advance. Hold and release to choose. The lamps drain with the nearest timer; timers keep running when you leave.";
+        } else if (this.tool === "timer" && this.tm.starting) {
+          items = [back];
+          hint = "Starting the timer.";
+        } else {
+          items = this.timerStartItems(a, a("back", "BACK", toStart));
+          hint = "One hold starts a timer. DIAL: tap for minutes, hold to start. Or say: computer timer twelve minutes.";
+        }
+        this.tm.sig = this.timerSig(); this.tm.kind = this.timerKind();
+        break;
+      }
+      case "tmore": {
+        items = [...TIMER_MORE.map((s) => a("t-" + s, "START " + lengthLabel(s), () => this.startTimer(s))), a("back", "BACK", () => this.go("tnew", "t-more"))];
+        hint = "One hold starts a timer.";
+        break;
+      }
+      case "tdial": {
+        const d = this.tm.dial, total = dialSeconds(d);
+        if (d.stage === 0) items = [a("d-ok", "TENS SET / NEXT", () => { d.stage = 1; this.build(); this.render(this.clock(), true); })];
+        else items = [total > 0 ? a("d-ok", "START " + lengthLabel(total), () => this.startTimer(total)) : a("d-ok", "BACK", () => this.go("tnew", "t-dial"))];
+        hint = d.stage === 0 ? "Each tap adds ten minutes. Hold and release when the tens are right." : "Each tap adds a minute. Hold and release to start.";
+        break;
+      }
       default: {
         // The tools keep their places (a list that reorders itself cannot be learned); the
         // highlight starts on the one used last.
@@ -640,6 +951,8 @@ export class Cadence {
     this.ctx.hint(hint);
   }
   menu() { this.build("first", true); this.render(this.clock(), true); }
+  // For the host to open a tool directly (the voice name "timer" should land on the timer).
+  openTool(id) { if (["metro", "stop", "int", "timer"].includes(id)) this.go(id); }
 
   cycleSignature() {
     this.sig = SIGNATURES[(SIGNATURES.indexOf(this.sig) + 1) % SIGNATURES.length];

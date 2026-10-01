@@ -53,6 +53,10 @@ def validate_setting(key, value):
         valid = value in ('quick', 'standard', 'relaxed')
     elif key == 'tempUnit':
         valid = value in ('C', 'F')
+    elif key == 'tempOffset':
+        # Degrees Celsius subtracted for the case's self-heating (stored as the correction to add).
+        valid = (type(value) in (int, float) and math.isfinite(value) and -10 <= value <= 5
+                 and (value * 2) == int(value * 2))
     elif key in ('volume', 'morseWpm', 'holdMs', 'scanMs'):
         low, high = {'volume': (0, 1), 'morseWpm': (5, 25), 'holdMs': (450, 1200), 'scanMs': (600, 1600)}[key]
         # Range first: math.isfinite() overflows on a huge integer, and NaN already fails the range test.

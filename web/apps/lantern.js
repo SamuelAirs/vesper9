@@ -164,6 +164,16 @@ const mmss = (seconds) => {
   return String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
 };
 
+// How the one button reaches all this (see buildActions). The first hold lights the lamps (the
+// last scene, or a warm steady light the first time). The main list is short and fixed: SCENE,
+// DIMMER, BRIGHTER, SLEEP IN 30 MIN, LAMPS OFF, COLOUR, SLEEP TIMER. DIMMER and BRIGHTER change
+// the level at once, so each step is seen on the lamps. SCENE and COLOUR open lists whose
+// highlight starts on the first row and PREVIEWS: every tap moves the highlight, and the
+// lamps show the highlighted choice at once; a hold keeps it (the one in force is marked ●). The app learns of taps from the
+// raw button edges the host forwards to event() after it has moved the highlight, and keeps its
+// own count of where the highlight is (`cursor`), checked against every action it publishes
+// and corrected whenever one is chosen. A preview is never saved: leaving a list, the system
+// menu gesture or a dispose all leave the lamps as they were chosen.
 export class Lantern {
   constructor(ctx) {
     this.ctx = ctx;
@@ -183,18 +193,24 @@ export class Lantern {
     this.dead = false;
     this.paused = false; // the system menu is open: it owns the lamps
     this.chosen = null; // id of the action that was run last (see focusOn)
+    this.preview = null; // a choice shown on the lamps while its row is highlighted
+    this.previewStart = 0;
+    this.items = []; // the actions as last published, and where the host's highlight is
+    this.cursor = 0;
+    this.down = null; // the press in progress, for counting taps
     this.clock = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
     this.render();
     this.buildActions("first", true);
   }
 
   animating() {
-    return this.lit && !this.paused && ANIMATED.includes(this.s.scene);
+    const scene = this.preview?.scene || this.s.scene;
+    return (this.lit || !!this.preview) && !this.paused && ANIMATED.includes(scene);
   }
 
-  // One frame loop, alive only while the lamps are lit with a scene that moves: a steady
-  // colour or a dark lamp costs nothing between ticks. light() and resume() start it; it ends
-  // by itself, and on dispose() or when ctx.alive() turns false.
+  // One frame loop, alive only while the lamps show a scene that moves: a steady colour or a
+  // dark lamp costs nothing between ticks. light(), setPreview() and resume() start it; it
+  // ends by itself, and on dispose() or when ctx.alive() turns false.
   startLoop() {
     if (this.raf || this.dead || !this.animating() || typeof requestAnimationFrame !== "function") return;
     const loop = () => {
@@ -212,13 +228,14 @@ export class Lantern {
   // Send the lamps for the current moment. Called from the frame loop and from tick().
   refresh(now = this.clock()) {
     this.lastFrameAt = now;
-    if (!this.lit) return;
+    if (!this.lit && !this.preview) return;
     let factor = 1;
-    if (this.sleepMin) {
+    if (this.sleepMin && this.lit) {
       const total = this.sleepMin * 60, elapsed = (now - this.sleepStart) / 1000;
       if (elapsed >= total) {
         this.lit = false;
         this.asleep = true;
+        this.preview = null;
         this.show(lightsOff());
         this.render();
         this.buildActions();
@@ -226,8 +243,25 @@ export class Lantern {
       }
       factor = sleepFactor(total, elapsed);
     }
-    const values = sceneFrame(this.s.scene, this.s, (now - this.sceneStart) / 1000);
+    const p = this.preview;
+    const values = p
+      ? sceneFrame(p.scene || this.s.scene, { ...this.s, ...p }, (now - this.previewStart) / 1000)
+      : sceneFrame(this.s.scene, this.s, (now - this.sceneStart) / 1000);
     this.show(factor >= 1 ? values : values.map((v) => byte(v * factor)));
+  }
+
+  // Show `choice` ({ scene, colour, set, level, sunrise } in part) on the lamps without
+  // keeping it, or go back to what was chosen (null).
+  setPreview(choice) {
+    const same = JSON.stringify(choice) === JSON.stringify(this.preview);
+    if (same) return;
+    this.preview = choice;
+    this.previewStart = this.clock();
+    if (choice) this.refresh(this.previewStart);
+    else if (this.lit) this.refresh(this.previewStart);
+    else this.show(lightsOff());
+    this.render();
+    this.startLoop();
   }
 
   show(values) {
@@ -276,17 +310,18 @@ export class Lantern {
   }
 
   render() {
-    const name = SCENES.find((x) => x.id === this.s.scene)?.name || "";
-    const status = this.lit ? "LAMPS ON" : this.asleep ? "TIMER ENDED / DARK" : "LAMPS DARK";
-    const colourName = USES_COLOUR.includes(this.s.scene) ? COLOURS[this.s.colour].name
-      : this.s.scene === "set" ? SETS[this.s.set].name : "SET BY SCENE";
+    const p = this.preview ? { ...this.s, ...this.preview } : this.s;
+    const name = SCENES.find((x) => x.id === p.scene)?.name || "";
+    const status = this.preview ? "PREVIEW / HOLD TO KEEP" : this.lit ? "LAMPS ON" : this.asleep ? "TIMER ENDED / DARK" : "LAMPS DARK";
+    const colourName = USES_COLOUR.includes(p.scene) ? COLOURS[p.colour].name
+      : p.scene === "set" ? SETS[p.set].name : "SET BY SCENE";
     const lamps = [0, 1, 2].map((i) =>
       `<circle id="lantern-lamp-${i}" cx="${60 + i * 100}" cy="26" r="20" fill="${this.swatch(i)}" fill-opacity="${this.opacity(i)}"/>` +
       `<circle cx="${60 + i * 100}" cy="26" r="22.5" fill="none" stroke="currentColor" stroke-width="2"/>`).join("");
     const html =
       `<div class="readout-grid">` +
       `<div class="utility-panel"><div class="data-label">SCENE</div><div class="big-readout">${esc(name)}</div>` +
-      `<p>${esc(colourName)} · ${esc(LEVELS[this.s.level].name)}</p></div>` +
+      `<p>${esc(colourName)} · ${esc(LEVELS[p.level].name)}</p></div>` +
       `<div class="utility-panel"><div class="data-label">SLEEP TIMER</div><div class="big-readout">${esc(this.sleepText())}</div>` +
       `<p class="recording-tag">${esc(status)}</p></div></div>` +
       `<div class="utility-panel"><svg viewBox="0 0 320 52" width="320" height="52" role="img" aria-label="The three lamps in their current colours" style="display:block;margin:0 auto;color:#657b5b">${lamps}</svg></div>`;
@@ -304,6 +339,7 @@ export class Lantern {
     if (!this.lit) this.sleepStart = now;
     this.lit = true;
     this.asleep = false;
+    this.preview = null;
     this.persist();
     this.refresh(now);
     this.render();
@@ -318,6 +354,7 @@ export class Lantern {
   off() {
     this.lit = false;
     this.asleep = false;
+    this.preview = null;
     this.show(lightsOff());
     this.render();
   }
@@ -332,17 +369,51 @@ export class Lantern {
 
   go(menu, want = "first") {
     this.menu = menu;
+    this.setPreview(null); // a list opens on the current choice: nothing to preview yet
     this.buildActions(want);
   }
 
-  setSleep(minutes) {
+  // A step of brightness, kept at the ends of the range. The lamps light if they were dark.
+  stepLevel(dir) {
+    this.choose({ level: clamp(this.s.level + dir, 0, LEVELS.length - 1) }, false, dir < 0 ? "dimmer" : "brighter");
+  }
+
+  // Set (or, with 0, cancel) the sleep timer. A timer needs lamps to put out, so choosing one
+  // while dark lights them.
+  setSleep(minutes, want = "sleepmenu") {
+    if (minutes && !this.lit) this.light(false);
     this.sleepMin = minutes;
     this.sleepStart = this.clock();
     this.asleep = false;
     this.menu = "main";
     this.render();
-    this.buildActions("sleep");
+    this.buildActions(want);
   }
+
+  // ---- the highlight, as the host keeps it ----
+
+  // The host reports every button edge here after acting on it. A short press moved its
+  // highlight to the next action, so the preview follows.
+  event(e) {
+    if (!e || e.type !== "button" || this.paused || this.dead) return;
+    if (e.pressed) {
+      if (e.repeat) return;
+      const node = Number.isFinite(e.at_us);
+      this.down = { stamp: node ? e.at_us / 1000 : this.clock(), node, arrival: this.clock() };
+      return;
+    }
+    const d = this.down;
+    this.down = null;
+    if (!d) return; // a release whose press the host took for something else
+    const dur = d.node && Number.isFinite(e.at_us) ? e.at_us / 1000 - d.stamp : this.clock() - d.arrival;
+    if (!(dur >= 0) || dur >= (Number.isFinite(this.ctx.settings?.().holdMs) ? this.ctx.settings().holdMs : 650)) return;
+    if (!this.items.length) return;
+    this.cursor = (this.cursor + 1) % this.items.length;
+    this.setPreview(this.items[this.cursor].preview || null);
+  }
+  // The host dropped held input (the system menu gesture, or focus moving). Taps it let
+  // through already moved the highlight, so the preview stays with the highlight.
+  cancel() { this.down = null; }
 
   // The host keeps the highlight on the action with the same id, else on the same row number,
   // which after a menu change is an arbitrary row (once it was RETURN TO DASHBOARD). So the
@@ -350,103 +421,110 @@ export class Lantern {
   // an id or "first". On opening (`park`) the highlight would otherwise start on the row
   // numbered like the dashboard card that was chosen (RESONANCE used to open on RETURN TO
   // DASHBOARD), so a one-item list is published first, which pins the highlight to the target.
+  // The new list's highlight position is worked out here too (`cursor`).
   focusOn(items, want, park = false) {
     const target = want === "first" ? items[0] : items.find((i) => i.id === want);
+    const before = this.items[this.cursor]?.id;
     if (target && this.chosen) {
       for (const item of items) if (item !== target && item.id === this.chosen) item.id += "~";
       target.id = this.chosen;
     }
     for (const item of items) {
       const run = item.run;
-      item.run = () => { this.chosen = item.id; return run(); };
+      item.run = () => { this.chosen = item.id; this.cursor = Math.max(0, items.indexOf(item)); return run(); };
     }
     if (park && target) this.ctx.actions([target]);
+    const matching = before === undefined ? -1 : items.findIndex((i) => i.id === before);
+    this.cursor = target ? items.indexOf(target) : Math.min(matching >= 0 ? matching : this.cursor, items.length - 1);
+    this.items = items;
   }
 
   buildActions(want = null, park = false) {
     const mark = (on) => (on ? "● " : "");
-    const back = (from) => ({ id: "back", label: "BACK", run: () => this.go("main", from) });
-    const backToScenes = (from) => ({ id: "back-scene", label: "BACK", run: () => this.go("scene", from) });
-    const scene = (id, name = SCENES.find((x) => x.id === id).name) =>
-      ({ id: "scene-" + id, label: mark(this.s.scene === id) + name, run: () => this.choose({ scene: id }) });
-    let items;
+    const back = (to, from) => ({ id: "back-" + to, label: "BACK", run: () => this.go(to, from) });
+    const keep = (item) => item; // an item with a `preview` shows on the lamps while highlighted
+    const withScene = (id, name = SCENES.find((x) => x.id === id).name) =>
+      keep({ id: "scene-" + id, label: mark(this.s.scene === id) + name, preview: { scene: id }, run: () => this.choose({ scene: id }) });
+    let items, hint = "Tap to advance. Hold and release to choose. The lamps go dark when you leave.";
     switch (this.menu) {
       case "scene":
         items = [
-          scene("steady", "STEADY LIGHT"),
+          withScene("steady", "STEADY LIGHT"), withScene("candle"), withScene("breathe"), withScene("aurora"), withScene("tide"),
           { id: "sets", label: mark(this.s.scene === "set") + "THREE-LAMP SETS →", run: () => this.go("sets") },
-          scene("breathe"), scene("aurora"), scene("candle"), scene("tide"),
-          { id: "night", label: "EMBER AND SUNRISE →", run: () => this.go("night") },
-          back("scene"),
+          { id: "night", label: mark(this.s.scene === "ember" || this.s.scene === "sunrise") + "EMBER AND SUNRISE →", run: () => this.go("night") },
+          back("main", "scene"),
         ];
+        hint = "Tap to see each scene on the lamps. Hold and release to keep the one showing.";
         break;
       case "sets":
         items = [
-          ...SETS.map((set, i) => ({ id: "set-" + set.id, label: mark(this.s.scene === "set" && this.s.set === i) + set.name,
-            run: () => this.choose({ scene: "set", set: i }) })),
-          backToScenes("sets"),
+          ...SETS.map((set, i) => keep({ id: "set-" + set.id, label: mark(this.s.scene === "set" && this.s.set === i) + set.name,
+            preview: { scene: "set", set: i }, run: () => this.choose({ scene: "set", set: i }) })),
+          back("scene", "sets"),
         ];
+        hint = "Tap to see each set on the lamps. Hold and release to keep the one showing.";
         break;
       case "night":
         items = [
-          scene("ember", "EMBER / SLOW BURN-DOWN"),
-          ...SUNRISE_MINUTES.map((m) => ({ id: "sunrise-" + m, label: mark(this.s.scene === "sunrise" && this.s.sunrise === m) + "SUNRISE / " + m + " MIN",
-            run: () => this.choose({ scene: "sunrise", sunrise: m }) })),
-          backToScenes("night"),
+          withScene("ember", "EMBER / SLOW BURN-DOWN"),
+          ...SUNRISE_MINUTES.map((m) => keep({ id: "sunrise-" + m, label: mark(this.s.scene === "sunrise" && this.s.sunrise === m) + "SUNRISE / " + m + " MIN",
+            preview: { scene: "sunrise", sunrise: m }, run: () => this.choose({ scene: "sunrise", sunrise: m }) })),
+          back("scene", "night"),
         ];
+        hint = "Tap to see each one on the lamps. Hold and release to keep the one showing.";
         break;
       case "colour":
         items = [
-          ...COLOURS.map((c, i) => ({ id: "colour-" + c.id, label: mark(this.s.colour === i && USES_COLOUR.includes(this.s.scene)) + c.name,
+          ...COLOURS.map((c, i) => {
             // Steady, breathe and tide take a colour; any other scene becomes steady.
-            run: () => this.choose({ colour: i, scene: USES_COLOUR.includes(this.s.scene) ? this.s.scene : "steady" }, false, "colour") })),
-          back("colour"),
+            const scene = USES_COLOUR.includes(this.s.scene) ? this.s.scene : "steady";
+            return keep({ id: "colour-" + c.id, label: mark(this.s.colour === i && USES_COLOUR.includes(this.s.scene)) + c.name,
+              preview: { colour: i, scene }, run: () => this.choose({ colour: i, scene }, false, "colour") });
+          }),
+          back("main", "colour"),
         ];
-        break;
-      case "bright":
-        items = [
-          ...LEVELS.map((l, i) => ({ id: "level-" + i, label: mark(this.s.level === i) + l.name,
-            run: () => this.choose({ level: i }, false, "bright") })),
-          back("bright"),
-        ];
+        hint = "Tap to see each colour on the lamps. Hold and release to keep the one showing.";
         break;
       case "sleep":
         items = [
           { id: "sleep-off", label: mark(!this.sleepMin) + "NO TIMER", run: () => this.setSleep(0) },
           ...SLEEP_MINUTES.map((m) => ({ id: "sleep-" + m, label: mark(this.sleepMin === m) + "OFF AFTER " + m + " MIN",
             run: () => this.setSleep(m) })),
-          back("sleep"),
+          back("main", "sleepmenu"),
         ];
         break;
       default:
         items = [];
         if (!this.lit)
-          items.push({ id: "resume", label: (this.hasSaved || this.asleep ? "RESUME / " : "LIGHT / ") + this.summary() + " / " + LEVELS[this.s.level].name, run: () => { this.light(); this.buildActions("scene"); } });
+          items.push({ id: "power", label: (this.hasSaved || this.asleep ? "RESUME / " : "LIGHT / ") + this.summary() + " / " + LEVELS[this.s.level].name, run: () => { this.light(); this.buildActions("scene"); } });
         items.push(
           { id: "scene", label: "SCENE / " + (SCENES.find((x) => x.id === this.s.scene)?.name || ""), run: () => this.go("scene") },
-          { id: "colour", label: "COLOUR →", run: () => this.go("colour") },
-          { id: "bright", label: "BRIGHTNESS / " + LEVELS[this.s.level].name, run: () => this.go("bright") },
-          { id: "sleep", label: "SLEEP TIMER / " + (this.sleepMin ? this.sleepMin + " MIN" : "OFF"), run: () => this.go("sleep") },
+          { id: "dimmer", label: this.s.level === 0 ? "DIMMER / LOWEST" : "DIMMER", run: () => this.stepLevel(-1) },
+          { id: "brighter", label: this.s.level === LEVELS.length - 1 ? "BRIGHTER / HIGHEST" : "BRIGHTER", run: () => this.stepLevel(1) },
+          { id: "sleep30", label: this.sleepMin && this.lit ? "CANCEL SLEEP TIMER / " + this.sleepMin + " MIN" : "SLEEP IN 30 MIN", run: () => this.setSleep(this.sleepMin && this.lit ? 0 : 30, "sleep30") },
         );
         if (this.lit) items.push({ id: "off", label: "LAMPS OFF", run: () => { this.off(); this.buildActions("home"); } });
-        items.push({ id: "home", label: "RETURN TO DASHBOARD", run: this.ctx.home });
+        items.push(
+          { id: "colour", label: "COLOUR / " + COLOURS[this.s.colour].name, run: () => this.go("colour") },
+          { id: "sleepmenu", label: "SLEEP TIMER / " + (this.sleepMin ? this.sleepMin + " MIN" : "OFF"), run: () => this.go("sleep") },
+          { id: "home", label: "RETURN TO DASHBOARD", run: this.ctx.home },
+        );
     }
     this.focusOn(items, want, park);
     this.ctx.actions(items);
-    this.ctx.hint("Tap to advance. Hold and release to choose. The lamps go dark when you leave.");
+    this.ctx.hint(hint);
   }
-
   tick() {
     this.refresh();
     this.render();
   }
-  cancel() {}
   // While the system menu is open it owns the lamps; the timer and the scene clock go on, and
   // the lamps return, in step, when it closes.
-  pause() { this.paused = true; }
+  pause() { this.paused = true; this.down = null; }
   resume() {
     this.paused = false;
-    if (this.lit) { this.ctx.leds(this.last); this.refresh(); this.startLoop(); }
+    this.down = null;
+    if (this.lit || this.preview) { this.ctx.leds(this.last); this.refresh(); this.startLoop(); }
   }
   dispose() {
     this.dead = true;
@@ -454,6 +532,7 @@ export class Lantern {
       if (typeof cancelAnimationFrame === "function" && this.raf) cancelAnimationFrame(this.raf);
     } catch {}
     this.lit = false;
+    this.preview = null;
     this.ctx.leds(lightsOff());
   }
 }

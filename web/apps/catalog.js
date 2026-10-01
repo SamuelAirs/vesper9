@@ -165,7 +165,13 @@ export const CARTRIDGES = [
       "lights",
       "audio",
       "progress"
-    ]
+    ],
+    "icon": "<circle cx=\"30\" cy=\"12\" r=\"5\"/><circle cx=\"30\" cy=\"12\" r=\"1.5\" fill=\"currentColor\"/><path d=\"M30 17L10 34\"/><path d=\"M10 34Q24 46 40 38\" stroke-dasharray=\"3 3\"/><path d=\"M40 38l-6-1M40 38l-3 5\"/><circle cx=\"10\" cy=\"34\" r=\"3\" fill=\"currentColor\"/>",
+    "record": {
+      "mkm": "Distance / Mkm",
+      "chain": "Best chain",
+      "catches": "Anchors caught"
+    }
   },
   {
     "id": "descent",

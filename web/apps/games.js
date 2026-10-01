@@ -10,12 +10,92 @@ import {
   banner,
   glyph,
 } from "../engine/draw.js";
+import { GESTURE_PACES } from "../engine/input.js";
 
 export function recordRun(ctx, result) {
   const previous = ctx.progress?.() || {};
   ctx.saveProgress?.({ schema: 1, runs: (previous.runs || 0) + 1, last: result,
     milestone: Math.max(previous.milestone || 0, result.milestone || 0) })?.catch?.(ctx.error);
 }
+// A result screen ignores presses for this long, so a player who is tapping in rhythm sees it.
+export const LOCKOUT = 0.6;
+// A run that ends is recorded this long afterwards (or at once when the player leaves), which
+// is longer than any menu gesture, so a death caused by the gesture's own taps can be undone.
+export const SETTLE = 2;
+
+const clone = (value) => structuredClone(value);
+
+// The system menu opens on the fourth quick click, and the first three have already reached the
+// game as ordinary presses (docs/ENGINE.md, input contract). Edges stay immediate, so the game
+// cannot know a tap belongs to a gesture. Instead each press first saves the run's state; when the
+// host calls cancel() and the last presses look like the click gesture (`menuClicks` short taps,
+// at the configured pace, the last one still down), the game goes back to the state saved at the
+// gesture's first tap. Nothing is delayed in normal play, and cancel() only follows a menu gesture
+// or an interruption, so the rewind reaches back no further than the gesture window (about a second).
+// A run that ends is not recorded straight away either (see end/settle), so a death that the
+// gesture caused and the rewind undid never reaches the scores or the field record.
+export class GestureGuard {
+  constructor(game, ctx, fields) {
+    this.game = game; this.c = ctx; this.fields = [...fields, "phase", "ended", "overAt"];
+    this.t = 0; this.marks = [];
+    // Finished runs whose game has already started another one, still waiting out the window.
+    this.backlog = [];
+  }
+  snapshot() { const saved = {}; for (const key of this.fields) saved[key] = clone(this.game[key]); return saved; }
+  tick(dt) {
+    this.t += dt;
+    if (this.game.ended && this.t - this.game.overAt >= SETTLE) { const ended = this.game.ended; this.game.ended = null; this.record(ended); }
+    if (this.backlog.length && this.backlog[0].due <= this.t) this.record(this.backlog.shift());
+  }
+  // Call at the very top of down(), before the press changes anything.
+  mark() {
+    this.marks.push({ at: this.t, up: null, state: this.snapshot() });
+    if (this.marks.length > 6) this.marks.shift();
+  }
+  release() { const last = this.marks.at(-1); if (last && last.up === null) last.up = this.t; }
+  // Rewind after a menu gesture; returns whether it did.
+  rewind() {
+    const marks = this.marks; this.marks = [];
+    const settings = this.c.settings?.() || {};
+    const clicks = settings.menuClicks ?? 4;
+    if (!clicks || marks.length < clicks) return false;
+    const pace = GESTURE_PACES[settings.gesturePace] || GESTURE_PACES.standard, slop = 0.15;
+    const tap = pace.tapMs / 1000 + slop, gap = pace.gapMs / 1000 + slop;
+    const taps = marks.slice(-clicks), last = taps.at(-1);
+    // The terminal release is consumed by the host, so the final tap has no release yet.
+    if (last.up !== null || this.t - last.at > tap) return false;
+    if (this.t - taps[0].at > (pace.totalMs / 1000) * (clicks / 4) + slop) return false;
+    for (let i = 0; i < clicks - 1; i++) {
+      if (taps[i].up === null || taps[i].up - taps[i].at > tap) return false;
+      if (taps[i + 1].at - taps[i].up > gap) return false;
+    }
+    for (const [key, value] of Object.entries(taps[0].state)) this.game[key] = clone(value);
+    // A run that ended and was replaced during the gesture is part of what was just undone.
+    this.backlog = this.backlog.filter((entry) => entry.stashed < taps[0].at);
+    return true;
+  }
+  // End the run now, record it later.
+  end(score, run) {
+    this.game.phase = "over"; this.game.overAt = this.t; this.game.ended = { score, run };
+  }
+  // The game starts another run: the finished one waits in the backlog.
+  stash() {
+    const ended = this.game.ended; this.game.ended = null;
+    if (ended) this.backlog.push({ ...ended, stashed: this.t, due: this.game.overAt + SETTLE });
+  }
+  record(ended) {
+    this.c.score(...ended.score);
+    recordRun(this.c, ended.run);
+  }
+  // Record every finished run now: the player is leaving.
+  settle() {
+    const all = [...this.backlog, this.game.ended].filter(Boolean);
+    this.backlog = []; this.game.ended = null;
+    for (const ended of all) this.record(ended);
+  }
+  locked() { return this.game.phase === "over" && this.t - this.game.overAt < LOCKOUT; }
+}
+
 export function runnerObstacle(rng, points) {
   const shapes = [{ w: 32, h: 76, name: 'SPIRE' }, { w: 76, h: 45, name: 'RIDGE' }, { w: 48, h: 62, name: 'CRYSTAL' }];
   const index = points < 3 ? 2 : rng.int(0, 2);
@@ -33,13 +113,17 @@ export function reactionSummary(values) {
     best: sorted[0], mean: Math.round(sorted.reduce((a,b) => a+b, 0) / n) };
 }
 
+const ORBIT_AHEAD_MAX = 4.5;
 export class OrbitLock {
   constructor(ctx) {
     this.c = ctx;
+    this.guard = new GestureGuard(this, ctx, ["angle", "target", "points", "lives", "flash", "feedback"]);
     this.reset();
   }
   reset() {
     this.phase = "title";
+    this.ended = null;
+    this.overAt = 0;
     this.angle = -Math.PI / 2;
     this.target = 0.5;
     this.points = 0;
@@ -50,7 +134,10 @@ export class OrbitLock {
     this.c.hint("Press when the satellite crosses the illuminated gate.");
   }
   down() {
+    this.guard.mark();
     if (this.phase !== "play") {
+      if (this.guard.locked()) return;
+      this.guard.stash();
       this.reset();
       this.phase = "play";
       return;
@@ -59,25 +146,33 @@ export class OrbitLock {
     if (Math.abs(wrapAngle(this.angle - this.target)) < window) {
       this.points++;
       this.feedback = this.points % 5 === 0 ? "SECTOR " + (Math.floor(this.points / 5) + 1) + " / ARRAY EXPANDS" : "SIGNAL LOCKED";
-      this.target += this.c.rng.range(1.2, 4.5);
+      this.target += this.c.rng.range(1.2, ORBIT_AHEAD_MAX);
       this.c.tone(400 + this.points * 22, 0.13);
       this.c.leds([30, 120, 20, 80, 180, 40, 30, 120, 20]);
       this.flash = 0.18;
     } else {
       this.lives--;
-      this.feedback = wrapAngle(this.angle - this.target) < 0 ? "EARLY / WAIT FOR THE GATE" : "LATE / CATCH THE NEXT ORBIT";
+      // The next gate is placed up to 4.5 rad ahead, so "early" covers that whole arc; a satellite
+      // that has just gone past the gate is nearly a full turn from it.
+      const ahead = (((this.target - this.angle) % TAU) + TAU) % TAU;
+      this.feedback = ahead <= ORBIT_AHEAD_MAX + 0.1 ? "EARLY / WAIT FOR THE GATE" : "LATE / CATCH THE NEXT ORBIT";
       this.flash = 0.3;
       this.c.tone(95, 0.2, "sawtooth");
       this.c.leds([180, 25, 8, 0, 0, 0, 180, 25, 8]);
-      if (!this.lives) {
-        this.phase = "over";
-        this.c.score(this.points);
-        recordRun(this.c, { locks: this.points, milestone: Math.floor(this.points / 5) });
-      }
+      if (!this.lives) this.guard.end([this.points], { locks: this.points, milestone: Math.floor(this.points / 5) });
     }
   }
+  up() { this.guard.release(); }
+  cancel() { this.guard.rewind(); }
+  // Leaving mid-run keeps the score reached so far (the server keeps the maximum).
+  pause() {
+    this.guard.settle();
+    if (this.phase === "play" && this.points > 0) this.c.score(this.points);
+  }
+  dispose() { this.pause(); }
   update(dt) {
     this.t += dt;
+    this.guard.tick(dt);
     if (this.phase === "play")
       this.angle += dt * (1.25 + Math.min(this.points, 25) * 0.07);
     if (this.flash > 0 && (this.flash -= dt) <= 0)
@@ -156,10 +251,14 @@ export class OrbitLock {
 export class Moonrunner {
   constructor(ctx) {
     this.c = ctx;
+    this.guard = new GestureGuard(this, ctx, ["y", "vy", "held", "obstacles", "distance", "points", "next", "grounded", "coyote", "buffer"]);
     this.reset();
   }
   reset() {
     this.phase = "title";
+    this.ended = null;
+    this.overAt = 0;
+    this.flash = 0;
     this.y = 386;
     this.vy = 0;
     this.held = false;
@@ -174,7 +273,10 @@ export class Moonrunner {
     this.c.hint("Tap to jump. Hold briefly for a higher jump.");
   }
   down() {
+    this.guard.mark();
     if (this.phase !== "play") {
+      if (this.guard.locked()) return;
+      this.guard.stash();
       this.reset();
       this.phase = "play";
     }
@@ -184,11 +286,18 @@ export class Moonrunner {
   }
   up() {
     this.held = false;
+    this.guard.release();
   }
   cancel() {
+    this.guard.rewind();
     this.held = false;
     this.buffer = 0;
   }
+  pause() {
+    this.guard.settle();
+    if (this.phase === "play" && this.distance >= 1) this.c.score(Math.floor(this.distance));
+  }
+  dispose() { this.pause(); }
   jump() {
     if (this.buffer > 0 && this.coyote > 0) {
       this.vy = -535;
@@ -200,6 +309,8 @@ export class Moonrunner {
   }
   update(dt) {
     this.t += dt;
+    this.guard.tick(dt);
+    if (this.flash > 0 && (this.flash -= dt) <= 0) this.c.leds(Array(9).fill(0));
     if (this.phase !== "play") {
       this.c.hud([
         ["DISTANCE", Math.floor(this.distance) + " m"],
@@ -239,11 +350,10 @@ export class Moonrunner {
           { x: o.x + 5, y: 430 - o.h + 6, w: o.w - 10, h: o.h - 6 },
         )
       ) {
-        this.phase = "over";
-        this.c.score(Math.floor(this.distance));
+        this.guard.end([Math.floor(this.distance)], { metres: Math.floor(this.distance), relics: this.points, milestone: Math.floor(this.distance / 100) });
         this.c.tone(70, 0.4, "sawtooth");
         this.c.leds([160, 20, 0, 160, 20, 0, 160, 20, 0]);
-        recordRun(this.c, { metres: Math.floor(this.distance), relics: this.points, milestone: Math.floor(this.distance / 100) });
+        this.flash = 0.4;
         break;
       }
     }
@@ -345,10 +455,13 @@ export class Moonrunner {
 export class Undertow {
   constructor(ctx) {
     this.c = ctx;
+    this.guard = new GestureGuard(this, ctx, ["y", "vy", "held", "gates", "next", "lastCenter", "reason", "points", "trail"]);
     this.reset();
   }
   reset() {
     this.phase = "title";
+    this.ended = null;
+    this.overAt = 0;
     this.y = 270;
     this.vy = 0;
     this.held = false;
@@ -362,7 +475,10 @@ export class Undertow {
     this.c.hint("Hold to rise. Release to sink. Pass through the openings.");
   }
   down() {
+    this.guard.mark();
     if (this.phase !== "play") {
+      if (this.guard.locked()) return;
+      this.guard.stash();
       this.reset();
       this.phase = "play";
     }
@@ -371,22 +487,29 @@ export class Undertow {
   }
   up() {
     this.held = false;
+    this.guard.release();
     this.c.leds([0, 0, 0, 0, 0, 0, 0, 0, 0]);
   }
   cancel() {
-    this.up();
+    this.guard.rewind();
+    this.held = false;
+    this.c.leds([0, 0, 0, 0, 0, 0, 0, 0, 0]);
   }
+  pause() {
+    this.guard.settle();
+    if (this.phase === "play" && this.points > 0) this.c.score(this.points);
+  }
+  dispose() { this.pause(); }
   die(reason = "COLUMN CONTACT") {
     if (this.phase !== "play") return;
-    this.phase = "over";
     this.reason = reason;
     this.held = false;
-    this.c.score(this.points);
-    recordRun(this.c, { passages: this.points, reason, milestone: Math.floor(this.points / 5) });
+    this.guard.end([this.points], { passages: this.points, reason, milestone: Math.floor(this.points / 5) });
     this.c.tone(80, 0.35, "triangle");
   }
   update(dt) {
     this.t += dt;
+    this.guard.tick(dt);
     if (this.phase === "play") {
       this.vy = clamp(this.vy + (this.held ? -620 : 440) * dt, -255, 255);
       this.y += this.vy * dt;
@@ -400,7 +523,8 @@ export class Undertow {
       const speed = 180 + Math.min(this.points * 4, 80);
       for (const gate of this.gates) {
         gate.x -= speed * dt;
-        if (gate.x < 210 && !gate.passed) {
+        // Credit once the craft's column is clear of the gate (the collision test below ends at 202).
+        if (gate.x + 65 < 202 && !gate.passed) {
           gate.passed = true;
           this.points++;
           this.c.tone(550, 0.14);
@@ -509,6 +633,7 @@ export class EchoVault {
     this.active = -1;
     this.held = false;
     this.holdAt = 0;
+    this.overAt = -LOCKOUT;
     this.t = 0;
     this.c.hint("Watch the pulse pattern. Repeat short taps and longer holds.");
   }
@@ -523,6 +648,7 @@ export class EchoVault {
   }
   down() {
     if (this.phase === "title" || this.phase === "over") {
+      if (this.phase === "over" && this.t - this.overAt < LOCKOUT) return;
       this.reset();
       this.demonstrate();
       return;
@@ -543,6 +669,7 @@ export class EchoVault {
       this.entered.push(value);
       if (value !== this.sequence[this.entered.length - 1]) {
         this.phase = "over";
+        this.overAt = this.t;
         this.c.score(this.round);
         this.feedback = `PULSE ${this.entered.length}: EXPECTED ${this.sequence[this.entered.length - 1] ? "LONG" : "SHORT"}`;
         recordRun(this.c, { sequences: this.round, milestone: this.round, error: this.feedback });
@@ -560,9 +687,18 @@ export class EchoVault {
     this.c.synth.stopTone();
     this.c.leds([0, 0, 0, 0, 0, 0, 0, 0, 0]);
   }
+  // Replay only exists while a signal is being received or entered: between rounds it would let
+  // the same signal be credited twice, and after the run ended it would reopen a recorded run.
   menuActions() {
-    return [{ label: 'REPLAY CURRENT SIGNAL', run: () => { this.demonstrate(); this.c.resume?.(); } }];
+    if (this.phase !== 'show' && this.phase !== 'listen') return [];
+    return [{ label: 'REPLAY CURRENT SIGNAL', run: () => {
+      if (this.phase === 'show' || this.phase === 'listen') this.demonstrate();
+      this.c.resume?.();
+    } }];
   }
+  // Leaving mid-run keeps the sequences completed so far.
+  pause() { if (this.phase !== 'over' && this.round > 0) this.c.score(this.round); }
+  dispose() { this.cancel(); this.pause(); }
   resume() {
     if (this.phase === 'show') this.demonstrate();
   }
@@ -683,6 +819,7 @@ export class LightTrial {
     this.metric = ctx.simulated() ? "simulator" : "physical";
     this.cueGeneration = 0;
     this.last = null;
+    this.dim = 0;
     this.t = 0;
     this.c.hint(
       "Wait for the MIDDLE light. Press once it turns green. Early presses fail.",
@@ -695,6 +832,7 @@ export class LightTrial {
       this.phase === "early" ||
       this.phase === "error"
     ) {
+      this.dim = 0;
       this.trial = this.c.rng.int(1, 0x7ffffffe);
       this.phase = "wait";
       this.cueAt = 0;
@@ -716,6 +854,7 @@ export class LightTrial {
       this.phase = "early";
       this.c.command("cancel").catch(() => {});
       this.c.leds([150, 15, 0, 0, 0, 0, 150, 15, 0]);
+      this.dim = 1.2;
       this.c.tone(90, 0.18);
       return;
     }
@@ -741,6 +880,7 @@ export class LightTrial {
       this.c.score(Math.max(0, 1000 - this.last), this.metric);
       recordRun(this.c, { metric: this.metric, milliseconds: this.last, summary: reactionSummary(this.results), milestone: this.results.length });
       this.c.leds([20, 100, 20, 20, 100, 20, 20, 100, 20]);
+      this.dim = 1.2;
     }
   }
   event(event) {
@@ -757,6 +897,7 @@ export class LightTrial {
     }
   }
   pause() {
+    this.dim = 0;
     this.c.command("cancel").catch(() => {});
     this.c.leds(Array(9).fill(0));
     if (this.phase === "wait" || this.phase === "go") this.phase = "title";
@@ -766,6 +907,8 @@ export class LightTrial {
   }
   update(dt) {
     this.t += dt;
+    // The early and result lamps are a brief signal, not a state to leave on.
+    if (this.dim > 0 && (this.dim -= dt) <= 0) this.c.leds(Array(9).fill(0));
     const summary = reactionSummary(this.results);
     this.c.hud([
       ["LAST", this.last === null ? "—" : this.last + " ms"],
@@ -839,10 +982,13 @@ export class LightTrial {
 export class GlyphVault {
   constructor(ctx) {
     this.c = ctx;
+    this.guard = new GestureGuard(this, ctx, ["sequence", "entered", "round", "points", "lives", "focus", "wait", "scan", "flash"]);
     this.reset();
   }
   reset() {
     this.phase = "title";
+    this.ended = null;
+    this.overAt = 0;
     this.sequence = [];
     this.entered = [];
     this.round = 0;
@@ -870,7 +1016,10 @@ export class GlyphVault {
     this.scan = 0;
   }
   down() {
+    this.guard.mark();
     if (this.phase === "title" || this.phase === "over") {
+      if (this.guard.locked()) return;
+      this.guard.stash();
       this.reset();
       this.next();
       return;
@@ -889,15 +1038,19 @@ export class GlyphVault {
       this.lives--;
       this.flash = 0.45;
       this.c.tone(110, 0.18);
-      if (this.lives <= 0) {
-        this.phase = "over";
-        this.c.score(this.points, "scan" + this.scanMs);
-        recordRun(this.c, { inscriptions: this.round, score: this.points, scanMs: this.scanMs, milestone: this.round });
-      }
+      if (this.lives <= 0) this.guard.end([this.points, "scan" + this.scanMs], { inscriptions: this.round, score: this.points, scanMs: this.scanMs, milestone: this.round });
     }
   }
+  up() { this.guard.release(); }
+  cancel() { this.guard.rewind(); }
+  pause() {
+    this.guard.settle();
+    if (this.phase !== "over" && this.phase !== "title" && this.points > 0) this.c.score(this.points, "scan" + this.scanMs);
+  }
+  dispose() { this.pause(); }
   update(dt) {
     this.t += dt;
+    this.guard.tick(dt);
     this.wait -= dt;
     this.flash = Math.max(0, this.flash - dt);
     if (this.phase === "watch" && this.wait <= 0) {

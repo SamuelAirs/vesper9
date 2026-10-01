@@ -22,7 +22,11 @@ test("a Vosk final line stays visible as provisional text until its refined line
   app.event({ type: "speech", text: "hello wurld", final: false, provisional: true, utt: 1, mode: "transcribe" });
   assert.match(last(ctx), /hello wurld/);
   app.event({ type: "speech", text: "and a partial", final: false, mode: "transcribe" });
-  assert.match(last(ctx), /hello wurld\nand a partial/, "the next utterance's live text follows the provisional line");
+  // Each line is its own row now (no "\n" between them in the page), so the order is checked on the rows.
+  const html = last(ctx);
+  assert.ok(html.indexOf("hello wurld") > 0 && html.indexOf("hello wurld") < html.indexOf("and a partial"), "the next utterance's live text follows the provisional line");
+  assert.match(html, /fn-prov"><span class="fn-gutter">~<\/span>hello wurld/, "the provisional line is marked and styled as provisional");
+  assert.match(html, /fn-live"><span class="fn-gutter">&gt;<\/span>and a partial/, "the live partial is marked and styled as live");
   saved.push("Hello world.");
   app.event({ type: "speech", text: "Hello world.", final: true, utt: 1, session: "s1", mode: "transcribe" });
   await settle();

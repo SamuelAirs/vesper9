@@ -103,11 +103,47 @@ export class Timers {
   dispose() { if (this.lit) this.c.leds(lightsOff()); }
 }
 
+// ---- Field Notes: the text as rows ----
+// The notes are drawn as fixed-width rows in a view of fixed height, so a page is a whole
+// number of rows and nothing ever scrolls. A saved line is wrapped at NOTE_COLS characters
+// (the font is monospaced, so the wrap is exact); the first row of each line carries a one
+// character gutter that says what kind of text it is. While dictating, the view shows the
+// last NOTE_ROWS rows and so follows the text; when reading it shows one page of NOTE_ROWS
+// rows, a page being the next NOTE_ROWS rows of the note.
+export const NOTE_ROWS = 5, NOTE_COLS = 58;
+const GUTTER = { saved: ' ', prov: '~', live: '>' };
+
+// Word-wrap `text` to `cols` characters; a word longer than a row is cut. Always at least one row.
+export function wrapText(text, cols = NOTE_COLS) {
+  const out = [];
+  let row = '';
+  for (let word of String(text ?? '').split(/\s+/).filter(Boolean)) {
+    while (word.length > cols) {
+      if (row) { out.push(row); row = ''; }
+      out.push(word.slice(0, cols)); word = word.slice(cols);
+    }
+    if (!row) row = word;
+    else if (row.length + 1 + word.length <= cols) row += ' ' + word;
+    else { out.push(row); row = word; }
+  }
+  if (row || !out.length) out.push(row);
+  return out;
+}
+// Rows for a list of { text, kind } lines: [{ text, kind, first }].
+export function noteRows(lines, cols = NOTE_COLS) {
+  const rows = [];
+  for (const line of lines) wrapText(line.text, cols).forEach((text, i) => rows.push({ text, kind: line.kind, first: i === 0 }));
+  return rows;
+}
+export const notePageCount = (rowCount, perPage = NOTE_ROWS) => Math.max(1, Math.ceil(rowCount / perPage));
+
 export class Transcription {
   constructor(c) {
     this.c = c; this.navigation = true; this.lines = []; this.partial = '';
     this.provisional = new Map(); this.done = new Set();   // Vosk's finished lines waiting for their refined text
     this.sessions = []; this.selected = null; this.offset = 0; this.linePage = 0; this.loading = 0;
+    this.screen = 'text';      // 'text' (the note: live view or a page of it) or 'notes' (the list of saved notes)
+    this.reading = false;      // paged back from the live view of the session being dictated
     this.micMode = c.state().mic?.mode; this.micSession = c.state().mic?.session;
     this.render(); this.load();
   }
@@ -119,47 +155,116 @@ export class Transcription {
       this.sessions = sessions;
       if (!this.selected) this.selected = this.c.state().mic?.session || sessions[0]?.id;
       if (this.selected) {
-        const follow = this.selected === this.c.state().mic?.session && this.linePage >= Math.max(0, Math.ceil(this.lines.length / 12) - 1);
         const lines = await this.c.get('transcript/' + this.selected);
         if (!this.c.alive() || generation !== this.loading) return;
         this.lines = lines.map(r => r.text);
         // The saved lines now include every refined line announced so far: drop their provisional text.
         for (const utt of this.done) this.provisional.delete(utt);
         this.done.clear();
-        if (follow) this.linePage = Math.max(0, Math.ceil(this.lines.length / 12) - 1);
       }
       this.render();
     } catch (error) { this.provisional.clear(); this.done.clear(); this.c.error(error); }
   }
+  // Is this the session being dictated into, right now?
+  isLive() {
+    const mic = this.c.state().mic || {};
+    return mic.mode === 'transcribe' && !!this.selected && this.selected === mic.session;
+  }
+  // The saved lines as rows, worked out once per load (a long session has thousands of lines).
+  savedRows() {
+    if (this.rowCache?.lines !== this.lines) this.rowCache = { lines: this.lines, rows: noteRows(this.lines.map(text => ({ text, kind: 'saved' }))) };
+    return this.rowCache.rows;
+  }
+  // Vosk's finished lines still waiting for their refined text, then the live partial: only for
+  // the session being dictated into.
+  tailRows() {
+    if (!this.isLive()) return [];
+    const lines = [];
+    for (const text of this.provisional.values()) if (text) lines.push({ text, kind: 'prov' });
+    if (this.partial) lines.push({ text: this.partial, kind: 'live' });
+    return noteRows(lines);
+  }
+  rowHtml(row, caret) {
+    const gutter = row.first ? GUTTER[row.kind] : ' ';
+    return `<div class="fn-row fn-${row.kind}"><span class="fn-gutter">${esc(gutter)}</span>${esc(row.text)}${caret ? '<span class="fn-caret">▌</span>' : ''}</div>`;
+  }
   render() {
-    const mic = this.c.state().mic || {}, active = mic.mode === 'transcribe';
+    const state = this.c.state(), mic = state.mic || {}, active = mic.mode === 'transcribe';
     const selected = this.sessions.find(s => s.id === this.selected);
-    const pages = Math.max(1, Math.ceil(this.lines.length / 12));
-    this.linePage = Math.min(this.linePage, pages - 1);
-    const live = active && this.selected === mic.session;
-    let body = `<div class="recording-tag">${esc(microphoneStatus(this.c.state()).label)}</div>`;
-    if (mic.error || mic.unavailable) body += `<p>${esc(mic.error || mic.unavailable)}</p>`;
-    else if (mic.recognizer) body += `<p>${esc(recognizerLabel(this.c.state()))}${mic.recognizer.detail ? ' · ' + esc(mic.recognizer.detail) : ''}</p>`;
-    body += `<p>${selected ? new Date(selected.started * 1000).toLocaleString() : 'No saved note selected'} · ${live ? 'LIVE SESSION' : selected?.ended ? 'CLOSED SESSION' : 'SAVED NOTE'} · PAGE ${this.linePage + 1} / ${pages}</p>`;
-    const shown = this.lines.slice(this.linePage * 12, (this.linePage + 1) * 12).join('\n');
-    // Provisional lines (Vosk's text, replaced by the refined line) and the live partial follow the saved lines.
-    const tail = live && this.linePage === pages - 1 ? [...this.provisional.values(), this.partial].filter(Boolean).join('\n') : '';
-    body += `<div class="transcript">${esc(shown) || (tail ? '' : 'The room has a story. Begin a field note.')}${tail ? '<span class="transcript-partial">' + (shown ? '\n' : '') + esc(tail) + '</span>' : ''}</div><p>Dictation saves text locally. It never executes console commands.</p>`;
-    this.c.content(panel('Field notes', body));
-    const actions = [
-      { id: 'capture', label: active ? 'STOP TRANSCRIPTION' : 'START TRANSCRIPTION', run: () => this.c.setMic(active ? 'off' : 'transcribe') },
-      { id: 'refresh', label: 'REFRESH SAVED NOTES', run: () => this.load() },
-    ];
-    if (this.selected) actions.push({ id: 'export', label: 'EXPORT SELECTED NOTE', run: () => this.c.download('/api/export/' + this.selected) });
-    if (this.linePage > 0) actions.push({ id: 'prev-text', label: 'PREVIOUS TEXT PAGE', run: () => { this.linePage--; this.render(); } });
-    if (this.linePage + 1 < pages) actions.push({ id: 'next-text', label: 'NEXT TEXT PAGE', run: () => { this.linePage++; this.render(); } });
+    if (this.screen === 'notes') return this.renderNotes();
+    const live = this.isLive(), status = microphoneStatus(state);
+    const saved = this.savedRows(), tail = this.tailRows(), total = saved.length + tail.length;
+    const slice = (from, to) => { const out = []; for (let i = Math.max(0, from); i < Math.min(to, total); i++) out.push(i < saved.length ? saved[i] : tail[i - saved.length]); return out; };
+    const pages = notePageCount(total);
+    const following = live && !this.reading;
+    this.linePage = Math.max(0, Math.min(this.linePage, pages - 1));
+    // The live view is the last rows; reading is one page of them.
+    const shown = following ? slice(total - NOTE_ROWS, total) : slice(this.linePage * NOTE_ROWS, (this.linePage + 1) * NOTE_ROWS);
+    const lastRow = shown.length - 1, tailIsPartial = following && !!this.partial;
+    const view = shown.length
+      ? shown.map((row, i) => this.rowHtml(row, tailIsPartial && i === lastRow)).join('')
+      : `<div class="fn-row fn-empty"><span class="fn-gutter"> </span>${active ? 'LISTENING. SPEAK, THEN PAUSE.' : 'THE ROOM HAS A STORY. BEGIN A FIELD NOTE.'}</div>`;
+    const recording = active && status.active, waiting = active && !status.active;
+    const indicator = `<span class="fn-rec ${recording ? 'fn-rec-on' : waiting ? 'fn-rec-wait' : 'fn-rec-off'}${state.settings?.reducedMotion ? ' fn-still' : ''}"><i></i>${recording ? 'REC' : waiting ? 'WAIT' : 'IDLE'}</span>`;
+    const where = following ? 'FOLLOWING THE NEWEST LINES' : `PAGE ${this.linePage + 1} / ${pages}`;
+    const detail = mic.error || mic.unavailable
+      ? esc(mic.error || mic.unavailable)
+      : mic.recognizer ? esc(recognizerLabel(state)) + (mic.recognizer.detail ? ' · ' + esc(mic.recognizer.detail) : '') : '';
+    const kind = live ? 'LIVE SESSION' : selected?.ended ? 'CLOSED SESSION' : 'SAVED NOTE';
+    const when = selected ? new Date(selected.started * 1000).toLocaleString() : 'No saved note selected';
+    this.c.content(`<div class="utility-panel fn-panel"><div class="fn-head">${indicator}<span class="recording-tag fn-state">${esc(status.label)}</span><span class="fn-where">${esc(where)}</span></div>` +
+      `<div class="fn-meta">${esc(when)} · ${kind}${detail ? ' · ' + detail : ''}</div>` +
+      `<div class="fn-view${following ? ' fn-follow' : ''}" style="height:${(NOTE_ROWS * 1.3).toFixed(1)}em" role="log">${view}</div></div>`);
+    // While dictating, stopping is the first action; when reading, turning the page is.
+    const capture = { id: 'capture', label: active ? 'STOP TRANSCRIPTION' : 'START TRANSCRIPTION', run: () => this.c.setMic(active ? 'off' : 'transcribe') };
+    const actions = [];
+    if (following) actions.push(capture);
+    if (!following && (pages > 1 || live)) actions.push({ id: 'next-text', label: 'NEXT TEXT PAGE', run: () => this.turn(1, pages) });
+    if (pages > 1) actions.push({ id: 'prev-text', label: 'PREVIOUS TEXT PAGE', run: () => this.turn(-1, pages) });
+    if (!following) actions.push(capture);
+    if (!following && this.selected) actions.push({ id: 'export', label: 'EXPORT SELECTED NOTE', run: () => this.c.download('/api/export/' + this.selected) });
+    actions.push({ id: 'notes', label: 'SAVED NOTES', run: () => { this.screen = 'notes'; this.render(); this.load(); } });
+    actions.push({ id: 'home', label: 'RETURN TO DASHBOARD', run: this.c.home });
+    this.publish(actions);
+    this.c.hint(following ? 'Dictating: the newest lines stay in view. PREVIOUS TEXT PAGE reads back. Text is saved locally and never runs commands.'
+      : 'Page ' + (this.linePage + 1) + ' of ' + pages + '. Hold to turn the page. SAVED NOTES chooses another note. Text is saved locally.');
+  }
+  // The host keeps the highlight on the action with the same id when a list is replaced. When the
+  // first action changes (the notes finished loading, a screen changed, dictation started or
+  // stopped) the highlight goes to the new first action, which is the one wanted next; a one-item
+  // list is published first to pin it there. Turning pages keeps it where it is.
+  publish(actions) {
+    const first = actions[0]?.id;
+    if (first !== this.firstId && !this.stay) this.c.actions([actions[0]]);
+    this.firstId = first; this.stay = false;
+    this.c.actions(actions);
+  }
+  // One page forward or back. Forward past the last page of the session being dictated returns to the live view.
+  turn(step, pages) {
+    const live = this.isLive();
+    this.stay = true;
+    if (live && !this.reading) {          // from the live view: back to the page before the one holding the newest rows
+      this.reading = true; this.linePage = Math.max(0, pages - 2);
+    } else if (step > 0 && this.linePage + 1 >= pages) {
+      if (live) { this.reading = false; } else this.linePage = 0;
+    } else if (step < 0 && this.linePage === 0) this.linePage = pages - 1;
+    else this.linePage += step;
+    this.render();
+  }
+  renderNotes() {
+    const shown = this.sessions.find(s => s.id === this.selected);
+    this.c.content(`<div class="utility-panel fn-panel"><div class="fn-head"><span class="recording-tag fn-state">SAVED NOTES</span><span class="fn-where">${this.offset ? 'FROM NOTE ' + (this.offset + 1) : 'NEWEST FIRST'}</span></div>` +
+      `<div class="fn-meta">${this.sessions.length ? Math.min(5, this.sessions.length) + ' SHOWN, ● MARKS THE NOTE ON SCREEN' : 'NO SAVED NOTES YET'}</div>` +
+      `<div class="fn-view fn-listview"><div class="fn-row fn-saved"><span class="fn-gutter"> </span>${shown ? esc(new Date(shown.started * 1000).toLocaleString()) + ' / ' + shown.lines + ' LINES' : 'CHOOSE A NOTE BELOW'}</div></div></div>`);
+    const actions = [];
     this.sessions.slice(0, 5).forEach(session => actions.push({ id: 'note-' + session.id,
       label: (this.selected === session.id ? '● ' : '') + 'READ / ' + new Date(session.started * 1000).toLocaleString() + ' / ' + session.lines + ' LINES',
-      run: () => { this.selected = session.id; this.linePage = 0; this.partial = ''; return this.load(); } }));
+      run: () => { this.selected = session.id; this.linePage = 0; this.partial = ''; this.reading = !this.isLive(); this.screen = 'text'; return this.load(); } }));
     if (this.offset > 0) actions.push({ id: 'newer', label: 'NEWER NOTES', run: () => { this.offset = Math.max(0, this.offset - 5); return this.load(); } });
     if (this.sessions.length > 5) actions.push({ id: 'older', label: 'OLDER NOTES', run: () => { this.offset += 5; return this.load(); } });
-    actions.push({ id: 'home', label: 'RETURN TO DASHBOARD', run: this.c.home });
-    this.c.actions(actions); this.c.hint('Choose a note, read its pages, or export it. Capture may continue while browsing.');
+    actions.push({ id: 'back', label: 'BACK TO THE NOTE', run: () => { this.screen = 'text'; this.render(); } });
+    this.publish(actions);
+    this.c.hint('Choose a note to read. The note you were dictating into is the first when it is still open.');
   }
   event(e) {
     if (e.type === 'speech' && (!e.session || e.session === this.selected)) {
@@ -175,9 +280,13 @@ export class Transcription {
     } else if (e.type === 'mic') {
       if (e.mode === 'transcribe' && e.session !== this.selected) {
         this.selected = e.session; this.offset = 0; this.linePage = 0; this.lines = []; this.partial = '';
-        this.provisional.clear(); this.done.clear();
+        this.provisional.clear(); this.done.clear(); this.reading = false;
       }
-      if (e.mode !== 'transcribe') { this.partial = ''; this.provisional.clear(); this.done.clear(); }
+      if (e.mode !== 'transcribe') {
+        // Dictation ended: the note just dictated opens on its last page.
+        if (this.micMode === 'transcribe' && this.selected === this.micSession) this.linePage = Number.MAX_SAFE_INTEGER;
+        this.partial = ''; this.provisional.clear(); this.done.clear(); this.reading = true;
+      }
       // The saved notes only change when the mode or session does, not on every status message.
       const changed = e.mode !== this.micMode || e.session !== this.micSession;
       this.micMode = e.mode; this.micSession = e.session;

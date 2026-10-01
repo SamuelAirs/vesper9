@@ -284,8 +284,8 @@ export const CARTRIDGES = [
     "id": "tideline",
     "name": "TIDELINE",
     "subtitle": "Something is on the line.",
-    "description": "Cast, wait for the bite, then keep the line tense without snapping it. Every water holds different catches.",
-    "controls": "HOLD TO REEL · RELEASE TO GIVE LINE",
+    "description": "Charge a cast, wait for the bite, then hold and release to keep the catch zone on the fish. Alien waters, thirty species, a field log and better gear. Playable by the lamps alone.",
+    "controls": "HOLD TO CAST AND LIFT THE ZONE · TAP FOR GEAR AND LOG",
     "category": "PLAY / ANGLING",
     "glyph": 2,
     "factory": "Tideline",
@@ -298,7 +298,14 @@ export const CARTRIDGES = [
       "lights",
       "audio",
       "progress"
-    ]
+    ],
+    "icon": "<path d=\"M6 40L30 8\"/><path d=\"M30 8Q40 12 38 28\"/><path d=\"M38 28v4a3 3 0 1 1-3-3\"/><path d=\"M6 44Q14 41 22 44T38 44T46 43\" stroke-dasharray=\"3 3\"/><circle cx=\"28\" cy=\"36\" r=\"1.5\" fill=\"currentColor\"/>",
+    "record": {
+      "recorded": "Species recorded",
+      "score": "Catalogue score",
+      "landed": "Fish landed",
+      "tides": "Tides completed"
+    }
   },
   {
     "id": "outpost",

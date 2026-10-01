@@ -53,6 +53,7 @@ export class Vesper {
     this.hudValue = "";
     this.lights = new LightDirector((cmd, data) => this.bridge.command(cmd, data));
     this.frameTimes = [];
+    this.ambientStep = -1;
     this.loaded = false;
     this.errors = [];
     this.g = $("game").getContext("2d", { alpha: false });
@@ -821,12 +822,15 @@ export class Vesper {
     this.lights.flush(this.state.device.connected && this.state.controller !== false);
     if (!document.hidden) {
       if (!this.app) {
-        ambient(
-          this.ag,
-          this.state.settings.reducedMotion ? 0 : now / 1000,
-          450,
-          300,
-        );
+        // The orrery's only motion is a dot drifting about 4 px/s, so a redraw
+        // every 100 ms looks identical and lets the browser idle in between
+        // (once per second when motion is reduced, since the picture is static).
+        const reduced = this.state.settings.reducedMotion;
+        const step = Math.floor(reduced ? now / 1000 : now / 100);
+        if (step !== this.ambientStep) {
+          this.ambientStep = step;
+          ambient(this.ag, reduced ? 0 : now / 1000, 450, 300);
+        }
       } else if (!this.app.navigation && !this.faulted) {
         if (!this.paused) {
           this.accumulator += dt;

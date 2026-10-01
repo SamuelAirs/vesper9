@@ -163,7 +163,7 @@ test("Atmosphere range action, charts side by side, no rebuild when nothing chan
   const requests = [];
   const ctx = appContext({ settings: { tempUnit: "F" }, state: { sensor: { temperature: 22, humidity: 45, at: NOW - 3 }, device: { connected: true } }, get: (path) => { requests.push(path); return path === "history" ? history : []; } });
   const app = new Environment(ctx); app.clock = () => NOW; await settle();
-  assert.equal(ctx.currentActions.map((a) => a.id).join(), "range,refresh,home");
+  assert.equal(ctx.currentActions.map((a) => a.id).join(), "range,refresh,off-down,off-up,home");
   assert.equal((ctx.calls.content.at(-1).match(/<svg/g) || []).length, 2);
   assert.match(ctx.calls.content.at(-1), /atmo-charts/);
   assert.match(ctx.calls.content.at(-1), /24 HOURS/);

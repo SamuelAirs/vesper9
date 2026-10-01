@@ -351,6 +351,12 @@ class CatalogTests(unittest.TestCase):
         self.assertIn(catalog['settings']['tempUnit'], ('C', 'F'))
         self.assertEqual(validate_setting('tempUnit', 'C'), 'C')
         with self.assertRaises(ValueError): validate_setting('tempUnit', 'K')
+        # Case temperature offset: Celsius, half-degree steps, -10 to +5, default zero.
+        self.assertEqual(load_catalog()['settings']['tempOffset'], 0)
+        for good in (0, -2.5, 5, -10, 0.5, -3):
+            self.assertEqual(validate_setting('tempOffset', good), good)
+        for bad in (0.3, -10.5, 5.5, True, '1', None, float('nan'), float('inf'), 1e308):
+            with self.assertRaises(ValueError): validate_setting('tempOffset', bad)
 
 
 

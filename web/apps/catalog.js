@@ -572,6 +572,7 @@ export const DEFAULT_SETTINGS = {
   "gesturePace": "standard",
   "scanMs": 850,
   "tempUnit": "F",
+  "tempOffset": 0,
   "lampLevel": "medium",
   "lampAmbient": true
 };

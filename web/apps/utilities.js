@@ -1,4 +1,4 @@
-import { escapeHTML as esc, formatTime, formatTemp, tempValue, tempUnit, tempDelta, dewPoint, absoluteHumidity, feelsLike, comfortBand, extremes, trend } from "../engine/math.js";
+import { escapeHTML as esc, formatTime, formatSensorTemp, formatOffset, tempOffset, clampOffset, OFFSET_STEP, tempValue, tempUnit, tempDelta, dewPoint, absoluteHumidity, feelsLike, comfortBand, extremes, trend } from "../engine/math.js";
 import { LAMP, dim, fill, meter, ramp, lamps, lightsOff } from "../engine/lightshow.js";
 import { microphoneStatus, recognizerLabel } from "../engine/status.js";
 import { VOICE_HELP } from "../engine/voice.js";
@@ -284,17 +284,20 @@ export class Environment {
     const state = this.c.state(), unit = this.c.settings().tempUnit, now = this.clock();
     const sensor = state.sensor;
     const live = sensor && Number.isFinite(sensor.temperature) && Number.isFinite(sensor.humidity) ? sensor : null;
-    const t = live?.temperature, h = live?.humidity, u = tempUnit(unit);
+    // The case offset is applied to everything shown or derived here; history stays raw.
+    const off = tempOffset(this.c.settings());
+    const t = live ? live.temperature + off : undefined, h = live?.humidity, u = tempUnit(unit);
     const recent = live && Number.isFinite(live.at) && live.at > (this.day.at(-1)?.at ?? 0) ? [...this.day, live] : this.day;
     const midnight = new Date(now * 1000).setHours(0, 0, 0, 0) / 1000;
-    const today = extremes(recent, 'temperature', midnight);
+    const rawToday = extremes(recent, 'temperature', midnight);
+    const today = rawToday && { min: { ...rawToday.min, value: rawToday.min.value + off }, max: { ...rawToday.max, value: rawToday.max.value + off } };
     const tTrend = trend(recent, 'temperature', now, 0.3), hTrend = trend(recent, 'humidity', now, 1.5);
     const dew = live ? dewPoint(t, h) : null, feels = live ? feelsLike(t, h) : null, absolute = live ? absoluteHumidity(t, h) : null;
     const band = live ? comfortBand(h) : null;
     const T = (celsius) => (celsius === null || celsius === undefined ? '—' : tempValue(celsius, unit).toFixed(1));
     const cell = (label, value, sub = '') => `<div><div class="data-label">${label}</div><div class="atmo-value">${value}${sub ? `<small> ${sub}</small>` : ''}</div></div>`;
     const head = (label, aside) => `<div class="data-label atmo-head"><span>${label}</span><span class="atmo-aside">${aside}</span></div>`;
-    const top = `<div class="atmo-top"><div class="utility-panel">${head('TEMPERATURE', live ? this.trendText(tTrend && { ...tTrend, rate: tempDelta(tTrend.rate, unit) }, 1, u) : '')}<div class="big-readout">${T(t)}<small> ${u}</small></div></div>`
+    const top = `<div class="atmo-top"><div class="utility-panel">${head('TEMPERATURE' + (off ? ' · CORRECTED ' + esc(formatOffset(off, unit)) : ''), live ? this.trendText(tTrend && { ...tTrend, rate: tempDelta(tTrend.rate, unit) }, 1, u) : '')}<div class="big-readout">${T(t)}<small> ${u}</small></div></div>`
       + `<div class="utility-panel">${head('HUMIDITY', live ? this.trendText(hTrend, 1, '%') : '')}<div class="big-readout">${live ? h.toFixed(1) : '—'}<small> %</small></div></div>`
       + `<div class="utility-panel atmo-${band ? band.id : 'none'}">${head('COMFORT', band ? band.note : 'NO READING')}<div class="big-readout atmo-verdict">${band ? band.label : '—'}</div></div></div>`;
     const derived = '<div class="utility-panel atmo-derived">'
@@ -309,17 +312,24 @@ export class Environment {
     let note = '';
     if (covered > 0 && covered < r.hours * 3600 * 0.8) note = this.range === '24h' ? ` · ${spanText(covered)} OF HISTORY SO FAR` : ` · ONLY THE LAST ${spanText(covered)} IS AVAILABLE`;
     const degrees = unit === 'F' ? '°F' : '°C';
-    const charts = `<div class="atmo-charts">${this.chart(rows, 'temperature', '#d6efa4', 'TEMPERATURE ' + degrees + ' · ' + r.label, (v) => tempValue(v, unit), 1, unit === 'F' ? 2 : 1)}${this.chart(rows, 'humidity', '#8fcbc5', 'HUMIDITY % · ' + r.label, (v) => v, 0, 4)}</div>`;
-    const status = `<p class="recording-tag atmo-status">${esc(sensorFreshness(state, now))} · ${this.c.simulated() ? 'SIMULATED SENSOR READINGS' : 'SHT3x / LOCAL MEASUREMENTS'}${note}</p>`;
+    const charts = `<div class="atmo-charts">${this.chart(rows, 'temperature', '#d6efa4', 'TEMPERATURE ' + degrees + ' · ' + r.label, (v) => tempValue(v + off, unit), 1, unit === 'F' ? 2 : 1)}${this.chart(rows, 'humidity', '#8fcbc5', 'HUMIDITY % · ' + r.label, (v) => v, 0, 4)}</div>`;
+    const offsetNote = off ? ` · CASE OFFSET ${esc(formatOffset(off, unit))} APPLIED TO TEMPERATURE (HISTORY STORED RAW)` : '';
+    const status = `<p class="recording-tag atmo-status">${esc(sensorFreshness(state, now))} · ${this.c.simulated() ? 'SIMULATED SENSOR READINGS' : 'SHT3x / LOCAL MEASUREMENTS'}${note}${offsetNote}</p>`;
     const html = top + derived + `<div class="utility-panel atmo-history">${status}${charts}</div>`;
     if (html !== this.html) { this.html = html; this.c.content(html); }
     this.lamps(live, now);
     this.c.actions([
       { id: 'range', label: 'RANGE / ' + r.label, run: () => { this.range = RANGE_ORDER[(RANGE_ORDER.indexOf(this.range) + 1) % RANGE_ORDER.length]; this.render(); this.load(); } },
       { id: 'refresh', label: 'REFRESH HISTORY', run: () => this.load() },
+      { id: 'off-down', label: 'CASE OFFSET COOLER / ' + formatOffset(off - OFFSET_STEP, unit), run: () => this.setOffset(off - OFFSET_STEP) },
+      { id: 'off-up', label: 'CASE OFFSET WARMER / ' + formatOffset(off + OFFSET_STEP, unit), run: () => this.setOffset(off + OFFSET_STEP) },
+      ...(off ? [{ id: 'off-zero', label: 'CASE OFFSET / CLEAR ' + formatOffset(off, unit), run: () => this.setOffset(0) }] : []),
       { id: 'home', label: 'RETURN TO DASHBOARD', run: this.c.home },
     ]);
-    this.c.hint(`Feels like: NWS heat index from ${unit === "F" ? "80 °F" : "26.7 °C"} and 40 % RH, else air temperature. The lamps show comfort.`);
+    this.c.hint(`Case offset corrects the sensor's self-heating (steps of 0.5 °C). Feels like: NWS heat index from ${unit === "F" ? "80 °F" : "26.7 °C"} and 40 % RH, else air temperature. The lamps show comfort.`);
+  }
+  setOffset(value) {
+    return this.c.command('settings', { key: 'tempOffset', value: clampOffset(value) }).catch(this.c.error);
   }
   event(e) {
     if (['sensor', 'device', 'settings', 'timers'].includes(e.type)) this.render();
@@ -385,7 +395,7 @@ export class Diagnostics {
       ["NODE IDENTITY", (d.name || "—") + " · CONN " + (d.generation || 0)],
       ["SENSOR BUS", node ? bus.bus : waiting],
       ["SENSOR LAST ERROR", node ? bus.error : waiting],
-      ["SENSOR", sensor ? `${formatTemp(sensor.temperature, this.c.settings().tempUnit)} / ${sensor.humidity.toFixed(1)}%` : "NO READING"],
+      ["SENSOR", sensor ? `${formatSensorTemp(sensor.temperature, this.c.settings().tempUnit, 1, this.c.settings())}${tempOffset(this.c.settings()) ? ' (CASE OFFSET ' + formatOffset(tempOffset(this.c.settings()), this.c.settings().tempUnit) + ')' : ''} / ${sensor.humidity.toFixed(1)}%` : "NO READING"],
       ["LAMP LEVEL", level.toUpperCase()],
       ["FRAME / p95", (this.c.stats?.().p95Ms || 0).toFixed(1) + " ms"],
       ["SPEECH DROPS", s.mic?.droppedChunks || 0],

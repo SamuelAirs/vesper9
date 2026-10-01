@@ -41,6 +41,36 @@ export const tempValue = (celsius, unit) =>
 export const tempUnit = (unit) => (unit === "F" ? "°F" : "°C");
 export const formatTemp = (celsius, unit, digits = 1) =>
   tempValue(celsius, unit).toFixed(digits) + " " + tempUnit(unit);
+// ---- Case temperature offset ----
+// The sensor sits in a warm case, so the owner can subtract its self-heating. The offset is a
+// setting (`tempOffset`, degrees Celsius, steps of 0.5) applied here, to a sensor reading only
+// when it is displayed or derived from: stored history and the service stay raw. Other
+// temperatures (the Pi's CPU) must keep using formatTemp, which never applies it.
+export const OFFSET_MIN = -10, OFFSET_MAX = 5, OFFSET_STEP = 0.5;
+export const clampOffset = (v) =>
+  Number.isFinite(v) ? Math.max(OFFSET_MIN, Math.min(OFFSET_MAX, Math.round(v / OFFSET_STEP) * OFFSET_STEP)) + 0 : 0;
+// The offset in force: from the settings object given, else from the host's own state
+// (window.vesper, set by main.js), else zero.
+export const tempOffset = (settings) => {
+  const s = settings ?? globalThis.vesper?.state?.settings;
+  return clampOffset(s && typeof s === "object" ? s.tempOffset : 0);
+};
+// A raw sensor temperature in Celsius, corrected. Non-numbers pass through unchanged.
+export const correctTemp = (celsius, settings) =>
+  Number.isFinite(celsius) ? celsius + tempOffset(settings) : celsius;
+// A copy of a sensor reading with its temperature corrected (humidity is left as measured).
+export const correctReading = (sensor, settings) =>
+  sensor && typeof sensor === "object" && Number.isFinite(sensor.temperature)
+    ? { ...sensor, temperature: correctTemp(sensor.temperature, settings), rawTemperature: sensor.temperature }
+    : sensor;
+// Display a raw sensor temperature with the offset applied.
+export const formatSensorTemp = (celsius, unit, digits = 1, settings) =>
+  formatTemp(correctTemp(celsius, settings), unit, digits);
+// The offset as text in the display unit, with its sign: "-2.0 °C", "-3.6 °F".
+export const formatOffset = (offsetC, unit) => {
+  const v = tempDelta(clampOffset(offsetC), unit);
+  return (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(1) + " " + tempUnit(unit);
+};
 export const escapeHTML = (value) =>
   String(value).replace(
     /[&<>"']/g,

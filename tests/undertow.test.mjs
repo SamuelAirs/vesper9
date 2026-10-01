@@ -41,6 +41,12 @@ const finite = (o, path = "") => {
 test("the dive starts at once: the first column arrives within two seconds and the Kelp Run inside twenty", () => {
   const { g } = dive(3);
   assert.equal(g.phase, "play");
+  assert.ok(g.parked > 0, "the first dive of a session does not wait for a press");
+  run(g, 1);
+  assert.equal(g.gates.length, 0, "a column came while the craft was waiting");
+  assert.equal(g.y, 270);
+  tap(g);
+  assert.equal(g.parked, 0);
   run(g, 0.9);
   assert.equal(g.gates.length, 1, "the first column had not appeared after 0.9 s");
   const { g: h } = dive(4);
@@ -60,7 +66,7 @@ test("a pilot dives through every zone on several seeds, a new one every twenty 
     assert.ok(g.R.cleanBest >= 10);
   }
   const { g: idle } = dive(1);
-  run(idle, 30);
+  run(idle, 30); // the wait for a first press runs out after three seconds
   assert.equal(idle.phase, "over");
   assert.ok(idle.points <= 2);
 });
@@ -87,10 +93,10 @@ test("zones add currents, darkness and breathing openings", () => {
   assert.ok(sample(75).some((q) => q.cur) && sample(75).some((q) => q.breathe), "the Deep lacks currents or breathing");
   // A current pushes the craft.
   const { g } = dive(6);
-  g.next = 99; g.gates = [{ ...nextGate(270, 0, rng), x: 500, cur: 300 }];
+  g.parked = 0; g.next = 99; g.gates = [{ ...nextGate(270, 0, rng), x: 500, cur: 300 }];
   const vy0 = g.vy; g.y = 270; g.update(DT);
   const { g: h } = dive(6);
-  h.next = 99; h.gates = [{ ...nextGate(270, 0, rng), x: 500, cur: 0 }]; h.y = 270; h.update(DT);
+  h.parked = 0; h.next = 99; h.gates = [{ ...nextGate(270, 0, rng), x: 500, cur: 0 }]; h.y = 270; h.update(DT);
   assert.ok(g.vy > h.vy && g.vy > vy0, "the current did not push");
   // The Abyss pings and lights a column.
   const { g: a } = dive(7);

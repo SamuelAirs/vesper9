@@ -28,7 +28,7 @@
 // turns; left: to its left, the way a hold turns; middle: ahead), brighter when closer; red pulses
 // when the next two cells are fatal. The world advances only in update(dt).
 import { clamp, mixSeed, Random } from "../engine/math.js";
-import { C, text, line, circle, diamond, space, banner } from "../engine/draw.js";
+import { C, text, line, circle, diamond, space } from "../engine/draw.js";
 import { LAMP, lamps, dim, lightsOff, pulse, chase } from "../engine/lightshow.js";
 import { AppGuard, paceOf } from "../engine/input.js";
 
@@ -818,15 +818,17 @@ export class Helix {
   // ---- drawing -----------------------------------------------------------
   draw(g) {
     space(g, this.t, 0.35);
-    this.drawField(g);
+    if (this.phase !== "hangar") this.drawField(g);
     if (this.phase === "title") {
       this.drawPlay(g);
-      g.fillStyle = "#0c1511d8";
-      g.fillRect(120, 150, 720, 290);
-      banner(g, "HELIX", "TAP TURNS RIGHT / HOLD TURNS LEFT");
-      text(g, "COLLECT THE AMBER DIAMONDS. AVOID WALLS AND YOUR TAIL.", 480, 372, 18, C.muted, "center");
-      if (this.sv.runs) text(g, "TURNS " + MODES[this.sv.sel.mode].name + "   FIELD " + FIELDS[this.sv.sel.field].name + "   FEATS " + this.sv.ft.length + " / " + FEATS.length, 480, 398, 18, C.muted, "center");
-      text(g, "TAP = PLAY     HOLD = HANGAR", 480, 424, 20, C.amber, "center");
+      g.fillStyle = "#0c1511e8";
+      g.fillRect(140, 150, 680, 270);
+      line(g, 195, 158, 765, 158, C.line);
+      text(g, "HELIX", 480, 204, 42, C.ink, "center");
+      text(g, this.sv.sel.mode ? "SPIRAL: EVERY TAP TURNS RIGHT" : "TAP TURNS RIGHT / HOLD TURNS LEFT", 480, 258, 22, C.muted, "center");
+      text(g, "GATHER THE AMBER DIAMONDS. AVOID WALLS AND YOUR TAIL.", 480, 290, 18, C.muted, "center");
+      if (this.sv.runs) text(g, "TURNS " + MODES[this.sv.sel.mode].name + "   FIELD " + FIELDS[this.sv.sel.field].name + "   FEATS " + this.sv.ft.length + " / " + FEATS.length, 480, 334, 18, C.muted, "center");
+      text(g, "TAP = PLAY     HOLD = HANGAR", 480, 380, 22, C.amber, "center");
     } else if (this.phase === "play") {
       this.drawPlay(g);
     } else if (this.phase === "over") {
@@ -846,9 +848,9 @@ export class Helix {
       for (let x = 0; x <= W; x++) g.fillRect(X0 + x * CELL - 1, Y0 + y * CELL - 1, 2, 2);
     }
     // A wrapping field has a dashed edge: there is no wall.
-    g.strokeStyle = this.torus && this.phase !== "hangar" ? C.cyan : C.amber;
+    g.strokeStyle = this.torus ? C.cyan : C.amber;
     g.lineWidth = 3;
-    if (this.torus && this.phase !== "hangar") g.setLineDash?.([10, 8]);
+    if (this.torus) g.setLineDash?.([10, 8]);
     g.strokeRect(X0 - 2, Y0 - 2, W * CELL + 4, H * CELL + 4);
     g.setLineDash?.([]);
     for (let c = 0; c < W * H; c++) {
@@ -884,12 +886,13 @@ export class Helix {
         line(g, cx + DX[nd] * 18 - DY[nd] * 16, cy + DY[nd] * 18 - DX[nd] * 16, cx + DX[nd] * 18 + DY[nd] * 16, cy + DY[nd] * 18 + DX[nd] * 16, C.red, 4);
       }
     }
-    // Portals: two rings with the same spinning mark.
+    // Portals: two blue rings with the same spinning mark.
     if (this.portals) {
       for (const p of this.portals) {
         const x = cellX(p), y = cellY(p), a = this.t * 3;
-        circle(g, x, y, 15, "#c9a0ff", false, 3);
-        line(g, x - 9 * Math.cos(a), y - 9 * Math.sin(a), x + 9 * Math.cos(a), y + 9 * Math.sin(a), "#c9a0ff", 3);
+        circle(g, x, y, 15, "#7fb0d8", false, 3);
+        circle(g, x, y, 9, "#7fb0d8", false, 2);
+        line(g, x - 9 * Math.cos(a), y - 9 * Math.sin(a), x + 9 * Math.cos(a), y + 9 * Math.sin(a), "#7fb0d8", 3);
       }
     }
     // Fragments and pickups.

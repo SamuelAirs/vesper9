@@ -15,7 +15,7 @@
 // an amber spot at the next opening that brightens as it arrives, so the two meet when the craft
 // is lined up; red at the end lamp near the surface or the floor.
 import { TAU, clamp, mixSeed, Random } from "../engine/math.js";
-import { C, text, line, circle, diamond, banner, glyph } from "../engine/draw.js";
+import { C, text, line, circle, diamond, glyph } from "../engine/draw.js";
 import { LAMP, fill, only, spot, blink, dim, chase } from "../engine/lightshow.js";
 import { AppGuard } from "../engine/input.js";
 import { LampBus, lampMax, LOCKOUT } from "./game-kit.js";
@@ -159,6 +159,7 @@ export class Undertow {
     this.lastHint = "";
     this.newFeats = [];
     this.result = null;
+    this.launches = 0; // dives started in this session; the first waits for a press
     this.reset();
     this.phase = "title";
     this.setHint("Tap to dive. Hold for the dock.");
@@ -196,6 +197,7 @@ export class Undertow {
     this.R = { zone: start, pearls: 0, cleanBest: 0, noHitBest: 0, shielded: 0, skims: 0, lastBest: 0, daily: 0 };
     this.newFeats = [];
     this.goalDone = false;
+    this.parked = 0; // seconds the craft holds its depth before the dive starts
   }
   setHint(message) {
     if (message === this.lastHint) return;
@@ -216,7 +218,7 @@ export class Undertow {
       this.pt = this.t;
       return;
     }
-    if (this.phase === "play") this.held = true;
+    if (this.phase === "play") { this.held = true; this.parked = 0; }
   }
   up() {
     this.guard.release();
@@ -293,6 +295,9 @@ export class Undertow {
     this.dstate = this.daily ? (mixSeed(hashText("dive" + ymd(new Date()))) || 1) : 0;
     this.reset();
     this.phase = "play";
+    // The first dive of a session holds still until the first press (or for three seconds), so a
+    // newcomer can read the screen before the craft starts to sink.
+    this.parked = this.launches++ === 0 ? 3 : 0;
     this.c.tone(330, 0.08, "triangle");
     if (this.startZone > 0) this.announce(ZONES[this.startZone].name, 2.4);
     else if (this.daily) this.announce("DAILY: " + dailyGoal(ymd(new Date())).text.toUpperCase(), 3);
@@ -454,13 +459,16 @@ export class Undertow {
       if (gate.cur && gate.x > CX && gate.x - CX < speed * gateInterval(this.points) * 0.75) { push = gate.cur; break; }
     }
     this.push = push;
+    if (this.parked > 0) { this.parked = Math.max(0, this.parked - dt); this.vy = 0; }
     // Thrust against a fall, or sinking against a climb, bites harder: the craft answers the button at once.
     const accel = this.held ? -k.up * (this.vy > 0 ? 1.7 : 1) : k.down * (this.vy < 0 ? 1.25 : 1);
-    this.vy = clamp(this.vy + (accel + push) * dt, -k.vmax, k.vmax);
-    this.y += this.vy * dt;
+    if (!this.parked) {
+      this.vy = clamp(this.vy + (accel + push) * dt, -k.vmax, k.vmax);
+      this.y += this.vy * dt;
+      this.next -= dt;
+      if (this.next <= 0) this.spawnGate();
+    }
     if (this.held && this.t % 0.05 < dt) this.exhaust();
-    this.next -= dt;
-    if (this.next <= 0) this.spawnGate();
     const z = zoneAt(this.points);
     for (const gate of this.gates) {
       gate.x -= speed * dt;
@@ -687,12 +695,13 @@ export class Undertow {
         const len = undertowSpeed(this.points) * gateInterval(this.points) * 0.75;
         g.strokeStyle = "#7fb0d8";
         g.lineWidth = 2;
-        g.globalAlpha = alpha * 0.45;
-        const dir = Math.sign(gate.cur), ph = (this.t * 90) % 60;
-        for (let x = gate.x - len + 20; x < gate.x - 10; x += 56) {
-          for (let y = 60; y < 500; y += 60) {
+        g.globalAlpha = alpha * 0.4;
+        // Chevrons drifting the way the water pushes.
+        const dir = Math.sign(gate.cur), ph = (this.t * 90) % 70;
+        for (let x = gate.x - len + 30; x < gate.x - 20; x += 64) {
+          for (let y = 50; y < 510; y += 70) {
             const yy = y + dir * ph;
-            g.beginPath(); g.moveTo(x, yy - 10 * dir); g.lineTo(x, yy + 10 * dir); g.lineTo(x - 6, yy + 4 * dir); g.stroke();
+            g.beginPath(); g.moveTo(x - 9, yy - 5 * dir); g.lineTo(x, yy + 5 * dir); g.lineTo(x + 9, yy - 5 * dir); g.stroke();
           }
         }
       }
@@ -730,6 +739,12 @@ export class Undertow {
     g.globalAlpha = 1;
     this.drawCraft(g);
     if (this.noteT > 0 && this.phase === "play") text(g, this.note, 480, 44, 24, C.amber, "center");
+    if (this.parked > 0 && this.phase === "play") {
+      g.fillStyle = "#0c1511d8";
+      g.fillRect(250, 330, 460, 96);
+      text(g, "HOLD TO RISE / RELEASE TO SINK", 480, 360, 22, C.ink, "center");
+      text(g, "PRESS TO GO", 480, 396, 22, C.amber, "center");
+    }
     if (this.flashT > 0) {
       g.globalAlpha = clamp(this.flashT / 1.2, 0, 1) * 0.12;
       g.fillStyle = Z.col;
@@ -747,9 +762,9 @@ export class Undertow {
     if (this.held && this.phase === "play") {
       const f = 0.75 + 0.25 * Math.sin(this.t * 47);
       g.fillStyle = C.amber;
-      g.beginPath(); g.moveTo(-12 * s, 6 * s); g.lineTo(-30 * s - 18 * f, 22 * s + 10 * f); g.lineTo(-4 * s, 10 * s); g.closePath(); g.fill();
+      g.beginPath(); g.moveTo(-14 * s, 4 * s); g.lineTo(-44 * s - 22 * f, 30 * s + 14 * f); g.lineTo(-2 * s, 11 * s); g.closePath(); g.fill();
       g.fillStyle = "#fff3d0";
-      g.beginPath(); g.moveTo(-10 * s, 7 * s); g.lineTo(-22 * s - 8 * f, 16 * s + 5 * f); g.lineTo(-5 * s, 9 * s); g.closePath(); g.fill();
+      g.beginPath(); g.moveTo(-11 * s, 6 * s); g.lineTo(-30 * s - 10 * f, 20 * s + 7 * f); g.lineTo(-4 * s, 10 * s); g.closePath(); g.fill();
     }
     g.fillStyle = this.phase === "over" ? C.red : C.cyan;
     g.beginPath();
@@ -771,10 +786,15 @@ export class Undertow {
     g.stroke();
   }
   drawTitle(g) {
-    banner(g, "UNDERTOW", "Hold to rise. Release to sink. Follow the silent current.", C.cyan);
     const sv = this.sv;
-    if (sv.runs > 0) text(g, "PEARLS " + sv.bank + "   DEEPEST " + ZONES[sv.far].name + "   FEATS " + sv.ft.length + " / " + FEATS.length, 480, 392, 18, C.muted, "center");
-    text(g, "TAP = DIVE     HOLD = DOCK", 480, 430, 20, C.amber, "center");
+    g.fillStyle = "#0c1511e8";
+    g.fillRect(140, 150, 680, 270);
+    line(g, 195, 158, 765, 158, C.line);
+    text(g, "UNDERTOW", 480, 204, 42, C.cyan, "center");
+    text(g, "Hold to rise. Release to sink.", 480, 258, 22, C.muted, "center");
+    text(g, "Follow the silent current down through six zones.", 480, 288, 22, C.muted, "center");
+    if (sv.runs > 0) text(g, "PEARLS " + sv.bank + "   DEEPEST " + ZONES[sv.far].name + "   FEATS " + sv.ft.length + " / " + FEATS.length, 480, 334, 18, C.muted, "center");
+    text(g, "TAP = DIVE     HOLD = DOCK", 480, 380, 22, C.amber, "center");
   }
   drawResult(g) {
     const r = this.result || { passages: this.points, pearls: 0, zone: ZONES[0].name, reason: this.reason };
@@ -786,7 +806,7 @@ export class Undertow {
     let y = 176;
     const row = (label, value, col = C.ink) => { text(g, label, 240, y, 18, C.muted); text(g, value, 720, y, 26, col, "right"); y += 36; };
     row("PASSAGES", r.passages);
-    row("PEARLS", r.pearls + "   BANK " + this.sv.bank);
+    row("PEARLS", r.pearls + " (BANK " + this.sv.bank + ")");
     row("DEEPEST ZONE", r.zone, ZONES[this.R.zone].col);
     row("BEST CLEAN RUN", this.R.cleanBest);
     if (this.daily) { text(g, this.goalDone ? "DAILY GOAL MET" : "DAILY: " + dailyGoal(ymd(new Date())).text, 480, y, 18, this.goalDone ? C.cyan : C.muted, "center"); y += 30; }

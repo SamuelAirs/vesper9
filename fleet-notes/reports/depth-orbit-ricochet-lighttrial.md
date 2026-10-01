@@ -38,3 +38,20 @@ Shared pieces live in a new `web/apps/goals.js` (only these three games import i
 - Feel on the device: perfect-zone size, how hard dark gates are with only lamp I, charge-cell noise.
 - Catalog descriptions do not mention feats/daily (catalog is shared; left alone).
 - `docs/WORKLOG.md` not updated (shared file).
+
+## Round 2 (after Sam: "life and depth", better visuals)
+- Orbit Lock: RUSH (60 s, no hull, a miss costs 3 s, +4 s per sector) at 3 feats and ECLIPSE (every
+  gate dark) at 6 feats. Hold on the title or result to change mode, but only once a mode is earned:
+  until then a press still starts at once, so existing behaviour and tests are unchanged. Each mode keeps
+  its own best; only standard sets the console's best score. 17 feats. Redrawn dial: banded planet with
+  a moonlet, sector-tinted ticks, glowing gate, satellite with panels and trail, sparks and rings on locks,
+  shake on a miss, a side panel with chain pips toward the shield and the rush clock.
+- Ricochet: two upgrades offered after each chamber from the second (wider/quicker paddle, spare ball,
+  steady chain, charged serve, heavy signal, salvage). Tap switches, hold takes, lamp I or III shows
+  the highlighted card, auto-take after 8 s. 18 feats. Chamber colour themes, lit cell edges, ball and
+  paddle glow, corner brackets, depth bands, shake on a lost ball or a blast.
+- Light Trial: training log of the last 20 series (bars on the title, taking turns with the feats),
+  discs that breathe while armed (screen only), green halo on the cue, grade colour after a result,
+  and "TO BEAT" while armed.
+- Verification: JS 856 pass, 1 fail (the same Perihelion bot test as on main); Python OK; catalog
+  check, demo build and all four browser suites pass. Screenshots looked at for each new screen.

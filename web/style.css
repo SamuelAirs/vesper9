@@ -1249,3 +1249,32 @@ main {
   .console.playing .game-stage { grid-column: 1 / -1; grid-row: 2; }
   .console.playing .app-readout { grid-column: 1 / -1; grid-row: 3; }
 }
+
+/* Instrument panels added with the Atmosphere, Chronometer and Node Scope upgrade. */
+.atmo-top { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 8px; }
+.atmo-top .utility-panel { padding: 10px 16px; }
+.atmo-top .big-readout small { font-size: 16px; letter-spacing: 0; color: var(--muted); }
+.atmo-verdict { font-size: 26px; letter-spacing: 0; }
+.atmo-sub { font-size: 12px; color: var(--muted); line-height: 1.4; min-height: 17px; }
+.atmo-dry .atmo-verdict { color: var(--amber); }
+.atmo-humid .atmo-verdict, .atmo-very-humid .atmo-verdict { color: #8fcbc5; }
+.atmo-derived { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-bottom: 8px; padding: 8px 16px; }
+.atmo-derived .data-label { margin-bottom: 2px; }
+.atmo-value { font-size: 18px; color: var(--phosphor); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.atmo-history { padding: 8px 16px; }
+.atmo-status { margin: 0 0 4px; font-size: 12px; }
+.atmo-charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.atmo-charts .data-label { margin-bottom: 0; }
+.atmo-chart { height: auto; }
+.timer-hero { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.timer-hero .big-readout { font-size: 52px; line-height: 1.1; }
+.timer-bar { height: 8px; border: 1px solid var(--line); margin: 4px 0 8px; }
+.timer-bar i { display: block; height: 100%; background: var(--phosphor); opacity: .75; }
+.atmo-head { display: flex; justify-content: space-between; gap: 8px; }
+.atmo-aside { color: var(--amber); letter-spacing: 0; font-size: 12px; white-space: nowrap; }
+.atmo-value small { font-size: 12px; color: var(--muted); }
+.atmo-top { gap: 6px; margin-bottom: 6px; }
+.atmo-top .utility-panel { padding: 8px 16px; }
+.atmo-derived { margin-bottom: 6px; padding: 6px 16px; }
+.atmo-history { padding: 6px 16px; }
+.atmo-status { margin: 0 0 2px; line-height: 1.3; }

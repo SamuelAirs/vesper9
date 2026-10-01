@@ -3,9 +3,11 @@
 // it. Each hit calls the next lamp. The screen never shows the light itself: the lamps are the play
 // field. The run speeds up and moves through stages that change how the swing must be read: red
 // swings that must pass untouched, changes of tempo, swings that go dark near the called lamp, and
-// feints that turn back early. Three shields; a wide tap, a lapse or a burned red swing costs one.
-// Holding on the title or result screen opens the observatory: daily run, sprint and eclipse modes
-// (unlocked by feats), light colours, feats and a log. Save schema 1.
+// feints that turn back early, then sequences: two or three lamps called at once, caught in order.
+// Three shields; a wide tap, a lapse or a burned red swing costs one. Every tap shows how early or
+// late it was. Runs light stars in a sky of six constellations. Holding on the title or result screen
+// opens the observatory: daily run, sprint and eclipse modes (unlocked by feats), light colours, the
+// sky chart, feats and a log. Save schema 2.
 import { C, space, text, line, circle, diamond, banner } from "../engine/draw.js";
 import { clamp, lerp, mixSeed, Random } from "../engine/math.js";
 import { LAMP, lamps, dim, spot, pulse, only } from "../engine/lightshow.js";
@@ -36,15 +38,16 @@ const STAGES = [
   { name: "TEMPO", hits: 16, d0: 0.98, d1: 0.8, note: "The swing changes pace. Watch it, do not count it." },
   { name: "ECLIPSE", hits: 16, d0: 0.92, d1: 0.74, note: "Some swings go dark near the called lamp." },
   { name: "FEINT", hits: 16, d0: 0.86, d1: 0.7, note: "Some swings turn back before the far lamp." },
+  { name: "SEQUENCE", hits: 18, d0: 0.84, d1: 0.7, note: "Lamps called in twos. Catch them in order." },
 ];
-const ROMAN = ["I", "II", "III", "IV", "V"];
+const ROMAN = ["I", "II", "III", "IV", "V", "VI"];
 export function stageSpec(i) {
   if (i < STAGES.length) {
-    return { ...STAGES[i], label: ROMAN[i] + "  " + STAGES[i].name, win: 1, red: i >= 1 ? 0.22 : 0, drift: i >= 2, blind: i >= 3 ? 0.28 : 0, feint: i >= 4 ? 0.22 : 0 };
+    return { ...STAGES[i], label: ROMAN[i] + "  " + STAGES[i].name, win: 1, red: i >= 1 ? 0.22 : 0, drift: i >= 2, blind: i >= 3 ? 0.28 : 0, feint: i >= 4 ? 0.22 : 0, seq: i >= 5 ? 0.45 : 0, seqMax: 2 };
   }
   const n = i - STAGES.length + 1;
   return { name: "CYCLE " + n, label: "CYCLE " + n, hits: 20, win: Math.max(0.6, 1 - 0.05 * n), d0: Math.max(0.52, 0.8 - 0.05 * n), d1: Math.max(0.46, 0.66 - 0.04 * n),
-    note: "Everything at once, a little faster.", red: Math.min(0.3, 0.22 + 0.02 * n), drift: true, blind: Math.min(0.4, 0.28 + 0.03 * n), feint: Math.min(0.3, 0.22 + 0.02 * n) };
+    note: "Everything at once, a little faster.", seq: 0.4, seqMax: 3, red: Math.min(0.3, 0.22 + 0.02 * n), drift: true, blind: Math.min(0.4, 0.28 + 0.03 * n), feint: Math.min(0.3, 0.22 + 0.02 * n) };
 }
 const MODES = {
   swing: { name: "SWING", text: "The plain run. Scores to the console." },
@@ -59,7 +62,28 @@ const LIGHTS = [
   { name: "WHITE", rgb: LAMP.white, css: "#f2ead8", need: 9 },
 ];
 const SCALE = [523, 587, 659, 784, 880, 1047, 1175, 1319]; // a pentatonic climb, one note per combo step
-const ROWS = ["SWING", "DAILY", "SPRINT", "ECLIPSE", "LIGHT", "FEATS", "LOG"];
+const ROWS = ["SWING", "DAILY", "SPRINT", "ECLIPSE", "LIGHT", "SKY", "FEATS", "LOG"];
+// ---- the sky: six constellations of eight stars, lit one star at a time across runs ------------
+// A run lights a star for every stage it clears and for every second sequence it completes.
+const SKY_NAMES = ["THE PLUMB LINE", "THE KEEL", "THE TWIN LAMPS", "THE LONG SWING", "THE WATCHER", "MERIDIAN"];
+export const STARS_PER = 8, SKY_SIZE = SKY_NAMES.length * STARS_PER;
+// Star positions in the chart (960 x 540), drawn from a fixed seed so every console has the same sky.
+const SKY = (() => {
+  const r = new Random(0x5eed9), out = [];
+  for (let k = 0; k < SKY_NAMES.length; k++) {
+    const cx = 200 + (k % 3) * 280, cy = 194 + Math.floor(k / 3) * 150;
+    let x = cx - 80, y = cy + r.range(-24, 24);
+    for (let i = 0; i < STARS_PER; i++) { out.push([x, y]); x += r.range(15, 24); y = clamp(y + r.range(-26, 26), cy - 44, cy + 44); }
+  }
+  return out;
+})();
+// Where a sky of n lit stars stands: the constellation being lit and how far into it.
+export function skyPlace(n) {
+  if (n >= SKY_SIZE) return "THE WHOLE SKY IS LIT";
+  const k = Math.floor(n / STARS_PER);
+  return SKY_NAMES[k] + "  " + (n - k * STARS_PER) + " / " + STARS_PER;
+}
+export const starsEarned = (stagesCleared, sequences) => Math.max(0, stagesCleared) + Math.floor(Math.max(0, sequences) / 2);
 
 // ---- feats ------------------------------------------------------------------------------------
 const life = (a, key) => (a.sv.st[key] || 0) + (a.R[key] || 0);
@@ -76,6 +100,8 @@ const FEATS = [
   { id: "clean", name: "UNSHAKEN", text: "Clear a stage after the first without losing a shield.", n: 1, prog: (a) => a.R.clean },
   { id: "sprint", name: "SIXTY SECONDS", text: "Score 4000 in a sprint.", n: 4000, prog: (a) => Math.max(a.sv.best.sprint, a.mode === "sprint" ? a.score : 0) },
   { id: "daily", name: "ON THE DAY", text: "Meet a daily goal.", n: 1, prog: (a) => life(a, "daily") },
+  { id: "seq", name: "IN ORDER", text: "Complete 5 sequences in one run.", n: 5, prog: (a) => a.R.seqs },
+  { id: "sky", name: "STARGAZER", text: "Light a whole constellation.", n: STARS_PER, prog: (a) => Math.min(STARS_PER, a.sv.sky + (a.R.stars || 0)) },
   { id: "hits", name: "OBSERVER", text: "Catch 500 swings in all.", n: 500, prog: (a) => life(a, "hits") },
   { id: "centre", name: "DEAD CENTRE", text: "", hint: "Ten in a row, every one exact.", n: 10, hidden: true, prog: (a) => a.R.pRunMax },
   { id: "last", name: "LAST LIGHT", text: "", hint: "Some do their best work with nothing to spare.", n: 20, hidden: true, prog: (a) => a.R.lastHits },
@@ -96,14 +122,15 @@ export function dailyGoal(key) {
   if (kind === 2) return { kind: "held", n: 4 + v, text: "Let " + (4 + v) + " red swings pass." };
   return { kind: "stage", n: 2 + (v % 3), text: "Reach " + STAGES[2 + (v % 3)].name + "." };
 }
-// Bring any stored shape (nothing, a stray object, schema 1) to schema 1.
+// Bring any stored shape (nothing, a stray object, schema 1 or 2) to schema 2. Schema 1 had no sky:
+// it starts with a star for every stage it had reached.
 export function migrateSave(raw) {
   const r = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
   const o = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : {});
   const st = o(r.st), best = o(r.best), sel = o(r.sel), dl = o(r.dl);
   const pos = (v) => Math.max(0, Math.floor(num(v)));
   return {
-    schema: 1,
+    schema: 2,
     runs: pos(r.runs),
     last: o(r.last),
     milestone: pos(r.milestone),
@@ -112,6 +139,7 @@ export function migrateSave(raw) {
     st: { hits: pos(st.hits), perfects: pos(st.perfects), held: pos(st.held), daily: pos(st.daily) },
     best: { swing: pos(best.swing), sprint: pos(best.sprint), eclipse: pos(best.eclipse), combo: pos(best.combo) },
     sel: { light: clamp(pos(sel.light), 0, LIGHTS.length - 1) },
+    sky: Math.min(SKY_SIZE, r.schema >= 2 ? pos(r.sky) : Math.min(99, pos(r.far))),
     dl: { d: typeof dl.d === "string" ? dl.d.slice(0, 10) : "", best: pos(dl.best), done: dl.done ? 1 : 0, streak: pos(dl.streak), last: typeof dl.last === "string" ? dl.last.slice(0, 10) : "" },
   };
 }
@@ -175,6 +203,12 @@ export class Meridian {
     this.target = 1; // the called lamp
     this.from = 0; // passes before this run time are not judged for the called lamp
     this.repeats = 0;
+    this.seq = []; // lamps still to come in a called sequence
+    this.seqAll = []; // the whole sequence, for the screen
+    this.callT = 0; // seconds since the last call, for its animation
+    this.offs = []; // the last taps' timing errors in ms (negative is early)
+    this.sock = [0, 0, 0]; // socket flash timers
+    this.sockCol = ["", "", ""];
     // The light waits at the right lamp for a moment before the first swing.
     this.sw = { t0: 0.8, D: 1.25, x0: 2, x1: 0, feint: false, red: false, blind: false, gate: null };
     this.sw.gate = this.makeGate(this.sw);
@@ -187,8 +221,10 @@ export class Meridian {
     this.result = null;
     this.newFeats = [];
     this.goalDone = false;
+    this.starsNew = 0;
+    this.timing = null;
     this.dseed = 0;
-    this.R = { hits: 0, perfects: 0, held: 0, blind: 0, maxMult: 0, far: 0, clean: 0, pRun: 0, pRunMax: 0, lastHits: 0, daily: 0 };
+    this.R = { hits: 0, perfects: 0, held: 0, blind: 0, maxMult: 0, far: 0, clean: 0, pRun: 0, pRunMax: 0, lastHits: 0, daily: 0, seqs: 0, offSum: 0, offN: 0, stars: 0 };
   }
   dayKey() { return fmtDay(new Date()); }
   // A random draw: the console's generator, or a generator seeded by the date on a daily run.
@@ -218,13 +254,27 @@ export class Meridian {
     this.gates++;
     return { t: at, p: this.target, kind: sw.red && !practice ? "red" : "normal", blind: sw.blind && !practice && !sw.red, done: false, practice, end: this.target !== 1 };
   }
-  // Call a lamp. Mostly a different one; never the same three times running.
+  // Call a lamp. Mostly a different one; never the same three times running. From the sequence stage a
+  // call can be two or three lamps at once, caught in order; the later ones are known in advance, so
+  // they come with a shorter lead.
   call() {
-    let p = this.target;
-    if (this.repeats >= 1 || this.rand() < 0.75) p = (p + 1 + Math.floor(this.rand() * 2)) % 3;
+    let p = this.target, lead = LEAD;
+    if (this.seq.length) { p = this.seq.shift(); lead = 0.2; }
+    else {
+      this.seqAll = [];
+      if (this.repeats >= 1 || this.rand() < 0.75) p = (p + 1 + Math.floor(this.rand() * 2)) % 3;
+      const sp = this.spec();
+      if (sp.seq && this.gates >= PRACTICE && this.rand() < sp.seq) {
+        const n = 2 + (sp.seqMax > 2 && this.rand() < 0.4 ? 1 : 0), all = [p];
+        while (all.length < n) all.push((all[all.length - 1] + 1 + Math.floor(this.rand() * 2)) % 3);
+        this.seqAll = all;
+        this.seq = all.slice(1);
+      }
+    }
     this.repeats = p === this.target ? this.repeats + 1 : 0;
     this.target = p;
-    this.from = this.rt + LEAD;
+    this.from = this.rt + lead;
+    this.callT = 0;
     if (this.sw.gate && !this.sw.gate.done) this.sw.gate.done = true; // an unjudged pass for the old call no longer counts
     this.sw.gate = this.makeGate(this.sw);
   }
@@ -290,7 +340,7 @@ export class Meridian {
       return;
     }
     if (this.view !== "menu") {
-      if (long || this.view === "log") { this.view = "menu"; this.page = 0; }
+      if (long || this.view === "log" || this.view === "sky") { this.view = "menu"; this.page = 0; }
       else this.page = (this.page + 1) % Math.ceil(FEATS.length / 6);
       return;
     }
@@ -308,6 +358,7 @@ export class Meridian {
     const row = ROWS[this.cur];
     if (row === "FEATS") { this.view = "feats"; this.page = 0; return; }
     if (row === "LOG") { this.view = "log"; return; }
+    if (row === "SKY") { this.view = "sky"; return; }
     if (row === "LIGHT") {
       let i = this.sv.sel.light;
       do i = (i + 1) % LIGHTS.length; while (this.sv.ft.length < LIGHTS[i].need);
@@ -360,6 +411,10 @@ export class Meridian {
   }
   hit(g, grade) {
     const sp = this.spec();
+    const ms = Math.round((this.rt - g.t) * 1000);
+    this.offs.push(ms);
+    if (this.offs.length > 12) this.offs.shift();
+    this.R.offSum += ms; this.R.offN++;
     if (grade < 2) this.combo++;
     this.bestCombo = Math.max(this.bestCombo, this.combo);
     const m = this.mult();
@@ -370,7 +425,18 @@ export class Meridian {
     if (grade === 0) { this.R.perfects++; this.R.pRun++; this.R.pRunMax = Math.max(this.R.pRunMax, this.R.pRun); } else this.R.pRun = 0;
     if (g.blind) this.R.blind++;
     if (this.shields === 1 && this.mode !== "sprint") this.R.lastHits++;
-    this.fb = { word: GRADES[grade], pts, col: grade === 0 ? C.cyan : grade === 1 ? C.ink : C.amber, t: 0.9 };
+    this.fb = { word: GRADES[grade], pts, col: grade === 0 ? C.cyan : grade === 1 ? C.ink : C.amber, t: 0.9, ms };
+    this.sock[g.p] = 0.5; this.sockCol[g.p] = this.fb.col;
+    // The last lamp of a sequence completes it.
+    if (this.seqAll.length && !this.seq.length) {
+      const bonus = 50 * this.seqAll.length * m;
+      this.score += bonus;
+      this.R.seqs++;
+      this.fb.word = "SEQUENCE";
+      this.fb.pts = pts + bonus;
+      this.queue(0.1, 1319, 0.1, "sine");
+      this.seqAll = [];
+    }
     this.c.tone(SCALE[this.combo % SCALE.length] * (grade === 2 ? 0.5 : 1), grade === 0 ? 0.12 : 0.08, grade === 0 ? "triangle" : "sine");
     // The caught lamp flashes the grade colour.
     const col = grade === 0 ? LAMP.white : grade === 1 ? LAMP.green : LAMP.amber, p = g.p;
@@ -401,6 +467,7 @@ export class Meridian {
     }
   }
   penalty(word, free) {
+    this.seq = []; this.seqAll = []; // a broken sequence is not finished later
     this.combo = 0;
     this.streak = 0;
     this.R.pRun = 0;
@@ -415,6 +482,7 @@ export class Meridian {
   }
   advance() {
     if (this.stage >= 1 && this.stageClean) this.R.clean = 1;
+    this.R.stars = starsEarned(this.stage + 1, this.R.seqs);
     this.stage++;
     this.stageHits = 0;
     this.stageClean = true;
@@ -461,6 +529,11 @@ export class Meridian {
     sv.st.perfects += this.R.perfects;
     sv.st.held += this.R.held;
     sv.far = Math.max(sv.far, this.R.far);
+    this.R.stars = starsEarned(this.R.far, this.R.seqs);
+    const skyBefore = sv.sky;
+    sv.sky = Math.min(SKY_SIZE, sv.sky + this.R.stars);
+    this.starsNew = sv.sky - skyBefore;
+    this.R.stars = 0;
     sv.best.combo = Math.max(sv.best.combo, this.bestCombo);
     if (this.mode === "daily") {
       const key = this.dayKey();
@@ -478,6 +551,7 @@ export class Meridian {
     this.R.hits = 0; this.R.perfects = 0;
     this.checkFeats();
     this.result = { score, combo: this.bestCombo, stage: this.spec().label, mode: MODES[this.mode].name, milestone: Math.floor(score / 500) };
+    this.timing = this.R.offN >= 5 ? Math.round(this.R.offSum / this.R.offN) : null;
     sv.milestone = Math.max(sv.milestone, this.result.milestone);
     sv.last = { ...this.result };
     this.persist();
@@ -509,6 +583,8 @@ export class Meridian {
     while (this.sq.length && this.sq[0][0] <= this.t) { const [, hz, s, w] = this.sq.shift(); this.c.tone(hz, s, w); }
     if (this.noteT > 0) this.noteT -= dt;
     if (this.fb) { this.fb.t -= dt; if (this.fb.t <= 0) this.fb = null; }
+    this.callT += dt;
+    for (let i = 0; i < 3; i++) this.sock[i] = Math.max(0, this.sock[i] - dt);
     if (this.phase === "play") this.step(dt);
     else {
       // The title and menus keep a slow swing going behind them.
@@ -566,40 +642,103 @@ export class Meridian {
   // ---- drawing --------------------------------------------------------------------------------
   draw(g) {
     space(g, this.t * 6, 0.25);
-    if (this.phase === "play") this.drawLamps(g);
-    if (this.phase === "play") this.drawPlay(g);
-    else if (this.phase === "title") banner(g, "MERIDIAN", "A light swings across the three lamps. The screen calls one: tap as the light reaches it.");
-    else if (this.phase === "over") this.drawOver(g);
+    if (this.phase === "play") { this.drawLamps(g); this.drawPlay(g); return; }
+    if (this.phase !== "menu") this.drawStars(g, 0.35);
+    if (this.phase === "title") {
+      banner(g, "MERIDIAN", "A light swings across the three lamps. The screen calls one: tap as the light reaches it.");
+      if (this.sv.sky) text(g, "SKY  " + skyPlace(this.sv.sky), 480, 470, 18, C.muted, "center");
+    } else if (this.phase === "over") this.drawOver(g);
     else this.drawMenu(g);
   }
+  // The lit stars of the sky, faint, behind the title and result screens.
+  drawStars(g, alpha) {
+    g.globalAlpha = alpha;
+    for (let i = 0; i < this.sv.sky; i++) circle(g, SKY[i][0], SKY[i][1], 2.5, C.amber, true);
+    g.globalAlpha = 1;
+  }
   // The call, large, and the three lamps as still sockets with the called one marked. The swinging
-  // light is deliberately not drawn: it is on the lamps.
+  // light is deliberately not drawn: it is on the lamps. A new call scales in; a sequence shows all
+  // its lamps with the one to catch now in full colour.
   drawLamps(g) {
     const gate = this.sw.gate, red = gate && gate.kind === "red" && !gate.done;
     const col = red ? C.red : C.cyan;
-    text(g, SIDE[this.target], 480, 236, 84, col, "center");
+    const pop = 1 + 0.3 * Math.max(0, 1 - this.callT / 0.16);
+    if (this.seqAll.length) {
+      const n = this.seqAll.length, at = n - this.seq.length - 1, w = n === 3 ? 260 : 320;
+      this.seqAll.forEach((p, i) => {
+        const x = 480 + (i - (n - 1) / 2) * w, now = i === at;
+        const c = i < at ? C.line : now ? col : C.muted;
+        g.save(); g.translate(x, 236); if (now) g.scale(pop, pop);
+        text(g, SIDE[p], 0, 0, now ? 60 : 40, c, "center");
+        g.restore();
+        if (i < n - 1) diamond(g, x + w / 2, 236, 7, C.line, true);
+      });
+      text(g, "SEQUENCE " + (at + 1) + " / " + n, 480, 178, 18, C.muted, "center");
+    } else {
+      g.save(); g.translate(480, 236); g.scale(pop, pop);
+      text(g, SIDE[this.target], 0, 0, 84, col, "center");
+      g.restore();
+    }
+    // A faint arc the light travels, and the sockets on it.
+    g.strokeStyle = C.line; g.lineWidth = 2; g.beginPath(); g.moveTo(LX[0], LY); g.quadraticCurveTo(480, LY + 44, LX[2], LY); g.stroke();
     for (let i = 0; i < 3; i++) {
-      const on = i === this.target;
-      circle(g, LX[i], LY, 30, on ? col : C.line, false, on ? 4 : 2);
-      if (on) circle(g, LX[i], LY, 12, col, true);
-      text(g, ["I", "II", "III"][i], LX[i], LY + 52, 18, on ? col : C.muted, "center");
+      const on = i === this.target, f = this.sock[i] / 0.5, y = i === 1 ? LY + 22 : LY;
+      g.fillStyle = C.bg; g.beginPath(); g.arc(LX[i], y, 30, 0, Math.PI * 2); g.fill();
+      if (f > 0) {
+        g.globalAlpha = f * 0.8; circle(g, LX[i], y, 30, this.sockCol[i], true);
+        g.globalAlpha = f; circle(g, LX[i], y, 30 + (1 - f) * 34, this.sockCol[i], false, 3);
+        g.globalAlpha = 1;
+      }
+      circle(g, LX[i], y, 30, on ? col : C.line, false, on ? 4 : 2);
+      if (on) circle(g, LX[i], y, 12, col, true);
+      text(g, ["I", "II", "III"][i], LX[i], y + 46, 18, on ? col : C.muted, "center");
     }
   }
   drawPlay(g) {
-    // Shields as diamonds, top right; the multiplier, top left.
+    // Shields as diamonds, top right; the multiplier in a ring that fills toward the next step, top left.
     if (this.mode === "sprint") text(g, Math.ceil(this.clock) + " s", 920, 44, 30, this.clock < 10 ? C.red : C.amber, "right");
     else for (let i = 0; i < SHIELDS; i++) diamond(g, 856 + i * 34, 44, 12, i < this.shields ? C.cyan : C.line, i < this.shields);
-    text(g, "x" + this.mult(), 40, 48, 34, this.mult() > 1 ? C.amber : C.muted);
-    if (this.gates <= PRACTICE) text(g, "PRACTICE SWINGS", 40, 88, 18, C.cyan);
-    if (this.noteT > 0) text(g, this.note, 480, 120, 22, C.amber, "center");
+    const m = this.mult(), frac = m >= 8 ? 1 : (this.combo % 5) / 5;
+    circle(g, 70, 50, 32, C.line, false, 4);
+    if (frac > 0) { g.strokeStyle = m >= 8 ? C.cyan : C.amber; g.lineWidth = 4; g.beginPath(); g.arc(70, 50, 32, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2); g.stroke(); }
+    text(g, "x" + m, 70, 51, 26, m > 1 ? C.amber : C.muted, "center");
+    if (this.combo > 1) text(g, this.combo + " IN A ROW", 116, 50, 18, C.muted);
+    // The stage and how far through it.
+    const sp = this.spec(), need = this.mode === "sprint" ? Math.ceil(sp.hits / 2) : sp.hits;
+    text(g, this.gates <= PRACTICE ? "PRACTICE SWINGS" : sp.label, 480, 30, 18, this.gates <= PRACTICE ? C.cyan : C.muted, "center");
+    g.fillStyle = C.line; g.fillRect(360, 46, 240, 6);
+    g.fillStyle = C.cyan; g.fillRect(360, 46, 240 * clamp(this.stageHits / need, 0, 1), 6);
+    if (this.noteT > 0) { g.globalAlpha = clamp(this.noteT / 0.4, 0, 1); text(g, this.note, 480, 116, 22, C.amber, "center"); g.globalAlpha = 1; }
     const gate = this.sw.gate;
-    if (gate && gate.kind === "red" && !gate.done) text(g, "RED SWING / LET IT PASS", 480, 300, 24, C.red, "center");
-    else if (gate && gate.blind && !gate.done) text(g, "DARK SWING", 480, 300, 24, C.muted, "center");
+    if (gate && gate.kind === "red" && !gate.done) text(g, "RED SWING / LET IT PASS", 480, 304, 24, C.red, "center");
+    else if (gate && gate.blind && !gate.done) text(g, "DARK SWING", 480, 304, 24, C.muted, "center");
     if (this.fb) {
       g.globalAlpha = clamp(this.fb.t / 0.3, 0, 1);
-      text(g, this.fb.word + (this.fb.pts ? "  +" + this.fb.pts : ""), 480, 476, 28, this.fb.col, "center");
+      const when = this.fb.ms === undefined ? "" : Math.abs(this.fb.ms) <= 10 ? "   ON TIME" : "   " + Math.abs(this.fb.ms) + " ms " + (this.fb.ms < 0 ? "EARLY" : "LATE");
+      text(g, this.fb.word + (this.fb.pts ? "  +" + this.fb.pts : "") + when, 480, 470, 26, this.fb.col, "center");
       g.globalAlpha = 1;
     }
+    this.drawTiming(g, 514);
+  }
+  // The last taps' timing on a strip: left of the centre line is early, right is late; newest brightest.
+  drawTiming(g, y) {
+    const half = 150, scale = half / 170;
+    line(g, 480 - half, y, 480 + half, y, C.line, 2);
+    line(g, 480, y - 12, 480, y + 12, C.muted, 2);
+    text(g, "EARLY", 480 - half - 12, y, 16, C.muted, "right");
+    text(g, "LATE", 480 + half + 12, y, 16, C.muted);
+    const n = this.offs.length;
+    this.offs.forEach((ms, i) => {
+      const x = 480 + clamp(ms, -170, 170) * scale, newest = i === n - 1;
+      g.globalAlpha = 0.25 + 0.75 * ((i + 1) / n);
+      line(g, x, y - (newest ? 12 : 8), x, y + (newest ? 12 : 8), Math.abs(ms) <= 60 ? C.cyan : C.amber, newest ? 4 : 3);
+    });
+    g.globalAlpha = 1;
+  }
+  timingText() {
+    const t = this.timing;
+    if (t === null) return "";
+    return Math.abs(t) <= 10 ? "ON TIME ON AVERAGE" : Math.abs(t) + " ms " + (t < 0 ? "EARLY" : "LATE") + " ON AVERAGE";
   }
   drawOver(g) {
     const r = this.result || {};
@@ -607,20 +746,39 @@ export class Meridian {
     g.fillRect(150, 52, 660, 450);
     line(g, 200, 62, 760, 62, C.line);
     text(g, r.mode === "SWING" ? "MERIDIAN" : "MERIDIAN / " + r.mode, 480, 96, 32, C.amber, "center");
-    let y = 150;
-    const row = (label, value, col = C.ink) => { text(g, label, 230, y, 18, C.muted); text(g, value, 730, y, 26, col, "right"); y += 38; };
+    let y = 146;
+    const row = (label, value, col = C.ink) => { text(g, label, 230, y, 18, C.muted); text(g, value, 730, y, 26, col, "right"); y += 36; };
     row("SCORE", String(r.score ?? 0));
     row("BEST COMBO", String(r.combo ?? 0));
     row("REACHED", r.stage || "");
+    if (this.timing !== null) row("TIMING", this.timingText().replace(" ON AVERAGE", ""), Math.abs(this.timing) <= 25 ? C.cyan : C.amber);
     text(g, this.newRecord ? "NEW BEST" : "BEST " + this.bestRef(), 480, y + 2, 20, this.newRecord ? C.cyan : C.amber, "center");
-    y += 36;
-    if (this.mode === "daily") { text(g, this.goalDone ? "DAILY GOAL MET" : "DAILY: " + dailyGoal(this.dayKey()).text, 480, y, 18, this.goalDone ? C.cyan : C.muted, "center"); y += 28; }
-    for (const id of this.newFeats.slice(0, 2)) {
-      const f = FEATS.find((x) => x.id === id);
-      if (f) { text(g, "FEAT  " + f.name, 480, y, 20, C.cyan, "center"); y += 28; }
-    }
-    for (const l of (r.next || []).slice(0, 2)) { text(g, l, 480, y, 18, C.muted, "center"); y += 26; }
+    y += 38;
+    const lines = [];
+    if (this.mode === "daily") lines.push([this.goalDone ? "DAILY GOAL MET" : "DAILY: " + dailyGoal(this.dayKey()).text, this.goalDone ? C.cyan : C.muted, 18]);
+    if (this.starsNew > 0) lines.push(["+" + this.starsNew + (this.starsNew > 1 ? " STARS" : " STAR") + "   " + skyPlace(this.sv.sky), C.amber, 20]);
+    for (const id of this.newFeats.slice(0, 2)) { const f = FEATS.find((x) => x.id === id); if (f) lines.push(["FEAT  " + f.name, C.cyan, 20]); }
+    for (const l of r.next || []) lines.push([l, C.muted, 18]);
+    for (const [s, col, size] of lines.slice(0, 4)) { text(g, s, 480, y, size, col, "center"); y += 28; }
     if (this.deadT > 0.7) text(g, "TAP = AGAIN     HOLD = OBSERVATORY", 480, 476, 20, C.amber, "center");
+  }
+  // The sky chart: six constellations, lit star by star across runs.
+  drawSky(g) {
+    const n = this.sv.sky;
+    text(g, "SKY  " + n + " / " + SKY_SIZE + "     " + skyPlace(n), 480, 118, 20, C.cyan, "center");
+    SKY_NAMES.forEach((name, k) => {
+      const base = k * STARS_PER, lit = clamp(n - base, 0, STARS_PER), whole = lit === STARS_PER;
+      for (let i = 1; i < lit; i++) line(g, SKY[base + i - 1][0], SKY[base + i - 1][1], SKY[base + i][0], SKY[base + i][1], whole ? C.amber : C.muted, whole ? 2 : 1);
+      for (let i = 0; i < STARS_PER; i++) {
+        const [x, y] = SKY[base + i], on = i < lit;
+        circle(g, x, y, on ? 5 : 2.5, on ? (whole ? C.amber : C.ink) : C.line, true);
+        if (on && base + i === n - 1) { g.globalAlpha = 0.4 + 0.4 * pulse(this.t, 1.2); circle(g, x, y, 10, C.amber, false, 2); g.globalAlpha = 1; }
+      }
+      const cx = 200 + (k % 3) * 280, cy = 194 + Math.floor(k / 3) * 150;
+      text(g, name, cx, cy + 62, 16, whole ? C.amber : lit ? C.ink : C.muted, "center");
+    });
+    text(g, "A STAR FOR EACH STAGE CLEARED, ONE FOR EVERY TWO SEQUENCES", 480, 450, 16, C.muted, "center");
+    text(g, "TAP = BACK", 480, 488, 18, C.cyan, "center");
   }
   drawMenu(g) {
     g.fillStyle = "#0c1511f2";
@@ -636,11 +794,12 @@ export class Meridian {
         SPRINT: ["SPRINT", lock("sprint") || "BEST " + sv.best.sprint],
         ECLIPSE: ["ECLIPSE", lock("eclipse") || "BEST " + sv.best.eclipse],
         LIGHT: ["LIGHT", this.light().name],
+        SKY: ["SKY", sv.sky + " / " + SKY_SIZE + " STARS"],
         FEATS: ["FEATS", n + " / " + FEATS.length],
         LOG: ["LOG", "RUNS " + sv.runs],
       };
       ROWS.forEach((id, i) => {
-        const y = 140 + i * 42, on = i === this.cur;
+        const y = 132 + i * 37, on = i === this.cur;
         const locked = (id === "SPRINT" && !this.unlocked("sprint")) || (id === "ECLIPSE" && !this.unlocked("eclipse"));
         if (on) diamond(g, 150, y, 9, C.amber, true);
         text(g, rows[id][0], 180, y, 24, on ? C.amber : locked ? C.line : C.ink);
@@ -650,11 +809,14 @@ export class Meridian {
       let info;
       if (id === "LIGHT") { const next = LIGHTS.find((l) => n < l.need); info = "The colour of the swinging light." + (next ? "  NEXT: " + next.name + " AT " + next.need : ""); }
       else if (id === "FEATS") info = "Named goals. Some are not listed.";
+      else if (id === "SKY") info = skyPlace(sv.sky) + ".  Runs light the stars.";
       else if (id === "LOG") info = "What you have done so far.";
       else if (id === "DAILY") info = "Goal: " + dailyGoal(this.dayKey()).text + (sv.dl.streak > 1 ? "  STREAK " + sv.dl.streak : "");
       else info = MODES[id.toLowerCase()].text;
       text(g, info, 480, 446, 18, C.muted, "center");
       text(g, "TAP = NEXT LINE     HOLD = CHOOSE", 480, 480, 18, C.cyan, "center");
+    } else if (this.view === "sky") {
+      this.drawSky(g);
     } else if (this.view === "feats") {
       const per = 6, pages = Math.ceil(FEATS.length / per);
       text(g, "FEATS  " + n + " / " + FEATS.length + "     PAGE " + (this.page + 1) + " / " + pages, 480, 118, 20, C.cyan, "center");
@@ -668,7 +830,7 @@ export class Meridian {
     } else {
       const lines = [
         ["RUNS", sv.runs], ["SWINGS STRUCK", sv.st.hits], ["PERFECT", sv.st.perfects], ["RED SWINGS HELD", sv.st.held],
-        ["BEST COMBO", sv.best.combo], ["FURTHEST", stageSpec(sv.far).label], ["DAILY GOALS", sv.st.daily + (sv.dl.streak > 1 ? "  STREAK " + sv.dl.streak : "")],
+        ["BEST COMBO", sv.best.combo], ["FURTHEST", stageSpec(sv.far).label], ["STARS LIT", sv.sky + " / " + SKY_SIZE], ["DAILY GOALS", sv.st.daily + (sv.dl.streak > 1 ? "  STREAK " + sv.dl.streak : "")],
       ];
       lines.forEach(([k, v], i) => { const y = 130 + i * 44; text(g, k, 150, y, 22, C.ink); text(g, String(v), 810, y, 22, C.amber, "right"); });
       text(g, "TAP = BACK", 480, 480, 18, C.cyan, "center");

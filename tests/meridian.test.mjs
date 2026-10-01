@@ -1,7 +1,7 @@
 // MERIDIAN: the swing, the called lamp, the judging, the stages, the observatory, the save, the lamps.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Meridian, migrateSave, swingX, gateTime, stageSpec, dailyGoal, WIN, PRACTICE, SIDE } from "../web/apps/meridian.js";
+import { Meridian, migrateSave, swingX, gateTime, stageSpec, dailyGoal, starsEarned, skyPlace, WIN, PRACTICE, SIDE, STARS_PER, SKY_SIZE } from "../web/apps/meridian.js";
 import { appContext, fakeCanvas, run } from "./helpers/app-context.mjs";
 import { Random } from "../web/engine/math.js";
 
@@ -182,9 +182,13 @@ test("the observatory: a hold opens it, taps move, locked modes refuse, feats un
   const { app } = mount();
   app.down(); run(app, 0.6); app.up();
   assert.equal(app.phase, "menu");
-  const pick = (name) => { while (["SWING", "DAILY", "SPRINT", "ECLIPSE", "LIGHT", "FEATS", "LOG"][app.cur] !== name) tap(app); app.down(); run(app, 0.6); app.up(); };
+  const pick = (name) => { while (["SWING", "DAILY", "SPRINT", "ECLIPSE", "LIGHT", "SKY", "FEATS", "LOG"][app.cur] !== name) tap(app); app.down(); run(app, 0.6); app.up(); };
   pick("SPRINT");
   assert.equal(app.phase, "menu", "sprint is locked without feats");
+  pick("SKY");
+  assert.equal(app.view, "sky");
+  tap(app);
+  assert.equal(app.view, "menu", "a tap leaves the sky chart");
   pick("FEATS");
   assert.equal(app.view, "feats");
   tap(app); assert.equal(app.page, 1);
@@ -237,12 +241,13 @@ test("the daily run is the same for everyone on the day and keeps a streak", () 
   assert.ok(app.sv.ft.includes("daily"));
 });
 
-test("save schema 1: anything stored loads, a saved game round-trips, unknown feats are dropped", () => {
-  for (const raw of [undefined, null, 7, "x", [], { schema: 1, runs: 2, last: { score: 5 }, milestone: 1 }, { st: "no", best: [], ft: "first" }]) {
+test("save schema 2: anything stored loads, a saved game round-trips, unknown feats are dropped", () => {
+  for (const raw of [undefined, null, 7, "x", [], { schema: 1, runs: 2, last: { score: 5 }, milestone: 1 }, { st: "no", best: [], ft: "first" }, { schema: 2, sky: -4 }, { schema: 2, sky: 999 }]) {
     const s = migrateSave(raw);
-    assert.equal(s.schema, 1);
+    assert.equal(s.schema, 2);
     numbers(s);
     assert.ok(Array.isArray(s.ft));
+    assert.ok(s.sky >= 0 && s.sky <= SKY_SIZE);
   }
   assert.equal(migrateSave({ schema: 1, runs: 2, milestone: 1 }).runs, 2, "the kit's run record keeps its count");
   const { ctx, app } = mount();
@@ -251,12 +256,97 @@ test("save schema 1: anything stored loads, a saved game round-trips, unknown fe
   app.shields = 1; app.gates = 99; app.penalty("WIDE", false);
   run(app, 3);
   const saved = ctx.calls.saved.at(-1);
-  assert.ok(saved && saved.schema === 1 && saved.runs === 1);
+  assert.ok(saved && saved.schema === 2 && saved.runs === 1);
   assert.ok(JSON.stringify(saved).length < 4096);
   assert.deepEqual(migrateSave(JSON.parse(JSON.stringify(saved))), saved);
   const again = new Meridian(appContext({ progress: { ...saved, ft: [...saved.ft, "bogus", saved.ft[0]] } }));
   assert.deepEqual(again.sv.ft, saved.ft);
   assert.equal(again.sv.runs, 1);
+  assert.equal(again.sv.sky, saved.sky);
+});
+
+test("a schema 1 save migrates to schema 2 with a star for every stage it had reached", () => {
+  const old = { schema: 1, runs: 9, far: 4, ft: ["first", "drift"], st: { hits: 300 }, best: { swing: 5000, combo: 22 }, sel: { light: 1 }, dl: { d: "2026-10-01", best: 900, done: 1, streak: 2, last: "2026-10-01" } };
+  const s = migrateSave(old);
+  assert.equal(s.schema, 2);
+  assert.equal(s.sky, 4);
+  assert.deepEqual([s.runs, s.far, s.st.hits, s.best.swing, s.best.combo, s.sel.light, s.dl.streak], [9, 4, 300, 5000, 22, 1, 2]);
+  assert.deepEqual(s.ft, ["first", "drift"]);
+  assert.equal(migrateSave({ schema: 2, far: 4, sky: 0 }).sky, 0, "a schema 2 save keeps its own sky");
+});
+
+test("the sky: stars for stages and sequences, added up across runs, never past the last star", () => {
+  assert.equal(starsEarned(0, 0), 0);
+  assert.equal(starsEarned(3, 5), 5);
+  assert.equal(starsEarned(-1, -3), 0);
+  assert.equal(skyPlace(0), "THE PLUMB LINE  0 / " + STARS_PER);
+  assert.equal(skyPlace(STARS_PER + 3), "THE KEEL  3 / " + STARS_PER);
+  assert.equal(skyPlace(SKY_SIZE), "THE WHOLE SKY IS LIT");
+  const { app } = mount();
+  app.start("swing");
+  app.R.far = 2; app.R.seqs = 3; app.R.offSum = 0;
+  app.finish();
+  assert.equal(app.sv.sky, 3);
+  assert.equal(app.starsNew, 3);
+  app.start("swing");
+  app.sv.sky = SKY_SIZE - 1; app.R.far = 5;
+  app.finish();
+  assert.equal(app.sv.sky, SKY_SIZE);
+  assert.equal(app.starsNew, 1);
+  assert.ok(app.sv.ft.includes("sky"), "a whole constellation is the STARGAZER feat");
+});
+
+test("sequences: from stage VI a call can be two or three lamps, caught in order for a bonus; a miss breaks it", () => {
+  const { app } = mount();
+  app.start("swing");
+  app.stage = 5; app.gates = 99;
+  let made = 0;
+  for (let i = 0; i < 40; i++) {
+    app.call();
+    if (app.seqAll.length) {
+      made++;
+      assert.equal(app.seqAll.length, 2, "stage VI calls twos");
+      for (let k = 1; k < app.seqAll.length; k++) assert.notEqual(app.seqAll[k], app.seqAll[k - 1]);
+      assert.equal(app.target, app.seqAll[0]);
+      assert.deepEqual(app.seq, app.seqAll.slice(1));
+      app.seq = []; app.seqAll = [];
+    }
+  }
+  assert.ok(made > 5 && made < 35, "about half the calls are sequences: " + made);
+  // Catch one in order.
+  app.seqAll = [0, 2]; app.seq = [2]; app.target = 0;
+  app.call(); // the sequence moves on to its second lamp
+  assert.equal(app.target, 2);
+  const before = app.score, seqs = app.R.seqs;
+  app.hit({ t: app.rt, p: 2, kind: "normal", blind: false, done: true, end: true }, 0);
+  assert.equal(app.R.seqs, seqs + 1);
+  assert.equal(app.fb.word, "SEQUENCE");
+  assert.ok(app.score - before > 100, "a completed sequence pays a bonus");
+  // A miss in the middle of one breaks it.
+  app.seqAll = [1, 0, 2]; app.seq = [0, 2];
+  app.penalty("WIDE", true);
+  assert.deepEqual([app.seq, app.seqAll], [[], []]);
+  // Cycles can call threes.
+  app.stage = 6;
+  let three = false;
+  for (let i = 0; i < 80 && !three; i++) { app.call(); three = app.seqAll.length === 3; app.seq = []; }
+  assert.ok(three, "a cycle calls a three");
+});
+
+test("every catch records how early or late it was: the last twelve, and the run's average", () => {
+  const { app } = mount();
+  app.start("swing");
+  for (let i = 0; i < 15; i++) app.hit({ t: app.rt - 0.02, p: 1, kind: "normal", blind: false, done: true, end: false }, 0);
+  assert.equal(app.offs.length, 12);
+  assert.ok(app.offs.every((ms) => ms === 20));
+  assert.equal(app.fb.ms, 20);
+  app.shields = 1; app.gates = 99; app.penalty("WIDE", false);
+  assert.equal(app.phase, "over");
+  assert.equal(app.timing, 20);
+  assert.equal(app.timingText(), "20 ms LATE ON AVERAGE");
+  const b = mount().app;
+  b.start("swing"); b.shields = 1; b.gates = 99; b.penalty("WIDE", false);
+  assert.equal(b.timing, null, "too few catches for an average");
 });
 
 test("every screen draws without throwing", () => {
@@ -268,5 +358,9 @@ test("every screen draws without throwing", () => {
   app.start("eclipse");
   run(app, 30, () => app.draw(g));
   run(app, 2); app.draw(g);
+  app.sv.sky = 13; app.starsNew = 2; app.timing = -14; app.draw(g);
+  app.openMenu(); app.view = "sky"; app.draw(g);
+  app.start("swing"); app.stage = 6; app.gates = 99; app.seqAll = [0, 2, 1]; app.seq = [2, 1]; app.offs = [-40, 10, 90]; app.sock = [0.3, 0, 0]; app.sockCol = ["#fff", "", ""];
+  run(app, 0.2, () => app.draw(g));
   assert.ok(g.count.fillText > 50);
 });

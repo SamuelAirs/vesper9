@@ -77,3 +77,12 @@ The long integrated run was started while final review continued. The final held
 - Sam: Kiln is not very good; Meridian has potential if it focuses only on the lights (the screen says left, middle or right and you tap as the light swings through). Kiln is removed from the catalog, registry and dashboard (its last version is commit 1d02a77 on this branch); the LAMPS page is gone and Meridian sits on PLAY III with Light Trial.
 - Meridian now: full swings end lamp to end lamp; the screen calls LEFT, MIDDLE or RIGHT and shows three still sockets, never the moving light. Each catch calls a new lamp (lead 0.55 s). Windows widened for the lamps' ~17 Hz updates (60/110/170 ms, end lamps x1.35). Stage III is now TEMPO (pace changes) instead of off-centre drift; feints turn back before the far lamp. Save schema unchanged (1).
 - Bot: 50 ms timing error reaches the cycles on three seeds; 80 ms reaches stages III to V; 150 ms loses in under 20 s; idle ends in about 12 s. Not verified on the device.
+
+## 2026-10-01 (late) — Meridian deepened: sequences, timing readout, the sky
+
+- Sam: every game should have life and depth, and visuals should improve across the board.
+- New stage VI SEQUENCE: about half the calls are two lamps at once (LEFT · RIGHT), caught in order for a bonus of 50 per lamp times the multiplier; a miss breaks it. Cycles call up to three. New feat IN ORDER (5 sequences in a run).
+- Timing readout: every catch shows its error in ms (EARLY/LATE), a strip under the lamps keeps the last twelve, and the result screen gives the run's average.
+- The sky: six constellations of eight stars in the observatory (SKY row), lit across runs, a star per stage cleared and one per two sequences. New feat STARGAZER (a whole constellation). Save schema 2; a schema 1 save starts with a star per stage reached (`migrateSave`, tested).
+- Visuals: the call pops in, sockets flash the grade and ripple, a combo ring fills toward the next multiplier, a stage progress bar, the travel arc between the sockets, lit stars behind the title and result screens.
+- Bot (6 seeds, 10 min cap): 30 and 50 ms timing error reach cycles 12 to 14; 80 ms reaches cycles 2 to 6 in four to six minutes. Not verified on the device.

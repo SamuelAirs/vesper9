@@ -111,12 +111,11 @@ Rebuild and flash this branch's head as before (`git -C ../knock-test pull`, the
 
 Sam only wants soft taps, not hard knocks (2026-10-01), so the hard-knock check is dropped.
 
-1. 15 soft taps, the way Sam would tap during a game: count, and note each `peak` and `hf`.
-2. 10 claps at the distances Sam would clap: note each `peak` and `hf`.
-3. If the taps' peaks all stay well below the claps' (the first test had claps at 16738 or more),
-   a peak ceiling can reject claps along with hard knocks; if `hf` separates them, that works too.
-4. The console with sound up (`--http-port 8800` run as before): a minute of a game with frequent
+Claps counting as taps is fine with Sam ("maybe even a feature"), so `KNOCK_MAX_HF` stays off
+and `hf` is only a diagnostic.
+
+1. 15 soft taps, the way Sam would tap during a game: all should arrive, once each.
+2. The console with sound up (`--http-port 8800` run as before): a minute of a game with frequent
    tones; KNOCK COUNTS in Node Scope should not rise.
 
-Send back the `hf` values for knocks and claps; if they separate, the next commit sets
-`KNOCK_MAX_HF` between them.
+Send back the tap count and peaks, and whether the game's tones raised KNOCK COUNTS.

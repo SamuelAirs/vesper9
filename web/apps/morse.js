@@ -157,7 +157,8 @@ export class MorseSchool {
     const streak = accepted ? Math.min(5, old.streak + 1) : 0;
     this.learning.characters[this.target] = { seen: old.seen + 1, correct: old.correct + Number(accepted), streak,
       due: this.attempts + (accepted ? 2 ** streak : 1) };
-    if (accepted) { this.correct++; this.sessionCorrect++; this.index++; this.c.score(this.correct); }
+    // Only the modes that teach the guided sequence move its position; review answers earlier letters.
+    if (accepted) { this.correct++; this.sessionCorrect++; if (this.mode !== 'review') this.index++; this.c.score(this.correct); }
     this.learning.index = this.index; this.learning.correct = this.correct; this.learning.attempts = this.attempts;
     this.result = accepted ? `${this.target} accepted. Signal ${MORSE[this.target]}` : `Received ${decoded}. ${this.target} is ${MORSE[this.target]}. Try again.`;
     this.c.tone(accepted ? 750 : 180, .17);
@@ -170,7 +171,7 @@ export class MorseSchool {
     this.c.synth.stopTone(); this.c.leds(Array(9).fill(0)); this.lit = false;
   }
   pause() { this.cancel(); }
-  resume() { if (this.mode === 'listen' && !this.summary && !this.nextDelay) this.demonstrate(); }
+  resume() { if (this.mode === 'listen' && !this.summary && !(this.nextDelay > 0)) this.demonstrate(); }
   dispose() { this.cancel(); }
   update(dt) {
     this.t += dt;

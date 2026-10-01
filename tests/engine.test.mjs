@@ -146,6 +146,9 @@ test("orbit awards alignment and ends after three misses", () => {
     g.down();
   }
   assert.equal(g.phase, "over");
+  // A finished run is recorded once the menu-gesture window has passed (games.js SETTLE).
+  assert.deepEqual(c.records, []);
+  ticks(g, 2.1);
   assert.deepEqual(c.records, [1]);
 });
 test("holding runner jump yields a higher apex than tapping", () => {
@@ -175,7 +178,7 @@ test("runner collision ends expedition once", () => {
   g.obstacles = [{ x: 198, w: 40, h: 70, passed: false }];
   g.update(1 / 60);
   assert.equal(g.phase, "over");
-  ticks(g, 1);
+  ticks(g, 2.1);
   assert.equal(c.records.length, 1);
 });
 test("flight thrust and release move in opposite directions", () => {

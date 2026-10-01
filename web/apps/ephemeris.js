@@ -286,7 +286,7 @@ export const coordText = (lat, lon) =>
   Math.abs(lat) + " " + (lat < 0 ? "S" : "N") + " " + Math.abs(lon) + " " + (lon < 0 ? "W" : "E");
 
 export const PRESETS = [
-  { name: "MID-CONTINENT US", lat: 39, lon: -98 },
+  { name: "US CENTRAL", lat: 39, lon: -95 },
   { name: "ARCTIC NORWAY", lat: 70, lon: 25 },
   { name: "NORTHERN EUROPE", lat: 52, lon: 0 },
   { name: "SUBTROPICS / FLORIDA", lat: 26, lon: -80 },
@@ -389,7 +389,9 @@ export class Ephemeris {
     this.cache = { key: "", html: "" };
     this.loc = sanitizeLocation(ctx.progress?.());
     this.dead = false;
-    this.buildActions();
+    this.paused = false; // the system menu is open: it owns the lamps
+    this.chosen = null; // id of the action that was run last (see publish)
+    this.buildActions("first", true);
     this.hint();
     this.refresh();
   }
@@ -584,7 +586,7 @@ export class Ephemeris {
   }
 
   updateLamps(ms = this.clock()) {
-    if (this.dead) return;
+    if (this.dead || this.paused) return;
     let values;
     try {
       if (this.wiz) values = lightsOff();
@@ -603,7 +605,7 @@ export class Ephemeris {
   }
 
   hint() {
-    this.ctx.hint(this.wiz ? "Tap to advance. Hold and release to choose a digit."
+    this.ctx.hint(this.wiz ? "Tap to advance. Hold and release to choose a step."
       : `Page ${this.page + 1} of 4: ${PAGES[this.page]}. Tap to advance. Hold and release to choose.`);
   }
 
@@ -615,52 +617,67 @@ export class Ephemeris {
   }
 
   // ---- location chooser
+  // Two steppers on the nearest degree, latitude then longitude (signed: south and west are
+  // negative), each with steps of 1 and 10, so no list is longer than seven rows. It starts
+  // from the current place, or from the first preset.
   begin() {
     const cur = this.loc || { lat: PRESETS[0].lat, lon: PRESETS[0].lon };
-    const la = Math.abs(cur.lat), lo = Math.abs(cur.lon);
-    this.wiz = { step: 0, ns: cur.lat < 0 ? "S" : "N", ew: cur.lon < 0 ? "W" : "E",
-      d: [Math.floor(la / 10), la % 10, Math.floor(lo / 100), Math.floor(lo / 10) % 10, lo % 10] };
+    this.wiz = { step: 0, lat: cur.lat, lon: cur.lon };
     this.hint();
-    this.wizardView();
+    this.wizardView("first");
     this.refresh();
   }
 
   wizValue() {
-    const w = this.wiz, [a, b, c, d, e] = w.d;
-    const lat = (a * 10 + b) * (w.ns === "S" ? -1 : 1);
-    const lon = (c * 100 + d * 10 + e) * (w.ew === "W" ? -1 : 1);
-    return { lat: clamp(lat, -90, 90), lon: clamp(lon, -180, 180) };
+    return { lat: clamp(this.wiz.lat, -90, 90), lon: clamp(this.wiz.lon, -180, 180) };
   }
 
-  wizardView() {
-    const w = this.wiz, [a, b, c, d, e] = w.d;
+  wizardView(want = null) {
+    const w = this.wiz;
+    const latText = Math.abs(w.lat) + " " + (w.lat < 0 ? "S" : "N"), lonText = Math.abs(w.lon) + " " + (w.lon < 0 ? "W" : "E");
     const mark = (i, text) => (w.step === i ? "[" + text + "]" : text);
-    const display = `${mark(1, a)}${mark(2, b)} ${mark(0, w.ns)}  ${mark(4, c)}${mark(5, d)}${mark(6, e)} ${mark(3, w.ew)}`;
-    const prompts = ["LATITUDE: NORTH OR SOUTH", "LATITUDE: TENS OF DEGREES", "LATITUDE: UNITS", "LONGITUDE: EAST OR WEST",
-      "LONGITUDE: HUNDREDS", "LONGITUDE: TENS", "LONGITUDE: UNITS", "CHECK AND SAVE"];
-    this.ctx.content(`<div class="utility-panel"><div class="data-label">SET LOCATION / NEAREST DEGREE</div><div class="big-readout">${esc(display)}</div>` +
-      `<p class="recording-tag">${prompts[w.step]}</p><p>THE CHOICE LIST STARTS AT THE CURRENT VALUE. LATITUDE 0-90, LONGITUDE 0-180.</p></div>`);
+    const prompts = ["LATITUDE: STEP NORTH OR SOUTH", "LONGITUDE: STEP EAST OR WEST", "CHECK AND SAVE"];
+    this.ctx.content(`<div class="utility-panel"><div class="data-label">SET LOCATION / NEAREST DEGREE</div><div class="big-readout">${esc(mark(0, latText) + "   " + mark(1, lonText))}</div>` +
+      `<p class="recording-tag">${prompts[w.step]}</p><p>HOLD A STEP AGAIN TO REPEAT IT. NEXT MOVES ON. LATITUDE 0-90, LONGITUDE 0-180.</p></div>`);
     const items = [];
-    const rotate = (list, current) => {
-      const i = Math.max(0, list.indexOf(current));
-      return [...list.slice(i), ...list.slice(0, i)];
-    };
-    const advance = (apply) => () => { apply(); w.step++; this.wizardView(); this.refresh(); };
-    switch (w.step) {
-      case 0: for (const v of rotate(["N", "S"], w.ns)) items.push({ id: "wiz-ns-" + v, label: v === "N" ? "NORTH" : "SOUTH", run: advance(() => { w.ns = v; }) }); break;
-      case 1: for (const v of rotate([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], w.d[0])) items.push({ id: "wiz-lat10-" + v, label: "DIGIT / " + v, run: advance(() => { w.d[0] = v; if (v === 9) w.d[1] = 0; }) }); break;
-      case 2: for (const v of rotate(a === 9 ? [0] : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], w.d[1])) items.push({ id: "wiz-lat1-" + v, label: "DIGIT / " + v, run: advance(() => { w.d[1] = v; }) }); break;
-      case 3: for (const v of rotate(["E", "W"], w.ew)) items.push({ id: "wiz-ew-" + v, label: v === "E" ? "EAST" : "WEST", run: advance(() => { w.ew = v; }) }); break;
-      case 4: for (const v of rotate([0, 1], w.d[2])) items.push({ id: "wiz-lon100-" + v, label: "DIGIT / " + v, run: advance(() => { w.d[2] = v; }) }); break;
-      case 5: for (const v of rotate(c === 1 ? [0, 1, 2, 3, 4, 5, 6, 7, 8] : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], w.d[3])) items.push({ id: "wiz-lon10-" + v, label: "DIGIT / " + v, run: advance(() => { w.d[3] = v; if (c === 1 && v === 8) w.d[4] = 0; }) }); break;
-      case 6: for (const v of rotate(c === 1 && d === 8 ? [0] : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], w.d[4])) items.push({ id: "wiz-lon1-" + v, label: "DIGIT / " + v, run: advance(() => { w.d[4] = v; }) }); break;
-      default: {
-        const v = this.wizValue();
-        items.push({ id: "wiz-save", label: "SAVE / " + coordText(v.lat, v.lon), run: () => this.setLocation(v) });
-      }
+    const advance = () => { w.step++; this.wizardView("first"); this.refresh(); };
+    if (w.step < 2) {
+      const key = w.step === 0 ? "lat" : "lon", limit = w.step === 0 ? 90 : 180;
+      const [more, less] = w.step === 0 ? ["NORTH", "SOUTH"] : ["EAST", "WEST"];
+      const bump = (d) => () => { w[key] = clamp(w[key] + d, -limit, limit); this.wizardView(); this.refresh(); };
+      items.push(
+        { id: "wiz-next", label: w.step === 0 ? "NEXT / LONGITUDE" : "NEXT / CHECK", run: advance },
+        { id: "wiz-up1", label: "MORE " + more + " +1", run: bump(1) },
+        { id: "wiz-dn1", label: "MORE " + less + " -1", run: bump(-1) },
+        { id: "wiz-up10", label: "MORE " + more + " +10", run: bump(10) },
+        { id: "wiz-dn10", label: "MORE " + less + " -10", run: bump(-10) },
+      );
+    } else {
+      const v = this.wizValue();
+      items.push({ id: "wiz-save", label: "SAVE / " + coordText(v.lat, v.lon), run: () => this.setLocation(v) });
     }
-    if (w.step > 0) items.push({ id: "wiz-back", label: "BACK / PREVIOUS DIGIT", run: () => { w.step--; this.wizardView(); this.refresh(); } });
+    if (w.step > 0) items.push({ id: "wiz-back", label: "BACK / " + (w.step === 1 ? "LATITUDE" : "LONGITUDE"), run: () => { w.step--; this.wizardView("first"); this.refresh(); } });
     items.push({ id: "wiz-cancel", label: "CANCEL / KEEP " + (this.loc ? coordText(this.loc.lat, this.loc.lon) : "NO LOCATION"), run: () => this.endWizard() });
+    this.publish(items, want);
+  }
+
+  // The host keeps the highlight on the action with the same id, else on the same row number,
+  // which after a list change is an arbitrary row (choosing the last preset used to land on
+  // RETURN TO DASHBOARD). So the action that should be highlighted next takes over the id of
+  // the one just chosen (`want` is an id or "first"). On opening (`park`) the highlight would
+  // otherwise start on the row numbered like the dashboard card that was chosen, so a one-item
+  // list is published first, which pins the highlight to the target.
+  publish(items, want = null, park = false) {
+    const target = want === "first" ? items[0] : items.find((i) => i.id === want);
+    if (target && this.chosen) {
+      for (const item of items) if (item !== target && item.id === this.chosen) item.id += "~";
+      target.id = this.chosen;
+    }
+    for (const item of items) {
+      const run = item.run;
+      item.run = () => { this.chosen = item.id; return run(); };
+    }
+    if (park && target) this.ctx.actions([target]);
     this.ctx.actions(items);
   }
 
@@ -668,7 +685,7 @@ export class Ephemeris {
     this.wiz = null;
     this.menu = "main";
     this.cache = { key: "", html: "" };
-    this.buildActions();
+    this.buildActions("custom");
     this.hint();
     this.refresh();
   }
@@ -681,34 +698,36 @@ export class Ephemeris {
     this.menu = "main";
     this.ctx.saveProgress({ schema: 1, lat: loc.lat, lon: loc.lon })?.catch?.(this.ctx.error);
     this.cache = { key: "", html: "" };
-    this.buildActions();
+    this.buildActions("next");
     this.hint();
     this.refresh();
   }
 
   // ---- actions
-  buildActions() {
+  buildActions(want = null, park = false) {
     const ctx = this.ctx;
     let items;
     if (this.menu === "preset") {
       items = [
         ...PRESETS.map((p, i) => ({ id: "preset-" + i, label: `${p.name} / ${coordText(p.lat, p.lon)}`, run: () => this.setLocation(p) })),
-        { id: "preset-back", label: "BACK", run: () => { this.menu = "main"; this.buildActions(); this.cache = { key: "", html: "" }; this.refresh(); } },
+        { id: "preset-back", label: "BACK", run: () => { this.menu = "main"; this.buildActions("preset"); this.cache = { key: "", html: "" }; this.refresh(); } },
       ];
     } else {
       items = [
         { id: "next", label: "NEXT PAGE", run: () => this.setPage(this.page + 1) },
         { id: "previous", label: "PREVIOUS PAGE", run: () => this.setPage(this.page - 1) },
-        { id: "preset", label: "LOCATION PRESETS →", run: () => { this.menu = "preset"; this.buildActions(); this.refresh(); } },
+        { id: "preset", label: "LOCATION PRESETS →", run: () => { this.menu = "preset"; this.buildActions("first"); this.refresh(); } },
         { id: "custom", label: this.loc ? "SET LOCATION / " + coordText(this.loc.lat, this.loc.lon) : "SET LOCATION / LATITUDE, LONGITUDE", run: () => this.begin() },
         { id: "home", label: "RETURN TO DASHBOARD", run: ctx.home },
       ];
     }
-    ctx.actions(items);
+    this.publish(items, want, park);
   }
 
   tick() { this.refresh(); }
   cancel() {}
+  pause() { this.paused = true; }
+  resume() { this.paused = false; this.updateLamps(); }
   dispose() {
     this.dead = true;
     this.ctx.leds(lightsOff());

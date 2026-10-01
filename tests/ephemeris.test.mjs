@@ -272,7 +272,7 @@ test("helpers: day of year, offsets, durations, coordinates, deltaT, location sa
   assert.deepEqual(sanitizeLocation({ lat: 39.4, lon: -97.6 }), { lat: 39, lon: -98 });
   for (const bad of [null, undefined, {}, { lat: 91, lon: 0 }, { lat: 0, lon: 181 }, { lat: "x", lon: 1 }, 5, "a"]) assert.equal(sanitizeLocation(bad), null);
   for (const p of PRESETS) assert.ok(sanitizeLocation(p));
-  assert.equal(PRESETS[0].lon, -98);
+  assert.equal(PRESETS[0].lon, -95, "the first preset is the owner's region: 39 N 95 W");
 });
 
 test("lamp frames: nine bytes, a third of full at most, warm spot moves left to right, blue at night", () => {
@@ -379,14 +379,15 @@ test("choosing a preset shows sunrise, sunset, day length, noon and a countdown,
   const { ctx, app } = open();
   pick(ctx, "LOCATION PRESETS");
   assert.ok(labels(ctx).length <= 8);
-  assert.ok(labels(ctx)[0].startsWith("MID-CONTINENT US"));
-  pick(ctx, "MID-CONTINENT");
-  assert.deepEqual(ctx.calls.saved.at(-1), { schema: 1, lat: 39, lon: -98 });
+  assert.ok(labels(ctx)[0].startsWith("US CENTRAL"));
+  pick(ctx, "US CENTRAL");
+  assert.deepEqual(ctx.calls.saved.at(-1), { schema: 1, lat: 39, lon: -95 });
   const html = lastHtml(ctx);
   assert.match(html, /NEXT: SUNSET/);
-  assert.match(html, /39 N 98 W/);
-  // 2026-10-01 at 39N 98W: sunrise 12:47 UTC = 07:47 CDT, sunset 00:33 UTC = 19:33... check with the pure function.
-  const ev = sunEvents(solarDay(iso("2026-10-01T15:30:00Z"), -98), 39, -98);
+  assert.match(html, /39 N 95 W/);
+  // 2026-10-01 at 39N 95W: sunrise 12:16 UTC = 07:16 CDT, sunset 00:02 UTC (independent source for
+  // 39.1 N 94.6 W: 12:13 and 00:02, solar noon 18:07:58; see the header).
+  const ev = sunEvents(solarDay(iso("2026-10-01T15:30:00Z"), -95), 39, -95);
   const hm = (ms) => { const f = fields(ms + 30000, -300); return String(f.h).padStart(2, "0") + ":" + String(f.mi).padStart(2, "0"); };
   assert.ok(html.includes("SUNRISE " + hm(ev.rise)), html);
   assert.ok(html.includes("SUNSET " + hm(ev.set)));
@@ -506,47 +507,45 @@ test("action lists stay short, keep their labels while paging, and every action 
   assert.equal(labels(a.ctx)[0], "NEXT PAGE");
 });
 
-test("custom location wizard: tens then units, validates ranges, saves the nearest degree", () => {
+test("custom location chooser: two steppers, every list at most eight rows, saves the nearest degree", () => {
   const { ctx, app } = open();
   pick(ctx, "SET LOCATION");
   assert.match(lastHtml(ctx), /SET LOCATION/);
-  assert.ok(labels(ctx).includes("NORTH") && labels(ctx).includes("SOUTH"));
-  pick(ctx, "SOUTH");
-  // latitude 3 4
-  assert.equal(labels(ctx)[0], "DIGIT / 3", "list starts at the current value");
-  pick(ctx, "DIGIT / 3");
-  pick(ctx, "DIGIT / 4");
-  pick(ctx, "EAST");
-  pick(ctx, "DIGIT / 1");
-  pick(ctx, "DIGIT / 5");
-  assert.match(lastHtml(ctx), /LONGITUDE: UNITS/);
-  pick(ctx, "DIGIT / 1");
-  assert.ok(labels(ctx).some((l) => l === "SAVE / 34 S 151 E"), labels(ctx).join("|"));
+  assert.match(lastHtml(ctx), /\[39 N\]   95 W/, "starts from the first preset");
+  assert.equal(labels(ctx)[0], "NEXT / LONGITUDE", "NEXT is first, so a place that is right costs no taps");
+  assert.ok(labels(ctx).length <= 8);
+  for (let i = 0; i < 4; i++) pick(ctx, "MORE SOUTH -10"); // 39 -> -1
+  pick(ctx, "MORE NORTH +1"); // 0
+  pick(ctx, "MORE SOUTH -1"); pick(ctx, "MORE SOUTH -1"); // -2
+  pick(ctx, "NEXT / LONGITUDE");
+  assert.match(lastHtml(ctx), /LONGITUDE: STEP EAST OR WEST/);
+  assert.match(lastHtml(ctx), /2 S   \[95 W\]/);
+  for (let i = 0; i < 9; i++) pick(ctx, "MORE EAST +10"); // -95 -> -5
+  for (let i = 0; i < 7; i++) pick(ctx, "MORE EAST +1"); // 2
+  assert.ok(labels(ctx).length <= 8);
+  pick(ctx, "NEXT / CHECK");
+  assert.ok(labels(ctx).includes("SAVE / 2 S 2 E"), labels(ctx).join("|"));
   assert.ok(labels(ctx).some((l) => l.startsWith("BACK")) && labels(ctx).some((l) => l.startsWith("CANCEL")));
   pick(ctx, "SAVE");
-  assert.deepEqual(ctx.calls.saved.at(-1), { schema: 1, lat: -34, lon: 151 });
-  assert.deepEqual(app.loc, { lat: -34, lon: 151 });
+  assert.deepEqual(ctx.calls.saved.at(-1), { schema: 1, lat: -2, lon: 2 });
+  assert.deepEqual(app.loc, { lat: -2, lon: 2 });
   assert.equal(app.wiz, null);
   assert.equal(labels(ctx)[0], "NEXT PAGE");
   assert.match(lastHtml(ctx), /NEXT: SUN|POLAR/);
 });
 
-test("wizard limits: latitude 90 forces units 0, longitude 180 forces 0, back and cancel work", () => {
+test("chooser limits: latitude stops at 90, longitude at 180, back and cancel work", () => {
   const { ctx, app } = open({ progress: { lat: 39, lon: -98 } });
   pick(ctx, "SET LOCATION");
-  pick(ctx, "NORTH");
-  pick(ctx, "DIGIT / 9");
-  assert.deepEqual(labels(ctx).filter((l) => l.startsWith("DIGIT")), ["DIGIT / 0"]);
-  pick(ctx, "DIGIT / 0");
-  pick(ctx, "WEST");
-  pick(ctx, "DIGIT / 1");
-  assert.equal(labels(ctx).filter((l) => l.startsWith("DIGIT")).length, 9, "no 19x longitudes");
-  pick(ctx, "DIGIT / 8");
-  assert.deepEqual(labels(ctx).filter((l) => l.startsWith("DIGIT")), ["DIGIT / 0"]);
-  pick(ctx, "DIGIT / 0");
+  for (let i = 0; i < 8; i++) pick(ctx, "MORE NORTH +10");
+  assert.match(lastHtml(ctx), /\[90 N\]/);
+  pick(ctx, "NEXT / LONGITUDE");
+  for (let i = 0; i < 12; i++) pick(ctx, "MORE WEST -10");
+  assert.match(lastHtml(ctx), /\[180 W\]/);
+  pick(ctx, "NEXT / CHECK");
   assert.ok(labels(ctx).some((l) => l === "SAVE / 90 N 180 W"));
   pick(ctx, "BACK");
-  assert.match(lastHtml(ctx), /LONGITUDE: UNITS/);
+  assert.match(lastHtml(ctx), /LONGITUDE: STEP EAST OR WEST/);
   pick(ctx, "CANCEL");
   assert.deepEqual(app.loc, { lat: 39, lon: -98 }, "cancel keeps the old location");
   assert.equal(ctx.calls.saved.length, 0);
@@ -605,4 +604,54 @@ test("stray cancels and the home action do not touch the saved location", () => 
   assert.ok(item);
   assert.equal(typeof item.run, "function");
   assert.equal(ctx.calls.saved.length, 0);
+});
+
+// What the host does with the highlight when a list is published (web/main.js setNav): it stays
+// on the action with the same id, otherwise on the same row number. `card` is the row the
+// dashboard had highlighted when the instrument opened: the first list starts at that row.
+function pad(ctx, card = 0) {
+  let items = null, index = card, seen = 0;
+  const idOf = (i) => i.id || i.label;
+  const sync = () => {
+    for (; seen < ctx.calls.actions.length; seen++) {
+      const next = ctx.calls.actions[seen], match = items ? next.findIndex((i) => idOf(i) === idOf(items[index])) : -1;
+      index = Math.min(match >= 0 ? match : index, next.length - 1);
+      items = next;
+    }
+  };
+  return {
+    tap(n = 1) { sync(); index = (index + n) % items.length; return this; },
+    hold() { sync(); items[index].run(); sync(); return this; },
+    get label() { sync(); return items[index].label; },
+  };
+}
+
+test("opened from any dashboard card NEXT PAGE is highlighted; presets and the chooser end on sensible rows", () => {
+  for (let card = 0; card < 8; card++) assert.equal(pad(open().ctx, card).label, "NEXT PAGE", "card " + card);
+  const { ctx } = open();
+  const hand = pad(ctx, 2);
+  hand.tap(2).hold(); // LOCATION PRESETS
+  assert.match(hand.label, /^US CENTRAL/, "a list opens on its first row");
+  hand.tap(PRESETS.length).hold(); // BACK
+  assert.match(hand.label, /^LOCATION PRESETS/, "back on the row that opened the list");
+  hand.hold();
+  hand.tap(PRESETS.length - 1).hold(); // the last preset used to land on RETURN TO DASHBOARD
+  assert.equal(hand.label, "NEXT PAGE");
+  hand.tap(3).hold(); // SET LOCATION
+  assert.equal(hand.label, "NEXT / LONGITUDE");
+  hand.tap(1).hold(); // one step, the highlight stays on it
+  assert.match(hand.label, /MORE NORTH \+1/);
+  hand.tap(4).hold(); // CANCEL
+  assert.match(hand.label, /^SET LOCATION/);
+});
+
+test("the system menu owns the lamps while it is open", () => {
+  const { ctx, app, set } = open({ progress: { lat: 39, lon: -95 } });
+  const n = ctx.calls.leds.length;
+  app.pause();
+  set(Date.now() + 5000); app.tick();
+  assert.equal(ctx.calls.leds.length, n, "nothing is written while paused");
+  app.resume();
+  assert.ok(ctx.calls.leds.length > n);
+  app.dispose();
 });

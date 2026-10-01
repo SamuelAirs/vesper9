@@ -41,9 +41,13 @@ class Layout(unittest.TestCase):
             self.assertTrue(4 <= len(sector['apps']) <= 5, sector['name'])
         self.assertTrue(all(i not in GAMES for s in sectors[3:] for i in s['apps']))
 
-    def test_chronometer_and_cadence_sit_side_by_side(self):
-        instruments = sum((s['apps'] for s in CATALOG['sectors'][3:]), [])
-        self.assertEqual(abs(instruments.index('timers') - instruments.index('cadence')), 1)
+    def test_chronometer_is_retired_in_favour_of_the_timer_tool_in_cadence(self):
+        on_dashboard = {i for s in CATALOG['sectors'] for i in s['apps']}
+        self.assertNotIn('timers', on_dashboard)
+        self.assertIn('cadence', on_dashboard)
+        by_id = {app['id']: app for app in CATALOG['apps']}
+        self.assertEqual(by_id['timers']['voice'], [], 'the old instrument stays registered, without a voice name')
+        self.assertIn('timer', by_id['cadence']['voice'], '"computer open timer" opens Cadence')
 
     def test_tools_are_off_the_dashboard_and_in_the_system_list_and_ephemeris_is_retired(self):
         on_dashboard = {i for s in CATALOG['sectors'] for i in s['apps']}
@@ -55,8 +59,8 @@ class Layout(unittest.TestCase):
         ephemeris = next(app for app in CATALOG['apps'] if app['id'] == 'ephemeris')
         self.assertEqual(ephemeris['voice'], [], 'its voice name is gone')
         self.assertEqual(ephemeris['factory'], 'Ephemeris', 'but it is still registered and launchable by id')
-        # Everything that is not on the dashboard is either a system tool or the retired Ephemeris.
-        self.assertEqual({i for i in IDS if i not in on_dashboard}, {'settings', 'diagnostics', 'telemetry', 'ephemeris'})
+        # Everything that is not on the dashboard is a system tool or retired (Ephemeris, Chronometer).
+        self.assertEqual({i for i in IDS if i not in on_dashboard}, {'settings', 'diagnostics', 'telemetry', 'ephemeris', 'timers'})
 
     def test_the_catalog_no_longer_carries_a_menu_policy(self):
         self.assertTrue(all('escape' not in app for app in CATALOG['apps']))

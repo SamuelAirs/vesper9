@@ -1,4 +1,6 @@
 import { C, text, line, circle, space } from "../engine/draw.js";
+import { LAMP, fill, only, spot, dim } from "../engine/lightshow.js";
+import { LampBus } from "./games.js";
 export const MORSE = {
   A: ".-",
   B: "-...",
@@ -88,6 +90,7 @@ export class MorseSchool {
     this.correct = this.learning.correct;
     this.attempts = this.learning.attempts;
     this.t = 0;
+    this.lamps = new LampBus(ctx);
     this.start('guided');
   }
   get unit() { return 1200 / this.c.settings().morseWpm; }
@@ -101,7 +104,7 @@ export class MorseSchool {
     this.cancel();
     this.mode = mode; this.sessionCorrect = 0; this.sessionAttempts = 0;
     this.c.controls?.(mode === 'listen' ? 'WATCH OR LISTEN · PRESS THE HIGHLIGHTED ANSWER' : 'TAP A DOT · HOLD A DASH');
-    this.nextDelay = 0; this.summary = false;
+    this.nextDelay = 0; this.summary = false; this.run = 0;
     this.nextCharacter();
   }
   nextCharacter() {
@@ -110,6 +113,12 @@ export class MorseSchool {
     this.result = this.mode === 'review' ? 'Recall the signal. Weak characters return sooner.' : 'Transmit the letter above.';
     this.c.hint('Hold 3s for learning modes / menu. Dot: tap. Dash: hold briefly.');
     if (this.mode === 'listen') this.demonstrate();
+  }
+  // The key-down and gap steps of a letter, one unit per dot, three per dash, one unit between.
+  elements(letter) {
+    return [...MORSE[letter]].flatMap((symbol) => [
+      { on: true, dash: symbol === '-', seconds: this.unit / 1000 * (symbol === '.' ? 1 : 3) },
+      { on: false, seconds: this.unit / 1000 }]);
   }
   demonstrate() {
     this.cancel();
@@ -122,10 +131,7 @@ export class MorseSchool {
       const j = this.c.rng.int(0, i); [choices[i], choices[j]] = [choices[j], choices[i]];
     }
     this.choices = [...choices, 'REPLAY']; this.focus = 0; this.scan = 0;
-    this.pulses = [{ on: false, seconds: .6 }];
-    for (const symbol of MORSE[this.target]) {
-      this.pulses.push({ on: true, seconds: this.unit / 1000 * (symbol === '.' ? 1 : 3) }, { on: false, seconds: this.unit / 1000 });
-    }
+    this.pulses = [{ on: false, seconds: .6 }, ...this.elements(this.target)];
     this.pulse = -1; this.pulseWait = 0; this.phase = 'signal'; this.lit = false;
     this.result = 'Watch the pulse lamp or listen. The answer stays hidden.';
     this.c.hint('After the signal, press the highlighted answer. REPLAY repeats it. Hold 3s for modes.');
@@ -135,7 +141,7 @@ export class MorseSchool {
     if (this.nextDelay > 0 || this.phase === 'signal') return;
     if (this.phase === 'choose') { this.pendingChoice = this.focus; return; }
     this.downAt = this.t; this.gap = 0;
-    this.c.synth.startTone(550); this.c.leds([80, 140, 30, 80, 140, 30, 80, 140, 30]);
+    this.c.synth.startTone(550);
   }
   up(event) {
     if (this.phase === 'choose' && this.pendingChoice !== null && this.pendingChoice !== undefined) {
@@ -144,10 +150,10 @@ export class MorseSchool {
       return;
     }
     if (this.downAt === null) return;
-    this.downAt = null; this.c.synth.stopTone(); this.c.leds(Array(9).fill(0));
+    this.downAt = null; this.c.synth.stopTone();
     this.input += event.durationMs < this.unit * 2 ? '.' : '-';
     this.input = this.input.slice(0, 8);
-    this.gap = Math.max(this.unit * 3 / 1000, .6);
+    this.gapTotal = this.gap = Math.max(this.unit * 3 / 1000, .6);
     this.result = 'Pause to finish this letter…';
   }
   answer(decoded) {
@@ -158,21 +164,56 @@ export class MorseSchool {
     this.learning.characters[this.target] = { seen: old.seen + 1, correct: old.correct + Number(accepted), streak,
       due: this.attempts + (accepted ? 2 ** streak : 1) };
     // Only the modes that teach the guided sequence move its position; review answers earlier letters.
-    if (accepted) { this.correct++; this.sessionCorrect++; if (this.mode !== 'review') this.index++; this.c.score(this.correct); }
+    // Guided and listen lessons move on only after the same letter is answered correctly twice in a row.
+    if (accepted) {
+      this.correct++; this.sessionCorrect++; this.c.score(this.correct);
+      if (this.mode !== 'review' && ++this.run >= 2) { this.index++; this.run = 0; }
+    } else this.run = 0;
     this.learning.index = this.index; this.learning.correct = this.correct; this.learning.attempts = this.attempts;
-    this.result = accepted ? `${this.target} accepted. Signal ${MORSE[this.target]}` : `Received ${decoded}. ${this.target} is ${MORSE[this.target]}. Try again.`;
+    this.result = accepted ? `${this.target} accepted. Signal ${MORSE[this.target]}` : `Received ${decoded}. ${this.target} is ${MORSE[this.target]} / try again.`;
     this.c.tone(accepted ? 750 : 180, .17);
-    this.nextDelay = accepted ? 1.2 : 1.8;
+    const pattern = this.elements(this.target);
+    const seconds = pattern.reduce((sum, step) => sum + step.seconds, 0);
+    this.nextDelay = accepted ? 1.2 : Math.max(1.8, 0.7 + seconds + 0.3);
+    if (accepted && this.mode !== 'review' && this.run > 0) this.result += ' Once more to lock it in.';
+    this.lampResult(accepted, pattern);
     this.lastAccepted = accepted;
     this.c.saveProgress(this.learning)?.catch?.(this.c.error);
   }
+  // Right: a green sweep left to right. Wrong: a red sweep right to left, then the correct signal on
+  // the middle lamp (a dot is one amber blink, a dash a long cyan one) so the lamps teach the rhythm.
+  lampResult(accepted, pattern) {
+    if (accepted) { this.lamps.flash(0.5, (e, T) => spot(e / T, dim(LAMP.green, 0.5))); return; }
+    const sweep = 0.5, total = sweep + pattern.reduce((sum, step) => sum + step.seconds, 0);
+    this.lamps.flash(total, (e) => {
+      if (e < sweep) return spot(1 - e / sweep, dim(LAMP.red, 0.55));
+      let left = e - sweep;
+      for (const step of pattern) {
+        if (left < step.seconds) return step.on ? only(1, step.dash ? LAMP.cyan : LAMP.amber, 0.6) : Array(9).fill(0);
+        left -= step.seconds;
+      }
+      return Array(9).fill(0);
+    });
+  }
+  // Resting light. Playback: a dot is the middle lamp in amber, a dash all three in cyan. Choosing:
+  // a spot that follows the highlighted answer. Keying: lamp I (amber) as soon as the key is down; at
+  // the dot/dash threshold all three turn cyan, so you see the moment a hold becomes a dash. After
+  // release the lamps dim over the letter gap.
+  lampValues() {
+    if (this.summary) return null;
+    if (this.phase === 'signal') return this.lit ? (this.litDash ? fill(LAMP.cyan, 0.4) : only(1, LAMP.amber, 0.6)) : null;
+    if (this.phase === 'choose') return spot((this.pendingChoice ?? this.focus) / (this.choices.length - 1), dim(LAMP.white, 0.33));
+    if (this.downAt !== null) return (this.t - this.downAt) * 1000 >= this.unit * 2 ? fill(LAMP.cyan, 0.4) : only(0, LAMP.amber, 0.4);
+    if (this.gap > 0) return fill(LAMP.amber, 0.25 * Math.min(1, this.gap / (this.gapTotal || 0.6)));
+    return null;
+  }
   cancel() {
     this.downAt = null; this.pendingChoice = null; this.input = ''; this.gap = 0;
-    this.c.synth.stopTone(); this.c.leds(Array(9).fill(0)); this.lit = false;
+    this.c.synth.stopTone(); this.lamps.clear(); this.lit = false;
   }
-  pause() { this.cancel(); }
-  resume() { if (this.mode === 'listen' && !this.summary && !(this.nextDelay > 0)) this.demonstrate(); }
-  dispose() { this.cancel(); }
+  pause() { this.cancel(); this.lamps.sleep(); }
+  resume() { this.lamps.wake(); if (this.mode === 'listen' && !this.summary && !(this.nextDelay > 0)) this.demonstrate(); }
+  dispose() { this.cancel(); this.lamps.sleep(); }
   update(dt) {
     this.t += dt;
     if (!this.summary) {
@@ -188,11 +229,11 @@ export class MorseSchool {
         this.pulseWait -= dt;
         if (this.pulseWait <= 0) {
           const step = this.pulses[++this.pulse];
-          this.c.synth.stopTone(); this.c.leds(Array(9).fill(0)); this.lit = false;
+          this.c.synth.stopTone(); this.lit = false;
           if (!step) { this.phase = 'choose'; this.result = 'Press and release the highlighted answer.'; }
           else {
-            this.pulseWait = step.seconds; this.lit = step.on;
-            if (step.on) { this.c.synth.startTone(550); this.c.leds([0, 0, 0, 90, 160, 30, 0, 0, 0]); }
+            this.pulseWait = step.seconds; this.lit = step.on; this.litDash = !!step.dash;
+            if (step.on) this.c.synth.startTone(550);
           }
         }
       } else if (this.phase === 'choose' && this.pendingChoice == null) {
@@ -204,39 +245,50 @@ export class MorseSchool {
         if (this.gap <= 0) this.answer(decodeMorse(this.input));
       }
     }
+    this.lamps.frame(dt, this.lampValues());
     this.c.hud([['MODE', this.mode.toUpperCase()], ['SESSION', `${this.sessionCorrect} / ${this.sessionAttempts}`],
       ['TOTAL', `${this.correct} / ${this.attempts}`], ['SPEED', this.c.settings().morseWpm + ' WPM']]);
   }
   draw(g) {
     space(g, this.t, .25);
-    text(g, 'SIGNAL SCHOOL / ' + this.mode.toUpperCase(), 32, 32, 13, C.muted);
     if (this.summary) {
-      text(g, 'FIELD LESSON COMPLETE', 480, 150, 32, C.ink, 'center');
-      text(g, `${this.sessionCorrect} / 10 signals accepted`, 480, 245, 30, C.amber, 'center');
-      text(g, 'Next review: ' + reviewLetter(this.learning), 480, 325, 22, C.ink, 'center');
-      text(g, 'PRESS FOR ANOTHER SESSION / HOLD 3s FOR MODES', 480, 430, 15, C.muted, 'center');
+      text(g, 'FIELD LESSON COMPLETE', 480, 140, 36, C.ink, 'center');
+      text(g, `${this.sessionCorrect} / 10 signals accepted`, 480, 225, 32, C.amber, 'center');
+      text(g, `${this.index} of ${LESSONS.length} letters learned`, 480, 290, 24, C.ink, 'center');
+      text(g, 'Next review: ' + reviewLetter(this.learning), 480, 340, 24, C.ink, 'center');
+      text(g, 'PRESS FOR ANOTHER SESSION', 480, 430, 22, C.muted, 'center');
+      text(g, 'HOLD 3s FOR MODES', 480, 470, 20, C.muted, 'center');
       return;
     }
     if (this.mode === 'listen') {
-      circle(g, 480, 170, 48, this.lit ? C.ink : C.line, this.lit);
-      text(g, this.phase === 'signal' ? 'RECEIVE' : 'IDENTIFY', 480, 260, 20, C.muted, 'center');
+      circle(g, 480, 150, 48, this.lit ? C.ink : C.line, this.lit);
+      if (this.lit) line(g, 480 - 70, 235, 480 + 70, 235, this.litDash ? C.cyan : C.amber, this.litDash ? 8 : 3);
+      text(g, this.phase === 'signal' ? 'RECEIVE' : 'IDENTIFY', 480, 270, 26, C.muted, 'center');
       if (this.phase === 'choose') for (let i = 0; i < this.choices.length; i++) {
         const x = 240 + i * 120, selected = i === (this.pendingChoice ?? this.focus);
         if (selected) { g.fillStyle = C.ink; g.fillRect(x - 51, 309, 102, 62); }
-        text(g, this.choices[i], x, 341, this.choices[i] === 'REPLAY' ? 16 : 31, selected ? C.bg : C.muted, 'center');
+        text(g, this.choices[i], x, 341, this.choices[i] === 'REPLAY' ? 20 : 34, selected ? C.bg : C.muted, 'center');
       }
     } else {
-      text(g, this.target, 480, 147, 100, C.ink, 'center');
+      text(g, this.target, 480, 130, 100, C.ink, 'center');
+      // Two pips: the letter moves on after two correct answers in a row (guided mode).
+      if (this.mode === 'guided') for (let i = 0; i < 2; i++) circle(g, 600 + i * 28, 130, 9, C.amber, i < this.run);
       const target = MORSE[this.target], start = 480 - (target.length - 1) * 42;
       if (this.mode === 'guided' || this.nextDelay > 0) for (let i = 0; i < target.length; i++) {
-        if (target[i] === '.') circle(g, start + i * 84, 245, 7, C.amber, true);
-        else line(g, start + i * 84 - 23, 245, start + i * 84 + 23, 245, C.amber, 8);
+        if (target[i] === '.') circle(g, start + i * 84, 225, 7, C.amber, true);
+        else line(g, start + i * 84 - 23, 225, start + i * 84 + 23, 225, C.amber, 8);
       }
-      else text(g, 'RECALL FROM MEMORY', 480, 245, 16, C.muted, 'center');
-      text(g, 'YOUR SIGNAL', 480, 320, 12, C.muted, 'center');
-      text(g, this.input.replaceAll('.', '· ').replaceAll('-', '— ') || '…', 480, 369, 37, C.ink, 'center');
+      else text(g, 'RECALL FROM MEMORY', 480, 225, 22, C.muted, 'center');
+      text(g, this.input.replaceAll('.', '· ').replaceAll('-', '— ') || '…', 480, 305, 44, C.ink, 'center');
+      // The hold gauge: amber is a dot, and it turns cyan at the dash line (twice the dot length).
+      const x0 = 180, w = 600, span = this.unit * 4, y = 372;
+      const ms = this.downAt !== null ? (this.t - this.downAt) * 1000 : 0;
+      g.fillStyle = '#1a2a1e'; g.fillRect(x0, y, w, 16);
+      g.fillStyle = ms >= this.unit * 2 ? C.cyan : C.amber; g.fillRect(x0, y, Math.min(1, ms / span) * w, 16);
+      line(g, x0 + w / 2, y - 6, x0 + w / 2, y + 22, C.amber, 3);
+      text(g, 'DOT', x0, y + 38, 18, C.muted); text(g, 'DASH', x0 + w, y + 38, 18, C.muted, 'right');
     }
-    text(g, this.result, 480, 440, 16, C.muted, 'center');
-    text(g, `DOT ${Math.round(this.unit)} ms / DASH ${Math.round(this.unit * 3)} ms / MENU: HOLD 3s`, 480, 503, 12, C.muted, 'center');
+    text(g, this.result, 480, 458, 22, C.ink, 'center');
+    text(g, `DOT ${Math.round(this.unit)} ms / DASH ${Math.round(this.unit * 3)} ms`, 480, 508, 18, C.muted, 'center');
   }
 }

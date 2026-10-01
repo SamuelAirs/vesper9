@@ -3,7 +3,7 @@
 // human could see on screen (positions, the highlighted glyph, the sequence the
 // player has just been shown).
 import { Random, wrapAngle, TAU } from "../../web/engine/math.js";
-import { OrbitLock, Moonrunner, Undertow, EchoVault, GlyphVault } from "../../web/apps/games.js";
+import { OrbitLock, Moonrunner, Undertow, EchoVault, GlyphVault, orbitSpeed, RUNNER_SHAPES as SHAPES } from "../../web/apps/games.js";
 import { MorseSchool } from "../../web/apps/morse.js";
 import { makeCtx, makeRig, DT } from "./harness.mjs";
 
@@ -49,8 +49,9 @@ export function playOrbit(seed, policy, maxSeconds = 1200) {
     if (policy.kind === "timed") {
       const k = g.points + ":" + g.lives;
       if (k !== key) { key = k; off = gauss(br, policy.sigma); }
-      const speed = 1.25 + Math.min(g.points, 25) * 0.07;
-      const d = (((g.target - g.angle) % TAU) + TAU) % TAU; // radians until the gate centre
+      // the gate may slide (drift) and the satellite may travel either way, so use the game's own geometry
+      const speed = Math.max(0.5, orbitSpeed(g.points) - g.drift * g.dir);
+      const d = g.ahead(); // radians until the gate centre, in the direction of travel
       // one frame of slack so a zero-jitter bot cannot step over the gate between two 1/60 s frames
       press = off >= 0 ? d / speed <= off + DT : d >= TAU - (-off + DT) * speed && d < TAU;
     }
@@ -67,17 +68,20 @@ export function playOrbit(seed, policy, maxSeconds = 1200) {
 // ----------------------------------------------------------------- Moonrunner
 const clearCache = new Map();
 // Launch frames (obstacle starts at x=430, speed from `points`) that clear, found by
-// running the real Moonrunner physics, the same way tests/engine.test.mjs does.
+// running the real Moonrunner physics, the same way tests/engine.test.mjs does. mode "tap"
+// presses and releases at once; "hold" keeps the key down for HOLD_FRAMES (0.67 s).
+export const HOLD_FRAMES = 40;
 export function runnerWindow(shape, points, mode = "tap") {
-  const key = `${shape.name}:${points}:${mode}`;
+  const key = `${shape.name}:${shape.h}:${points}:${mode}`;
   if (clearCache.has(key)) return clearCache.get(key);
   const ok = [];
   for (let L = 0; L < 90; L++) {
     const g = new Moonrunner(makeCtx(1));
-    g.phase = "play"; g.next = 1e9; g.points = points;
+    g.phase = "play"; g.next = 1e9; g.points = points; g.shield = 0;
     g.obstacles = [{ ...shape, x: 430, passed: false }];
     for (let f = 0; f < 140 && g.phase === "play"; f++) {
       if (f === L) { g.down(); if (mode === "tap") g.up(); }
+      if (mode === "hold" && f === L + HOLD_FRAMES) g.up();
       g.update(DT);
     }
     if (g.phase === "play" && g.points === points + 1) ok.push(L);
@@ -85,14 +89,14 @@ export function runnerWindow(shape, points, mode = "tap") {
   clearCache.set(key, ok);
   return ok;
 }
-export const RUNNER_SHAPES = [{ w: 32, h: 76, name: "SPIRE" }, { w: 76, h: 45, name: "RIDGE" }, { w: 48, h: 62, name: "CRYSTAL" }];
+export const RUNNER_SHAPES = Object.values(SHAPES);
 
 // policy: {kind:"timed", sigmaFrames} | never | hold | rhythm(period) | mash(hz)
 export function playRunner(seed, policy, maxSeconds = 1200, gestureAt = null) {
   const c = makeCtx(seed), g = new Moonrunner(c), br = new Random(seed * 104729 + 7);
   const rig = makeRig(g, c);
   g.down(); g.up();
-  let t = 0, frame = 0, handled = new WeakSet(), releaseAt = -1, gestureDone = gestureAt === null, tGesture = null;
+  let t = 0, frame = 0, handled = new WeakSet(), noise = new WeakMap(), releaseAt = -1, gestureDone = gestureAt === null, tGesture = null;
   const at = {}; // time (s) at which each relic count was first reached
   while (g.phase === "play" && t < maxSeconds) {
     if (!gestureDone && t >= gestureAt) {
@@ -101,15 +105,19 @@ export function playRunner(seed, policy, maxSeconds = 1200, gestureAt = null) {
       rig.resume(); tGesture = t;
       if (g.phase !== "play") break;
     }
-    const speed = 290 + Math.min(g.points * 10, 160);
+    const speed = g.speed;
     if (releaseAt === frame) { g.up(); releaseAt = -1; }
     if (policy.kind === "timed") {
       const o = g.obstacles.find((q) => !q.passed && q.x + q.w >= 190);
       if (o && !handled.has(o)) {
-        const win = runnerWindow(RUNNER_SHAPES.find((s) => s.name === o.name), Math.min(g.points, 16));
+        const shape = { name: o.name, w: o.w, h: o.h, hold: o.hold }; // the obstacle as it was actually built
+        const win = runnerWindow(shape, Math.min(g.points, 40), shape.hold ? "hold" : "tap");
         if (win.length) {
-          const lead = (win[0] + win[win.length - 1]) / 2 + gauss(br, policy.sigmaFrames);
-          if (o.x <= 430 - lead * speed / 60) { handled.add(o); g.down(); g.up(); }
+          // The timing error is drawn once per obstacle (the audit's first version redrew it every
+          // frame and fired on the first lucky draw, which made the nominal sd meaningless).
+          if (!noise.has(o)) noise.set(o, gauss(br, policy.sigmaFrames));
+          const lead = (win[0] + win[win.length - 1]) / 2 + noise.get(o);
+          if (o.x <= 430 - lead * speed / 60) { handled.add(o); g.down(); if (shape.hold) releaseAt = frame + HOLD_FRAMES; else g.up(); }
         } else if (o.x <= 430) { handled.add(o); g.down(); g.up(); }
       }
     } else if (policy.kind === "hold") {
@@ -172,10 +180,12 @@ export function playEcho(seed, policy, maxSeconds = 1200) {
       if (pendingUp < 0 && t >= nextAt && i < toEnter.length) {
         let v = toEnter[i];
         if (policy.kind === "random") v = br.int(0, 1);
+        if (policy.recall !== undefined && br.next() > policy.recall) v = br.int(0, 1); // a pulse forgotten
         if (policy.kind === "allShort") v = 0;
         if (policy.kind === "allLong") v = 1;
         const [mu, sd] = v ? policy.long || [600, 120] : policy.short || [150, 50];
         pendingMs = Math.max(20, mu + gauss(br, sd));
+        if (policy.kind === "fixed") pendingMs = policy.ms; // a degenerate keyer: the same hold every time
         g.down(); pendingUp = t + pendingMs / 1000;
       }
       if (pendingUp >= 0 && t >= pendingUp) {

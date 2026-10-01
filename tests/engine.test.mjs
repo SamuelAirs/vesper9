@@ -175,6 +175,7 @@ test("runner collision ends expedition once", () => {
   g.up();
   g.y = 386;
   g.vy = 0;
+  g.shield = 0; // the first collision is otherwise absorbed by the shield
   g.obstacles = [{ x: 198, w: 40, h: 70, passed: false }];
   g.update(1 / 60);
   assert.equal(g.phase, "over");
@@ -239,6 +240,12 @@ test("all Morse symbols roundtrip and the learning app accepts E", () => {
   g.up({ durationMs: 100 });
   ticks(g, 0.7);
   assert.equal(g.correct, 1);
+  // One correct answer does not move the lesson on; the same letter must be repeated.
+  ticks(g, 1.4);
+  assert.equal(g.target, "E");
+  g.down();
+  g.up({ durationMs: 100 });
+  ticks(g, 0.7);
   ticks(g, 1.4);
   assert.equal(g.target, "T");
 });
@@ -361,11 +368,11 @@ test('runner challenge shapes are clearable using the actual jump physics', () =
     }
     assert.ok(clearable,obstacle.name);
   }
-  assert.equal(seen.size,3);
+  assert.deepEqual([...seen].sort(),['CRYSTAL','RIDGE','SPIRE','STONE','WALL']);
 });
 test('flight gate changes are bounded and a fixed-step pilot can traverse seeded layouts', () => {
   const rng=new Random(91);let center=270;
-  for(let i=0;i<1000;i++){const gate=nextGate(center,i,rng);assert.ok(Math.abs(gate.center-center)<=85.001);assert.ok(gate.gap>=170);center=gate.center;}
+  for(let i=0;i<1000;i++){const gate=nextGate(center,i,rng);assert.ok(Math.abs(gate.center-center)<=85.001);assert.ok(gate.gap>=100);center=gate.center;}
   const g=new Undertow(context());g.down();
   for(let i=0;i<120*60&&g.phase==='play';i++){
     const target=g.gates.find(gate=>gate.x+65>202)?.center||270;

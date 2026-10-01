@@ -45,7 +45,7 @@ test("F1b Glyph Archive: opening the menu with four quick clicks must not end th
 // F2: Moonrunner sets all three lamps red on death and never clears them.
 test("F2 Moonrunner: lamps must not stay red through the next run", () => {
   const c = makeCtx(1), g = new Moonrunner(c);
-  g.down(); g.up();
+  g.down(); g.up(); g.shield = 0;
   g.obstacles = [{ x: 198, w: 40, h: 70, passed: false }];
   g.update(DT);
   assert.equal(g.phase, "over");
@@ -55,7 +55,9 @@ test("F2 Moonrunner: lamps must not stay red through the next run", () => {
   g.down(); g.up();                       // restart
   step(g, 2);                             // well before the first obstacle arrives
   assert.equal(g.phase, "play");
-  assert.deepEqual(c.ledsNow, Array(9).fill(0), "lamps are still red " + c.ledsNow.join(","));
+  // A run in progress shows the dim speed colour (green at the start), never the death red.
+  const red = [0, 3, 6].some((i) => c.ledsNow[i] > c.ledsNow[i + 1]);
+  assert.ok(!red, "lamps are still red " + c.ledsNow.join(","));
 });
 
 // ---------------------------------------------------------------------------
@@ -65,10 +67,10 @@ function killOrbit(c) {
   const g = new OrbitLock(c); g.down(); g.lives = 1; g.angle = 0; g.target = 3; g.down(); return g;
 }
 function killRunner(c) {
-  const g = new Moonrunner(c); g.down(); g.up(); g.obstacles = [{ x: 198, w: 40, h: 70, passed: false }]; g.update(DT); return g;
+  const g = new Moonrunner(c); g.down(); g.up(); g.shield = 0; g.obstacles = [{ x: 198, w: 40, h: 70, passed: false }]; g.update(DT); return g;
 }
 function killUndertow(c) {
-  const g = new Undertow(c); g.down(); g.up(); g.y = 10; g.update(DT); return g;
+  const g = new Undertow(c); g.down(); g.up(); g.hull = 1; g.y = 10; g.update(DT); return g;
 }
 function killGlyph(c) {
   const g = new GlyphVault(c); g.down(); step(g, 4); g.lives = 1; g.sequence = [0, 0, 0]; g.focus = 3; g.down(); return g;
@@ -109,7 +111,7 @@ for (const [name, build] of [
 test("F5 Undertow: a gate that killed you is not counted as a passage", () => {
   const c = makeCtx(4), g = new Undertow(c);
   g.down(); g.up();
-  g.next = 99;
+  g.next = 99; g.hull = 1;
   g.gates = [{ x: 215, center: 270, gap: 170, passed: false }];
   for (let i = 0; i < 4; i++) { g.y = 270; g.vy = 0; g.update(DT); }
   assert.equal(g.phase, "play");

@@ -132,18 +132,18 @@ export function scopeStatus(state, info = {}) {
 const header = (n) =>
   `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:6px">` +
   `<span id="rs-state" style="font-size:16px;letter-spacing:1px;color:${MUTED}">MICROPHONE MUTED</span>` +
-  `<span id="rs-sim" style="font-size:12px;color:${AMBER}"></span>` +
+  `<span id="rs-sim" style="font-size:14px;color:${AMBER}"></span>` +
   `<span class="data-label" style="margin:0">PAGE ${n} / ${PAGES.length} · ${PAGES[n - 1].name}</span></div>` +
-  `<div id="rs-detail" style="font-size:12px;color:${MUTED};margin-bottom:6px;min-height:16px"></div>`;
-const txt = (x, y, s, anchor = "middle", size = 12, fill = MUTED, id = "") =>
+  `<div id="rs-detail" style="font-size:14px;color:${MUTED};margin-bottom:6px;min-height:16px"></div>`;
+const txt = (x, y, s, anchor = "middle", size = 14, fill = MUTED, id = "") =>
   `<text${id ? ` id="${id}"` : ""} x="${x}" y="${y}" text-anchor="${anchor}" font-size="${size}" fill="${fill}" stroke="none" font-family="inherit">${s}</text>`;
-const foot = (s) => `<p style="font-size:12px;margin:6px 0 0;color:${MUTED}">${s}</p>`;
+const foot = (s) => `<p style="font-size:14px;margin:6px 0 0;color:${MUTED}">${s}</p>`;
 
 function levelPage() {
   const barX = (v) => 10 + frac(v, METER_MIN_DB, 0) * 360;
-  const ticks = [-60, -40, -20, 0].map((v) => `<line x1="${barX(v)}" y1="26" x2="${barX(v)}" y2="32" stroke="${MUTED}" stroke-width="1.5"/>` + txt(barX(v), 46, v, "middle", 12)).join("");
+  const ticks = [-60, -40, -20, 0].map((v) => `<line x1="${barX(v)}" y1="26" x2="${barX(v)}" y2="32" stroke="${MUTED}" stroke-width="1.5"/>` + txt(barX(v), 46, v, "middle", 14)).join("");
   const y = (v) => 8 + (-v / 90) * 132;
-  const grid = [-20, -40, -60, -80].map((v) => `<line x1="40" y1="${y(v)}" x2="470" y2="${y(v)}" stroke="${EDGE}" stroke-width="1" stroke-dasharray="3 5"/>` + txt(34, y(v) + 4, v, "end", 11)).join("");
+  const grid = [-20, -40, -60, -80].map((v) => `<line x1="40" y1="${y(v)}" x2="470" y2="${y(v)}" stroke="${EDGE}" stroke-width="1" stroke-dasharray="3 5"/>` + txt(34, y(v) + 4, v, "end", 13)).join("");
   return header(1) +
     `<div style="display:grid;grid-template-columns:5fr 6fr;gap:18px;align-items:start">` +
     `<div><div class="data-label">LEVEL, DBFS (RE MICROPHONE FULL SCALE)</div>` +
@@ -158,7 +158,7 @@ function levelPage() {
     `<rect x="40" y="8" width="430" height="132" fill="none" stroke="${EDGE}" stroke-width="1.5"/>${grid}` +
     `<polyline id="rs-hist-peak" points="" fill="none" stroke="${AMBER}" stroke-width="1.5" stroke-linejoin="round"/>` +
     `<polyline id="rs-hist-rms" points="" fill="none" stroke="${PHOS}" stroke-width="2.5" stroke-linejoin="round"/>` +
-    txt(40, 160, "-2:00", "start") + txt(470, 160, "NOW", "end") + `</svg></div></div>` +
+    txt(40, 160, "-2:00", "start", 14) + txt(470, 160, "NOW", "end", 14) + `</svg></div></div>` +
     foot("Level relative to the microphone's full scale, not calibrated sound pressure. Lamps: bar across all three.");
 }
 
@@ -170,9 +170,9 @@ function spectrumPage(edges) {
   const pos = (hz) => (Math.log(hz / edges[0]) / Math.log(edges[BAND_COUNT] / edges[0])) * W;
   const axis = [100, 200, 500, 1000, 2000, 5000].map((hz) =>
     `<line x1="${pos(hz).toFixed(1)}" y1="${H}" x2="${pos(hz).toFixed(1)}" y2="${H + 6}" stroke="${MUTED}" stroke-width="1.5"/>` +
-    txt(pos(hz).toFixed(1), H + 22, hz >= 1000 ? hz / 1000 + " kHz" : hz + " Hz", "middle", 13)).join("");
+    txt(pos(hz).toFixed(1), H + 22, hz >= 1000 ? hz / 1000 + " kHz" : hz + " Hz", "middle", 15)).join("");
   const thirds = [9, 19].map((i) => `<line x1="${(i * step).toFixed(1)}" y1="0" x2="${(i * step).toFixed(1)}" y2="${H}" stroke="${EDGE}" stroke-width="1" stroke-dasharray="3 6"/>`).join("") +
-    txt(4, 12, "LOW LAMP", "start", 12) + txt(9 * step + 4, 12, "MIDDLE LAMP", "start", 12) + txt(19 * step + 4, 12, "HIGH LAMP", "start", 12);
+    txt(4, 12, "LOW LAMP", "start", 14) + txt(9 * step + 4, 12, "MIDDLE LAMP", "start", 14) + txt(19 * step + 4, 12, "HIGH LAMP", "start", 14);
   return header(2) +
     `<svg viewBox="0 0 ${W} ${H + 30}" width="100%" height="190" style="display:block" role="img" aria-label="Spectrum, 28 bands">` +
     `<line x1="0" y1="${H}" x2="${W}" y2="${H}" stroke="${EDGE}" stroke-width="2"/>${thirds}${bars}${axis}</svg>` +
@@ -209,6 +209,7 @@ export class Resonance {
     this.pending = false; // a start request is in flight
     this.err = null;
     this.dead = false;
+    this.paused = false;
     this.lampsTouched = false;
     this.lastLamps = "";
     this.lastKey = "";
@@ -217,7 +218,7 @@ export class Resonance {
     this.resetData();
     this.status = scopeStatus(ctx.state(), this.info());
     this.render();
-    this.buildActions();
+    this.buildActions(true);
     this.hint();
   }
 
@@ -448,7 +449,7 @@ export class Resonance {
   drive(now = this.clock()) { this.setLamps(this.lampValues(now)); }
   setLamps(values, offOnly = false) {
     const key = values.join(",");
-    if (key === this.lastLamps) return;
+    if (key === this.lastLamps || this.paused) return;
     // Leave the lamps to the host until there is something to show.
     if (offOnly && !this.lampsTouched) return;
     this.lastLamps = key;
@@ -490,10 +491,10 @@ export class Resonance {
       }
       case "spectrum":
         for (let i = 0; i < BAND_COUNT; i++) {
-          const h = live ? frac(this.bands[i], SPECTRUM_MIN_DB, SPECTRUM_MAX_DB) * 150 : 0;
+          const h = live ? frac(this.bands[i], SPECTRUM_MIN_DB, SPECTRUM_MAX_DB) * 126 : 0;
           this.setAttr("rs-b" + i, "y", (150 - h).toFixed(1));
           this.setAttr("rs-b" + i, "height", h.toFixed(1));
-          const p = frac(this.bandPeaks[i], SPECTRUM_MIN_DB, SPECTRUM_MAX_DB) * 150;
+          const p = frac(this.bandPeaks[i], SPECTRUM_MIN_DB, SPECTRUM_MAX_DB) * 126;
           this.setAttr("rs-k" + i, "y1", (150 - p).toFixed(1));
           this.setAttr("rs-k" + i, "y2", (150 - p).toFixed(1));
           this.setAttr("rs-k" + i, "opacity", live && p > 1 ? "1" : "0");
@@ -562,7 +563,7 @@ export class Resonance {
     this.paintLive();
   }
 
-  buildActions() {
+  buildActions(park = false) {
     if (this.dead) return;
     const s = this.status;
     const on = this.owned || this.pending || this.listening || (this.ctx.state().mic || {}).mode === "analyze";
@@ -573,12 +574,16 @@ export class Resonance {
     const key = label;
     if (key === this.lastKey) return;
     this.lastKey = key;
-    this.ctx.actions([
+    const items = [
       { id: "listen", label, run: () => (on ? this.stop() : this.start()) },
       { id: "page", label: "NEXT PAGE", run: () => this.nextPage() },
       { id: "clear", label: "CLEAR PEAK AND HISTORY", run: () => this.clearReadings() },
       { id: "home", label: "RETURN TO DASHBOARD", run: this.ctx.home },
-    ]);
+    ];
+    // On opening the host would start the highlight on the row numbered like the dashboard card
+    // that was chosen (RETURN TO DASHBOARD for this one), so a one-item list pins it first.
+    if (park) this.ctx.actions([items[0]]);
+    this.ctx.actions(items);
   }
 
   tick() {
@@ -588,8 +593,13 @@ export class Resonance {
     if (this.status.code !== was) { this.drive(); this.paintLive(); }
   }
   cancel() {}
-  pause() {}
-  resume() {}
+  // While the system menu is open it owns the lamps; they return with the next reading.
+  pause() { this.paused = true; }
+  resume() {
+    this.paused = false;
+    this.lastLamps = "";
+    if (this.lampsTouched) this.drive();
+  }
   dispose() {
     this.dead = true;
     // Switch the microphone off only if this instrument switched it on.

@@ -410,7 +410,8 @@ test("preferences survive a save/restore round trip", () => {
   assert.equal(b.app.sig, 6);
   assert.equal(b.app.preset, "tabata");
   assert.equal(b.app.lastTool, "int");
-  assert.equal(labels(b.ctx)[0], "INTERVALS", "last-used tool is first");
+  assert.deepEqual(labels(b.ctx).slice(0, 3), ["METRONOME", "STOPWATCH", "INTERVALS"], "the tools keep their places");
+  assert.equal(pad(b.ctx).label, "INTERVALS", "the highlight starts on the last-used tool");
   // garbage progress is repaired
   for (const junk of [null, 5, "x", { bpm: "fast", sig: 5, preset: "zzz", custom: { work: 7 } }, { bpm: 9999 }]) {
     const s = sanitize(junk);
@@ -443,4 +444,121 @@ test("three stray taps and a cancel do not disturb a running stopwatch or metron
   assert.equal(app.sw.laps.length, 3);
   app.pause(); app.resume();
   assert.ok(app.sw.running);
+});
+
+// What the host does with the highlight after a list is replaced (web/main.js setNav): it stays
+// on the action with the same id, otherwise on the same row number. Tapping moves down one.
+// `card` is the row the dashboard had highlighted when the instrument was opened: the host
+// starts the first list at that row number (the dashboard's items have no ids to match).
+function pad(ctx, card = 0) {
+  let items = null, index = card, seen = 0;
+  const idOf = (i) => i.id || i.label;
+  const sync = () => {
+    for (; seen < ctx.calls.actions.length; seen++) {
+      const next = ctx.calls.actions[seen], match = items ? next.findIndex((i) => idOf(i) === idOf(items[index])) : -1;
+      index = Math.min(match >= 0 ? match : index, next.length - 1);
+      items = next;
+    }
+  };
+  return {
+    tap(n = 1) { sync(); index = (index + n) % items.length; return this; },
+    hold() { sync(); items[index].run(); sync(); return this; },
+    get label() { sync(); return items[index].label; },
+  };
+}
+
+test("every tool opens with its main action highlighted, and leaving returns to the tool just used", () => {
+  const { ctx, advance } = open();
+  const hand = pad(ctx, 4); // opened from a dashboard card far down the list
+  assert.equal(hand.label, "METRONOME");
+  assert.deepEqual(labels(ctx), ["METRONOME", "STOPWATCH", "INTERVALS", "RETURN TO DASHBOARD"]);
+  // the stopwatch is second in the list: it used to open on BACK
+  hand.tap(1).hold();
+  assert.equal(hand.label, "START");
+  hand.hold(); // running: STOP is the only row
+  assert.equal(hand.label, "STOP");
+  advance(1500);
+  hand.hold();
+  assert.equal(hand.label, "RESUME");
+  hand.tap(2).hold(); // BACK
+  assert.equal(hand.label, "STOPWATCH", "back on the tool just used, in its usual place");
+  assert.deepEqual(labels(ctx), ["METRONOME", "STOPWATCH", "INTERVALS", "RETURN TO DASHBOARD"]);
+  // intervals: third in the list; it used to open on CUSTOM SETUP
+  hand.tap(1).hold();
+  assert.equal(hand.label, "START");
+  hand.tap(2).hold(); // CUSTOM SETUP
+  assert.match(hand.label, /^WORK/);
+  hand.tap(3).hold(); // DONE
+  assert.equal(hand.label, "START", "DONE in the custom setup returns to START, not BACK");
+  hand.hold();
+  hand.tap(1).hold(); // STOP
+  assert.equal(hand.label, "START", "stopping an interval run highlights START");
+  hand.tap(3).hold(); // BACK
+  assert.equal(hand.label, "INTERVALS");
+  // tap tempo ends on the metronome's main action
+  hand.tap(2).hold(); // METRONOME: INTERVALS, RETURN, METRONOME
+  assert.equal(hand.label, "START");
+  hand.tap(1).hold(); // TAP TEMPO
+  assert.equal(hand.label, "DONE");
+  hand.hold();
+  assert.equal(hand.label, "START", "DONE returns to START of the metronome");
+});
+
+test("nothing runs and the lamps stay with the host until a tool has something to show", () => {
+  const queue = [];
+  globalThis.requestAnimationFrame = (fn) => queue.push(fn);
+  globalThis.cancelAnimationFrame = () => {};
+  try {
+    const { ctx, app, advance } = open();
+    assert.equal(queue.length, 0, "no loop on the tool list");
+    for (let i = 0; i < 5; i++) advance(1000);
+    app.tick();
+    assert.equal(ctx.calls.leds.length, 0, "the lamps are not touched while nothing is lit");
+    choose(ctx, "METRONOME");
+    assert.equal(queue.length, 0, "the metronome screen alone needs no frames");
+    choose(ctx, "START");
+    assert.equal(queue.length, 1, "starting wakes the loop");
+    assert.ok(ctx.calls.leds.length > 0);
+    choose(ctx, "STOP");
+    while (queue.length) queue.shift()();
+    assert.equal(queue.length, 0, "the loop ends when the metronome stops");
+    assert.deepEqual(ctx.calls.leds.at(-1), Array(9).fill(0), "and the lamps are dark");
+    // a tap-tempo press wakes it for the flash only
+    choose(ctx, "TAP TEMPO");
+    press(app, 100000, 80);
+    assert.equal(queue.length, 1);
+    app.dispose();
+    while (queue.length) queue.shift()();
+    assert.equal(queue.length, 0);
+  } finally {
+    delete globalThis.requestAnimationFrame;
+    delete globalThis.cancelAnimationFrame;
+  }
+});
+
+test("a paused interval keeps one dim lamp and is dark again once stopped", () => {
+  const { ctx, app, advance } = open();
+  choose(ctx, "INTERVALS"); choose(ctx, "START");
+  advance(2000);
+  choose(ctx, "PAUSE");
+  advance(100);
+  const lamps = ctx.calls.leds.at(-1);
+  assert.ok(lamps[3] + lamps[4] + lamps[5] > 0 && lamps[0] + lamps[1] + lamps[2] + lamps[6] + lamps[7] + lamps[8] === 0);
+  assert.ok(Math.max(...lamps) <= 0.12 * 255 + 1);
+  choose(ctx, "STOP");
+  advance(100);
+  assert.deepEqual(ctx.calls.leds.at(-1), Array(9).fill(0));
+});
+
+test("RESET on the stopwatch leaves START highlighted", () => {
+  const { ctx, advance } = open();
+  const hand = pad(ctx);
+  hand.tap(1).hold(); hand.hold();
+  advance(2000);
+  hand.hold(); // STOP
+  assert.equal(hand.label, "RESUME");
+  hand.tap(1);
+  assert.equal(hand.label, "RESET");
+  hand.hold();
+  assert.equal(hand.label, "START");
 });

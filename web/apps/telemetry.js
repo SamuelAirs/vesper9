@@ -195,13 +195,15 @@ export class Telemetry {
     this.errorLog = []; // {at, n}
     this.lastFrameAt = -1e9;
     this.dead = false;
+    this.paused = false; // the system menu is open: it owns the lamps
+    this.pulsing = false; // a lamp is pulsing or blinking, which needs frames
+    this.raf = 0;
     this.lamps = lightsOff();
     ctx.content(MARKUP);
     this.buildActions();
     ctx.hint("Tap to advance. Hold and release to choose. The lamps are the health light: left temperature, middle load, right node link.");
     this.refresh();
     this.poll();
-    this.startLoop();
   }
 
   // ---- data -------------------------------------------------------------------------
@@ -269,30 +271,38 @@ export class Telemetry {
 
   // ---- lamps ------------------------------------------------------------------------
   lampValues(now = this.clock()) {
+    this.pulsing = false;
     const age = this.age(now);
     if (age === null || age > LAMP_DARK_AFTER_S) return lightsOff();
     const a = this.a;
     const smooth = this.cpuRecent.length ? this.cpuRecent.reduce((s, v) => s + v, 0) / this.cpuRecent.length : null;
     const load = worst(rising(smooth, THRESHOLDS.cpuPercent), a.memLevel);
-    return healthLamps(a.thermalLevel, load, nodeLevel(a, this.recentErrors()), now / 1000);
+    const levels = [a.thermalLevel, load, nodeLevel(a, this.recentErrors())];
+    this.pulsing = levels.includes(2) || levels.includes("down");
+    return healthLamps(levels[0], levels[1], levels[2], now / 1000);
   }
 
+  // A steady verdict needs no frames (tick() once a second is enough); a pulsing red or a
+  // blinking amber does, so the loop runs only then and ends by itself, on dispose() or when
+  // ctx.alive() turns false.
   startLoop() {
-    if (typeof requestAnimationFrame !== "function") return;
+    if (this.raf || this.dead || typeof requestAnimationFrame !== "function") return;
     const loop = () => {
+      this.raf = 0;
       if (this.dead || !this.ctx.alive()) return;
       try {
         const now = this.clock();
         if (now - this.lastFrameAt >= 60) this.sendLamps(now);
       } catch {}
-      this.raf = requestAnimationFrame(loop);
+      if (this.pulsing && !this.paused) this.raf = requestAnimationFrame(loop);
     };
     this.raf = requestAnimationFrame(loop);
   }
   sendLamps(now = this.clock()) {
     this.lastFrameAt = now;
     this.lamps = this.lampValues(now);
-    this.ctx.leds(this.lamps);
+    if (!this.paused) this.ctx.leds(this.lamps);
+    if (this.pulsing && !this.paused) this.startLoop();
   }
 
   // ---- display ----------------------------------------------------------------------
@@ -456,12 +466,12 @@ export class Telemetry {
   // ---- actions ----------------------------------------------------------------------
   buildActions() {
     const go = (i) => () => { this.page = i; this.refresh(); };
+    // On opening the host would start the highlight on the row numbered like the dashboard card
+    // that was chosen (REFRESH NOW for this one), so a one-item list pins it to NEXT PAGE first.
+    this.ctx.actions([{ id: "next", label: "NEXT PAGE →", run: () => go((this.page + 1) % PAGES.length)() }]);
     this.ctx.actions([
       { id: "next", label: "NEXT PAGE →", run: () => go((this.page + 1) % PAGES.length)() },
-      { id: "overview", label: "PAGE / OVERVIEW", run: go(0) },
-      { id: "node", label: "PAGE / NODE", run: go(1) },
-      { id: "history", label: "PAGE / HISTORY", run: go(2) },
-      { id: "about", label: "PAGE / ABOUT", run: go(3) },
+      { id: "previous", label: "PREVIOUS PAGE", run: () => go((this.page + PAGES.length - 1) % PAGES.length)() },
       { id: "refresh", label: "REFRESH NOW", run: () => { this.sentAt = -1e9; this.poll(); } },
       { id: "home", label: "RETURN TO DASHBOARD", run: this.ctx.home },
     ]);
@@ -475,6 +485,8 @@ export class Telemetry {
     this.sendLamps(now);
   }
   cancel() {}
+  pause() { this.paused = true; }
+  resume() { this.paused = false; this.sendLamps(); }
   dispose() {
     this.dead = true;
     this.token++;

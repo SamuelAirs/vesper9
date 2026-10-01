@@ -121,7 +121,7 @@ const GAMES = APPS.filter((a) => {
 }).map((a) => a.id);
 
 test("every registered game is covered by the tolerance test", () => {
-  assert.deepEqual(GAMES.slice().sort(), ["ballista", "descent", "drift", "echo", "glyphs", "helix", "meridian", "morse", "orbit",
+  assert.deepEqual(GAMES.slice().sort(), ["ballista", "descent", "drift", "echo", "glyphs", "helix", "kiln", "meridian", "morse", "orbit",
     "outpost", "perihelion", "pulsar", "reaction", "ricochet", "runner", "tideline"]);
 });
 

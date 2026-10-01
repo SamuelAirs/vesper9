@@ -17,7 +17,7 @@ from vesper.storage import Store  # noqa: E402
 
 IDS = [app['id'] for app in CATALOG['apps']]
 GAMES = ['orbit', 'runner', 'drift', 'echo', 'reaction', 'glyphs', 'pulsar', 'perihelion', 'descent', 'ricochet',
-         'helix', 'ballista', 'tideline', 'outpost', 'meridian']
+         'helix', 'ballista', 'tideline', 'outpost', 'meridian', 'kiln']
 
 
 class Layout(unittest.TestCase):
@@ -33,13 +33,15 @@ class Layout(unittest.TestCase):
             seen += sector['apps']
         self.assertEqual(len(seen), len(set(seen)), 'an app is on two pages')
 
-    def test_games_come_first_in_three_sectors_with_perihelion_on_the_first_page(self):
+    def test_games_come_first_in_four_sectors_with_perihelion_on_the_first_page(self):
+        # Three PLAY pages, then LAMPS: the games played on the button and the three lamps alone.
         sectors = CATALOG['sectors']
-        self.assertEqual(sorted(sum((s['apps'] for s in sectors[:3]), [])), sorted(GAMES))
+        self.assertEqual(sorted(sum((s['apps'] for s in sectors[:4]), [])), sorted(GAMES))
         self.assertEqual(sectors[0]['apps'][0], 'perihelion')
-        for sector in sectors[:3]:
-            self.assertTrue(4 <= len(sector['apps']) <= 5, sector['name'])
-        self.assertTrue(all(i not in GAMES for s in sectors[3:] for i in s['apps']))
+        for sector in sectors[:4]:
+            self.assertTrue(3 <= len(sector['apps']) <= 5, sector['name'])
+        self.assertEqual(sectors[3], {'name': 'LAMPS', 'apps': ['reaction', 'meridian', 'kiln']})
+        self.assertTrue(all(i not in GAMES for s in sectors[4:] for i in s['apps']))
 
     def test_chronometer_is_retired_in_favour_of_the_timer_tool_in_cadence(self):
         on_dashboard = {i for s in CATALOG['sectors'] for i in s['apps']}

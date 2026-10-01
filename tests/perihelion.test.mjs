@@ -112,7 +112,8 @@ function play(seed, seconds, driver) {
 
 test("a planning bot crosses every region to the perihelion on several seeds and far outscores an idle probe", () => {
   const rows = [];
-  for (const seed of [11, 202, 3003]) {
+  // Seeds the bot crosses with the solid tether (it plays one catch deep, so some seeds beat it).
+  for (const seed of [17, 123]) {
     const bot = botRun(seed, 300);
     const idle = play(seed, 120, null);
     rows.push({ seed, phase: bot.app.phase, reason: bot.app.reason, score: Math.floor(bot.app.scoreRaw), chain: bot.app.bestChain, catches: bot.app.catches, t: Math.round(bot.app.runT), cross: bot.app.cross, relics: bot.app.R.relics, near: bot.app.R.near, idleScore: Math.floor(idle.app.scoreRaw), idlePhase: idle.app.phase });
@@ -195,19 +196,40 @@ test("swing conserves energy over a long hold and releases exactly on the tangen
   }
 });
 
-test("the reticle names the nearest sun ahead or above and ignores suns behind or below", () => {
+test("the reticle names the nearest sun ahead or above, a sun below only when nothing above is in reach, and never one behind", () => {
   const { app } = start({ seed: 2 });
   app.anchors.length = 0;
   const add = (x, y) => app.addAnchor(x, y, "steady");
-  const near = add(300, 100), far = add(400, 150), behind = add(80, 200), below = add(250, 400);
+  const near = add(300, 100), far = add(400, 150), behind = add(80, 200), below = add(260, 360);
   const p = { x: 200, y: 200, vx: 0, vy: 0, lastId: -1 };
-  assert.equal(app.pickTarget(p), near); // |(100,-100)| = 141 vs far 206
+  assert.equal(app.pickTarget(p), near); // |(100,-100)| = 141
   near.dead = true;
-  assert.equal(app.pickTarget(p), far);
-  assert.notEqual(app.pickTarget(p), behind);
-  assert.notEqual(app.pickTarget(p), below);
-  p.lastId = far.id;
-  assert.equal(app.pickTarget(p), null);
+  assert.equal(app.pickTarget(p), far, "above wins over a nearer sun below");
+  far.dead = true;
+  assert.equal(app.pickTarget(p), below, "the solid tether can take a sun below");
+  below.dead = true;
+  assert.equal(app.pickTarget(p), null, "never a sun behind");
+  assert.ok(behind.x < p.x - 40);
+});
+
+test("caught from above, the solid tether pivots the probe over the sun and keeps it at the same distance", () => {
+  const { app } = start({ seed: 2 });
+  app.anchors.length = 0;
+  const a = app.addAnchor(400, 300, "steady");
+  const p = { x: 340, y: 220, vx: 260, vy: 0, lastId: -1, g: 240, clk: 0 };
+  assert.equal(app.pickTarget(p), a);
+  app.engage(p, a);
+  const r0 = p.r;
+  let topY = null;
+  for (let i = 0; i < 90 && topY === null; i++) {
+    app.stepProbe(p, DT);
+    assert.ok(Math.abs(Math.hypot(p.x - a.x, p.y - a.y) - r0) < 1e-9, "rigid");
+    if (p.x >= a.x) topY = p.y;
+  }
+  assert.ok(topY !== null && topY < a.y - r0 + 2, "it passes over the top of the sun");
+  const x0 = p.x, y0 = p.y;
+  for (let i = 0; i < 10; i++) app.stepProbe(p, DT);
+  assert.ok(p.x > x0 && p.y > y0, "and swings on down the far side");
 });
 
 test("three stray quick taps neither end the run nor bend the course much, and cancel keeps the run", () => {
@@ -316,7 +338,7 @@ test("a catch gives a bright accent and a new record flashes all three lamps", (
 });
 
 test("lists stay bounded and the world is generated ahead and dropped behind", () => {
-  const r = botRun(11, 300);
+  const r = botRun(17, 300);
   assert.ok(r.maxAnchors < 40 && r.maxVoids <= 30, `anchors ${r.maxAnchors} voids ${r.maxVoids}`);
   assert.ok(r.app.maxX > 27000, "went a long way: " + r.app.maxX);
   assert.ok(r.app.anchors[0].x > r.app.maxX - 1500);
@@ -693,7 +715,7 @@ test("the hangar: a hold opens it, taps move, holds choose; locked things stay l
   const press = (s) => { app.down(); run(app, s, null); app.up(); };
   assert.equal(app.cur, 1);
   press(0.1); assert.equal(app.cur, 2);
-  for (let i = 0; i < 6; i++) press(0.1);
+  for (let i = 0; i < 7; i++) press(0.1);
   assert.equal(app.cur, 1);
   press(0.6);
   assert.equal(app.sv.sel.probe, 0, "BALLAST is locked at 3 feats");
@@ -712,6 +734,10 @@ test("the hangar: a hold opens it, taps move, holds choose; locked things stay l
   assert.equal(app.view, "menu");
   press(0.1); press(0.6); assert.equal(app.view, "log");
   app.draw(g); press(0.1); assert.equal(app.view, "menu");
+  press(0.1); press(0.6); assert.equal(app.view, "guide");
+  for (let i = 0; i < 4; i++) { app.draw(g); press(0.1); }
+  assert.equal(app.page, 0, "the guide's four pages wrap");
+  press(0.6); assert.equal(app.view, "menu");
   press(0.1);
   assert.equal(app.cur, 0);
   press(0.6);

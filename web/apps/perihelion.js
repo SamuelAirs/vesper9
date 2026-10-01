@@ -40,7 +40,6 @@ const STALL_PHI = 1.75; // a swing that stops this far round from the bottom (ab
 const MAX_LOOPS = 3; // loops that score on one tether (a loop can go on for ever otherwise)
 // Tricks: flat points (not multiplied by the chain, so style adds to a run without swamping distance).
 const TRICKS = { stall: ["STALL", 15], loop: ["LOOP", 25] };
-const SLACK = 0.6; // longest a landed tether waits, slack, for the probe's path to curve round its sun
 // Paced runs: the screen moves at a set speed, px/s, and its left edge ends the run.
 const PACES = [{ name: "OFF", v: 0 }, { name: "STEADY", v: 100 }, { name: "BRISK", v: 135 }];
 const REASONS = {
@@ -77,7 +76,6 @@ const INTRO = {
 const GUIDE = [
   ["CONTROLS",
     "HOLD: throw the tether to the sun marked by the diamond.",
-    "It locks where your path curves closest round that sun.",
     "The tether is a solid rod. Grab from below, beside or above.",
     "RELEASE: fly off the way the swing is carrying you.",
     "A quick tap barely bends your course.",
@@ -680,25 +678,9 @@ export class Perihelion {
     this.bottomT = 0;
     this.c.tone(300 + 35 * Math.min(this.chain, 8), 0.06, "triangle");
   }
-  // Does a landed tether lock now? It stays slack while the probe still closes on its sun and
-  // locks at the closest point, where the path is already square to the line: the flight runs
-  // on into the swing with no turn. It locks at once if the probe is already moving away, or is
-  // very near the sun, and after SLACK seconds in any case.
-  locks(p, a, t) {
-    if (t >= CATCH_LAG + SLACK) return true;
-    const A = place(a, p.clk || 0, PL);
-    const dx = p.x - A.x, dy = p.y - A.y;
-    if (Math.hypot(dx, dy) < MIN_CATCH) return true;
-    return dx * (p.vx - A.vx) + dy * (p.vy - A.vy) >= 0;
-  }
   // Throw a tether from a cloned probe the way the game does (a bot's planning step).
   settle(p, a) {
-    const dt = 1 / 60;
-    for (let t = dt; ; t += dt) {
-      if (t >= CATCH_LAG - 1e-9 && this.locks(p, a, t)) break;
-      this.stepProbe(p, dt);
-      if (this.fate(p)) break; // lost while slack: the planner sees it on the first step
-    }
+    for (let i = 0; i < Math.round(CATCH_LAG * 60) - 1; i++) this.stepProbe(p, 1 / 60);
     this.engage(p, a);
   }
   releaseTether() {
@@ -799,7 +781,7 @@ export class Perihelion {
     this.trickFlash = Math.max(0, (this.trickFlash || 0) - dt);
     if (this.pending) {
       this.pendT += dt;
-      if (this.pendT >= CATCH_LAG - 1e-9 && this.locks(p, this.pending, this.pendT)) this.land();
+      if (this.pendT >= CATCH_LAG - 1e-9) this.land();
     } else if (this.held && !p.a && this.buffer > 0) {
       this.buffer -= dt;
       this.tryCatch();

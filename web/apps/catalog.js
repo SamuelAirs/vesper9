@@ -247,18 +247,19 @@ export const CARTRIDGES = [
   {
     "id": "ballista",
     "name": "BALLISTA",
-    "subtitle": "Launch probes through the wind.",
-    "description": "The aim sweeps by itself. Hold to charge, release to launch, and allow for the wind.",
-    "controls": "HOLD TO CHARGE · RELEASE TO LAUNCH",
-    "category": "PLAY / ARTILLERY",
+    "subtitle": "Fire the pod as far as it will go.",
+    "description": "Press to fix the sweeping aim, hold to charge, release to fire. Pads, mines and boosters throw the pod on; drifts, nets and sinkholes stop it. In flight a press fires a thruster, or skips the pod if it is about to land. Salvage buys upgrades in the workshop.",
+    "controls": "HOLD TO CHARGE · RELEASE TO FIRE · PRESS IN FLIGHT",
+    "category": "PLAY / LAUNCHER",
     "glyph": 4,
     "factory": "Ballista",
     "icon": "<path d=\"M5 38h38M8 38l4-6h8l4 6\"/><path d=\"M16 31l8-8\" stroke-width=\"4\"/><path d=\"M22 20C27 8 36 8 40 25\" stroke-dasharray=\"3 4\"/><circle cx=\"40\" cy=\"31\" r=\"6\"/><circle cx=\"40\" cy=\"31\" r=\"2\" fill=\"currentColor\"/>",
     "record": {
-      "score": "Score",
-      "stations": "Stations cleared",
-      "shots": "Probes launched",
-      "accuracy": "Accuracy %"
+      "metres": "Metres",
+      "salvage": "Salvage earned",
+      "lifts": "Pads, boosters and mines",
+      "skips": "Perfect skips",
+      "reason": "Ended"
     },
     "voice": [
       "launcher"

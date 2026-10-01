@@ -96,6 +96,32 @@ export const CARTRIDGES = [
     ]
   },
   {
+    "id": "meridian",
+    "name": "MERIDIAN",
+    "subtitle": "Stop the swinging light.",
+    "description": "A light swings across the three lamps. Tap as it crosses the middle lamp. Let red swings pass, read swings that wander, go dark or turn back. Hold on the title for the observatory: daily run, sprint, eclipse, feats.",
+    "controls": "TAP AS THE LIGHT CROSSES LAMP II · HOLD ON TITLE: OBSERVATORY",
+    "category": "PLAY / TIMING",
+    "glyph": 2,
+    "factory": "Meridian",
+    "voice": [
+      "pendulum"
+    ],
+    "capabilities": [
+      "button",
+      "lights",
+      "audio",
+      "progress"
+    ],
+    "icon": "<circle cx=\"24\" cy=\"6\" r=\"2\" fill=\"currentColor\"/><path d=\"M24 6L34 36\"/><path d=\"M8 34Q24 46 40 34\" stroke-dasharray=\"3 3\"/><path d=\"M24 6V44\" stroke-dasharray=\"2 4\"/><circle cx=\"34\" cy=\"36\" r=\"4\" fill=\"currentColor\"/>",
+    "record": {
+      "score": "Score",
+      "combo": "Best combo",
+      "stage": "Reached",
+      "mode": "Mode"
+    }
+  },
+  {
     "id": "glyphs",
     "name": "GLYPH ARCHIVE",
     "subtitle": "Remember a forgotten language.",
@@ -533,7 +559,7 @@ export const CARTRIDGES = [
     ]
   }
 ];
-export const SECTORS = [{"name": "PLAY", "apps": ["perihelion", "orbit", "runner", "pulsar", "tideline"]}, {"name": "PLAY II", "apps": ["drift", "descent", "ballista", "ricochet", "helix"]}, {"name": "PLAY III", "apps": ["outpost", "reaction", "echo", "glyphs"]}, {"name": "INSTRUMENTS", "apps": ["morse", "cadence", "transcribe", "environment"]}, {"name": "INSTRUMENTS II", "apps": ["lantern", "resonance", "oracle"]}];
+export const SECTORS = [{"name": "PLAY", "apps": ["perihelion", "orbit", "runner", "pulsar", "tideline"]}, {"name": "PLAY II", "apps": ["drift", "descent", "ballista", "ricochet", "helix"]}, {"name": "PLAY III", "apps": ["outpost", "reaction", "meridian", "echo", "glyphs"]}, {"name": "INSTRUMENTS", "apps": ["morse", "cadence", "transcribe", "environment"]}, {"name": "INSTRUMENTS II", "apps": ["lantern", "resonance", "oracle"]}];
 export const SYSTEM_APPS = ["settings", "diagnostics", "telemetry"];
 export const DEFAULT_SETTINGS = {
   "sound": true,

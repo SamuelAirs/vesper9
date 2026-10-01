@@ -1,3 +1,4 @@
+import { scaleLeds } from "./lightshow.js";
 // The service accepts exactly nine integers from 0 to 255. Round and clamp what an app
 // supplies; a malformed array (wrong length, non-numbers) yields null and is ignored.
 export function normalizeLeds(values) {
@@ -20,18 +21,40 @@ export class LightDirector {
     this.desired = Array(9).fill(0); this.sent = null; this.failed = null;
     this.busy = null; this.last = -Infinity;
     this.suspendedUntil = 0;
+    // Who drives the lamps: the host layer (web/engine/ambient.js) until an app calls leds(),
+    // pattern or reaction; release() hands them back. scale is the global lamp level.
+    this.owner = 'host'; this.scale = 1; this.raw = null;
   }
   invalidate() { this.generation++; this.sent = null; this.failed = null; }
+  // An app's plain values: take the lamps and apply the lamp level.
   set(values) {
     const next = normalizeLeds(values);
     if (!next) return;
-    this.desired = next;
+    this.owner = 'app'; this.raw = next;
+    this.desired = scaleLeds(next, this.scale);
   }
+  // The host layer's values (already levelled). Ignored while an app owns the lamps.
+  setHost(values) {
+    if (this.owner === 'app') return false;
+    const next = normalizeLeds(values);
+    if (!next) return false;
+    this.desired = next;
+    return true;
+  }
+  setScale(scale) {
+    this.scale = scale;
+    if (this.owner === 'app' && this.raw) this.desired = scaleLeds(this.raw, scale);
+  }
+  // Patterns get the lamp level too. A reaction cue is node-timed at fixed colours, so it is
+  // sent as is (Light Trial stays playable whatever the level).
   effect(name, data) {
-    this.invalidate(); this.desired = null;
+    this.invalidate(); this.desired = null; this.owner = 'app'; this.raw = null;
+    if (name === 'pattern' && this.scale !== 1 && Array.isArray(data?.steps))
+      data = { ...data, steps: data.steps.map((step) => (normalizeLeds(step?.values) ? { ...step, values: scaleLeds(step.values, this.scale) } : step)) };
     return this.command(name, data);
   }
   release() {
+    this.owner = 'host'; this.raw = null;
     this.invalidate(); this.suspendedUntil = 0; this.desired = Array(9).fill(0);
     const generation = this.generation, zero = Array(9).fill(0);
     // Both are written now; the socket delivers them in order after anything already sent.

@@ -193,15 +193,18 @@ async function button(page, ms = 80) {
   assert.equal(await page.evaluate(()=>vesper.input.blocked),false);
   await button(page,750); // Resume, using the first intended fresh press.
   assert.equal(await page.evaluate(()=>!!vesper.menu),false);
+  // The default lamp level (medium, 0.5) halves the pattern colours: 120 reaches the lamps as 60.
   await page.evaluate(async()=>{await vesper.app.c.pattern([{ms:3000,values:Array(9).fill(120)}]);});
-  await page.waitForFunction(()=>vesper.state.leds[0]===120);
+  await page.waitForFunction(()=>vesper.state.leds[0]===60);
   await page.evaluate(()=>vesper.home());
-  await page.waitForFunction(()=>vesper.state.leds.every(n=>n===0));
+  // Leaving the app ends its pattern; the dashboard's own host lamp layer (a focus spot) may then
+  // light the lamps, so "dark" is now "no longer the app's colour and the host owns the lamps".
+  await page.waitForFunction(()=>vesper.lights.owner==="host"&&vesper.state.leds.every(n=>n!==60));
   await page.evaluate(() => vesper.launch("diagnostics"));
   await page
     .getByRole("button", { name: "TEST COLOUR / OFF", exact: true })
     .click();
-  await page.waitForFunction(() => vesper.state.leds[0] === 180);
+  await page.waitForFunction(() => vesper.state.leds[0] === 90); // 180 at the default medium lamp level (0.5)
   await page.evaluate(() => vesper.launch("settings"));
   await page.getByRole("button", { name: "SOUND / ON", exact: true }).click();
   await page.waitForFunction(() => vesper.state.settings.sound === false);

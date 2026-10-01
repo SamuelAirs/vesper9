@@ -492,5 +492,7 @@ export const DEFAULT_SETTINGS = {
   "menuClicks": 4,
   "gesturePace": "standard",
   "scanMs": 850,
-  "tempUnit": "F"
+  "tempUnit": "F",
+  "lampLevel": "medium",
+  "lampAmbient": true
 };

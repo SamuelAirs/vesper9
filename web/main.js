@@ -7,6 +7,7 @@ import { ambient, glyph, C, text, space } from "./engine/draw.js";
 import { APPS } from "./apps/registry.js";
 import { DEFAULT_SETTINGS as DEFAULT, SECTORS } from "./apps/catalog.js";
 import { LightDirector } from "./engine/lights.js";
+import { HostLamps, levelScale } from "./engine/ambient.js";
 import { microphoneStatus } from "./engine/status.js";
 
 const $ = (id) => document.getElementById(id);
@@ -52,6 +53,9 @@ export class Vesper {
     this.last = 0;
     this.hudValue = "";
     this.lights = new LightDirector((cmd, data) => this.bridge.command(cmd, data));
+    // Host-owned lamp feedback (navigation, holds, clicks, acknowledgements, ambient, mic live).
+    this.hostLamps = new HostLamps();
+    this.clickState = null;
     this.frameTimes = [];
     this.loaded = false;
     this.errors = [];
@@ -80,6 +84,7 @@ export class Vesper {
     return !this.app || this.app.navigation || !p.clicks ? "MENU: HOLD 3s" : `MENU: ${p.clicks} QUICK CLICKS`;
   }
   clickVisual(count, total) {
+    this.clickState = count ? { count, total } : null;
     if ($("escape-hint")) $("escape-hint").textContent = count ? `MENU: ${count} / ${total}` : this.menuHint();
   }
   inputMode() {
@@ -259,9 +264,9 @@ export class Vesper {
     this.input.cancel();
     try {
       const result = item.run();
-      if (result?.catch) result.catch((error) => this.toast(error.message));
+      if (result?.catch) result.catch((error) => this.errorToast(error.message));
     } catch (error) {
-      this.toast(error.message);
+      this.errorToast(error.message);
     }
   }
   updateFocus(nav = this.nav) {
@@ -279,6 +284,7 @@ export class Vesper {
         String(nav.items.length).padStart(2, "0");
   }
   advance() {
+    this.hostLamps.touch(performance.now());
     if (!this.nav.items.length) return;
     this.nav.index = (this.nav.index + 1) % this.nav.items.length;
     this.updateFocus();
@@ -289,6 +295,8 @@ export class Vesper {
     this.synth.tone(210, 0.025, "triangle");
   }
   select() {
+    this.hostLamps.touch(performance.now());
+    this.hostLamps.note("select", performance.now());
     this.activate(this.nav.items[this.nav.index]);
   }
   get cartridges() {
@@ -538,6 +546,7 @@ export class Vesper {
   }
   systemMenu() {
     if (this.faulted) return this.faultMenu(); // RESUME is blocked while faulted, so never offer it
+    this.hostLamps.note("menu", performance.now());
     const mic = this.state.mic.mode;
     this.openMenu("System channel", "Tap to move. Hold and release to choose. " + this.menuHint(), [
       {
@@ -611,9 +620,14 @@ export class Vesper {
         }
       }
     } catch (error) {
-      this.toast(error.message);
+      this.errorToast(error.message);
       throw error;
     }
+  }
+  // An error toast also gets a brief red double blink on the lamps the host owns.
+  errorToast(message) {
+    this.hostLamps.note("error", performance.now());
+    this.toast(message);
   }
   toast(message) {
     $("toast").textContent = message;
@@ -647,6 +661,7 @@ export class Vesper {
     this.synth.volume = this.state.settings.volume;
     if (!this.synth.enabled) this.synth.stopTone();
     $("console").classList.toggle("crt", this.state.settings.crt);
+    this.lights.setScale(levelScale(this.state.settings.lampLevel));
   }
   lightVisual(values) {
     if (!Array.isArray(values) || values.length !== 9) return;
@@ -703,6 +718,7 @@ export class Vesper {
         if (this.app && !this.menu) this.systemMenu();
         break;
       case "button":
+        this.hostLamps.touch(performance.now());
         this.state.device.button = e.pressed;
         if (e.pressed) {
           this.synth.unlock();
@@ -745,11 +761,12 @@ export class Vesper {
         break;
       case "light_effect":
         this.lights.suspend(e.durationMs);
+        this.hostLamps.quiet(performance.now(), e.durationMs);
         break;
       case "speech_error":
         this.state.mic.error = e.error;
         this.status();
-        this.toast(e.error);
+        this.errorToast(e.error);
         break;
       case "level":
         this.state.mic.level = e.value;
@@ -775,9 +792,10 @@ export class Vesper {
         this.synth.chime();
         break;
       case "error":
-        this.toast(e.error);
+        this.errorToast(e.error);
         break;
       case "voice":
+        this.hostLamps.note("voice", performance.now());
         this.toast("HEARD / " + e.heard);
         if (e.action === "launch") this.launch(e.app);
         else if (e.action === "home") this.home();
@@ -833,6 +851,31 @@ export class Vesper {
     $("timer-badge").classList.toggle("stale", !connected && running.length > 0);
     $("timer-badge").title = connected ? "" : "Service link is down; time is estimated locally";
   }
+  // While no app has taken the lamps, the host layer decides what they show.
+  driveHostLamps(now) {
+    if (this.lights.owner !== "host") return;
+    const s = this.state, press = this.input.press;
+    const scene = this.menu ? "menu" : !this.app ? "dashboard" : this.app.navigation ? "instrument" : "game";
+    let hold = null;
+    if (press && !press.consumed) {
+      const elapsedMs = this.input.clock() - press.at;
+      if (press.mode === "menu") hold = { kind: "select", elapsedMs, holdMs: this.holdMs() };
+      else if (!this.escapePolicy().clicks) hold = { kind: "escape", elapsedMs };
+    }
+    // A timer's countdown belongs where the service plays the completion effect.
+    let remaining = null;
+    if (s.device.connected && (!this.meta || ["timers", "environment"].includes(this.meta.id))) {
+      const left = s.timers.filter((t) => t.running && Number.isFinite(t.deadline)).map((t) => t.deadline - Date.now() / 1000);
+      if (left.length) remaining = Math.min(...left);
+    }
+    this.lights.setHost(this.hostLamps.frame(now, {
+      scene, level: s.settings.lampLevel, ambient: s.settings.lampAmbient, reducedMotion: s.settings.reducedMotion,
+      focus: scene !== "game" && this.nav.items.length ? { index: this.nav.index, count: this.nav.items.length } : null,
+      press: hold, clicks: this.clickState, timerRemaining: remaining,
+      // Confirmed capture from the node, not the requested mode.
+      mic: !!s.device.connected && !!s.device.capture,
+    }));
+  }
   frameStats() {
     const ordered = this.frameTimes.slice().sort((a,b) => a-b);
     return { samples: ordered.length, medianMs: ordered[Math.floor(ordered.length * .5)] || 0,
@@ -846,6 +889,7 @@ export class Vesper {
     }
     this.last = now;
     this.input.update();
+    this.driveHostLamps(now);
     this.lights.flush(this.state.device.connected && this.state.controller !== false);
     if (!document.hidden) {
       if (!this.app) {

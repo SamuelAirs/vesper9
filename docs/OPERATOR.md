@@ -80,6 +80,26 @@ Inspect button down/up, capture status, mic level, incoming audio bytes, CRC err
 
 Adjust optional sound, volume, phosphor scan-line texture, decorative motion, Morse speed, and selection hold time. Reduced Motion freezes the decorative dashboard orrery; it does not remove movement essential to gameplay. All settings persist locally. Settings Reset restores controls/appearance without deleting notes, timers or learning progress. Click timing presets are experimental until tried on your physical button.
 
+## The three lamps
+
+The lamps are part of using the console, not only of the games. Whenever no app has taken them (the dashboard, the system and microphone menus, and any instrument or game that has not lit them) the host drives them:
+
+| When | What you see |
+| --- | --- |
+| Moving through a list | A soft green spot of light; its position across the three lamps follows the focused item's position in the list, and glides when you tap to the next one. |
+| Holding the button in a menu | The lamps fill left to right in amber as the hold approaches the selection threshold. At the threshold they are fully amber (release now to select); a white fill then counts toward the three-second hold that opens the system menu. A tap shows nothing. |
+| Selecting | A short amber flash on all three lamps. Opening the system menu is a short white flash. |
+| Quick-click menu gesture, in a game that has not lit the lamps | Each click lights one more lamp (cyan); the last click opens the menu. |
+| A voice command was recognised | A short cyan sweep from left to right. |
+| An error toast | Two quick red blinks on all three lamps. |
+| Idle on the dashboard | A very dim green breath, slowly drifting from lamp to lamp (steady if Reduced Motion is on). After four minutes without a press or release the glow and the focus spot fade over 30 seconds to fully dark and stay dark until the next press. |
+| Timer in its last ten seconds (dashboard, Chronometer or Atmosphere, where the service plays the completion effect) | Amber: three lamps, then two, then one, each second ticking brighter and fading. The service's amber triple blink follows; the glow stays out for a few seconds afterwards and then fades back in. |
+| Microphone capturing | The right lamp shows a steady dim blue for as long as the node reports that it is capturing (not merely that commands or transcription were requested). It sits on top of every other effect and is not affected by the Ambient Glow setting or the idle fade. |
+
+Apps keep full authority. The moment a game or instrument lights the lamps, or starts a pattern or the Light Trial cue, the host effects above stop, including the microphone lamp (the on-screen microphone indicator still shows capture); they return when the app is left or the menu opens. Leaving an app still turns its lamps off.
+
+Two Calibration settings control this. **Lamp level** (full, medium, low, off; default medium) multiplies everything the lamps do: the host effects, an app's plain light values and the colours inside an app's patterns. Off darkens all of it, except the microphone lamp, which never drops below a dim floor (about a third of full brightness) so that live capture stays visible. The Light Trial cue (the middle lamp turning green) and the amber timer-completion blink are played by the node from colours fixed in the service, so the level does not change them; Light Trial stays playable at every level, and a timer completion still blinks even with the level off. **Ambient glow** (on/off, default on) switches off only the dashboard breath; navigation feedback and the microphone lamp remain.
+
 ## Voice vocabulary
 
 Enable **Voice Commands** in the microphone menu first. Speak one exact phrase, then allow a short silence for recognition to finish.

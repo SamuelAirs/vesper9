@@ -25,7 +25,7 @@ const python=process.env.PYTHON||'python3';const port=require('./free-port.cjs')
   await page.waitForFunction(()=>vesper.meta?.id==='garden');
   await page.keyboard.down('Space');await page.waitForTimeout(60);await page.keyboard.up('Space');
   await page.waitForFunction(()=>vesper.app.count===1);
-  await page.evaluate(()=>vesper.home());await page.waitForFunction(()=>vesper.state.leds.every(n=>n===0));
+  await page.evaluate(()=>vesper.home());await page.waitForFunction(()=>vesper.lights.owner==='host'); // the dashboard's host lamp layer may now light the lamps
   await page.evaluate(()=>vesper.launch('garden'));assert.equal(await page.evaluate(()=>vesper.app.count),1);
   assert.deepEqual(await page.evaluate(()=>vesper.errors),[]);
  }

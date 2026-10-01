@@ -1,288 +1,235 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Descent, VoiceThrottle, voiceDb, VOICE, PACE } from "../web/apps/descent.js";
+import { Descent, VoiceThrottle, voiceDb, VOICE, FLIGHT, newWorld, extend, prune, heightAt, padUnder, speedAt } from "../web/apps/descent.js";
+import { Random } from "../web/engine/math.js";
 import { appContext, fakeCanvas, run } from "./helpers/app-context.mjs";
+import { botWants } from "./helpers/descent-bot.mjs";
 
-const MAX_STEPS = 60 * 60 * 12; // twelve simulated minutes
-
-// A bot that sees what a player sees: altitude, speed, fuel, drift, and where the pad is.
-// It brakes just in time, and slows its descent to arrive when the pad is under it.
-function botWants(app) {
-  const { w, site: s } = app;
-  const net = s.a - s.g;
-  const vt = 0.55 * s.safe;
-  const dx = ((w.padx - w.x + 720) % 480) - 240;
-  const closing = w.vx - w.pv;
-  let want = vt;
-  if (w.alt > 6) {
-    let tAlign = Math.abs(dx) < s.padHalf * 0.35 ? 0 : dx * closing > 0 ? dx / closing : 99;
-    if (tAlign > 0 && s.canyon && w.alt < s.rim + 25) tAlign = 0; // inside the canyon, just go down
-    want = tAlign > 0 ? Math.max(vt, w.alt / Math.max(tAlign, 0.5)) : 1e9;
-  }
-  const brake = (w.vy * w.vy - vt * vt) / (2 * net) >= w.alt * 0.93 - 0.5;
-  return (w.vy > vt && brake) || w.vy > want + 0.4 || (w.alt < 8 && w.vy > vt);
-}
-
-function play(options = {}) {
-  const ctx = appContext({ seed: options.seed ?? 7 });
+// Fly a whole run: the bot decides each frame, or nobody presses (`idle`).
+function fly(options = {}) {
+  const ctx = options.ctx || appContext({ seed: options.seed ?? 7 });
   const app = new Descent(ctx);
-  const mode = options.mode || "bot";
-  let pressed = false;
-  const set = (on) => {
+  app.down({ source: "keyboard" }); app.up({ source: "keyboard" });
+  let pressed = false, t = 0;
+  while (app.phase === "play" && t < (options.seconds ?? 600)) {
+    const on = options.mode === "idle" ? false : botWants(app);
     if (on && !pressed) app.down({ source: "keyboard" });
-    if (!on && pressed) app.up({ source: "keyboard", durationMs: 100 });
+    if (!on && pressed) app.up({ source: "keyboard" });
     pressed = on;
-  };
-  let steps = 0, sinceEdge = 0;
-  app.down({ source: "keyboard" });
-  app.up({ source: "keyboard", durationMs: 50 });
-  while (steps < (options.max ?? MAX_STEPS) && app.phase !== "over") {
-    steps++;
-    if (app.phase === "play") {
-      sinceEdge = 0;
-      if (mode === "bot") set(botWants(app));
-    } else {
-      set(false);
-      sinceEdge++;
-      if ((app.phase !== "brief" || app.waitBrief) && sinceEdge > 200) { app.down({}); app.up({}); sinceEdge = 0; }
-    }
     app.update(1 / 60);
-    if (options.onStep) options.onStep(app, ctx);
-    if (options.stopAtSite && app.siteNo > options.stopAtSite) break;
-    if (options.until?.(app)) break;
+    t += 1 / 60;
+    options.onStep?.(app, ctx);
   }
-  return { app, ctx, steps };
+  return { app, ctx, t };
 }
+// Put the lander somewhere exact, falling, for a touchdown test.
+function above(app, pad, height, vy) {
+  app.x = (pad.x0 + pad.x1) / 2;
+  app.alt = pad.h + height;
+  app.vy = vy;
+  app.pad = null;
+}
+const startPlay = (ctx = appContext()) => { const app = new Descent(ctx); app.down({}); app.up({}); return app; };
 
-test("a competent bot clears many sites and scores far above a bot that never presses", () => {
-  const scores = [];
+test("the moonscape: ground never rises faster than a lander can climb, pads are flat, and generation is repeatable", () => {
+  for (const seed of [1, 2, 3, 4, 5]) {
+    const w = newWorld(new Random(seed));
+    extend(w, new Random(seed + 100), 4000);
+    for (let i = 1; i < w.points.length; i++) {
+      const a = w.points[i - 1], b = w.points[i];
+      assert.ok(b.x > a.x, "points run left to right");
+      assert.ok(b.h - a.h <= 0.45 * (b.x - a.x) + 1e-9, `rise ${b.h - a.h} over ${b.x - a.x} at ${a.x}`);
+      assert.ok(b.h >= 0 && b.h <= 55);
+    }
+    for (const p of w.pads) {
+      assert.ok(p.x1 - p.x0 >= 10, "pads are at least 10 m");
+      for (let x = p.x0; x <= p.x1; x += 2) assert.ok(Math.abs(heightAt(w, x) - p.h) < 1e-6, "flat");
+    }
+    const gaps = w.pads.slice(1).map((p, i) => p.x0 - w.pads[i].x1);
+    assert.ok(Math.max(...gaps) < 260, "a pad comes along within a few seconds");
+    assert.ok(w.pads.some((p) => p.mult === 3), "gold pads appear");
+  }
+  const a = newWorld(new Random(9)), b = newWorld(new Random(9));
+  assert.deepEqual(a, b);
+});
+
+test("the world is generated ahead and dropped behind, so it stays small however far you fly", () => {
+  const w = newWorld(new Random(3));
+  for (let x = 0; x < 20000; x += 50) { extend(w, new Random(x), x + 520); prune(w, x - 150); }
+  assert.ok(w.points.length < 80, `${w.points.length} points`);
+  assert.ok(w.pads.length < 12, `${w.pads.length} pads`);
+});
+
+test("a competent pilot lands many pads and scores far above one who never presses", () => {
+  const rows = [];
   for (const seed of [3, 7, 11, 19]) {
-    const good = play({ seed });
-    const idle = play({ seed, mode: "idle" });
-    scores.push([seed, good.app.total, good.app.cleared, good.app.phase, idle.app.total]);
-    assert.ok(good.app.total > 2000, `seed ${seed} bot score ${good.app.total}`);
-    assert.ok(good.app.cleared >= 8, `seed ${seed} sites ${good.app.cleared}`);
-    assert.equal(idle.app.total, 0, "an idle lander never lands softly");
+    const good = fly({ seed });
+    const idle = fly({ seed, mode: "idle" });
+    rows.push([seed, Math.floor(good.app.score), good.app.landings, good.app.bestCombo, Math.round(good.t)]);
+    assert.ok(good.app.landings >= 5, `seed ${seed} pads ${good.app.landings}`);
+    assert.ok(good.app.score > 1500, `seed ${seed} score ${good.app.score}`);
+    assert.ok(good.app.bestCombo >= 5);
+    assert.equal(idle.app.landings, 0);
+    assert.ok(idle.app.score < 100);
     assert.equal(idle.app.phase, "over");
   }
-  if (process.env.DESCENT_REPORT) console.log(JSON.stringify(scores));
+  if (process.env.DESCENT_REPORT) console.log(JSON.stringify(rows));
 });
 
-test("the first two sites are forgiving: the bot lands both without losing a lander", () => {
-  const { app } = play({ seed: 5, stopAtSite: 2 });
-  assert.ok(app.siteNo > 2);
-  assert.equal(app.lives, 3);
+test("something happens every few seconds: the bot touches down on a new pad at least every twelve seconds on average", () => {
+  const { app, t } = fly({ seed: 3 });
+  assert.ok(t / app.landings < 12, `${(t / app.landings).toFixed(1)} s per pad`);
 });
 
-test("a run ends in a loss with a saved record", () => {
-  const { app, ctx } = play({ mode: "idle" });
-  assert.equal(app.phase, "over");
-  assert.equal(app.lives, 0);
-  assert.equal(ctx.calls.saved.length, 1);
-  assert.equal(ctx.calls.saved[0].last.sites, 0);
-});
-
-test("numeric state stays finite, lists stay bounded, lamps are nine whole bytes that change", () => {
-  const seen = new Set();
-  const { ctx } = play({
-    seed: 23,
-    onStep(app, c) {
-      const w = app.w;
-      if (w) for (const v of [w.x, w.alt, w.vy, w.vx, w.padx, app.fuel, app.total]) assert.ok(Number.isFinite(v));
-      assert.ok(app.site.terrain.length === 240 && app.site.gusts.length <= 9);
-      const l = c.calls.leds[c.calls.leds.length - 1];
-      if (l) seen.add(l.join(","));
-    },
-  });
-  for (const v of ctx.calls.leds) {
-    assert.equal(v.length, 9);
-    for (const c of v) assert.ok(Number.isInteger(c) && c >= 0 && c <= 255);
-  }
-  assert.ok(seen.size > 20, "lamps change during play");
-});
-
-// Leave the title, then press again to leave the first briefing (it waits for a press).
-function launch(app) {
-  app.down(); app.up();
-  run(app, 0.8);
-  app.down(); app.up();
-  run(app, 0.1);
-}
-
-function started(seed) {
-  const ctx = appContext({ seed });
-  const app = new Descent(ctx);
-  launch(app);
-  assert.equal(app.phase, "play");
-  return { ctx, app };
-}
-
-test("lamps are green when safe, amber when fast but recoverable, red when a crash is certain", () => {
-  const { ctx, app } = started(1);
-  app.w.alt = 100; app.w.vy = 1;
-  run(app, 1 / 60);
-  let l = ctx.calls.leds.at(-1);
-  assert.ok(l[1] > l[0] * 2, "green: " + l);
-  app.w.alt = 100; app.w.vy = 12; app.fuel = 8;
-  run(app, 1 / 60);
-  l = ctx.calls.leds.at(-1);
-  assert.ok(l[0] > 0 && l[1] > 0 && l[1] < l[0], "amber: " + l);
-  app.w.alt = 25; app.w.vy = 30; app.fuel = 2;
-  run(app, 1 / 60);
-  l = ctx.calls.leds.at(-1);
-  assert.ok(l[0] > l[1] * 3, "red: " + l);
-});
-
-test("the lit lamp shows which side the pad is on", () => {
-  const { ctx, app } = started(2);
-  app.w.vy = 0; app.w.alt = 100;
-  app.w.padx = app.w.x - 120;
-  run(app, 1 / 60);
-  let l = ctx.calls.leds.at(-1);
-  assert.ok(l[1] > 0 && l[7] * 4 < l[1] && l[1] > l[4], "pad to the left lights the left lamp: " + l);
-  app.w.padx = app.w.x + 120;
-  run(app, 1 / 60);
-  l = ctx.calls.leds.at(-1);
-  assert.ok(l[7] > 0 && l[1] * 4 < l[7] && l[7] > l[4], "pad to the right lights the right lamp: " + l);
-  app.w.padx = app.w.x;
-  run(app, 1 / 60);
-  l = ctx.calls.leds.at(-1);
-  assert.ok(l[1] > 0 && l[4] > 0 && l[7] > 0, "pad underneath lights all three: " + l);
-});
-
-test("three quick taps are three small burns and do not end the run", () => {
-  const { app } = started(3);
-  for (let i = 0; i < 3; i++) {
-    app.down({ source: "keyboard" });
-    run(app, 0.08);
-    app.up({ source: "keyboard", durationMs: 80 });
-    run(app, 0.1);
-  }
-  app.cancel();
-  assert.equal(app.phase, "play");
-  assert.equal(app.lives, 3);
-  assert.ok(app.fuel > app.site.fuel - 1);
-});
-
-test("cancel and dispose mid-play stop the engine and leave the lamps off", () => {
-  const ctx = appContext();
-  let tone = 0;
-  ctx.synth.startTone = () => tone++;
-  ctx.synth.stopTone = () => { tone = 0; };
-  const app = new Descent(ctx);
-  launch(app);
-  run(app, 3);
-  app.down({ source: "keyboard" });
-  run(app, 0.5);
-  assert.equal(tone, 1);
-  app.cancel();
-  assert.equal(tone, 0);
-  run(app, 0.2);
-  assert.equal(app.burning, false);
-  app.down({ source: "keyboard" });
-  run(app, 0.3);
-  app.dispose();
-  assert.equal(tone, 0);
-  assert.deepEqual(ctx.calls.leds.at(-1), Array(9).fill(0));
-});
-
-test("a press that skips the briefing does not burn until released and pressed again", () => {
-  const ctx = appContext();
-  const app = new Descent(ctx);
-  app.down(); app.up();
-  run(app, 0.8);
-  app.down();
-  assert.equal(app.phase, "play");
-  run(app, 0.5);
-  assert.equal(app.fuel, app.site.fuel);
-  app.up();
-  app.down();
-  run(app, 0.2);
-  assert.ok(app.fuel < app.site.fuel);
-});
-
-test("a press on the last crash screen does not start another descent", () => {
-  const { app } = started(4);
-  app.lives = 1;
-  app.w.alt = 0.2; app.w.vy = 20;
-  run(app, 0.1);
-  assert.equal(app.phase, "crashed");
-  run(app, 1.6);
-  app.down(); app.up();
-  assert.equal(app.phase, "crashed");
-  assert.equal(app.lives, 0);
-  run(app, 1.5);
-  assert.equal(app.phase, "over");
-  run(app, 1.2);
-  app.down(); app.up();
-  assert.equal(app.phase, "brief");
-  assert.equal(app.lives, 3);
-});
-
-test("draw works in every phase and stays small", () => {
-  const ctx = appContext();
-  const app = new Descent(ctx);
-  const g = fakeCanvas();
-  app.draw(g);
-  app.down(); app.up();
-  app.draw(g);
-  launch(app);
-  run(app, 3);
-  app.draw(g);
-  const before = g.count.lineTo || 0;
-  app.draw(g);
-  assert.ok((g.count.lineTo || 0) - before < 700);
-  app.w.alt = 0.2; app.w.vy = 20;
-  run(app, 0.1);
-  assert.equal(app.phase, "crashed");
-  app.draw(g);
-  run(app, 3);
-  app.draw(g);
-});
-
-test("the first briefing waits for a press; later briefings and retries start by themselves", () => {
-  const ctx = appContext({ seed: 8 });
-  const app = new Descent(ctx);
-  app.down(); app.up();
-  assert.equal(app.phase, "brief");
-  run(app, 20);
-  assert.equal(app.phase, "brief", "a newcomer can read the briefing for as long as needed");
-  assert.ok(app.waitBrief);
-  const g = fakeCanvas();
-  app.draw(g);
-  app.down(); app.up();
-  assert.equal(app.phase, "play");
-  // A crash on site 1 and the retry: the briefing starts the descent on its own.
-  app.w.alt = 0.2; app.w.vy = 20;
-  run(app, 0.1);
-  run(app, 1.6);
-  app.down(); app.up();
-  assert.equal(app.phase, "brief");
-  assert.ok(!app.waitBrief);
-  run(app, 2.6);
-  assert.equal(app.phase, "play");
-});
-
-// The descent runs at PACE (Sam found the old 17 s fall "way too slow to be fun"): now about eight and a half.
-test("an idle newcomer on site 1 has about eight seconds before the ground", () => {
-  const app = new Descent(appContext({ seed: 3 }));
-  launch(app);
+test("an idle lander rolls off the launch pad and is lost within twenty seconds", () => {
+  const app = startPlay();
+  assert.ok(app.pad?.start, "starts resting on the launch pad");
   let t = 0;
-  while (app.phase === "play" && t < 60) { app.update(1 / 60); t += 1 / 60; }
-  assert.equal(app.phase, "crashed");
-  assert.ok(t > 7.5 && t < 10, "fall took " + t.toFixed(1) + " s");
+  while (app.lives === 3 && t < 30) { app.update(1 / 60); t += 1 / 60; }
+  assert.ok(t > 6 && t < 20, `lost after ${t.toFixed(1)} s`);
 });
 
-test("pause and cancel switch the lamps off", () => {
-  for (const how of ["pause", "cancel"]) {
-    const ctx = appContext({ seed: 2 });
-    const app = new Descent(ctx);
-    launch(app);
-    run(app, 1);
-    assert.ok(ctx.calls.leds.at(-1).some((v) => v > 0), "lit in play");
+test("holding lifts off the launch pad and burns fuel; resting on a pad refuels", () => {
+  const app = startPlay();
+  app.down({});
+  run(app, 0.5);
+  assert.equal(app.pad, null);
+  assert.ok(app.alt > 10.5, `alt ${app.alt}`);
+  assert.ok(app.fuel < FLIGHT.fuelMax - 0.4);
+  app.up({});
+  const pad = app.world.pads.find((p) => !p.landed);
+  above(app, pad, 0.01, 1);
+  app.fuel = 2;
+  run(app, 0.5);
+  assert.equal(app.pad, pad);
+  assert.ok(app.fuel > 2 + FLIGHT.bonusFuel + 1, `fuel ${app.fuel}`);
+});
+
+test("a soft first touchdown scores and builds the combo; the same pad scores only once; a fast one is a crash that resets it", () => {
+  const app = startPlay();
+  run(app, 0.1);
+  const [p1, p2, p3] = app.world.pads.filter((p) => !p.landed);
+  above(app, p1, 0.02, 0.5);
+  run(app, 0.05);
+  assert.equal(app.landings, 1);
+  assert.equal(app.combo, 2);
+  const soft = app.lastLanding.pts;
+  assert.ok(soft >= 120 * p1.mult, `soft landing ${soft}`);
+  const score = app.score;
+  above(app, p1, 0.02, 0.5); // bounce on the same pad
+  run(app, 0.05);
+  assert.equal(app.landings, 1);
+  assert.ok(app.score - score < 5, "only the distance counts");
+  above(app, p2, 0.02, 4);
+  run(app, 0.05);
+  assert.equal(app.landings, 2);
+  assert.equal(app.combo, 3);
+  assert.ok(app.lastLanding.pts > 2 * 60 * p2.mult - 1, "a firm landing still scores, times the combo");
+  above(app, p3, 0.02, FLIGHT.safe + 1);
+  run(app, 0.05);
+  assert.equal(app.lives, 2);
+  assert.equal(app.combo, 1);
+  assert.match(app.wreckWhy, /TOO FAST/);
+});
+
+test("a gold pad scores three times", () => {
+  const app = startPlay();
+  run(app, 0.1);
+  extend(app.world, app.ctx.rng, 3000);
+  const gold = app.world.pads.find((p) => p.mult === 3);
+  above(app, gold, 0.02, 0.5);
+  run(app, 0.05);
+  assert.ok(app.lastLanding.pts >= 3 * 120, `${app.lastLanding.pts}`);
+});
+
+test("after a crash the next lander arrives above the ground with fuel, and the third crash ends the run with one record", () => {
+  const ctx = appContext();
+  const app = startPlay(ctx);
+  run(app, 0.1);
+  for (let k = 0; k < 3; k++) {
+    app.alt = heightAt(app.world, app.x) + 0.5; app.vy = 20; app.pad = null;
+    run(app, 0.05);
+    assert.equal(app.lives, 2 - k);
+    run(app, 1.5);
+    if (app.lives > 0) {
+      assert.equal(app.phase, "play");
+      assert.ok(app.alt > heightAt(app.world, app.x) + 15, "respawned high");
+      assert.ok(app.fuel >= FLIGHT.fuelMax * 0.6 - 1e-9);
+    }
+  }
+  assert.equal(app.phase, "over");
+  run(app, 3);
+  assert.equal(ctx.calls.saved.length, 1);
+  const last = ctx.calls.saved[0].last;
+  assert.deepEqual(Object.keys(last).sort(), ["combo", "metres", "milestone", "pads", "score"]);
+});
+
+test("the pace rises with distance", () => {
+  assert.ok(speedAt(0) >= 10 && speedAt(0) <= 12);
+  assert.ok(speedAt(5000) > speedAt(0) + 5);
+});
+
+test("numeric state stays finite and lamps are nine whole bytes in range", () => {
+  fly({ seed: 19, onStep(app, ctx) {
+    for (const v of [app.x, app.alt, app.vy, app.fuel, app.score]) assert.ok(Number.isFinite(v));
+    const l = ctx.calls.leds.at(-1);
+    assert.equal(l.length, 9);
+    assert.ok(l.every((v) => Number.isInteger(v) && v >= 0 && v <= 255));
+    ctx.calls.leds.length = 0;
+  } });
+});
+
+test("lamps are green when safe and red when a crash is certain", () => {
+  const app = startPlay();
+  run(app, 0.2);
+  const g = app.ctx.calls.leds.at(-1);
+  assert.ok(g[1] > g[0], "green on the pad");
+  app.pad = null; app.alt = heightAt(app.world, app.x) + 8; app.vy = 25; app.fuel = 0;
+  app.update(1 / 60);
+  const r = app.ctx.calls.leds.at(-1);
+  assert.ok(r[0] >= r[1] && r[0] > 0, "red");
+});
+
+test("cancel, pause and dispose stop the engine and leave the lamps off", () => {
+  for (const how of ["cancel", "pause", "dispose"]) {
+    let stopped = 0;
+    const ctx = appContext();
+    ctx.synth.stopTone = () => { stopped++; };
+    const app = startPlay(ctx);
+    app.down({});
+    run(app, 0.3);
+    assert.ok(app.burning);
     app[how]();
+    assert.ok(!app.burning && stopped > 0, how);
     assert.deepEqual(ctx.calls.leds.at(-1), Array(9).fill(0), how);
   }
+});
+
+test("a press that starts the run does not burn until it is released and pressed again", () => {
+  const app = new Descent(appContext());
+  app.down({});
+  app.up({});
+  assert.equal(app.phase, "play");
+  run(app, 0.3);
+  assert.equal(app.power, 0);
+});
+
+test("draw works on the title, in flight, in a wreck and on the result screen", () => {
+  const app = new Descent(appContext());
+  const g = fakeCanvas();
+  app.draw(g);
+  app.down({}); app.up({});
+  run(app, 1);
+  app.draw(g);
+  app.alt = heightAt(app.world, app.x); app.vy = 20; app.pad = null;
+  run(app, 0.1);
+  assert.ok(app.wreck > 0);
+  app.draw(g);
+  app.lives = 1; app.alt = heightAt(app.world, app.x) + 2; app.vy = 20; app.wreck = 0;
+  run(app, 2);
+  assert.equal(app.phase, "over");
+  app.draw(g);
+  assert.ok(g.count.fillText > 10);
 });
 
 test("the title says what the button does", () => {
@@ -293,7 +240,7 @@ test("the title says what the button does", () => {
   const all = rows.join(" ");
   assert.match(all, /HOLD TO BURN/);
   assert.match(all, /RELEASE TO FALL/);
-  assert.match(all, /LAND SLOWLY/);
+  assert.match(all, /PADS/);
 });
 
 // ---- voice throttle ----
@@ -382,7 +329,7 @@ test("a tap on the title starts a run; a one-second hold switches the voice thro
   assert.deepEqual(ctx.calls.mic, ["analyze", "off"]);
   assert.ok(!app.voice.on);
   await holdOnTitle(app, 0.3);
-  assert.equal(app.phase, "brief", "a short press starts");
+  assert.equal(app.phase, "play", "a short press starts");
   assert.deepEqual(ctx.calls.mic, ["analyze", "off"], "and leaves the microphone alone");
 });
 
@@ -443,78 +390,6 @@ test("the menu gesture's hold on the title neither starts a run nor switches the
   assert.equal(app.phase, "title");
 });
 
-test("a voice burn is proportional, uses fuel in proportion, and makes no engine rumble", async () => {
-  const ctx = micContext();
-  let rumble = 0;
-  ctx.synth.startTone = () => { rumble++; };
-  const app = new Descent(ctx);
-  await holdOnTitle(app);
-  runWithVoice(app, 2, null); // learn the room on the title
-  app.down({}); app.up({});
-  runWithVoice(app, 0.6, null);
-  app.down({}); app.up({}); // start the descent from the first briefing
-  assert.equal(app.phase, "play");
-  const half = -90 + VOICE.gateDb + VOICE.spanDb / 2;
-  runWithVoice(app, 0.5, half);
-  const fuel0 = app.fuel, vy0 = app.w.vy;
-  runWithVoice(app, 1, half);
-  const used = fuel0 - app.fuel;
-  assert.ok(Math.abs(app.power - 0.5) < 0.08, `power ${app.power}`);
-  assert.ok(Math.abs(used - 0.5 * PACE) < 0.1, `fuel used ${used}`);
-  const s = app.site;
-  const dv = app.w.vy - vy0;
-  assert.ok(Math.abs(dv - (s.g - s.a * 0.5) * PACE) < 0.5, `half a burn: dv ${dv}`);
-  assert.equal(rumble, 0, "no rumble for the voice");
-  app.down({});
-  app.update(1 / 60);
-  assert.equal(app.power, 1, "the button is a full burn");
-  assert.equal(rumble, 1);
-});
-
-test("a hovering voice pilot lands the opening sites", async () => {
-  // Proportional control: aim for a gentle descent speed and ask for just the burn that holds it.
-  const ctx = micContext({ seed: 5 });
-  const app = new Descent(ctx);
-  await holdOnTitle(app);
-  runWithVoice(app, 2, null);
-  app.down({}); app.up({});
-  let landed = 0, steps = 0;
-  while (steps++ < 60 * 240 && app.siteNo <= 3 && app.phase !== "over") {
-    const level = () => {
-      if (app.phase !== "play") return null;
-      const { w, site: s } = app;
-      const want = w.alt > 25 ? 0.8 * s.safe + w.alt / 12 : 0.5 * s.safe;
-      const need = clamp01((s.g + (w.vy - want) * 1.5) / s.a);
-      return need > 0 ? -90 + VOICE.gateDb + need * VOICE.spanDb : null;
-    };
-    if (app.phase === "landed" && app.pt > 1.3) { landed++; app.down({}); app.up({}); }
-    if (app.phase === "crashed" && app.pt > 1.5) { app.down({}); app.up({}); }
-    if (app.phase === "brief" && app.waitBrief) { app.down({}); app.up({}); }
-    runWithVoice(app, 0.1, level);
-  }
-  assert.ok(landed >= 3, `landed ${landed}`);
-  assert.equal(app.lives, 3, "without losing a lander");
-});
-function clamp01(x) { return Math.max(0, Math.min(1, x)); }
-
-test("with the voice throttle on but the microphone silent, the game plays exactly as with the button alone", async () => {
-  const runFor = async (voice) => {
-    const ctx = micContext({ seed: 11 });
-    const app = new Descent(ctx);
-    if (voice) await holdOnTitle(app);
-    const trace = [];
-    app.down({}); app.up({});
-    for (let i = 0; i < 60 * 40; i++) {
-      if (app.phase === "brief" && app.waitBrief) { app.down({}); app.up({}); }
-      if (app.phase === "play") { if (i % 90 === 0) app.down({}); if (i % 90 === 40) app.up({}); }
-      app.update(1 / 60);
-      if (app.w) trace.push(+app.w.alt.toFixed(4));
-    }
-    return trace;
-  };
-  assert.deepEqual(await runFor(true), await runFor(false));
-});
-
 test("the title shows the voice throttle option and how to switch it", () => {
   const rows = [];
   const g = fakeCanvas();
@@ -524,27 +399,66 @@ test("the title shows the voice throttle option and how to switch it", () => {
   assert.match(rows.join(" "), /HOLD ONE SECOND TO SWITCH ON/);
 });
 
-test("the survey keeps moving: a landing leads to the next site and a crash to a retry without a press", () => {
-  const { app } = play({ seed: 5, until: (a) => a.phase === "landed" }); // lands site 1, then waits
-  assert.equal(app.phase, "landed");
-  run(app, 2.3);
-  assert.equal(app.siteNo, 2);
-  assert.ok(app.phase === "brief" || app.phase === "play");
-  const idle = new Descent(appContext({ seed: 3 }));
-  idle.down({}); idle.up({});
-  idle.down({}); idle.up({});
-  for (let i = 0; i < 60 * 30 && idle.phase !== "crashed"; i++) { idle.update(1 / 60); if (idle.phase === "brief" && idle.waitBrief && idle.pt > 0.6) { idle.down({}); idle.up({}); } }
-  assert.equal(idle.phase, "crashed");
-  run(idle, 2.7);
-  assert.ok(idle.phase === "brief" || idle.phase === "play", idle.phase);
-  assert.equal(idle.lives, 2);
+
+// Learn the room on the title, then start a run.
+async function voiceRun(seed = 7) {
+  const ctx = micContext({ seed });
+  let rumble = 0;
+  ctx.synth.startTone = () => { rumble++; };
+  const app = new Descent(ctx);
+  await holdOnTitle(app);
+  runWithVoice(app, 2, null);
+  app.down({}); app.up({});
+  return { app, ctx, rumble: () => rumble };
+}
+
+test("a voice burn is proportional, uses fuel in proportion, and makes no engine rumble", async () => {
+  const { app, rumble } = await voiceRun();
+  assert.equal(app.phase, "play");
+  app.pad = null; app.alt = 60; app.vy = 0;
+  const half = -90 + VOICE.gateDb + VOICE.spanDb / 2;
+  runWithVoice(app, 0.5, half);
+  const fuel0 = app.fuel, vy0 = app.vy;
+  runWithVoice(app, 1, half);
+  assert.ok(Math.abs(app.power - 0.5) < 0.08, `power ${app.power}`);
+  assert.ok(Math.abs(fuel0 - app.fuel - 0.5) < 0.08, `fuel used ${fuel0 - app.fuel}`);
+  const dv = app.vy - vy0;
+  assert.ok(Math.abs(dv - (FLIGHT.g - FLIGHT.a * 0.5)) < 0.6, `half a burn: dv ${dv}`);
+  assert.equal(rumble(), 0, "no rumble for the voice");
+  app.down({});
+  app.update(1 / 60);
+  assert.equal(app.power, 1, "the button is a full burn");
+  assert.equal(rumble(), 1);
 });
 
-test("a whole site, briefing to touchdown, takes well under fifteen seconds for the bot", () => {
-  let start = null, took = null;
-  play({ seed: 7, stopAtSite: 3, onStep(app) {
-    if (app.siteNo === 3 && app.phase === "brief" && start === null) start = app.t;
-    if (app.siteNo === 3 && app.phase === "landed" && took === null) took = app.t - start;
-  } });
-  assert.ok(took !== null && took < 15, "site 3 took " + took);
+test("a voice pilot can hold a hover that the button alone can only approximate", async () => {
+  const { app } = await voiceRun();
+  app.pad = null; app.alt = 60; app.vy = 0;
+  const hover = -90 + VOICE.gateDb + VOICE.spanDb * (FLIGHT.g / FLIGHT.a);
+  runWithVoice(app, 1, hover);
+  const vys = [];
+  for (let i = 0; i < 60; i++) { runWithVoice(app, 1 / 60, hover); vys.push(app.vy); }
+  assert.ok(Math.max(...vys.map(Math.abs)) < 0.8, `steady: ${Math.max(...vys.map(Math.abs))}`);
+});
+
+test("with the voice throttle on but the microphone silent, the game plays exactly as with the button alone", async () => {
+  const trace = async (voice) => {
+    const ctx = micContext({ seed: 11 });
+    const app = new Descent(ctx);
+    if (voice) await holdOnTitle(app);
+    const out = [];
+    app.down({}); app.up({});
+    let pressed = false;
+    for (let i = 0; i < 60 * 40 && app.phase === "play"; i++) {
+      const on = botWants(app);
+      if (on && !pressed) app.down({}); if (!on && pressed) app.up({});
+      pressed = on;
+      app.update(1 / 60);
+      out.push(+app.alt.toFixed(4));
+    }
+    return out;
+  };
+  const a = await trace(true), b = await trace(false);
+  assert.ok(a.length > 600);
+  assert.deepEqual(a, b);
 });

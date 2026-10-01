@@ -1,32 +1,35 @@
-# Descent: voice throttle (desktop, 2026-10-01)
+# Descent: lunar hopper and voice throttle (desktop, 2026-10-01)
 
 Sam's direction: no temperature or humidity in games; the microphone only where it improves a game.
-Descent was picked because a lander suits a slow, analogue control (the analysis frames arrive about
-ten a second, so a fast reaction game would feel the lag) and an on/off button cannot hover.
+After playing: the separate-site Descent was "still way too slow to be fun", and doubling its speed
+did not fix it. The loop was the problem: one long fall per site, one decision (when to burn),
+sideways drift you could not control, then pass or fail.
 
-- Hold the button for a second on the title (or the result screen) to switch the voice throttle on;
-  a tap still starts a run. The microphone goes to `analyze` only then, and off again on the same
-  hold or when leaving the game (only if Descent switched it on).
-- Hum to burn: the loudest band from 140 Hz to 4 kHz, measured against the room's noise floor
-  (learned in the first 1.5 s, then following the room), gives 0–100 % thrust; fuel goes with output.
-  The button is still a full burn and always wins. The 88 Hz engine rumble only plays for button
-  burns and is outside the band, so the speaker cannot feed the throttle.
-- No signal, a mute from the menu, an analysis error or a lost link: the throttle is zero or the voice
-  mode turns off, and the game plays exactly as before (tested).
-- In play a VOICE gauge shows the burn; the status bar shows ANALYZING while the microphone is on.
-  The game owns the lamps in play, so the host's blue microphone lamp is not shown there (as in Resonance).
+## Rebuild: a hopper
 
-Verified: `tests/descent.test.mjs` (27 tests, including a voice-only pilot that lands the first three
-sites and a silent-microphone run identical to button-only), all eight suites except one Perihelion
-bot test that fails identically on `main`, and simulator screenshots of the title, the hold and play.
-Not verified on the device: the real microphone's levels, the gate (12 dB) and span (28 dB) above
-the floor need tuning by ear on the Pi.
+- The lander flies on across a scrolling moonscape (11 m/s, rising to 18). Hold to burn, release to fall.
+- Fuel (8 s of burn) only comes from pads: settle on one under 4.5 m/s and you skim it, refuelling, until
+  you lift off before its end. A first touchdown scores 60–150 by softness, x3 on a narrow gold pad,
+  times a combo (up to x8) that a crash resets. Distance adds a little.
+- Ridges must be climbed in time; ground never rises faster than a lander can climb (0.45 m per m),
+  and a hollow pad is never deeper than a lander can drop into and brake. Pads every few seconds;
+  speed, ridges and narrow pads grow with distance. Three landers; a lost one is replaced in 1.4 s.
+- Lamps: colour = vertical-speed verdict (green safe, amber fast, red certain crash); the lit lamp
+  walks right to left as the next pad arrives, tinted amber for gold; a soft green pulse on a pad.
+- Records: score, pads, best combo, metres.
+- The generated world lives in plain arrays bounded by pruning, so AppGuard snapshots stay small.
 
-## Pace (after Sam played it: "still way too slow to be fun")
+## Voice throttle
 
-- The descent now runs at twice the wall clock (`PACE = 2`): site 1's free fall is about 8.5 s instead of
-  17 s, and the bot's site 3 from briefing to touchdown is under 15 s. Sites, speeds and fuel are unchanged
-  in simulated units; the fuel shown is real seconds of full burn.
-- Briefings start after 1.4 s (was 2.4). After a landing a press continues from 0.6 s and the next site
-  comes by itself at 2.2 s; after a crash a retry from 0.8 s, by itself at 2.6 s.
-- The voice throttle's ~0.15 s microphone lag is now ~0.3 s of simulated time. Not verified on the device.
+Hold the button a second on the title or result screen to switch the microphone to `analyze`; hum to
+burn (loudest band 140 Hz–4 kHz above the room's learned noise floor, 12 dB gate, 28 dB span). The
+button is a full burn and always wins; the 88 Hz rumble plays only for button burns. Silence, a mute,
+an error or a lost link: zero throttle or voice mode off, and the game plays exactly as button-only.
+
+## Evidence
+
+`tests/descent.test.mjs` (28 tests; bot in `tests/helpers/descent-bot.mjs`): on seeds 3/7/11/19 the bot
+lands 7–15 pads per run, 1.5–2 minutes, a pad every few seconds; an idle lander scores under 100.
+All eight suites pass except the Perihelion bot test (seed 3003) that fails identically on `main`.
+Simulator screenshots of title and flight looked at. Not verified on the device: feel, difficulty,
+and the microphone thresholds need Sam's hands on the Pi.

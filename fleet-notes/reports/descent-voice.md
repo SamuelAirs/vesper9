@@ -21,3 +21,12 @@ sites and a silent-microphone run identical to button-only), all eight suites ex
 bot test that fails identically on `main`, and simulator screenshots of the title, the hold and play.
 Not verified on the device: the real microphone's levels, the gate (12 dB) and span (28 dB) above
 the floor need tuning by ear on the Pi.
+
+## Pace (after Sam played it: "still way too slow to be fun")
+
+- The descent now runs at twice the wall clock (`PACE = 2`): site 1's free fall is about 8.5 s instead of
+  17 s, and the bot's site 3 from briefing to touchdown is under 15 s. Sites, speeds and fuel are unchanged
+  in simulated units; the fuel shown is real seconds of full burn.
+- Briefings start after 1.4 s (was 2.4). After a landing a press continues from 0.6 s and the next site
+  comes by itself at 2.2 s; after a crash a retry from 0.8 s, by itself at 2.6 s.
+- The voice throttle's ~0.15 s microphone lag is now ~0.3 s of simulated time. Not verified on the device.

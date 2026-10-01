@@ -22,6 +22,11 @@ const PX = 2;
 const GY = 470; // screen y of the pad datum
 const HALF = 5; // lander half-width in metres, used for walls and hills
 const STEP = 1 / 60;
+// The descent runs this much faster than the wall clock (Sam: "way too slow to be fun"). Sites,
+// speeds and fuel are designed in simulated seconds; the screen shows fuel in real seconds.
+export const PACE = 2;
+// Between sites (real seconds): how soon a press continues, and when the game moves on by itself.
+const BRIEF_S = 1.4, NEXT_PRESS_S = 0.6, NEXT_AUTO_S = 2.2, RETRY_PRESS_S = 0.8, RETRY_AUTO_S = 2.6;
 const wrapX = (x) => ((x % W) + W) % W;
 const wrapD = (d) => wrapX(d + W / 2) - W / 2;
 const smooth = (t) => {
@@ -353,10 +358,10 @@ export class Descent {
       this.downAt = this.t;
     } else if (this.phase === "brief" && this.pt > 0.5) {
       this.startPlay();
-    } else if (this.phase === "landed" && this.pt > 1.2) {
+    } else if (this.phase === "landed" && this.pt > NEXT_PRESS_S) {
       this.siteNo++;
       this.startBrief(true);
-    } else if (this.phase === "crashed" && this.lives > 0 && this.pt > 1.4) {
+    } else if (this.phase === "crashed" && this.lives > 0 && this.pt > RETRY_PRESS_S) {
       this.startBrief(false);
     }
   }
@@ -452,13 +457,17 @@ export class Descent {
     this.voice.tick(step);
     this.t += step;
     this.pt += step;
-    if (this.phase === "play") this.play(step);
+    if (this.phase === "play") this.play(step * PACE, step);
     else if (this.phase === "landed" || this.phase === "crashed") this.after(step);
     else this.idleLamps();
-    if (this.phase === "brief" && this.pt >= 2.4 && !this.waitBrief) this.startPlay();
+    if (this.phase === "brief" && this.pt >= BRIEF_S && !this.waitBrief) this.startPlay();
+    // Keep the survey moving: the next site, or another try, comes by itself.
+    else if (this.phase === "landed" && this.pt >= NEXT_AUTO_S) { this.siteNo++; this.startBrief(true); }
+    else if (this.phase === "crashed" && this.lives > 0 && this.pt >= RETRY_AUTO_S) this.startBrief(false);
   }
 
-  play(dt) {
+  // dt is simulated time, real is the wall-clock step (for warnings, which are about the player).
+  play(dt, real = dt) {
     const s = this.site, w = this.w;
     stepWorld(s, w, dt);
     // The button burns flat out; otherwise the voice throttle sets the burn. Fuel goes with output.
@@ -487,7 +496,7 @@ export class Descent {
     }
     this.out = outlook(w.alt, w.vy, this.fuel, s.g, s.a, s.safe);
     this.coach();
-    this.warn(dt);
+    this.warn(real);
     const ground = groundAt(s, w.x);
     if (!Number.isFinite(w.alt) || !Number.isFinite(w.vy)) {
       w.alt = s.H; w.vy = 0;
@@ -759,7 +768,7 @@ export class Descent {
     g.strokeRect(605, 24, 190, 20);
     g.fillStyle = fr < 0.2 ? C.red : C.cyan;
     g.fillRect(607, 26, 186 * fr, 16);
-    text(g, this.fuel.toFixed(1) + " S", 812, 34, 22, fr < 0.2 ? C.red : C.muted);
+    text(g, (this.fuel / PACE).toFixed(1) + " S", 812, 34, 22, fr < 0.2 ? C.red : C.muted);
     if (this.voice.on) {
       // The engine output gauge: the voice's share, or the button's full burn.
       text(g, this.voice.calibrating ? "VOICE: QUIET" : this.voice.heard ? "VOICE" : "VOICE: NO SIGNAL", 540, 100, 18, this.voice.heard ? C.cyan : C.muted);
@@ -801,7 +810,7 @@ export class Descent {
     this.panel(g, 150, 150);
     text(g, "SITE " + String(s.n).padStart(2, "0") + " / " + s.name, 480, 190, 30, C.ink, "center");
     text(g, s.note, 480, 240, 20, C.amber, "center");
-    text(g, "FUEL " + s.fuel.toFixed(1) + " S   SAFE UNDER " + s.safe.toFixed(1) + " M/S", 480, 272, 18, C.muted, "center");
+    text(g, "FUEL " + (s.fuel / PACE).toFixed(1) + " S   SAFE UNDER " + s.safe.toFixed(1) + " M/S", 480, 272, 18, C.muted, "center");
     if (this.waitBrief) text(g, "PRESS TO START THE DESCENT", 480, 304, 20, C.amber, "center");
     else text(g, "DESCENT BEGINS", 480, 304, 18, C.muted, "center");
   }
@@ -813,11 +822,11 @@ export class Descent {
       text(g, "CLEAN TOUCHDOWN", 480, 192, 32, C.ink, "center");
       text(g, "SPEED " + o.speed.toFixed(1) + " M/S   FUEL " + Math.round(o.fuel * 100) + "%   OFF CENTRE " + o.off.toFixed(0) + " M", 480, 238, 19, C.muted, "center");
       text(g, "+" + o.pts, 480, 276, 28, C.amber, "center");
-      if (this.pt > 1.2) text(g, "PRESS FOR SITE " + (this.siteNo + 1), 480, 318, 20, C.amber, "center");
+      if (this.pt > NEXT_PRESS_S) text(g, "PRESS FOR SITE " + (this.siteNo + 1), 480, 318, 20, C.amber, "center");
     } else {
       text(g, "LANDER LOST", 480, 192, 32, C.red, "center");
       text(g, o.why, 480, 246, 22, C.muted, "center");
-      if (this.pt > 1.4 && this.lives > 0) text(g, "PRESS TO TRY THE SITE AGAIN", 480, 300, 20, C.amber, "center");
+      if (this.pt > RETRY_PRESS_S && this.lives > 0) text(g, "PRESS TO TRY THE SITE AGAIN", 480, 300, 20, C.amber, "center");
     }
   }
 

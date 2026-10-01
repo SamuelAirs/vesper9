@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Descent, VoiceThrottle, voiceDb, VOICE } from "../web/apps/descent.js";
+import { Descent, VoiceThrottle, voiceDb, VOICE, PACE } from "../web/apps/descent.js";
 import { appContext, fakeCanvas, run } from "./helpers/app-context.mjs";
 
 const MAX_STEPS = 60 * 60 * 12; // twelve simulated minutes
@@ -49,6 +49,7 @@ function play(options = {}) {
     app.update(1 / 60);
     if (options.onStep) options.onStep(app, ctx);
     if (options.stopAtSite && app.siteNo > options.stopAtSite) break;
+    if (options.until?.(app)) break;
   }
   return { app, ctx, steps };
 }
@@ -262,13 +263,14 @@ test("the first briefing waits for a press; later briefings and retries start by
   assert.equal(app.phase, "play");
 });
 
-test("an idle newcomer on site 1 has about fifteen seconds before the ground", () => {
+// The descent runs at PACE (Sam found the old 17 s fall "way too slow to be fun"): now about eight and a half.
+test("an idle newcomer on site 1 has about eight seconds before the ground", () => {
   const app = new Descent(appContext({ seed: 3 }));
   launch(app);
   let t = 0;
   while (app.phase === "play" && t < 60) { app.update(1 / 60); t += 1 / 60; }
   assert.equal(app.phase, "crashed");
-  assert.ok(t > 14, "fall took " + t.toFixed(1) + " s");
+  assert.ok(t > 7.5 && t < 10, "fall took " + t.toFixed(1) + " s");
 });
 
 test("pause and cancel switch the lamps off", () => {
@@ -458,10 +460,10 @@ test("a voice burn is proportional, uses fuel in proportion, and makes no engine
   runWithVoice(app, 1, half);
   const used = fuel0 - app.fuel;
   assert.ok(Math.abs(app.power - 0.5) < 0.08, `power ${app.power}`);
-  assert.ok(Math.abs(used - 0.5) < 0.08, `fuel used ${used}`);
+  assert.ok(Math.abs(used - 0.5 * PACE) < 0.1, `fuel used ${used}`);
   const s = app.site;
   const dv = app.w.vy - vy0;
-  assert.ok(Math.abs(dv - (s.g - s.a * 0.5)) < 0.4, `half a burn: dv ${dv}`);
+  assert.ok(Math.abs(dv - (s.g - s.a * 0.5) * PACE) < 0.5, `half a burn: dv ${dv}`);
   assert.equal(rumble, 0, "no rumble for the voice");
   app.down({});
   app.update(1 / 60);
@@ -520,4 +522,29 @@ test("the title shows the voice throttle option and how to switch it", () => {
   new Descent(micContext()).draw(spy);
   assert.match(rows.join(" "), /VOICE THROTTLE: OFF/);
   assert.match(rows.join(" "), /HOLD ONE SECOND TO SWITCH ON/);
+});
+
+test("the survey keeps moving: a landing leads to the next site and a crash to a retry without a press", () => {
+  const { app } = play({ seed: 5, until: (a) => a.phase === "landed" }); // lands site 1, then waits
+  assert.equal(app.phase, "landed");
+  run(app, 2.3);
+  assert.equal(app.siteNo, 2);
+  assert.ok(app.phase === "brief" || app.phase === "play");
+  const idle = new Descent(appContext({ seed: 3 }));
+  idle.down({}); idle.up({});
+  idle.down({}); idle.up({});
+  for (let i = 0; i < 60 * 30 && idle.phase !== "crashed"; i++) { idle.update(1 / 60); if (idle.phase === "brief" && idle.waitBrief && idle.pt > 0.6) { idle.down({}); idle.up({}); } }
+  assert.equal(idle.phase, "crashed");
+  run(idle, 2.7);
+  assert.ok(idle.phase === "brief" || idle.phase === "play", idle.phase);
+  assert.equal(idle.lives, 2);
+});
+
+test("a whole site, briefing to touchdown, takes well under fifteen seconds for the bot", () => {
+  let start = null, took = null;
+  play({ seed: 7, stopAtSite: 3, onStep(app) {
+    if (app.siteNo === 3 && app.phase === "brief" && start === null) start = app.t;
+    if (app.siteNo === 3 && app.phase === "landed" && took === null) took = app.t - start;
+  } });
+  assert.ok(took !== null && took < 15, "site 3 took " + took);
 });

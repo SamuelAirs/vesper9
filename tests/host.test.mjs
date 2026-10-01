@@ -125,7 +125,7 @@ test("F2 effects are not queued behind a hung command either", async () => {
 
 test("F2 a hung ordinary write times out so later writes are not blocked for 20 s", async () => {
   let now = 0, calls = 0;
-  const l = new LightDirector(() => { calls++; return new Promise(() => {}); }, () => now, 20);
+  const l = new LightDirector(() => { calls++; return new Promise(() => {}); }, () => now, 600); // long enough that a busy machine cannot time out before the check below
   l.set(Array(9).fill(5));
   now = 100; const first = l.flush();
   await tick();

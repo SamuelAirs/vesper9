@@ -1,7 +1,7 @@
 // Balance measurements. Run: node tests/audit/balance.mjs
 // All runs use the fixed 1/60 s step and seeded rngs; nothing here uses wall time.
 // BALANCE_SEEDS=12 runs fewer seeds; BALANCE_ONLY=orbit,runner,undertow,echo,glyph,morse picks games.
-import { orbitWindow, orbitSpeed } from "../../web/apps/games.js";
+import { orbitWindow, orbitSpeed } from "../../web/apps/orbit.js";
 import { mean, median, pct, playOrbit, playRunner, playUndertow, playEcho, playGlyph, playMorse,
   runnerWindow, RUNNER_SHAPES } from "./bots.mjs";
 

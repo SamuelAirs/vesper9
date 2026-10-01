@@ -1,6 +1,6 @@
 import { C, text, line, circle, space } from "../engine/draw.js";
 import { LAMP, fill, only, spot, dim } from "../engine/lightshow.js";
-import { LampBus } from "./games.js";
+import { LampBus } from "./game-kit.js";
 import { AppGuard } from "../engine/input.js";
 export const MORSE = {
   A: ".-",

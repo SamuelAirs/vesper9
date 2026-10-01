@@ -4,7 +4,12 @@
 // tests/gesture-apps.test.mjs does the same for every registered game and for Signal School and Cadence.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { OrbitLock, Moonrunner, Undertow, EchoVault, LightTrial, GlyphVault } from "../web/apps/games.js";
+import { OrbitLock } from "../web/apps/orbit.js";
+import { Moonrunner } from "../web/apps/runner.js";
+import { Undertow } from "../web/apps/undertow.js";
+import { EchoVault } from "../web/apps/echo.js";
+import { LightTrial } from "../web/apps/reaction.js";
+import { GlyphVault } from "../web/apps/glyphs.js";
 import { MorseSchool } from "../web/apps/morse.js";
 import { makeCtx, makeRig, step, DT } from "./audit/harness.mjs";
 import { gestureWithUpdates } from "./audit/bots.mjs";

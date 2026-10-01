@@ -2,14 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { InputRouter } from "../web/engine/input.js";
 import { Random, overlaps, wrapAngle, formatTime, formatTemp, tempValue } from "../web/engine/math.js";
-import {
-  OrbitLock,
-  Moonrunner,
-  Undertow,
-  EchoVault,
-  LightTrial,
-  GlyphVault,
-} from "../web/apps/games.js";
+import { OrbitLock } from "../web/apps/orbit.js";
+import { Moonrunner } from "../web/apps/runner.js";
+import { Undertow } from "../web/apps/undertow.js";
+import { EchoVault } from "../web/apps/echo.js";
+import { LightTrial } from "../web/apps/reaction.js";
+import { GlyphVault } from "../web/apps/glyphs.js";
 import { MorseSchool, decodeMorse, MORSE } from "../web/apps/morse.js";
 
 function harness() {
@@ -146,7 +144,7 @@ test("orbit awards alignment and ends after three misses", () => {
     g.down();
   }
   assert.equal(g.phase, "over");
-  // A finished run is recorded once the menu-gesture window has passed (games.js SETTLE).
+  // A finished run is recorded once the menu-gesture window has passed (game-kit.js SETTLE).
   assert.deepEqual(c.records, []);
   ticks(g, 2.1);
   assert.deepEqual(c.records, [1]);
@@ -254,7 +252,9 @@ test("all Morse symbols roundtrip and the learning app accepts E", () => {
 // 0.2 regressions: exercise state transitions, not implementation-shaped snapshots.
 import { LightDirector } from '../web/engine/lights.js';
 import { migrateLearning, reviewLetter } from '../web/apps/morse.js';
-import { runnerObstacle, nextGate, reactionSummary } from '../web/apps/games.js';
+import { runnerObstacle } from '../web/apps/runner.js';
+import { nextGate } from '../web/apps/undertow.js';
+import { reactionSummary } from '../web/apps/reaction.js';
 import { Timers, Transcription, sensorStatus } from '../web/apps/utilities.js';
 import { CARTRIDGES } from '../web/apps/catalog.js';
 

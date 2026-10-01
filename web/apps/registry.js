@@ -1,11 +1,9 @@
-import {
-  OrbitLock,
-  Moonrunner,
-  Undertow,
-  EchoVault,
-  LightTrial,
-  GlyphVault,
-} from "./games.js";
+import { OrbitLock } from "./orbit.js";
+import { Moonrunner } from "./runner.js";
+import { Undertow } from "./undertow.js";
+import { EchoVault } from "./echo.js";
+import { LightTrial } from "./reaction.js";
+import { GlyphVault } from "./glyphs.js";
 import { MorseSchool } from "./morse.js";
 import {
   Timers,

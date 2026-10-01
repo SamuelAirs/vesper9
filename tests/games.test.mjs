@@ -1,8 +1,13 @@
-// Regression tests for web/apps/games.js and web/apps/morse.js. F1-F10 are the defects proven
+// Regression tests for the original games (web/apps/orbit.js and its siblings) and web/apps/morse.js. F1-F10 are the defects proven
 // by the games audit (fleet/reports/audit-games.md); the audit's harness lives in tests/audit/.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { OrbitLock, Moonrunner, Undertow, EchoVault, LightTrial, GlyphVault } from "../web/apps/games.js";
+import { OrbitLock } from "../web/apps/orbit.js";
+import { Moonrunner } from "../web/apps/runner.js";
+import { Undertow } from "../web/apps/undertow.js";
+import { EchoVault } from "../web/apps/echo.js";
+import { LightTrial } from "../web/apps/reaction.js";
+import { GlyphVault } from "../web/apps/glyphs.js";
 import { MorseSchool } from "../web/apps/morse.js";
 import { makeCtx, makeRig, step, DT } from "./audit/harness.mjs";
 

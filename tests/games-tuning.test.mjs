@@ -2,8 +2,13 @@
 // dark when they should be, and the menu-gesture rewind restores everything the new mechanics add.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { OrbitLock, Moonrunner, Undertow, EchoVault, LightTrial, GlyphVault, LampBus, runnerObstacle,
-  runnerSpeed, nextGate, echoHeard, reactionGrade, orbitWindow, orbitSpeed } from "../web/apps/games.js";
+import { OrbitLock, orbitWindow, orbitSpeed } from "../web/apps/orbit.js";
+import { Moonrunner, runnerObstacle, runnerSpeed } from "../web/apps/runner.js";
+import { Undertow, nextGate } from "../web/apps/undertow.js";
+import { EchoVault, echoHeard } from "../web/apps/echo.js";
+import { LightTrial, reactionGrade } from "../web/apps/reaction.js";
+import { GlyphVault } from "../web/apps/glyphs.js";
+import { LampBus } from "../web/apps/game-kit.js";
 import { MorseSchool } from "../web/apps/morse.js";
 import { Random } from "../web/engine/math.js";
 import { makeCtx, makeRig, step, DT } from "./audit/harness.mjs";

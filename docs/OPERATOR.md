@@ -12,31 +12,41 @@ The dashboard has **Play** and **Instruments** sectors. Each contains six cards,
 
 ### Orbit Lock
 
-A satellite traces an orbital dial. Press when it crosses the amber target arc. Each successful lock gives one point, moves the target, increases speed, and gradually narrows the gate. Every five locks advances a sector. Miss feedback distinguishes early and late presses. Three misses end the run. The three lights briefly acknowledge success or failure. Press after the result to restart. Best score is saved.
+A satellite traces an orbital dial. Press when it crosses the amber target arc. Each successful lock gives one point, moves the target, increases speed, and gradually narrows the gate; this keeps going until forty locks. Every five locks advances a sector. From the tenth lock each new sector reverses the direction of travel, from the twentieth the gate itself drifts, and every ten locks repair one hull point. Miss feedback distinguishes early and late presses. Three misses end the run, and so do ten seconds without a lock (each costs a hull point). The result card says NEW BEST when the run beat the saved best. Press after the result to restart.
+
+Lamps: the left lamp brightens as the satellite nears the gate and goes bright while it is inside; the middle lamp is the hull (green, amber, red); the right lamp climbs through five steps of cyan as the sector fills. A success flashes green, a completed sector flashes white, and an early miss flashes the left lamp red, a late miss the right lamp red.
 
 ### Moonrunner
 
-A survey robot crosses a crystal plain. Press to jump, release to shorten the jump, or hold briefly for a higher arc. A small jump buffer and coyote-time window make near-edge presses forgiving. Spire, ridge, and crystal obstacle profiles have deliberate recovery spacing. Colliding with one ends the expedition. Score is distance traveled. Press to begin another run.
+A survey robot crosses a crystal plain. Press to jump, release to shorten the jump, or hold for a higher, longer arc. A small jump buffer and coyote-time window make near-edge presses forgiving. The run starts with low stones, then ridges, crystals and spires; from the sixth relic tall walls appear that a tap cannot clear (they are labelled HOLD), and from the fourteenth long mesas that need a held jump to glide across. Obstacles grow gradually taller and wider, the run speeds up, and the gaps between them tighten. Two shields absorb collisions (a short grace period follows each) and one is earned back every twelve relics; a collision with no shield ends the expedition. Score is distance traveled. Press to begin another run.
+
+Lamps: all three lamps show the speed (green, amber, red) dimly. As the next obstacle closes, the lamps fill left to right in its colour (stone green, spire cyan, ridge amber, crystal magenta, wall white, mesa violet) and go bright in the last half second, which is when to jump. A relic blips the middle lamp white, losing a shield flashes amber, and the end fades red.
 
 ### Undertow
 
-A small craft moves through submerged columns. Hold to apply upward thrust; release to sink. Thread the gaps without hitting a column or the upper/lower boundaries. Each successful passage gives one point. Sustained thrust is allowed; quick clicks open the menu in the default profile. Changes between successive column centers are bounded and failure feedback identifies the limit reached.
+A small craft moves through submerged columns. Hold to apply upward thrust; release to sink. Thread the gaps without hitting a column or the upper/lower boundaries. Each successful passage gives one point. The hull takes two hits (a column or a boundary, followed by a moment of grace); the last hit ends the run, and every twelve passages repair one point. The openings start wide and narrow continuously, from the tenth passage they drift up and down, and the current quickens until the thirty-second. Sustained thrust is allowed; quick clicks open the menu in the default profile. Changes between successive column centers are bounded and failure feedback identifies the limit reached.
+
+Lamps: the craft is a cyan spot at its depth (top lamp near the surface, bottom lamp near the floor) and the next opening is an amber spot that brightens as it arrives, so the two merge when you are lined up. Near the surface or the floor the end lamp pulses red. A passage blips the middle lamp green, a hull hit flashes red.
 
 ### Echo Vault
 
-The vault sends a pattern of short and long pulses. The active light cycles through I, II, and III; tones and on-screen marks repeat the same information. After playback, reproduce the pattern: less than 350 ms is short, 350 ms or more is long. A short pulse is demonstrated for 180 ms, a long pulse for 620 ms.
+The vault sends a pattern of short and long pulses: a short lights the middle lamp in amber for 180 ms, a long lights all three lamps in cyan for 620 ms, and the three circles on screen mirror the lamps. After playback, reproduce the pattern: less than 350 ms is short, 350 ms or more is long. While you hold, the lamps fill left to right in amber and turn cyan at 350 ms, the sidetone steps up from 440 to 660 Hz at the same moment, and a bar on screen shows the hold against the 350 ms line. After each release the vault says what it heard (SHORT or LONG and the time). A hold within 100 ms of the line on the wrong side is forgiven as a close call while you have a wobble left (three at the start, one more every three sequences, at most four), so a run ends on a wrong memory, not on a close call.
 
-Each correct sequence adds a chamber to the score and grows the pattern. At ten elements, new ten-element patterns keep the game going. A mismatch ends the attempt. The first sequence is deliberately simple: short, long. Hold three seconds for the menu, which includes Replay Current Signal. A mismatch identifies the expected short/long pulse.
+Each correct sequence adds a chamber to the score and grows the pattern. At ten elements, new ten-element patterns keep the game going. From the third sequence playback quickens, and from the eighth the screen stops listing the pulses during playback (DARK VAULT: lamps, circles and tone only). A mismatch ends the attempt and blinks the lamps three times in the colour of the pulse that was expected (amber short, cyan long). The first sequence is deliberately simple: short, long. Hold three seconds for the menu, which includes Replay Current Signal. A mismatch identifies the expected short/long pulse.
 
 ### Light Trial
 
 Press to arm a round, then wait for **physical light II** to turn green. Press as soon as you see it. Pressing early fails the trial. Wait times vary from 1.3 to 4.2 seconds. Results show the latest reaction time and mean/median of up to ten recent successful trials in the current timing class. Physical, keyboard, and simulator results have separate score records. Old unclassified records are retained and labelled.
 
+After a result the three lamps glow in a grade colour for a moment (under 200 ms green, under 300 cyan, under 450 amber, slower red) and then go dark; a new best sweeps white across first. A false start alternates red on the outer lamps twice. While a trial is armed and waiting the app writes no light at all, so nothing can tip you off or disturb the node's cue. The screen also shows the grade and a bar for each of your recent trials.
+
 Physical cue and switch timestamps come from the ESP32 clock. Screen simulation uses the simulator clock. Keyboard input in hardware mode uses approximate screen timing, so do not compare it directly with a physical-button trial. Saved points are `max(0, 1000 − milliseconds)` to fit the engine's higher-is-better score convention. This is an experiment/game, not a calibrated human-performance test. Pausing cancels an armed trial.
 
 ### Glyph Archive
 
-Remember a short inscription of unfamiliar glyphs. Once it disappears, a cursor automatically scans six choices. Press when the required glyph is highlighted, then reconstruct the next glyph. A correct inscription advances the round, earns points, and eventually increases its length. Three mistakes end the run. Position and shape both distinguish the glyphs; color is not the sole cue. Calibration offers 600/850/1200/1600 ms scan intervals. Scores are classified by scan speed.
+Remember a short inscription of unfamiliar glyphs. Once it disappears, a cursor automatically scans six choices. Press when the required glyph is highlighted, then reconstruct the next glyph. A correct inscription advances the round, earns points, and increases its length (from three glyphs up to nine). Three mistakes end the run, and an attempt is restored every fourth inscription. The cursor quickens by 3% with every inscription, down to 60% of the chosen interval, the memorising time shrinks slowly, and from the sixth inscription the cursor visits the glyphs in a shuffled order. Points per inscription scale with the cursor speed (850 ms is the reference). Position and shape both distinguish the glyphs; color is not the sole cue. Calibration offers 600/850/1200/1600 ms scan intervals. Scores are classified by scan speed.
+
+Lamps: while the inscription is shown the lamps fade out over the memorising time; while you choose they are a progress bar across the row (green, amber or red by attempts left), with a white tick on the third of the row the cursor is in each time it moves.
 
 ## Six instruments
 
@@ -44,12 +54,12 @@ Remember a short inscription of unfamiliar glyphs. Once it disappears, a cursor 
 
 The target letter and its Morse pattern appear above your transmitted signal. Tap for a dot, hold for a dash, and pause between letters. Default speed is 10 WPM: dot 120 ms, dash 360 ms, with a 240 ms dot/dash threshold. Beginner gaps are intentionally forgiving: the letter completes after at least 600 ms without another press. This is practice timing, not a strict timing examination.
 
-Letters progress through E, T, A, N, I, M and onward through the alphabet. The app reports decoded mistakes and saves totals, lesson position and per-character outcomes after each answer. Ten answers produce a session summary. WPM is adjustable from 5 to 25 in Calibration. The underlying decoder also includes digits, although this release's guided lesson sequence covers the alphabet. Lights and an optional 550 Hz sidetone follow your key.
+Letters progress through E, T, A, N, I, M and onward through the alphabet. In guided and listen modes a letter moves on only after it has been answered correctly twice in a row (two pips beside the letter show this), so the whole alphabet takes about five sessions at 10 WPM. The app reports decoded mistakes and saves totals, lesson position and per-character outcomes after each answer. Ten answers produce a session summary. WPM is adjustable from 5 to 25 in Calibration. The underlying decoder also includes digits, although this release's guided lesson sequence covers the alphabet. Lights and an optional 550 Hz sidetone follow your key: while you hold, lamp I lights amber at once and all three turn cyan at the dash threshold (twice the dot length), so you see the moment a hold becomes a dash; after you release, the lamps dim over the letter gap. A right answer sweeps green across the lamps; a wrong one sweeps red and then replays the correct signal on the middle lamp, one amber blink per dot and one cyan blink per dash.
 
 Hold three seconds and select a learning mode:
 
 - **Guided keying:** see the target pattern, transmit it, and repeat mistakes.
-- **Listen & identify:** receive tones or visible/light pulses without seeing the answer, then press and release the highlighted choice. REPLAY repeats the signal. Choice scanning uses Calibration's scan interval.
+- **Listen & identify:** receive tones or visible/light pulses without seeing the answer (a dot is the middle lamp in amber, a dash all three lamps in cyan), then press and release the highlighted choice; a white lamp spot follows the highlighted choice. REPLAY repeats the signal. Choice scanning uses Calibration's scan interval.
 - **Adaptive review:** transmit without the displayed pattern. Due/weak characters return sooner using an attempt-count and streak schedule. The correct pattern appears in feedback.
 
 S and H remain valid strings of short presses; they do not open the menu in Signal School. The modes cover A–Z. Calendar-based scheduling, words and digit lessons remain future work.

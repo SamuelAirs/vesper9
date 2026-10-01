@@ -12,8 +12,8 @@ const sameRun = (g, before, keys) => keys.every((k) => JSON.stringify(g[k]) === 
 const snap = (g, keys) => Object.fromEntries(keys.map((k) => [k, structuredClone(g[k])]));
 
 function killOrbit(c) { const g = new OrbitLock(c); g.down(); g.lives = 1; g.angle = 0; g.target = 3; g.down(); return g; }
-function killRunner(c) { const g = new Moonrunner(c); g.down(); g.up(); g.obstacles = [{ x: 198, w: 40, h: 70, passed: false }]; g.update(DT); return g; }
-function killUndertow(c) { const g = new Undertow(c); g.down(); g.up(); g.y = 10; g.update(DT); return g; }
+function killRunner(c) { const g = new Moonrunner(c); g.down(); g.up(); g.shield = 0; g.obstacles = [{ x: 198, w: 40, h: 70, passed: false }]; g.update(DT); return g; }
+function killUndertow(c) { const g = new Undertow(c); g.down(); g.up(); g.hull = 1; g.y = 10; g.update(DT); return g; }
 function killGlyph(c) { const g = new GlyphVault(c); g.down(); step(g, 4); g.lives = 1; g.sequence = [0, 0, 0]; g.focus = 3; g.down(); return g; }
 const killers = [["Orbit Lock", killOrbit], ["Moonrunner", killRunner], ["Undertow", killUndertow], ["Glyph Archive", killGlyph]];
 
@@ -216,8 +216,10 @@ test("F8c Light Trial: a new trial started during the lamp glow is not darkened 
 test("F9b Signal School: guided and listen answers still advance the guided lesson", () => {
   const c = makeCtx(36, { progress: { schema: 2, index: 0, correct: 0, attempts: 0, characters: {} } }), g = new MorseSchool(c);
   g.answer(g.target);
+  assert.equal(g.learning.index, 0, "one correct answer must not advance the lesson");
+  g.answer(g.target);
   assert.equal(g.learning.index, 1);
   g.start("listen"); step(g, 4);
-  g.answer(g.target);
+  g.answer(g.target); g.answer(g.target);
   assert.equal(g.learning.index, 2);
 });

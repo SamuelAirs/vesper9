@@ -73,6 +73,7 @@ export class Vesper {
     bridge.addEventListener("event", (e) => this.event(e.detail));
     bridge.connect();
     requestAnimationFrame((t) => this.frame(t));
+    this.keepaliveCount = 0;
     this.clockTask = setInterval(() => {
       setText("clock", new Date().toLocaleTimeString([], {
         hour: "2-digit",
@@ -81,6 +82,9 @@ export class Vesper {
       }));
       this.status();
       this.lifecycle("tick");
+      // Lets the service notice a hung controlling tab and stop the microphone (docs/PROTOCOL.md).
+      if (++this.keepaliveCount % 5 === 0 && this.loaded && this.state.controller !== false && this.state.device)
+        this.bridge.command("keepalive", {}, true)?.catch?.(() => {});
     }, 1000);
   }
   escapePolicy() {
@@ -634,7 +638,8 @@ export class Vesper {
     try {
       if (mode === "off") this.browserMic.stop();
       await this.bridge.command("mic", { mode });
-      if (mode !== "off" && this.state.simulated) {
+      // Analysis needs no browser audio: the simulated service synthesises its own signal.
+      if (mode !== "off" && mode !== "analyze" && this.state.simulated) {
         try {
           await this.browserMic.start();
         } catch (error) {

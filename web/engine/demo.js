@@ -197,6 +197,8 @@ export class DemoBridge extends EventTarget {
       this.state.settings = { ...DEFAULT_SETTINGS };
       this.save();
       this.emit({ type: "settings", settings: this.state.settings });
+    } else if (command === "keepalive") {
+      // Nothing to watch in the standalone edition.
     } else if (command === "mic") {
       if (data.mode !== "off")
         throw new Error(

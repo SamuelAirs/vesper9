@@ -6,5 +6,5 @@ export function microphoneStatus(state) {
   if (capture && mode === 'off') return { active: true, label: 'CAPTURE STOPPING' };
   if (state.mic?.error) return { active: capture, label: 'MIC ERROR' };
   if (mode !== 'off' && !capture) return { active: false, label: 'MIC WAITING' };
-  return { active: capture, label: ({ off: 'MIC OFF', commands: 'VOICE ON', transcribe: 'TRANSCRIBING' })[mode] || 'MIC OFF' };
+  return { active: capture, label: ({ off: 'MIC OFF', commands: 'VOICE ON', transcribe: 'TRANSCRIBING', analyze: 'ANALYZING' })[mode] || 'MIC OFF' };
 }

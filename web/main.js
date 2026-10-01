@@ -348,6 +348,7 @@ export class Vesper {
     this.paused = false;
     this.lights.release().catch(() => {});
     this.hudValue = "";
+    this.hudLabels = "";
   }
   launch(id) {
     const meta = APPS.find((a) => a.id === id);
@@ -369,6 +370,7 @@ export class Vesper {
     $("app-title").textContent = meta.name;
     $("app-description").textContent = meta.description;
     $("hud").innerHTML = "";
+    this.hudLabels = "";
     $("utility-content").innerHTML = "";
     $("utility-actions").innerHTML = "";
     $("app-readout").textContent = "";
@@ -470,7 +472,18 @@ export class Vesper {
     const key = JSON.stringify(items);
     if (key === this.hudValue) return;
     this.hudValue = key;
-    $("hud").innerHTML = items
+    // Same labels as before: update the changed values in place instead of
+    // rebuilding every readout (Moonrunner changes its distance ~12 times a second).
+    const box = $("hud"), labels = items.map(([label]) => label).join("\n");
+    if (labels === this.hudLabels && box.children.length === items.length) {
+      items.forEach(([, value], i) => {
+        const strong = box.children[i].lastElementChild, text = String(value);
+        if (strong.textContent !== text) strong.textContent = text;
+      });
+      return;
+    }
+    this.hudLabels = labels;
+    box.innerHTML = items
       .map(
         ([label, value]) =>
           `<div class="hud-item"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`,

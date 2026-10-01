@@ -189,19 +189,20 @@ test("flight thrust and release move in opposite directions", () => {
   ticks(g, 0.7);
   assert.ok(g.vy > 0);
 });
-test("echo playback reaches input and accepts the short-long sequence", () => {
+test("echo vault introduces its first letters, then accepts a keyed letter and moves on", () => {
   const g = new EchoVault(context());
-  g.down();
-  ticks(g, 2.3);
-  assert.equal(g.phase, "listen");
-  g.down();
-  g.up({ durationMs: 100 });
-  g.down();
-  g.up({ durationMs: 500 });
-  assert.equal(g.round, 1);
-  ticks(g, 1.2);
-  assert.equal(g.phase, "show");
-  assert.equal(g.sequence.length, 3);
+  g.down(); g.up({ durationMs: 60 });
+  assert.equal(g.phase, "intro");
+  while (g.phase === "intro") { g.down(); g.up({ durationMs: 60 }); }
+  assert.equal(g.phase, "play");
+  g.queue = []; g.word = "AT"; g.pos = 0; g.input = ""; g.stage = "send";
+  g.down(); g.up({ durationMs: 100 });
+  g.down(); g.up({ durationMs: 500 });
+  assert.equal(g.pos, 1);
+  g.down(); g.up({ durationMs: 500 });
+  assert.equal(g.stage, "clear");
+  ticks(g, 1);
+  assert.equal(g.stage === "send" || g.stage === "listen", true);
 });
 test("reaction ignores stale cues, measures node time, cancels on pause", () => {
   const c = context(),
@@ -218,17 +219,18 @@ test("reaction ignores stale cues, measures node time, cancels on pause", () => 
   g.pause();
   assert.equal(g.phase, "title");
 });
-test("glyph puzzle progresses only on correct selections", () => {
+test("glyph archive credits a right answer and takes a seal for a wrong one", () => {
   const g = new GlyphVault(context());
-  g.down();
-  ticks(g, 4);
-  assert.equal(g.phase, "choose");
-  for (const id of g.sequence) {
-    g.focus = id;
-    g.down();
-  }
-  assert.equal(g.round, 1);
-  assert.equal(g.points, 100);
+  g.down(); g.up({ durationMs: 60 });
+  while (g.phase === "intro") { g.down(); g.up({ durationMs: 60 }); }
+  assert.equal(g.phase, "play");
+  g.card.truth = true; g.down(); g.up({ durationMs: 60 });
+  assert.equal(g.run.right, 1);
+  assert.ok(g.run.points > 0);
+  ticks(g, 0.6);
+  g.card.truth = false; g.down(); g.up({ durationMs: 60 });
+  assert.equal(g.run.wrong, 1);
+  assert.equal(g.seals, 2);
 });
 test("all Morse symbols roundtrip and the learning app accepts E", () => {
   for (const [letter, code] of Object.entries(MORSE))
@@ -401,8 +403,9 @@ test('reaction classes stay separate and a reboot invalidates a pending trial', 
 });
 test('Morse and Echo are not special in the catalog any more, and repeated taps still work', () => {
   for(const id of ['morse','echo'])assert.equal(CARTRIDGES.find(a=>a.id===id).escape,undefined,'the per-app escape policy is gone');
-  const g=new EchoVault(context());g.phase='listen';g.sequence=[0,0,0,0];
-  for(let i=0;i<4;i++){g.down();g.up({durationMs:60});}assert.equal(g.round,1);
+  const g=new EchoVault(context());g.down();g.up({durationMs:60});while(g.phase==='intro'){g.down();g.up({durationMs:60});}
+  g.queue=[];g.word='H';g.pos=0;g.input='';g.stage='send';g.left=g.total=10;
+  for(let i=0;i<4;i++){g.down();g.up({durationMs:60});}assert.equal(g.run.letters,1,'four quick taps key H');
 });
 test('sensor age and disconnect cannot present an old value as live', () => {
   const s={sensor:{at:100},device:{connected:true},simulated:false};

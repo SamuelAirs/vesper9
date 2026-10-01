@@ -60,10 +60,10 @@ export const CARTRIDGES = [
   {
     "id": "echo",
     "name": "ECHO VAULT",
-    "subtitle": "Return the signal you receive.",
-    "description": "Watch and hear a growing pattern. Reproduce it with short taps and long holds; the lamps fill while you hold and turn cyan when the vault hears a long pulse. Each successful sequence opens another chamber.",
-    "controls": "SHORT TAP / LONG HOLD",
-    "category": "PLAY / MEMORY",
+    "subtitle": "Learn Morse by keying words.",
+    "description": "Transmissions approach the vault: key each word in Morse before its timer runs out (tap a dot, hold a dash). It starts with four letters and opens one more whenever the ones you have are holding up; a letter’s code shows at once while it is new and later as it grows stronger. Echo transmissions are heard, not shown: key back what you heard, or hold for a second to hear it again. Letters learned in Signal School are open here too. Thirty transmissions open the vault; hold on the title for the code card.",
+    "controls": "TAP A DOT · HOLD A DASH",
+    "category": "PLAY / LEARNING",
     "glyph": 3,
     "factory": "EchoVault",
     "voice": [
@@ -74,7 +74,14 @@ export const CARTRIDGES = [
       "lights",
       "audio",
       "progress"
-    ]
+    ],
+    "record": {
+      "words": "Words",
+      "letters": "Letters",
+      "accuracy": "Clean %",
+      "cpm": "Letters a minute",
+      "score": "Score"
+    }
   },
   {
     "id": "reaction",
@@ -98,10 +105,10 @@ export const CARTRIDGES = [
   {
     "id": "glyphs",
     "name": "GLYPH ARCHIVE",
-    "subtitle": "Remember a forgotten language.",
-    "description": "Memorize the inscription before it disappears. The cursor cycles through six glyphs; press to rebuild the sequence. Three mistakes seal the archive.",
-    "controls": "PRESS TO CHOOSE THE LIT GLYPH",
-    "category": "PLAY / PUZZLE",
+    "subtitle": "Learn real symbols, card by card.",
+    "description": "Four wings: Braille letters, the Greek alphabet, chemical element symbols and the radio alphabet. Each card shows a symbol and a meaning: tap if they match, hold if they do not, before the card runs out. New entries are shown first, a few at a time, and come back on a spaced schedule until they are mastered; wrong pairs are chosen to be easy to confuse. Hold on the title to change wing.",
+    "controls": "TAP: MATCH · HOLD: NO MATCH",
+    "category": "PLAY / LEARNING",
     "glyph": 5,
     "factory": "GlyphVault",
     "voice": [
@@ -112,7 +119,14 @@ export const CARTRIDGES = [
       "lights",
       "audio",
       "progress"
-    ]
+    ],
+    "record": {
+      "wing": "Wing",
+      "cards": "Cards",
+      "correct": "Right",
+      "accuracy": "Accuracy %",
+      "score": "Score"
+    }
   },
   {
     "id": "pulsar",

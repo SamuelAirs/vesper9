@@ -118,8 +118,8 @@ test("a planning bot crosses every region to the perihelion on several seeds and
     rows.push({ seed, phase: bot.app.phase, reason: bot.app.reason, score: Math.floor(bot.app.scoreRaw), chain: bot.app.bestChain, catches: bot.app.catches, t: Math.round(bot.app.runT), cross: bot.app.cross, relics: bot.app.R.relics, near: bot.app.R.near, idleScore: Math.floor(idle.app.scoreRaw), idlePhase: idle.app.phase });
     assert.equal(bot.nan, false);
     assert.equal(bot.app.reason, "arrived", `bot arrived on seed ${seed}: ${JSON.stringify(rows.at(-1))}`);
-    // Every region from II to V was crossed (VI ends in the arrival), well inside the dark's five minutes.
-    assert.deepEqual(bot.app.cross.map((c) => c[0]), [1, 2, 3, 4]);
+    // Every region from I to V was crossed (VI ends in the arrival), well inside the dark's five minutes.
+    assert.deepEqual(bot.app.cross.map((c) => c[0]), [0, 1, 2, 3, 4]);
     assert.ok(bot.app.runT < 280, "arrived in time " + bot.app.runT);
     assert.equal(idle.app.phase, "over");
     assert.ok(Math.floor(bot.app.scoreRaw) > 20 * Math.max(1, Math.floor(idle.app.scoreRaw)));

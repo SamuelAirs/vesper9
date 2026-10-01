@@ -798,7 +798,7 @@ export class Perihelion {
     const ri = regIndex(this.maxX);
     if (ri === this.reg) return;
     const old = this.reg;
-    if (old > this.startReg) {
+    if (this.startReg === 0 || old > this.startReg) {
       const t = this.runT - this.regT, c = this.catches - this.regC;
       this.cross.push([old, Math.round(t * 10) / 10, c]);
       if (old === 1 && c <= 16) this.R.fast1 = 1;

@@ -9,6 +9,7 @@ import { DEFAULT_SETTINGS as DEFAULT, SECTORS } from "./apps/catalog.js";
 import { LightDirector } from "./engine/lights.js";
 import { HostLamps, levelScale } from "./engine/ambient.js";
 import { microphoneStatus } from "./engine/status.js";
+import { planVoice } from "./engine/voice.js";
 
 const $ = (id) => document.getElementById(id);
 // Assigning identical text still replaces the text node and dirties layout, so
@@ -654,6 +655,61 @@ export class Vesper {
       throw error;
     }
   }
+  // A recognised voice command. The service has already created a timer or muted the microphone; everything
+  // else is done here with the host's own functions (advance, select, the sector button, launch, home,
+  // the timer and settings commands), never by simulating the button. engine/voice.js decides what a command
+  // means in the current context; one that makes no sense here says so instead of doing something else.
+  voice(e) {
+    this.hostLamps.note("voice", performance.now());
+    const plan = planVoice(e, {
+      scene: this.menu ? "menu" : !this.app ? "dashboard" : this.app.navigation ? "instrument" : "game",
+      items: this.nav.items.length, controller: this.state.controller, faulted: !!this.faulted,
+      timers: this.state.timers, settings: this.state.settings, sensor: this.state.sensor,
+      connected: !!this.state.device?.connected, mic: this.state.mic, now: Date.now(),
+      lampsFree: this.lights.owner === "host",
+    });
+    const label = () => {
+      const element = this.nav.items[this.nav.index]?.element;
+      return (element?.querySelector?.(".card-name") || element)?.textContent?.replace(/\s+/g, " ").trim().toUpperCase() || "";
+    };
+    let say = plan.say;
+    const failed = (error) => this.errorToast(error.message || String(error));
+    switch (plan.run) {
+      case "next": this.advance(); break;
+      case "previous": this.stepBack(); break;
+      case "select": say = "SELECT / " + label(); this.select(); break;
+      case "sector": this.nav.items.find((item) => item.element === $("sector-button"))?.run(); break;
+      case "home": this.home(); break;
+      case "menu": this.systemMenu(); break;
+      case "resume": this.closeMenu(); break;
+      case "launch": this.launch(plan.app); break;
+      case "timer": this.bridge.command("timer", { op: plan.op, id: plan.id }).catch(failed); break;
+      case "setting": this.bridge.command("settings", { key: plan.key, value: plan.value }).catch(failed); break;
+      case "dictation": this.setMic("transcribe").then(() => this.launch("transcribe")).catch(() => {}); break;
+      case "commands": this.setMic("commands").catch(() => {}); break;
+      case "answer": this.answerLamps(plan); break;
+    }
+    if (plan.report === "focus") say = label();
+    else if (plan.report === "sector") say = $("sector-label").textContent;
+    this.toast("HEARD / " + e.heard + (say ? " → " + say : ""));
+  }
+  stepBack() {
+    this.hostLamps.touch(performance.now());
+    if (!this.nav.items.length) return;
+    this.nav.index = (this.nav.index + this.nav.items.length - 1) % this.nav.items.length;
+    this.updateFocus();
+    this.nav.items[this.nav.index].element.scrollIntoView({ block: "nearest", behavior: "instant" });
+    this.synth.tone(210, 0.025, "triangle");
+  }
+  // A short lamp answer, only while the host owns the lamps; they are handed back when it ends.
+  answerLamps(plan) {
+    if (!plan.lamps) return;
+    const mount = this.token;
+    this.lights.effect("pattern", { steps: [{ ms: plan.lampMs, values: plan.lamps }], repeat: 1 }).catch(() => {});
+    setTimeout(() => {
+      if (this.token === mount && this.lights.owner === "app" && this.lights.raw === null) this.lights.release().catch(() => {});
+    }, plan.lampMs + 300);
+  }
   // An error toast also gets a brief red double blink on the lamps the host owns.
   errorToast(message) {
     this.hostLamps.note("error", performance.now());
@@ -829,12 +885,7 @@ export class Vesper {
         this.errorToast(e.error);
         break;
       case "voice":
-        this.hostLamps.note("voice", performance.now());
-        this.toast("HEARD / " + e.heard);
-        if (e.action === "launch") this.launch(e.app);
-        else if (e.action === "home") this.home();
-        else if (e.action === "pause") this.systemMenu();
-        else if (e.action === "resume") this.closeMenu();
+        this.voice(e);
         break;
     }
     try {

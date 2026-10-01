@@ -1,6 +1,8 @@
 import { escapeHTML as esc, formatTime, formatTemp, tempValue, tempUnit, tempDelta, dewPoint, absoluteHumidity, feelsLike, comfortBand, extremes, trend } from "../engine/math.js";
 import { LAMP, dim, fill, meter, ramp, lamps, lightsOff } from "../engine/lightshow.js";
 import { microphoneStatus, recognizerLabel } from "../engine/status.js";
+import { VOICE_HELP } from "../engine/voice.js";
+import { CARTRIDGES } from "./catalog.js";
 const panel = (title, body) =>
   `<div class="utility-panel"><h2>${esc(title)}</h2>${body}</div>`;
 // The nearest running timer (smallest time left), or null when none is running.
@@ -472,16 +474,40 @@ export class Diagnostics {
 }
 
 
+// The voice command list, one category per page. The spoken forms are the generated families in
+// vesper/commands.py; the app names come from the catalog.
+export function voicePages() {
+  const shown = (say) => 'computer ' + say.replace(/<(minutes|seconds)>/, '(NUMBER)').replace('<app>', '(APP)');
+  return VOICE_HELP.map((page) => {
+    let body = page.entries.map((entry) => `<p><strong>“${esc(entry.say.map(shown).join('” or “'))}”</strong> · ${esc(entry.does)}</p>`).join('');
+    if (page.title === 'OPEN AN APP')
+      body += `<p>${CARTRIDGES.map((app) => esc(app.voice[0]) + ' = ' + esc(app.name)).join(' · ')}</p>`;
+    return { title: page.title, body };
+  });
+}
 export class Settings {
   constructor(c) {
     this.c = c;
     this.navigation = true;
+    this.voicePage = null;
     this.render();
+  }
+  renderVoice() {
+    const pages = voicePages(), page = pages[this.voicePage];
+    this.c.content(panel('Voice commands ' + (this.voicePage + 1) + ' / ' + pages.length + ' · ' + page.title,
+      `${this.voicePage === 0 ? '<p>Choose VOICE COMMANDS in the microphone menu, say “computer” and then the phrase, then pause. Dictation never runs commands.</p>' : ''}${page.body}`));
+    this.c.actions([
+      { id: 'voice-next', label: 'NEXT PAGE', run: () => { this.voicePage = (this.voicePage + 1) % pages.length; this.render(); } },
+      { id: 'voice-back', label: 'BACK TO CALIBRATION', run: () => { this.voicePage = null; this.render(); } },
+      { id: 'home', label: 'RETURN TO DASHBOARD', run: this.c.home },
+    ]);
+    this.c.hint('Tap to advance. Hold and release to turn the page.');
   }
   setting(key, value) {
     this.c.command("settings", { key, value }).catch(this.c.error);
   }
   render() {
+    if (this.voicePage !== null) return this.renderVoice();
     const s = this.c.settings();
     this.c.content(
       panel(
@@ -542,14 +568,7 @@ export class Settings {
         if (this.confirmReset) { this.confirmReset = false; return this.c.command('reset_settings'); }
         this.confirmReset = true; this.render();
       } },
-      {
-        id: "voice-help",
-        label: "VOICE COMMANDS",
-        run: () =>
-          this.c.help(
-            "Say “computer open orbit”, “computer open morse”, “computer home”, “computer pause”, “computer resume”, or “computer timer five minutes”. Enable commands in the microphone menu first. During transcription, speech is saved as text and never runs commands.",
-          ),
-      },
+      { id: "voice-help", label: "VOICE COMMANDS", run: () => { this.voicePage = 0; this.render(); } },
       { id: "home", label: "RETURN TO DASHBOARD", run: this.c.home },
     ]);
     this.c.hint("Tap to advance. Hold and release to change a setting.");

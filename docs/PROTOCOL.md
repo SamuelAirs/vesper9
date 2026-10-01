@@ -103,6 +103,23 @@ All modes follow the same rules. Only the controlling tab can request one, and a
 
 Only `final: true` events are saved to the notes database, once each, in the session that is open when the final is produced. Stopping dictation or switching mode first finishes every open utterance (a pending second pass is awaited for at most 15 s, then Vosk's text is used) and so saves the last words before the session ends. Utterance audio is held in memory only until its line is final, cut at a pause after about 20 s and never longer than 30 s; no audio is written to disk.
 
+#### `voice` event (mode `commands`)
+
+`{"type":"voice","heard":"computer timer five minutes","action":"timer","seconds":300,"confidence":0.97,"result":"TIMER STARTED / 05:00"}` is broadcast when the grammar-constrained recogniser finishes an utterance that is exactly one phrase of the grammar (`vesper/commands.py`) and its least certain word scored at least `COMMAND_MIN_CONF` (`vesper/speech.py`). Anything else is dropped. `heard` is the phrase; `confidence` the lowest word confidence (0 to 1); the remaining fields depend on `action`:
+
+| `action` | Fields | Done by |
+| --- | --- | --- |
+| `next`, `previous`, `select`, `sector`, `home`, `pause`, `resume` | none | the host: `advance`, a step back, `select`, the dashboard's sector button, `home`, `systemMenu`, `closeMenu` |
+| `launch` | `app` (catalog id) | the host: `launch` |
+| `timer` | `seconds` (5 to 7200) | the service creates it (`timer_command`) and broadcasts `timers`; `result` says `TIMER STARTED / mm:ss` |
+| `timer_cancel`, `timer_pause`, `timer_resume` | none | the host, on the most recently created timer, with the `timer` command (`remove`, `toggle`) |
+| `dictation_start`, `dictation_stop` | none | the host: `mic transcribe` then open Field Notes; `dictation_stop` is only heard while dictation is off and only explains that |
+| `lamps` (`to`: `up`, `down`, `off`, `on`), `sound` (`to`: `on`, `off`), `volume` (`to`: `up`, `down`) | `to` | the host, with the `settings` command (`lampLevel`, `sound`, `volume`) |
+| `ask` | `about`: `time`, `temperature`, `humidity`, `timers` | the host: a toast and, if it owns the lamps, a 2.5 s lamp pattern |
+| `mute` | none | the service switches the microphone off; `result` is `MICROPHONE OFF` |
+
+Voice events within 0.7 s of the previous one are dropped. Only the controlling tab changes settings and timers; any tab shows the toast. Nothing is recognised as a command in `transcribe` mode, whatever is said.
+
 In `--simulate` mode there is no node microphone. In `analyze` the service generates its own clearly synthetic signal (a tone sweeping slowly between 110 and 700 Hz and back, 24 s per round trip, at about -23 dBFS RMS over faint noise); `analysis` events then carry `"simulated": true`. Audio frames sent by the browser are ignored while in `analyze`, so a front end need not start the browser microphone for it.
 
 #### `analysis` event (mode `analyze` only, about ten per second)

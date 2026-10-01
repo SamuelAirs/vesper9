@@ -360,7 +360,11 @@ class VoiceTests(unittest.TestCase):
         self.assertNotIn("open morse", COMMANDS)
         self.assertNotIn("computer delete everything", COMMANDS)
         self.assertTrue(all(k.startswith("computer ") for k in COMMANDS))
-        self.assertTrue(all(v["action"] in {"launch","home","pause","resume","mute","timer"} for v in COMMANDS.values()))
+        # The allowlist grew with the voice-control work (tests/test_commands.py lists what each action does);
+        # it is still a closed set of host actions, never a shell or free text.
+        self.assertTrue(all(v["action"] in {"launch","home","pause","resume","mute","timer","next","previous","select","sector",
+                                            "timer_cancel","timer_pause","timer_resume","dictation_start","dictation_stop",
+                                            "lamps","sound","volume","ask"} for v in COMMANDS.values()))
 
 
 if __name__ == "__main__":

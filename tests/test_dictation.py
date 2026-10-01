@@ -339,11 +339,14 @@ class NothingStored(unittest.IsolatedAsyncioTestCase):
 
 class ModelLifetime(unittest.IsolatedAsyncioTestCase):
     async def test_model_loads_lazily_on_first_transcription_and_is_released_when_idle(self):
-        loads = []
+        loads, closed = [], []
         async def emit(event): pass
+        class Model:
+            def __call__(self, pcm): return 'x'
+            def close(self): closed.append(1)
         def loader(path, threads):
             loads.append(threads)
-            return lambda pcm: 'x'
+            return Model()
         speech = Speech('/unused', emit, refine_loader=loader)
         speech.availability = lambda: None
         speech.model = object()
@@ -362,6 +365,7 @@ class ModelLifetime(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(.2)
             self.assertEqual(speech.refine_state, 'idle')     # released after the idle period
             self.assertIsNone(speech.refiner)
+            self.assertEqual(closed, [1], 'the model object is told to drop its weights')
             await speech.set_mode('transcribe')
             await asyncio.sleep(.05)
             self.assertEqual(loads, [2, 2])                   # and reloaded on demand

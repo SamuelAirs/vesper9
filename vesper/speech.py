@@ -12,7 +12,7 @@ import json
 import logging
 from pathlib import Path
 from . import refine
-from .catalog import CATALOG
+from .commands import COMMANDS, resolve
 
 BYTES_PER_SECOND = 32000           # 16 kHz, 16-bit mono
 SOFT_UTTERANCE_S = 20              # a longer utterance is cut at the next pause ...
@@ -26,18 +26,7 @@ REFINE_FLUSH_S = 15                # stopping dictation waits at most this long 
 REFINE_IDLE_S = 900                # the model is released after this long outside dictation
 REFINE_MAX_FAILURES = 5            # consecutive failed passes after which the pass is switched off
 REFINE_THREADS = 2
-
-COMMANDS = {
-    'computer home': {'action': 'home'}, 'computer pause': {'action': 'pause'},
-    'computer menu': {'action': 'pause'}, 'computer resume': {'action': 'resume'},
-    'computer microphone off': {'action': 'mute'},
-}
-for app in CATALOG['apps']:
-    for word in app.get('voice', []):
-        COMMANDS['computer open ' + word] = {'action': 'launch', 'app': app['id']}
-for words, seconds in {'one minute': 60, 'five minutes': 300, 'fifteen minutes': 900, 'twenty five minutes': 1500}.items():
-    COMMANDS['computer timer ' + words] = {'action': 'timer', 'seconds': seconds}
-
+COMMAND_MIN_CONF = 0.7             # a command is acted on only if its least certain word scores at least this
 
 class Speech:
     def __init__(self, model_path, emit, on_error=None, *, on_status=None, refine_path=None, refine_loader=None):
@@ -56,6 +45,7 @@ class Speech:
         self.refine_path = Path(refine_path).expanduser() if refine_path else refine.default_path(self.path)
         self.refine_loader = refine_loader
         self.refine_idle_s = REFINE_IDLE_S
+        self.command_min_conf = COMMAND_MIN_CONF
         self.refiner = self.refine_load = self.worker = self.idle_timer = self.pool = self.inflight = None
         self.refine_state, self.refine_detail = 'idle', None
         self.pending = asyncio.Queue()          # in-order utterances waiting for their second pass
@@ -130,11 +120,18 @@ class Speech:
         self.idle_timer = None
         if self.mode == 'transcribe' or self.pending_bytes or self.refine_state != 'ready':
             return
-        self.refiner = None
+        refiner, self.refiner = self.refiner, None
         if self.pool:
             self.pool.shutdown(wait=False)
             self.pool = None
+        getattr(refiner, 'close', lambda: None)()
+        refiner = None
         gc.collect()
+        try:    # hand the freed model memory back to the system (measured: about 350 MB)
+            import ctypes
+            ctypes.CDLL('libc.so.6').malloc_trim(0)
+        except Exception:
+            pass
         self.set_refine('idle')
 
     def arm_idle(self):
@@ -201,6 +198,8 @@ class Speech:
                     self.model = await asyncio.to_thread(load)
                 from vosk import KaldiRecognizer
                 self.recognizer = KaldiRecognizer(self.model, 16000, json.dumps([*COMMANDS, '[unk]'])) if mode == 'commands' else KaldiRecognizer(self.model, 16000)
+                if mode == 'commands' and hasattr(self.recognizer, 'SetWords'):
+                    self.recognizer.SetWords(True)      # per-word confidences for the command gate
                 if mode == 'transcribe':
                     self.start_refiner()
                 self.mode = mode
@@ -252,8 +251,11 @@ class Speech:
                         continue
                     self.partial = '' if final else text
                     if self.mode == 'commands':
-                        if final and text in COMMANDS:
-                            await self.emit({'type': 'voice', 'heard': text, **COMMANDS[text]})
+                        action = resolve(text) if final else None
+                        if action:
+                            conf = min([w.get('conf', 1.0) for w in data.get('result', [])] or [1.0])
+                            if conf >= self.command_min_conf:
+                                await self.emit({'type': 'voice', 'heard': text, 'confidence': round(conf, 3), **action})
                     elif final:
                         await self.utterance(text, audio)
                     else:

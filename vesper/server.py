@@ -271,6 +271,7 @@ class Console:
             self.last_command = now
             if event["action"] == "mute":
                 self.schedule(self.set_mic("off"))
+                event = {**event, "result": "MICROPHONE OFF"}
             elif event["action"] == "timer":
                 try:
                     self.timer_command({"op": "create", "seconds": event["seconds"]})
@@ -278,6 +279,9 @@ class Console:
                     await self.broadcast({"type": "error", "error": str(exc)})
                     return
                 await self.broadcast({"type": "timers", "timers": self.public_timers()})
+                seconds = int(event["seconds"])
+                length = ("%d:%02d:%02d" % (seconds // 3600, seconds // 60 % 60, seconds % 60)) if seconds >= 3600 else "%02d:%02d" % (seconds // 60, seconds % 60)
+                event = {**event, "result": "TIMER STARTED / " + length}
         await self.broadcast(event)
 
     # ---- sound analysis ------------------------------------------------------------------

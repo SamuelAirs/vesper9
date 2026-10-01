@@ -124,21 +124,56 @@ Two Calibration settings control this. **Lamp level** (full, medium, low, off; d
 
 ## Voice vocabulary
 
-Enable **Voice Commands** in the microphone menu first. Speak one exact phrase, then allow a short silence for recognition to finish.
+Enable **Voice Commands** in the microphone menu first. Say **computer** and then one phrase, then allow a short silence for recognition to finish. The top bar reads VOICE ON. Every recognised command plays the cyan lamp sweep and shows a toast, `HEARD / computer next → ORBIT LOCK`, with what it did. A command that makes no sense where you are (for example `select` inside a game) says why in the same toast and changes nothing. The same list is in Calibration under **Voice Commands**, one page per group. Dictation never hears commands; saying one while transcribing only transcribes it.
+
+Move and choose (the dashboard, instruments and menus; inside a game these say "not in a game"):
 
 | Phrase | Action |
 | --- | --- |
+| computer next | Move the highlight to the next item (the toast names it) |
+| computer back / computer previous | Move the highlight to the previous item |
+| computer select / computer choose | Choose the highlighted item, as a hold-and-release does |
+| computer next sector | Dashboard only: show the next sector |
 | computer home | Dashboard |
 | computer pause / computer menu | System menu |
-| computer resume | Resume app |
+| computer resume | Close the menu and carry on |
 | computer microphone off | Stop acquisition and recognition |
-| computer open orbit / runner / drift / echo / lights / glyphs | Launch the corresponding game |
-| computer open morse / timer / notes / environment / diagnostics / settings | Open the corresponding instrument |
-| computer timer one minute | Create a 60-second timer |
-| computer timer five minutes | Create a 5-minute timer |
-| computer timer fifteen minutes | Create a 15-minute timer |
-| computer timer twenty five minutes | Create a 25-minute timer |
 
-Opening Field Notes by voice does not itself start transcription; use its Start action. To switch directly from command mode to dictation, choose Transcribe in the microphone menu. Muting means voice cannot turn itself back on; use the button.
+Apps, by the voice name in the catalog (any app, from anywhere):
+
+| Phrase | Action |
+| --- | --- |
+| computer open orbit / runner / drift / echo / lights / glyphs | ORBIT LOCK, MOONRUNNER, UNDERTOW, ECHO VAULT, LIGHT TRIAL, GLYPH ARCHIVE |
+| computer open rhythm / swing / lander / breakout / snake / launcher | PULSAR, PERIHELION, DESCENT, RICOCHET, HELIX, BALLISTA |
+| computer open morse / timer / notes / environment / diagnostics / settings | SIGNAL SCHOOL, CHRONOMETER, FIELD NOTES, ATMOSPHERE, NODE SCOPE, CALIBRATION |
+| computer open lamp / metronome / moon / sound / dice / system | LANTERN, CADENCE, EPHEMERIS, RESONANCE, ORACLE, TELEMETRY |
+
+Timers and notes:
+
+| Phrase | Action |
+| --- | --- |
+| computer timer five minutes | Start a timer. Any whole number of minutes from one to one hundred twenty, said in words: "timer one minute", "timer twenty five minutes", "timer one hundred twenty minutes" ("one hundred and five" also works) |
+| computer timer thirty seconds | Start a timer of ten, fifteen, twenty, thirty, forty five or ninety seconds |
+| computer timer one hour / computer timer two hours | Start a one or two hour timer |
+| computer cancel timer | Remove the most recently created timer, running, paused or finished |
+| computer pause timer / computer resume timer | Pause it or restart it; says so if it is already paused, running or complete |
+| computer start dictation | Open Field Notes and start transcribing, as the microphone menu's Transcribe does |
+| computer stop dictation | Commands and dictation are never listening at the same time, so this is only heard while dictation is off, and says so. Stop dictation with the button (Field Notes, or the microphone menu) |
+
+Lamps, sound and questions:
+
+| Phrase | Action |
+| --- | --- |
+| computer lamps up / computer lamps down | Lamp level one step (off, low, medium, full) |
+| computer lamps off / computer lamps on | Lamps off, or back to medium |
+| computer sound on / computer sound off | Sounds on or off |
+| computer volume up / computer volume down | Volume one quarter step |
+| computer what time is it | Toast with the time and date |
+| computer temperature / computer humidity | Toast with the reading in the Calibration unit (the humidity with its comfort band), and the lamps glow a colour for a moment if the host owns them: blue-green cold, green comfortable, amber warm, red hot; humidity amber dry, green comfortable, cyan humid, violet very humid. A stale reading is labelled and does not light the lamps |
+| computer show timers | Toast listing the running timers and the lamps show the nearest one |
+
+Timer creation and microphone off are done by the service; everything else is done by the controlling browser tab with the same functions the button uses (a second, monitoring tab changes nothing). Opening Field Notes by voice with `open notes` does not itself start transcription; `start dictation` does. Muting means voice cannot turn itself back on; use the button.
+
+Phrases are spoken forms of the words in a fixed grammar, so a command is recognised only if you say one exactly; anything else is ignored. To avoid accidental triggers a command is also ignored when the recogniser's least certain word scores below 0.7 (`COMMAND_MIN_CONF` in `vesper/speech.py`). On synthesised test voices the full list was understood 99.7 % of the time clean and 96 % with the quiet, noisy test microphone (this is not the owner's voice); the weakest spot is number words that sound alike (nineteen / ninety, fifteen / fifty, forty / four), so check the confirmation toast after a timer and say `cancel timer` if it is wrong. An unrecognised command is silently ignored: just say it again.
 
 The model is English, local, and intentionally small. It is not a conversational assistant. Short commands are generally easier than free dictation, but accuracy on the actual mic and room remains to be evaluated.

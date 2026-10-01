@@ -24,21 +24,30 @@ def availability(path):
     return None
 
 
-def load(path, threads=2):
-    """Build the recogniser (a few seconds, blocking) and return `transcribe(pcm16_bytes) -> text`.
-    The audio is only ever an in-memory array; it is neither written nor kept after the call."""
-    import numpy as np
-    import sherpa_onnx
-    directory = Path(path)
-    recogniser = sherpa_onnx.OfflineRecognizer.from_transducer(
-        encoder=str(directory / FILES[0]), decoder=str(directory / FILES[1]), joiner=str(directory / FILES[2]),
-        tokens=str(directory / FILES[3]), num_threads=threads, model_type='nemo_transducer')
+class Transcriber:
+    """`transcribe(pcm16_bytes) -> text` over a loaded recogniser. close() drops the model explicitly: other
+    references to this object (an asyncio future that delivered it, say) must not keep ~350 MB alive."""
 
-    def transcribe(pcm):
+    def __init__(self, recogniser):
+        self.recogniser = recogniser
+
+    def __call__(self, pcm):
+        import numpy as np
         samples = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
-        stream = recogniser.create_stream()
+        stream = self.recogniser.create_stream()
         stream.accept_waveform(SAMPLE_RATE, samples)
-        recogniser.decode_stream(stream)
+        self.recogniser.decode_stream(stream)
         return stream.result.text.strip()
 
-    return transcribe
+    def close(self):
+        self.recogniser = None
+
+
+def load(path, threads=2):
+    """Build the recogniser (a few seconds, blocking). The audio is only ever an in-memory array; it is
+    neither written nor kept after the call."""
+    import sherpa_onnx
+    directory = Path(path)
+    return Transcriber(sherpa_onnx.OfflineRecognizer.from_transducer(
+        encoder=str(directory / FILES[0]), decoder=str(directory / FILES[1]), joiner=str(directory / FILES[2]),
+        tokens=str(directory / FILES[3]), num_threads=threads, model_type='nemo_transducer'))

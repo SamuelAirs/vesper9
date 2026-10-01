@@ -31,6 +31,9 @@ def archive(module, extra=()):
 
 class SecondPassModel(unittest.TestCase):
     def setUp(self):
+        out = patch("sys.stdout", io.StringIO())
+        out.start()
+        self.addCleanup(out.stop)
         self.temporary = tempfile.TemporaryDirectory()
         self.module = load_script()
         self.module.ROOT = Path(self.temporary.name)

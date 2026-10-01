@@ -325,7 +325,7 @@ export const CARTRIDGES = [
     "voice": [
       "station"
     ],
-    "escape": "adaptive",
+    "escape": "hold",
     "capabilities": [
       "button",
       "lights",

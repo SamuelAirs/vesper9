@@ -2,7 +2,7 @@
 // and the schema 2 save (with a schema 1 save from the first release loading intact).
 import test from "node:test";
 import assert from "node:assert/strict";
-import { OrbitLock, orbitWindow, orbitSpeed, orbitPerfect, darkGate, migrateOrbit, orbitOrder, ORBIT_FEATS, SHIELD_CHAIN, DARK_FROM } from "../web/apps/orbit.js";
+import { OrbitLock, orbitWindow, orbitSpeed, orbitPerfect, darkGate, migrateOrbit, orbitOrder, ORBIT_FEATS, SHIELD_CHAIN, DARK_FROM, RUSH_TIME, RUSH_MISS, MODE_HOLD } from "../web/apps/orbit.js";
 import { makeCtx, makeRig, step, DT } from "./audit/harness.mjs";
 import { gauss, gestureWithUpdates } from "./audit/bots.mjs";
 
@@ -237,7 +237,7 @@ test("title: dark lamps, rank, today's order and a feat; all text at least 16 px
   const words = painted.map((x) => x.s).join(" | ");
   assert.match(words, /RANK CADET/);
   assert.match(words, /TODAY: /);
-  assert.match(words, /FEATS 0 \/ 15/);
+  assert.match(words, /FEATS 0 \/ 17/);
   assert.ok(painted.every((x) => x.size >= 16));
   g.down(); for (let i = 0; i < 3; i++) miss(g);
   assert.ok(textOf(g).every((x) => x.size >= 16));
@@ -262,4 +262,69 @@ test("tuning: a timing player with 50 ms of error reaches the dark gates; the sh
   console.log("orbit bot 50 ms:", results.map((r) => r.locks + "/" + r.perfects + "/" + r.saves).join(" "));
   assert.ok(mean >= 30 && mean <= 50, "mean locks " + mean);
   assert.ok(saves <= 2, "shields saved " + saves + " misses a run");
+});
+
+// ------------------------------------------------------------------------------------------- modes
+const withFeats = (n) => ({ schema: 2, ft: ORBIT_FEATS.slice(0, n).map((f) => f.id) });
+const tap = (g) => { g.down(); step(g, 0.1); g.up(); };
+const hold = (g) => { g.down(); step(g, MODE_HOLD + 0.1); g.up(); };
+
+test("modes: until one is earned a press starts at once; afterwards a tap plays and a hold changes mode", () => {
+  const g = new OrbitLock(makeCtx(30));
+  g.down();
+  assert.equal(g.phase, "play", "a fresh player's press did not start at once");
+  const h = new OrbitLock(makeCtx(31, { progress: withFeats(3) }));
+  assert.equal(h.modesOpen(), true);
+  h.down();
+  assert.equal(h.phase, "title", "with modes earned the press must wait for its release");
+  h.up();
+  assert.equal(h.phase, "play");
+  const k = new OrbitLock(makeCtx(32, { progress: withFeats(3) }));
+  hold(k);
+  assert.equal(k.phase, "title");
+  assert.equal(k.mode, "rush");
+  hold(k);
+  assert.equal(k.mode, "standard", "eclipse is not earned at 3 feats");
+  const all = new OrbitLock(makeCtx(33, { progress: withFeats(6) }));
+  hold(all); hold(all);
+  assert.equal(all.mode, "eclipse");
+  assert.equal(all.c.log.saves.at(-1).mode, "eclipse", "the chosen mode was not remembered");
+  assert.match(textOf(all).map((x) => x.s).join(" | "), /MODE ECLIPSE/);
+  assert.equal(new OrbitLock(makeCtx(34, { progress: all.c.log.saves.at(-1) })).mode, "eclipse");
+});
+
+test("rush: sixty seconds, misses cost time not hull, sectors add time, and it ends on the clock", () => {
+  const c = makeCtx(35, { progress: { ...withFeats(3), mode: "rush" } }), g = new OrbitLock(c);
+  tap(g);
+  assert.equal(g.mode, "rush"); assert.equal(g.phase, "play");
+  assert.equal(g.clock, RUSH_TIME, "the clock started before the release that chose to play");
+  const before = g.clock;
+  miss(g);
+  assert.equal(g.lives, 3);
+  assert.ok(Math.abs(before - g.clock - RUSH_MISS) < 0.05);
+  for (let i = 0; i < 5; i++) plain(g);
+  assert.ok(g.clock > before - RUSH_MISS, "a sector added no time");
+  g.target = g.angle + 3; g.drift = 0;
+  step(g, 70);
+  assert.equal(g.phase, "over");
+  assert.equal(g.lives, 3, "idle decay ran in a rush");
+  step(g, 2.2);
+  assert.equal(c.log.scores.length, 0, "a rush set the console's best score");
+  const save = c.log.saves.at(-1);
+  assert.equal(save.mb.rush, 5);
+  assert.equal(save.st.best, 0);
+  assert.equal(save.last.mode, "rush");
+  assert.match(textOf(g).map((x) => x.s).join(" | "), /RUSH: 5 locks/);
+});
+
+test("eclipse: every gate is dark from the first, and its best is kept apart", () => {
+  const c = makeCtx(36, { progress: { ...withFeats(6), mode: "eclipse" } }), g = new OrbitLock(c);
+  tap(g);
+  assert.equal(g.dark, true);
+  for (let i = 0; i < 4; i++) { plain(g); assert.equal(g.dark, true); }
+  assert.ok(g.sv.ft.includes("dark1"));
+  for (let i = 0; i < 3; i++) miss(g);
+  step(g, 2.2);
+  assert.equal(c.log.scores.length, 0);
+  assert.equal(c.log.saves.at(-1).mb.eclipse, 4);
 });

@@ -3,7 +3,7 @@
 // the host writes no light while a trial is armed or its cue is showing.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { LightTrial, migrateTrial, trialRank, TRIAL_FEATS, SERIES } from "../web/apps/reaction.js";
+import { LightTrial, migrateTrial, trialRank, TRIAL_FEATS, SERIES, LOG_SIZE } from "../web/apps/reaction.js";
 import { makeCtx, step, DT } from "./audit/harness.mjs";
 
 // One trial on the simulator clock with a reaction of `ms`; returns the app.
@@ -176,4 +176,30 @@ test("title: rank, best series, today's series and a feat; all text at least 16 
   assert.match(textOf(g).map((x) => x.s).join(" | "), /BEST SERIES 240 ms \(SIMULATOR\)/);
   g.down({});
   assert.ok(textOf(g).some((x) => x.s === "SERIES"));
+});
+
+test("training log: every finished series is kept (the last twenty), shown on the title, and read back", () => {
+  const c = makeCtx(20, { progress: {} }), g = new LightTrial(c);
+  g.dayKey = () => "2026-10-02";
+  for (let s = 0; s < LOG_SIZE + 3; s++) for (let i = 0; i < SERIES; i++) trial(g, 300 - s);
+  assert.equal(g.sv.log.length, LOG_SIZE);
+  assert.deepEqual(g.sv.log.at(-1), { d: "2026-10-02", m: 300 - (LOG_SIZE + 2), k: "simulator" });
+  const save = c.log.saves.at(-1);
+  assert.equal(save.log.length, LOG_SIZE);
+  assert.deepEqual(migrateTrial(save).log, save.log);
+  assert.deepEqual(migrateTrial({ log: [null, { m: "x" }, { m: 250, k: "moon" }, { m: 240, k: "physical", d: 7 }] }).log, [{ d: "", m: 240, k: "physical" }]);
+  g.phase = "title"; g.t = 1;
+  assert.match(textOf(g).map((x) => x.s).join(" | "), /LAST 20 SERIES/);
+  g.t = 10;
+  assert.doesNotMatch(textOf(g).map((x) => x.s).join(" | "), /LAST 20 SERIES/, "the feats never get a turn");
+});
+
+test("while armed the screen shows the series to beat, and the lamps stay dark", () => {
+  const c = makeCtx(21), g = new LightTrial(c);
+  for (let i = 0; i < SERIES; i++) trial(g, 270);
+  step(g, 3);
+  g.down({});
+  step(g, 0.5);
+  assert.ok(c.ledsNow.every((v) => v === 0));
+  assert.ok(textOf(g).some((x) => x.s === "TO BEAT: 270 ms"));
 });

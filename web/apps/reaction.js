@@ -34,6 +34,10 @@ export function trialRank(ms) {
   return name;
 }
 const CLOCKS = ["physical", "simulator", "keyboard"];
+export const LOG_SIZE = 20;
+// On-screen colours for the three discs, matching the node's lamps.
+const DISC = { green: "#4fe07a", cyan: "#3ccab4", amber: "#f0a040", red: "#f06a50" };
+const gradeDisc = (ms) => (ms < 200 ? DISC.green : ms < 300 ? DISC.cyan : ms < 450 ? DISC.amber : DISC.red);
 const timed = (a) => a.metric !== "keyboard"; // keyboard timing is approximate: it earns no timing feats
 export const TRIAL_FEATS = [
   { id: "series", name: "FIRST SERIES", text: "Finish a series of five trials.", n: 1, prog: (a) => (a.sv.st.series || 0) },
@@ -64,6 +68,9 @@ export function migrateTrial(raw) {
     st: { ...flags, trials: Math.max(n(st.trials), n(r.runs)), falses: n(st.falses) },
     bs: Object.fromEntries(CLOCKS.map((k) => [k, n(bs[k])])),
     dl: { ...cleanDaily(r.dl), best: n(r.dl?.best) },
+    // The training log: the last LOG_SIZE series as { d: day, m: median, k: clock }.
+    log: (Array.isArray(r.log) ? r.log : []).filter((e) => e && typeof e === "object" && n(e.m) > 0 && CLOCKS.includes(e.k))
+      .slice(-LOG_SIZE).map((e) => ({ d: typeof e.d === "string" ? e.d.slice(0, 10) : "", m: n(e.m), k: e.k })),
   };
 }
 // The longest delay a trial can be armed with, and the part of it that counts as "one of the longest".
@@ -201,6 +208,8 @@ export class LightTrial {
       if (clean) st.clean = 1;
       const best = !before || median < before;
       if (best) bs[this.metric] = median;
+      this.sv.log.push({ d: this.dayKey(), m: median, k: this.metric });
+      this.sv.log = this.sv.log.slice(-LOG_SIZE);
       const dl = this.sv.dl, daily = meetDaily(dl, this.dayKey());
       dl.best = daily || !dl.best ? median : Math.min(dl.best, median);
       this.done = { median, spread, clean, best: best && !!before, first: !before, daily, rank: this.rank(), clock: this.metric };
@@ -266,27 +275,7 @@ export class LightTrial {
     grid(g, 90);
     if (this.c.state?.()?.scores?.reaction !== undefined)
       text(g, 'LEGACY RECORD RETAINED / TIMING SOURCE UNKNOWN', 30, 32, 16, C.muted);
-    const go = this.phase === "go";
-    for (let i = 0; i < 3; i++) {
-      circle(
-        g,
-        290 + i * 190,
-        190,
-        58,
-        i === 1 && go ? C.ink : C.line,
-        i === 1 && go,
-      );
-      circle(g, 290 + i * 190, 190, 66, C.line);
-      text(
-        g,
-        ["I", "II", "III"][i],
-        290 + i * 190,
-        190,
-        27,
-        i === 1 && go ? C.bg : C.muted,
-        "center",
-      );
-    }
+    this.drawDiscs(g);
     const grade = this.phase === "result" ? reactionGrade(this.last) : null;
     const title = {
       wait: "WAIT FOR THE MIDDLE LIGHT",
@@ -338,12 +327,45 @@ export class LightTrial {
       this.drawGoals(g, 404);
     }
   }
+  // The three discs mirror the node's lamps: a slow breath while armed (the screen only; the lamps
+  // stay dark), the middle one green on the cue, and the grade colour after a result.
+  drawDiscs(g) {
+    const go = this.phase === "go", wait = this.phase === "wait", res = this.phase === "result" ? gradeDisc(this.last) : null;
+    for (let i = 0; i < 3; i++) {
+      const x = 290 + i * 190, y = 190;
+      if (go && i === 1) { g.globalAlpha = 0.3; circle(g, x, y, 84, DISC.green, true); g.globalAlpha = 1; }
+      if (res) { g.globalAlpha = 0.22; circle(g, x, y, 58, res, true); g.globalAlpha = 1; }
+      circle(g, x, y, 58, go && i === 1 ? DISC.green : res || C.line, go && i === 1, res ? 3 : 2);
+      g.globalAlpha = wait ? 0.35 + 0.35 * Math.sin(this.t * 2.2 + i * 0.6) : 1;
+      circle(g, x, y, 66, wait ? C.muted : C.line);
+      g.globalAlpha = 1;
+      text(g, ["I", "II", "III"][i], x, y, 27, go && i === 1 ? C.bg : C.muted, "center");
+    }
+    // While armed: the mark to beat, the best series on this clock.
+    const target = this.sv.bs[this.metric];
+    if (wait && target) text(g, "TO BEAT: " + target + " ms", 480, 360, 18, C.muted, "center");
+  }
+  // The training log: one bar per series, taller is slower, the best one bright.
+  drawLog(g, y, h) {
+    const log = this.sv.log;
+    if (log.length < 2) return false;
+    const w = 22, gap = 6, x0 = 480 - (log.length * (w + gap) - gap) / 2, best = Math.min(...log.map((e) => e.m));
+    log.forEach((e, i) => {
+      const k = Math.max(0.08, Math.min(1, (e.m - 150) / 350)), bh = k * h;
+      g.fillStyle = e.m === best ? C.amber : i === log.length - 1 ? C.ink : C.muted;
+      g.fillRect(x0 + i * (w + gap), y + h - bh, w, bh);
+    });
+    text(g, "LAST " + log.length + " SERIES / TALLER IS SLOWER / BEST " + best + " ms", 480, y + h + 14, 16, C.muted, "center");
+    return true;
+  }
   // Rank, best series, the day's practice and one feat at a time (title screen).
   drawGoals(g, y) {
     const sv = this.sv, key = this.dayKey(), clock = this.rankClock(), streak = liveStreak(sv.dl, key);
     const best = clock ? "BEST SERIES " + sv.bs[clock] + " ms" + (clock === "physical" ? "" : " (" + clock.toUpperCase() + ")") : "NO SERIES YET";
     text(g, "RANK " + this.rank() + "   " + best + "   FEATS " + sv.ft.length + " / " + TRIAL_FEATS.length, 480, y, 18, C.ink, "center");
     text(g, (dailyDone(sv.dl, key) ? "TODAY'S SERIES DONE / BEST " + sv.dl.best + " ms" : "TODAY: FINISH A SERIES OF FIVE") + (streak > 1 ? "   STREAK " + streak : ""), 480, y + 28, 18, dailyDone(sv.dl, key) ? C.cyan : C.amber, "center");
+    // With a training log the title shows it, and the feats take turns with it.
+    if (Math.floor(this.t / 9) % 2 === 0 && this.drawLog(g, y + 46, 54)) return;
     drawFeatTicker(g, TRIAL_FEATS, sv.ft, this.t, y + 60);
   }
   // A finished series: median, spread, rank and anything new.

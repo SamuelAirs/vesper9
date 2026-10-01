@@ -115,32 +115,6 @@ export const CARTRIDGES = [
     ]
   },
   {
-    "id": "pulsar",
-    "name": "PULSAR",
-    "subtitle": "Keep time with a dying star.",
-    "description": "Beats fall down three lanes toward the strike line. Tap on the beat; hold through the long signals. With knock input on, the right lane is struck by tapping the case instead of the button. The song lasts about two minutes, if you keep the signal stable.",
-    "controls": "TAP ON THE BEAT · HOLD LONG SIGNALS · RIGHT LANE: TAP THE CASE",
-    "category": "PLAY / RHYTHM",
-    "glyph": 3,
-    "factory": "Pulsar",
-    "voice": [
-      "rhythm"
-    ],
-    "capabilities": [
-      "button",
-      "lights",
-      "audio",
-      "progress"
-    ],
-    "icon": "<path d=\"M4 24h9l4-12 6 24 5-18 3 6h13\"/><circle cx=\"24\" cy=\"24\" r=\"21\" stroke-dasharray=\"2 5\"/><circle cx=\"43\" cy=\"24\" r=\"2\" fill=\"currentColor\"/>",
-    "record": {
-      "score": "Score",
-      "combo": "Best combo",
-      "accuracy": "Accuracy %",
-      "phrases": "Phrases reached"
-    }
-  },
-  {
     "id": "perihelion",
     "name": "PERIHELION",
     "subtitle": "Swing between small suns.",
@@ -533,7 +507,7 @@ export const CARTRIDGES = [
     ]
   }
 ];
-export const SECTORS = [{"name": "PLAY", "apps": ["perihelion", "orbit", "runner", "pulsar", "tideline"]}, {"name": "PLAY II", "apps": ["drift", "descent", "ballista", "ricochet", "helix"]}, {"name": "PLAY III", "apps": ["outpost", "reaction", "echo", "glyphs"]}, {"name": "INSTRUMENTS", "apps": ["morse", "cadence", "transcribe", "environment"]}, {"name": "INSTRUMENTS II", "apps": ["lantern", "resonance", "oracle"]}];
+export const SECTORS = [{"name": "PLAY", "apps": ["perihelion", "orbit", "runner", "tideline"]}, {"name": "PLAY II", "apps": ["drift", "descent", "ballista", "ricochet", "helix"]}, {"name": "PLAY III", "apps": ["outpost", "reaction", "echo", "glyphs"]}, {"name": "INSTRUMENTS", "apps": ["morse", "cadence", "transcribe", "environment"]}, {"name": "INSTRUMENTS II", "apps": ["lantern", "resonance", "oracle"]}];
 export const SYSTEM_APPS = ["settings", "diagnostics", "telemetry"];
 export const DEFAULT_SETTINGS = {
   "sound": true,

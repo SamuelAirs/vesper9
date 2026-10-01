@@ -198,3 +198,52 @@ slots, and prints the taps each produced with peak and `hf`. Then, without a ref
   where a game plays a sound on the tap's own beat (Pulsar's ticks), which then needs the `hf` floor or
   quieter ticks.
 - If silence also produces taps, it is handling or the room, and the threshold is the lever.
+
+## Pulsar removed (Sam, 2026-10-01: "tapping the case isn't really doing it for me … maybe ditch that game")
+
+What changed, so it is easy to bring back:
+
+- `web/apps/pulsar.js` is back to main's version (the tap lane is reverted); `tests/pulsar-tap.test.mjs` is
+  deleted. `tests/pulsar.test.mjs` and the `Pulsar` factory in `web/apps/registry.js` stay.
+- `vesper/catalog.json`: the `pulsar` entry and its place in the PLAY sector (between `runner` and
+  `tideline`) are removed, so it is off the dashboard and the voice command `rhythm` no longer opens it.
+  `web/apps/catalog.js` regenerated.
+- Tests that listed it: `tests/test_catalog_sectors.py` (GAMES) and `tests/gesture-apps.test.mjs` (the
+  registered games); `tests/browser-smoke.cjs` now takes the first sector's size from the catalog.
+- `docs/OPERATOR.md` voice table no longer lists `rhythm`.
+- Saved Pulsar records are not touched.
+
+To restore: put this entry back in `vesper/catalog.json` `apps` (before `perihelion`) and `"pulsar"`
+back in the PLAY sector, run `python3 scripts/build-catalog.py`, and revert the two test lists.
+
+```json
+{
+  "id": "pulsar",
+  "name": "PULSAR",
+  "subtitle": "Keep time with a dying star.",
+  "description": "Beats fall down three lanes toward the strike line. Tap on the beat; hold through the long signals. The song lasts about two minutes, if you keep the signal stable.",
+  "controls": "TAP ON THE BEAT \u00b7 HOLD LONG SIGNALS \u00b7 LAMPS SWELL FIRST",
+  "category": "PLAY / RHYTHM",
+  "glyph": 3,
+  "factory": "Pulsar",
+  "voice": [
+    "rhythm"
+  ],
+  "capabilities": [
+    "button",
+    "lights",
+    "audio",
+    "progress"
+  ],
+  "icon": "<path d=\"M4 24h9l4-12 6 24 5-18 3 6h13\"/><circle cx=\"24\" cy=\"24\" r=\"21\" stroke-dasharray=\"2 5\"/><circle cx=\"43\" cy=\"24\" r=\"2\" fill=\"currentColor\"/>",
+  "record": {
+    "score": "Score",
+    "combo": "Best combo",
+    "accuracy": "Accuracy %",
+    "phrases": "Phrases reached"
+  }
+}
+```
+
+Knock input itself stays (firmware, service, Calibration, Node Scope, `app.knock(event)`); no game uses
+it now.

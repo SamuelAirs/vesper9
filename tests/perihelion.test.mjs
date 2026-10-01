@@ -772,8 +772,8 @@ test("the hangar: a hold opens it, taps move, holds choose; locked things stay l
   const press = (s) => { app.down(); run(app, s, null); app.up(); };
   assert.equal(app.cur, 1);
   press(0.1); assert.equal(app.cur, 2);
-  for (let i = 0; i < 8; i++) press(0.1);
-  assert.equal(app.cur, 1);
+  for (let i = 0; i < 10; i++) press(0.1);
+  assert.equal(app.cur, 2);
   press(0.6);
   assert.equal(app.sv.sel.probe, 0, "BALLAST is locked at 3 feats");
   app.sv.ft.push("sling");
@@ -785,15 +785,15 @@ test("the hangar: a hold opens it, taps move, holds choose; locked things stay l
   assert.equal(app.sv.sel.start, 2, "start region cycles through 0..3 only");
   const g = fakeCanvas();
   app.draw(g);
-  while (app.cur !== 6) press(0.1);
+  while (app.cur !== 7) press(0.1);
   press(0.6); assert.equal(app.view, "feats");
   app.draw(g); press(0.1); assert.equal(app.page, 1); app.draw(g); press(0.1); press(0.1); press(0.6);
   assert.equal(app.view, "menu");
   press(0.1); press(0.6); assert.equal(app.view, "log");
   app.draw(g); press(0.1); assert.equal(app.view, "menu");
   press(0.1); press(0.6); assert.equal(app.view, "guide");
-  for (let i = 0; i < 5; i++) { app.draw(g); press(0.1); }
-  assert.equal(app.page, 0, "the guide's five pages wrap");
+  for (let i = 0; i < 6; i++) { app.draw(g); press(0.1); }
+  assert.equal(app.page, 0, "the guide's six pages wrap");
   press(0.6); assert.equal(app.view, "menu");
   press(0.1);
   assert.equal(app.cur, 0);
@@ -820,6 +820,65 @@ test("probes handle differently, and each can be flown by the planning bot", () 
     for (const k of ["x", "y", "vx", "vy", "phi", "om"]) assert.ok(Number.isFinite(app.p[k]));
   }
   assert.ok(gs[1] < gs[0] && gs[2] > gs[0]);
+});
+
+test("upgrades: shards buy levels in the hangar shop, a level past the last is refused, and they change the run", () => {
+  const ctx = appContext({ seed: 5, progress: { schema: 2, runs: 5, shards: 12 } });
+  const app = new Perihelion(ctx);
+  assert.deepEqual(app.sv.up, { lives: 0, reach: 0, magnet: 0, dark: 0, fuse: 0 });
+  const press = (s) => { app.down(); run(app, s, null); app.up(); };
+  press(0.7); // the hangar, on UPGRADES
+  assert.equal(app.cur, 1);
+  press(0.6); assert.equal(app.view, "shop");
+  const g = fakeCanvas();
+  app.draw(g);
+  press(0.6); // SPARE PROBE I: 3
+  press(0.6); // SPARE PROBE II: 8
+  assert.equal(app.sv.up.lives, 2);
+  assert.equal(app.sv.shards, 1);
+  press(0.6); // III costs 16: refused
+  assert.equal(app.sv.up.lives, 2);
+  assert.equal(ctx.calls.saved.at(-1).up.lives, 2, "saved");
+  for (let i = 0; i < 5; i++) press(0.1);
+  app.draw(g);
+  press(0.6); assert.equal(app.view, "menu", "BACK");
+  app.sv.up.reach = 2; app.sv.up.magnet = 1; app.sv.up.dark = 1; app.sv.up.fuse = 1;
+  app.launches = 1;
+  app.daily = false; app.start();
+  assert.equal(app.lives, 3);
+  assert.equal(app.p.reach, 315);
+  assert.equal(app.pick, 40);
+  assert.ok(Math.abs(app.fuseT - 3) < 1e-9);
+  assert.ok(Math.abs(app.frontSpeed() - 0.9 * 36) < 1e-9);
+  app.startDaily();
+  assert.equal(app.lives, 1, "a daily run uses no upgrades");
+  assert.equal(app.p.reach, 275);
+});
+
+test("a spare probe: a lost probe waits parked before the next sun, the run and its score go on, the last one ends it", () => {
+  const ctx = appContext({ seed: 7, progress: { schema: 2, runs: 5, up: { lives: 1 } } });
+  const app = new Perihelion(ctx);
+  app.launches = 1;
+  app.down(); app.up();
+  assert.equal(app.lives, 2);
+  run(app, 20, null); // idle: the probe falls
+  assert.equal(app.phase, "play", "the spare carries the run on");
+  assert.equal(app.lives, 1);
+  assert.ok(app.ready, "parked until a press");
+  const score = app.scoreRaw, x = app.p.x;
+  run(app, 3, null);
+  assert.equal(app.p.x, x, "parked");
+  app.draw(fakeCanvas());
+  assert.ok(app.pickTarget(app.p), "a sun in reach");
+  assert.ok(!app.voids.some((v) => Math.abs(v.x - x) < 60), "no dark body at the start");
+  app.down();
+  run(app, 0.5, null);
+  assert.ok(app.p.a, "the press throws the tether");
+  app.up();
+  assert.ok(app.scoreRaw >= score);
+  run(app, 30, null); // idle again: the last probe falls
+  assert.equal(app.phase, "over");
+  assert.ok(app.result.shards >= 0 && app.sv.shards === app.result.shards);
 });
 
 test("the daily run is the same world for the same date and a different one for another", () => {

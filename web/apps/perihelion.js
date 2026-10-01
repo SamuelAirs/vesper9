@@ -42,6 +42,16 @@ const MAX_LOOPS = 3; // loops that score on one tether (a loop can go on for eve
 const TRICKS = { stall: ["STALL", 15], loop: ["LOOP", 25] };
 // Paced runs: the screen moves at a set speed, px/s, and its left edge ends the run.
 const PACES = [{ name: "OFF", v: 0 }, { name: "STEADY", v: 100 }, { name: "BRISK", v: 135 }];
+// Upgrades bought with shards (earned every run) in the hangar. `cost` lists the price of each
+// level; `fx(level)` is what the level gives. A daily run uses none, so it stays the same for all.
+const UPGRADES = [
+  { id: "lives", name: "SPARE PROBE", cost: [3, 8, 16], text: "One more probe a run. A lost probe's spare waits at the next sun." },
+  { id: "reach", name: "LONG LINE", cost: [5, 12], text: "The tether reaches 20 px further a level." },
+  { id: "magnet", name: "RELIC MAGNET", cost: [4, 10], text: "Relics are collected from further away." },
+  { id: "dark", name: "DARK BRAKE", cost: [4, 10], text: "The dark behind you sweeps 10 % slower a level." },
+  { id: "fuse", name: "COOLANT", cost: [5, 12], text: "Amber suns hold the tether 0.6 s longer a level." },
+];
+const SHARD_PX = 2000; // one shard per 200 Mkm flown, plus one a relic and five for an arrival
 const REASONS = {
   fall: "FELL INTO THE DARK",
   top: "LOST ABOVE THE FIELD",
@@ -97,6 +107,12 @@ const GUIDE = [
     "STREAK: days in a row you have met the daily goal.",
     "Miss a day and it starts again at 1.",
     "A daily run never changes the console's best."],
+  ["SHARDS AND UPGRADES",
+    "Every run earns shards: 1 per 200 Mkm, 1 a relic, 5 for arriving.",
+    "Spend them in the hangar under UPGRADES.",
+    "SPARE PROBE: lose a probe and the run goes on from the next sun.",
+    "LONG LINE, RELIC MAGNET, DARK BRAKE, COOLANT: small help.",
+    "A daily run uses no upgrades."],
   ["HANGAR",
     "Feats unlock the Ballast and Wisp probes and trails.",
     "START: begin in any region you have reached.",
@@ -198,6 +214,8 @@ export function migrateSave(raw) {
     st: { relics: Math.max(0, num(st.relics)), near: Math.max(0, num(st.near)), daily: Math.max(0, num(st.daily)), arrivals: Math.max(0, num(st.arrivals)) },
     sel: { probe: clamp(Math.floor(num(sel.probe)), 0, PROBES.length - 1), start: clamp(Math.floor(num(sel.start)), 0, REGIONS.length - 1), trail: clamp(Math.floor(num(sel.trail)), 0, TRAILS.length - 1), pace: clamp(Math.floor(num(sel.pace)), 0, PACES.length - 1) },
     dl: { d: typeof dl.d === "string" ? dl.d.slice(0, 10) : "", best: Math.max(0, num(dl.best)), done: dl.done ? 1 : 0, streak: Math.max(0, Math.floor(num(dl.streak))), last: typeof dl.last === "string" ? dl.last.slice(0, 10) : "" },
+    shards: Math.max(0, Math.floor(num(r.shards))),
+    up: Object.fromEntries(UPGRADES.map((u) => [u.id, clamp(Math.floor(num(r.up && typeof r.up === "object" ? r.up[u.id] : 0)), 0, u.cost.length)])),
     seen: r.seen && typeof r.seen === "object" ? Object.fromEntries(Object.keys(INTRO).filter((k) => r.seen[k]).map((k) => [k, 1])) : {},
   };
 }
@@ -242,8 +260,16 @@ export class Perihelion {
     if (this.probeIx > 0 && this.sv.ft.length < PROBES[this.probeIx].need) this.probeIx = 0;
     this.startReg = this.daily ? 0 : Math.min(this.sv.sel.start, this.sv.far);
     this.pace = this.daily ? 0 : this.sv.sel.pace;
+    const up = (id) => (this.daily ? 0 : this.sv.up[id] || 0);
+    this.lives = 1 + up("lives");
+    this.lost = 0; // probes lost this run (each one after the first used a spare)
+    this.lostT = 0;
+    this.reach = REACH + 20 * up("reach");
+    this.pick = RELIC_PICK + 14 * up("magnet");
+    this.darkK = 1 - 0.1 * up("dark");
+    this.fuseT = FUSE + 0.6 * up("fuse");
     const x0 = REGIONS[this.startReg].from;
-    this.p = { x: x0 + 140, y: 220, vx: 280, vy: -70, a: null, r: 0, phi: 0, om: 0, t: 0, v0x: 0, v0y: 0, fuse: 0, lastId: -1, back: x0, clk: 0, g: G * PROBES[this.probeIx].g };
+    this.p = { x: x0 + 140, y: 220, vx: 280, vy: -70, a: null, r: 0, phi: 0, om: 0, t: 0, v0x: 0, v0y: 0, fuse: 0, lastId: -1, back: x0, clk: 0, g: G * PROBES[this.probeIx].g, reach: this.reach };
     this.dstate = this.daily ? (mixSeed(hashText("day" + this.dayKey())) || 1) : 0;
     this.addAnchor(x0 + 330, 180, "steady");
     this.extend(x0 + 1600);
@@ -475,7 +501,7 @@ export class Perihelion {
       const dx = A.x - p.x, dy = A.y - p.y;
       if (ahead ? dx < -40 || a.id <= p.lastId : dx >= -40 || A.x < (p.back ?? -Infinity)) continue;
       const d = Math.hypot(dx, dy);
-      if (d < MIN_CATCH || d > REACH) continue;
+      if (d < MIN_CATCH || d > (p.reach || REACH)) continue;
       if (a.pu && !(lit(a, clk) && lit(a, clk + CATCH_LAG + 0.05))) continue;
       if (dy > 30) { if (d < underD) { under = a; underD = d; } }
       else if (d < bestD) { best = a; bestD = d; }
@@ -494,7 +520,7 @@ export class Perihelion {
     p.a = a; p.r = r; p.phi = phi; p.t = 0;
     p.om = (along >= 0 ? 1 : -1) * speed / r;
     p.v0x = p.vx; p.v0y = p.vy;
-    p.fuse = a.kind === "decay" ? FUSE : Infinity;
+    p.fuse = a.kind === "decay" ? this.fuseT || FUSE : Infinity;
     p.vx = p.r * p.om * Math.cos(phi) + A.vx;
     p.vy = -p.r * p.om * Math.sin(phi) + A.vy;
   }
@@ -604,6 +630,12 @@ export class Perihelion {
       else { this.daily = false; this.start(); }
       return;
     }
+    if (this.view === "shop") { // tap: next line; hold: buy, or BACK on the last line
+      if (!long) this.page = (this.page + 1) % (UPGRADES.length + 1);
+      else if (this.page === UPGRADES.length) { this.view = "menu"; this.page = 0; }
+      else this.buy(UPGRADES[this.page]);
+      return;
+    }
     if (this.view !== "menu") {
       if (long || this.view === "log") { this.view = "menu"; this.page = 0; }
       else this.page = (this.page + 1) % (this.view === "guide" ? GUIDE.length : Math.ceil(FEATS.length / 6));
@@ -619,6 +651,16 @@ export class Perihelion {
     this.page = 0;
     this.setHint("Tap: next line. Hold: choose.");
   }
+  buy(u) {
+    const lv = this.sv.up[u.id] || 0, cost = u.cost[lv];
+    if (cost === undefined || this.sv.shards < cost) { this.c.tone(150, 0.08, "square"); return false; }
+    this.sv.shards -= cost;
+    this.sv.up[u.id] = lv + 1;
+    this.queueNote(0, 659, 0.08, "sine");
+    this.queueNote(0.08, 988, 0.16, "sine");
+    this.persist();
+    return true;
+  }
   unlockedProbe(i) { return i === 0 || this.sv.ft.length >= PROBES[i].need; }
   unlockedTrail(i) { return i === 0 || this.sv.ft.length >= TRAILS[i].need; }
   hangarChoose() {
@@ -628,6 +670,7 @@ export class Perihelion {
     if (row === "FEATS") { this.view = "feats"; this.page = 0; return; }
     if (row === "LOG") { this.view = "log"; return; }
     if (row === "GUIDE") { this.view = "guide"; this.page = 0; return; }
+    if (row === "UPGRADES") { this.view = "shop"; this.page = 0; return; }
     if (row === "PROBE") { let i = s.probe; do i = (i + 1) % PROBES.length; while (!this.unlockedProbe(i)); s.probe = i; }
     else if (row === "PACE") s.pace = (s.pace + 1) % PACES.length;
     else if (row === "START") s.start = (Math.min(s.start, this.sv.far) + 1) % (this.sv.far + 1);
@@ -750,6 +793,7 @@ export class Perihelion {
   update(dt) {
     this.guard.tick(dt);
     this.t += dt;
+    this.lostT = Math.max(0, (this.lostT || 0) - dt);
     if (this.phase === "play") { if (!this.ready) this.stepPlay(dt); }
     else if (this.phase === "over") {
       this.deadT += dt;
@@ -800,7 +844,7 @@ export class Perihelion {
         this.bottomT = this.runT;
         this.c.tone(this.noteHz(Math.hypot(p.vx, p.vy)), 0.12, "sine");
       }
-      if (p.a.kind === "decay" && p.t >= FUSE) {
+      if (p.a.kind === "decay" && p.t >= this.fuseT) {
         const a = p.a;
         this.releaseTether();
         a.dead = true;
@@ -817,7 +861,7 @@ export class Perihelion {
     else this.front += this.frontSpeed() * dt;
     let why = this.fate(p);
     if (!why && p.x < this.front + 8) why = this.pace ? "edge" : "dark";
-    if (why) { this.crash(why); return; }
+    if (why) { if (this.lives > 1) this.loseLife(why); else this.crash(why); return; }
     if (p.x > this.maxX) {
       this.scoreRaw += (p.x - this.maxX) / PX_PER_MKM;
       this.maxX = p.x;
@@ -856,8 +900,8 @@ export class Perihelion {
   // Relics and near passes.
   collect(p) {
     for (const r of this.relics) {
-      if (r.got || Math.abs(r.x - p.x) > RELIC_PICK) continue;
-      if (Math.hypot(r.x - p.x, r.y - p.y) < RELIC_PICK) {
+      if (r.got || Math.abs(r.x - p.x) > this.pick) continue;
+      if (Math.hypot(r.x - p.x, r.y - p.y) < this.pick) {
         r.got = 1;
         this.R.relics++;
         this.relicFlash = 0.35;
@@ -931,7 +975,7 @@ export class Perihelion {
   // How fast the dark sweeps up, px/s. It rises to 110 over the first six minutes;
   // after five minutes it keeps quickening until nobody can outrun it, so a run ends.
   frontSpeed() {
-    return Math.min(110, 36 + 0.2 * this.runT) + 0.5 * Math.max(0, this.runT - 300);
+    return (this.darkK ?? 1) * (Math.min(110, 36 + 0.2 * this.runT) + 0.5 * Math.max(0, this.runT - 300));
   }
   stageEvents() {
     if (this.runT > 300 && !this.quickened && !this.pace) {
@@ -974,6 +1018,35 @@ export class Perihelion {
     this.checkFeats();
     this.finish("arrived");
   }
+  // A spare probe: the run goes on from the next sun ahead, parked until the next press.
+  loseLife(why) {
+    const p = this.p;
+    this.lives--;
+    this.lost++;
+    this.lostT = 1.4;
+    this.burst(p.x, p.y, 16, 160);
+    this.c.tone(70, 0.4, "sawtooth");
+    this.chain = 0;
+    this.held = false;
+    this.tether = null;
+    this.pending = null;
+    let a = null;
+    for (const s of this.anchors) if (!s.dead && s.x >= this.maxX - 100 && (!a || s.x < a.x)) a = s;
+    if (!a) { this.crash(why); return; }
+    const y = clamp(a.y + 40, 120, 400);
+    Object.assign(p, { x: a.x - 190, y, vx: 280, vy: -70, a: null, r: 0, phi: 0, om: 0, t: 0, lastId: a.id - 1 });
+    this.voids = this.voids.filter((v) => v.x < p.x - 60 || v.x > a.x + 80); // a clear start
+    this.front = Math.min(this.front, p.x - 400);
+    this.cam = p.x - CAM_LEAD;
+    this.paceX = this.cam;
+    this.trail.fill(0);
+    this.trailN = 0;
+    this.flightT = 0;
+    this.ready = true;
+    this.notice = "PROBE LOST: " + (REASONS[why] || why) + ". " + this.lives + (this.lives === 1 ? " PROBE LEFT." : " PROBES LEFT.");
+    this.noticeT = 5;
+    this.setHint(this.notice);
+  }
   crash(why) {
     this.finish(why);
   }
@@ -1014,6 +1087,9 @@ export class Perihelion {
       else sv.pb[this.probeIx] = Math.max(sv.pb[this.probeIx] || 0, score);
       this.checkFeats();
       this.result = { mkm: score, chain: this.bestChain, catches: this.catches, reason: REASONS[why] || why, milestone: Math.floor(score / 100), relics: this.R.relics, region: REGIONS[this.reg].name };
+      const gain = Math.floor(Math.max(0, this.maxX - REGIONS[this.startReg].from - 140) / SHARD_PX) + this.R.relics + (why === "arrived" ? 5 : 0);
+      sv.shards += gain;
+      this.result.shards = gain;
       sv.milestone = Math.max(sv.milestone, this.result.milestone);
       sv.last = this.result;
       this.persist();
@@ -1080,6 +1156,7 @@ export class Perihelion {
   }
   lampValues() {
     const p = this.p;
+    if (this.phase === "play" && this.lostT > 0) return fill(LAMP.red, 0.32 * this.lostT / 1.4);
     if (this.phase === "title" || this.ready) return spot(0.5 + 0.5 * Math.sin(this.t * 0.7), dim(REGIONS[this.sv.far].col, 0.1));
     if (this.phase === "hangar") return spot(0.5 + 0.5 * Math.sin(this.t * 1.1), dim(REGIONS[this.sv.far].col, 0.14));
     if (this.phase === "over") {
@@ -1106,7 +1183,7 @@ export class Perihelion {
     let out;
     if (p.a) {
       let level = 0.4;
-      if (p.a.kind === "decay" && FUSE - p.t < 0.8) level = blink(this.runT, 8) ? 0.5 : 0.08;
+      if (p.a.kind === "decay" && this.fuseT - p.t < 0.8) level = blink(this.runT, 8) ? 0.5 : 0.08;
       const pos = 0.5 + 0.5 * Math.sin(p.phi);
       out = spot(pos, dim(ramp(danger, [LAMP.cyan, LAMP.amber, LAMP.red]), level), 0.8);
     } else {
@@ -1198,7 +1275,7 @@ export class Perihelion {
       g.fillStyle = "#0c1511e8";
       g.fillRect(190, 300, 580, 110);
       text(g, "HOLD TO THROW THE TETHER", 480, 336, 28, C.amber, "center");
-      text(g, "RELEASE TO FLY ON", 480, 376, 22, C.muted, "center");
+      text(g, this.lost ? "SPARE PROBE READY   " + this.lives + " LEFT" : "RELEASE TO FLY ON", 480, 376, 22, this.lost ? C.cyan : C.muted, "center");
     }
   }
   // A press on a menu screen shows how close it is to a choose-press.
@@ -1386,7 +1463,7 @@ export class Perihelion {
     }
     if (decay && held) {
       g.beginPath();
-      g.arc(x, y, 28, -Math.PI / 2, -Math.PI / 2 + TAU * clamp(1 - this.p.t / FUSE, 0, 1));
+      g.arc(x, y, 28, -Math.PI / 2, -Math.PI / 2 + TAU * clamp(1 - this.p.t / this.fuseT, 0, 1));
       g.strokeStyle = C.red;
       g.lineWidth = 4;
       g.stroke();
@@ -1434,6 +1511,11 @@ export class Perihelion {
   }
   drawOverlay(g) {
     const p = this.p;
+    for (let i = 0; this.lives + this.lost > 1 && i < this.lives; i++) { // probes left, the one flying included
+      g.save(); g.translate(40 + i * 30, 30); g.beginPath();
+      g.moveTo(11, 0); g.lineTo(-7, -7); g.lineTo(-3, 0); g.lineTo(-7, 7); g.closePath();
+      g.fillStyle = i === 0 ? C.amber : C.muted; g.fill(); g.restore();
+    }
     const gap = p.x - this.front;
     if (gap < 220) {
       g.globalAlpha = 0.5 + 0.5 * blink(this.t, 4);
@@ -1477,10 +1559,10 @@ export class Perihelion {
       y += 32;
     };
     row("DISTANCE", r.mkm + " Mkm");
-    row("BEST CHAIN", r.chain);
-    row("ANCHORS CAUGHT", r.catches);
+    row("BEST CHAIN", r.chain + "   CAUGHT " + r.catches);
     const far = REGIONS[this.reg];
     if (this.reg > 0 || this.sv.far > 0) row("REGION", far.name.slice(4), far.ink);
+    row("SHARDS", "+" + (r.shards || 0) + "   (" + this.sv.shards + ")", C.cyan);
     if (this.R.tricks > 0) row("TRICKS", this.R.tricks + "   +" + this.R.trickPts);
     if (this.R.relics > 0 || this.sv.st.relics > 0) row("RELICS", this.R.relics + (this.R.near ? "   NEAR " + this.R.near : ""));
     const record = this.newRecord;
@@ -1504,6 +1586,7 @@ export class Perihelion {
       const pr = PROBES[Math.min(sv.sel.probe, PROBES.length - 1)], tr = TRAILS[sv.sel.trail];
       const rows = {
         LAUNCH: ["LAUNCH", "THE APPROACH"],
+        UPGRADES: ["UPGRADES", sv.shards + " SHARDS"],
         PROBE: ["PROBE", pr.name],
         START: ["START", REGIONS[Math.min(sv.sel.start, sv.far)].name],
         PACE: ["PACE", PACES[sv.sel.pace].name],
@@ -1514,7 +1597,7 @@ export class Perihelion {
         GUIDE: ["GUIDE", "HOW TO PLAY"],
       };
       HANGAR.forEach((id, i) => {
-        const y = 134 + i * 34, on = i === this.cur;
+        const y = 130 + i * 31, on = i === this.cur;
         if (on) diamond(g, 150, y, 9, C.amber, true);
         text(g, rows[id][0], 180, y, 24, on ? C.amber : C.ink);
         text(g, rows[id][1], 810, y, 22, on ? C.amber : C.muted, "right");
@@ -1529,8 +1612,9 @@ export class Perihelion {
       else if (id === "DAILY") { const gl = dailyGoal(this.dayKey()); info = "Goal: " + gl.text + "  Days in a row: " + this.streakNow(); }
       else if (id === "FEATS") info = "Named goals. Some are not listed.";
       else if (id === "LOG") info = "Regions reached and best crossings.";
+      else if (id === "UPGRADES") info = "Spend shards: spare probes and more. Every run earns some.";
       else info = "Controls, the chain, the daily streak.";
-      text(g, info, 480, 446, 18, C.muted, "center");
+      text(g, info, 480, 450, 18, C.muted, "center");
       text(g, "TAP = NEXT LINE     HOLD = CHOOSE", 480, 480, 18, C.cyan, "center");
     } else if (this.view === "feats") {
       const per = 6, pages = Math.ceil(FEATS.length / per);
@@ -1544,6 +1628,19 @@ export class Perihelion {
         text(g, f.hidden && !done ? f.hint : f.text, 150, y + 26, 16, C.muted);
       });
       text(g, "TAP = NEXT PAGE     HOLD = BACK", 480, 488, 18, C.cyan, "center");
+    } else if (this.view === "shop") {
+      text(g, "UPGRADES     " + sv.shards + " SHARDS", 480, 120, 20, C.cyan, "center");
+      UPGRADES.forEach((u, i) => {
+        const y = 160 + i * 44, on = i === this.page, lv = sv.up[u.id] || 0, cost = u.cost[lv];
+        if (on) diamond(g, 150, y, 9, C.amber, true);
+        text(g, u.name + "  " + "I".repeat(lv) + "-".repeat(u.cost.length - lv), 180, y, 22, on ? C.amber : C.ink);
+        text(g, cost === undefined ? "FULL" : cost + " SHARDS", 810, y, 20, cost === undefined ? C.cyan : sv.shards >= cost ? C.amber : C.line, "right");
+      });
+      const back = this.page === UPGRADES.length;
+      if (back) diamond(g, 150, 160 + UPGRADES.length * 44, 9, C.amber, true);
+      text(g, "BACK", 180, 160 + UPGRADES.length * 44, 22, back ? C.amber : C.ink);
+      text(g, back ? "Back to the hangar." : UPGRADES[this.page].text, 480, 440, 18, C.muted, "center");
+      text(g, "TAP = NEXT LINE     HOLD = " + (back ? "BACK" : "BUY"), 480, 480, 18, C.cyan, "center");
     } else if (this.view === "guide") {
       const pg = GUIDE[this.page % GUIDE.length];
       text(g, pg[0] + "     PAGE " + (this.page % GUIDE.length + 1) + " / " + GUIDE.length, 480, 124, 20, C.cyan, "center");
@@ -1570,7 +1667,7 @@ export class Perihelion {
   }
 }
 
-const HANGAR = ["LAUNCH", "PROBE", "START", "PACE", "TRAIL", "DAILY", "FEATS", "LOG", "GUIDE"];
+const HANGAR = ["LAUNCH", "UPGRADES", "PROBE", "START", "PACE", "TRAIL", "DAILY", "FEATS", "LOG", "GUIDE"];
 const NOTES = [
   [1800, "Dark bodies ahead. Steer clear."],
   [4100, "Amber suns burn out. Do not linger."],

@@ -63,6 +63,14 @@ The long integrated run was started while final review continued. The final held
 - Project placed under local git: `v0.2.0-as-delivered`, then bring-up commits. The generated simulator is no longer tracked.
 - Sam's feedback after playing: fun; the lamps are underused; dictation a little inaccurate; wants more games and instruments. Plan for the overnight agent fleet: `../fleet/PLAN.md`.
 
+## 2026-10-01 — Moonrunner: depth and visuals (desktop/cloud session)
+
+- Sam asked for better visuals across the board and games with life and depth you can sink time into. Changes stay inside `web/apps/runner.js` (the dashboard and catalog belong to another thread).
+- Visuals: each zone has its own palette (sky gradient, three ridge layers, layered soil with bands), blended over the first 80 m of a zone; twinkling stars, an Earth crescent with weather (a galaxy band on the far side), craters, a sled with runners, cab and antenna, fever glow, and rings on perfect slides. The camera takes in the valley ahead.
+- Depth: fever now climbs from x2 to x5 with every three further perfect slides (+2 s each); sunstones float above some crests (+4 s of daylight); every zone hides three survey beacons high above the hills (18 in all, +30 shards each, and a complete zone gives +2 s daylight to every run). New orders (sunstones, fever level, beacons); the log shows beacons per zone, sunstones and the best distance. Save schema 3 keeps old saves (new fields default to 0).
+- Balance (`BALANCE_SEEDS=6`): by eye about 11 500 in 242 s; a bot timing each dive about 12 750 in 251 s; never pressing about 650 in 66 s. Gesture audit 0/60.
+- Not verified on the device.
+
 ## 2026-10-01 — Moonrunner: rhythm and flow (desktop/cloud session)
 
 - Sam: "Moonrunner doesn't quite have the right rhythm. It's really hard to get a flow going." Measured with the by-eye bot (hold over a downhill, let go over an uphill): 77 percent of its landings hit the next climb, because flights off steep upslopes sailed past the downslope, and the time between presses varied by 41 percent.

@@ -3,7 +3,7 @@
 // the real down()/up()/update().
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Moonrunner, migrateSave, ordersFor, orderText, ORDER_KINDS, ZONES, RIDES, WORKSHOP, dailyGoal, zoneAt, PX_M, PERFECT, THUD, RILLE_V, MIN_V } from "../web/apps/runner.js";
+import { Moonrunner, migrateSave, ordersFor, orderText, ORDER_KINDS, ZONES, RIDES, WORKSHOP, dailyGoal, zoneAt, beaconsOf, PX_M, PERFECT, THUD, RILLE_V, MIN_V } from "../web/apps/runner.js";
 import { appContext, fakeCanvas } from "./helpers/app-context.mjs";
 import { runnerBot } from "./helpers/runner-bot.mjs";
 
@@ -179,6 +179,52 @@ test("three perfect slides in a row are fever: double points, for a while", () =
   assert.equal(g.pts - pts, 20);
   step(g, 8);
   assert.equal(g.fever, 0, "fever did not run out");
+});
+test("fever rises a level for every three more perfect slides: x3 points and a higher top speed", () => {
+  const { g } = started({ seed: 44 });
+  clearAll(g);
+  const x = onDownslope(g);
+  for (let k = 0; k < 3; k++) landAt(g, x, 0.05);
+  assert.equal(g.feverLv, 1);
+  const top = g.topSpeed();
+  for (let k = 0; k < 3; k++) landAt(g, x, 0.05);
+  assert.equal(g.feverLv, 2);
+  assert.equal(g.R.feverLv, 3);
+  assert.ok(g.topSpeed() > top);
+  const pts = g.pts;
+  g.addPoints(10);
+  assert.equal(g.pts - pts, 30);
+  step(g, 12);
+  assert.equal(g.feverLv, 0, "the level outlived the fever");
+});
+test("a sunstone buys daylight; a survey beacon is found once for good, and a full zone adds daylight to every run", () => {
+  const { ctx, g } = started({ seed: 45 });
+  clearAll(g);
+  step(g, 0.2);
+  const T = g.T, r = g.r;
+  g.suns = [{ x: r.x + 4, y: r.y - 18, got: 0 }];
+  g.update(DT);
+  assert.equal(g.R.suns, 1);
+  assert.ok(g.T > T + 3.5, "no daylight from the sunstone");
+  // Three beacons of the mare.
+  const sh = g.sv.sh;
+  for (let k = 0; k < 3; k++) {
+    g.beacons = [{ zi: 0, k, x: g.r.x + 4, found: 0, got: 0 }];
+    Object.assign(g.r, { air: true, y: g.beaconY(g.beacons[0]) + 18, vy: 0, vx: 500 });
+    g.update(DT);
+  }
+  assert.equal(g.sv.bc[0], 7);
+  assert.equal(g.R.beacons, 3);
+  assert.equal(g.sv.sh, sh + 90);
+  kill(g);
+  step(g, 3); // past the gesture window, so the save goes out
+  assert.deepEqual(ctx.calls.saved.at(-1).bc.slice(0, 2), [7, 0]);
+  // The next run starts with two more seconds, and the mare's beacons are already found.
+  g.down(); g.up();
+  assert.equal(g.phase, "play");
+  assert.equal(g.T, 42);
+  assert.ok(g.beacons.filter((b) => b.zi === 0).every((b) => b.found));
+  assert.deepEqual(beaconsOf(0), [80, 200, 320]);
 });
 test("daylight runs down; a new zone buys more; at night the sled coasts to a stop and the run ends", () => {
   const { ctx, g } = started({ seed: 15, progress: { schema: 3, up: { bat: 1 } } });
@@ -459,6 +505,17 @@ test("save: the downhill test build (schema 2) keeps level, shards, sleds and re
   assert.deepEqual(sv.pb, [5000, 4000, 0]);
   assert.equal(sv.st.m, 20000);
   assert.deepEqual(migrateSave(JSON.parse(JSON.stringify(sv))), sv, "schema 3 does not round-trip");
+});
+test("save: a schema 3 save from before the beacons gets none found, and a run from the start records its distance", () => {
+  const old = { schema: 3, lv: 4, sh: 50, st: { m: 900 } };
+  const sv = migrateSave(old);
+  assert.deepEqual(sv.bc, [0, 0, 0, 0, 0, 0]);
+  assert.equal(sv.st.bm, 0);
+  assert.equal(sv.st.suns, 0);
+  const { g } = started({ seed: 46, progress: old });
+  step(g, 20, runnerBot(g));
+  kill(g);
+  assert.ok(g.sv.st.bm > 100 && g.sv.st.bm === Math.floor(g.R.m));
 });
 test("save: anything malformed becomes a clean schema 3", () => {
   for (const raw of [null, undefined, 7, "x", [], { lv: -4, sh: NaN, up: { mag: 99, bat: -1 }, sel: { ride: 9, start: -2 }, pb: "no", gd: "yes", st: { m: Infinity } }]) {

@@ -14,7 +14,7 @@
 // Drawing is smooth on an uneven frame clock: the hills are cosine curves between fixed key points,
 // every background layer is a function of world position, and draw() extrapolates the camera by the
 // time since the last fixed update. The camera pulls back with speed and height.
-import { C, space, text, line, circle, diamond } from "../engine/draw.js";
+import { C, text, line, circle, diamond } from "../engine/draw.js";
 import { clamp, lerp, wrapAngle, mixSeed, Random } from "../engine/math.js";
 import { LAMP, lamps, dim, spot, pulse, blink, fill, lightsOff } from "../engine/lightshow.js";
 import { AppGuard } from "../engine/input.js";
@@ -34,7 +34,11 @@ export const TEMPO = { k: 0.65, p: 1, lo: 0.8, hi: 2.2, stick: 1, airDive: 0.9, 
 const SET = [3, 5];
 const SAFE = 150 * PX_M; // the first 150 m of a run have no rilles or pits
 const START_T = 40, ZONE_T = 25, PERFECT_T = 0.5;
-const FEVER_T = 5, FEVER_CHAIN = 3;
+const FEVER_T = 5, FEVER_CHAIN = 3, FEVER_MAX = 4; // fever rises a level (x2 .. x5) for every three more perfect slides
+const BEACON_H = 170; // how high (px) above the ground a beacon hangs
+const SUN_T = 4; // seconds of daylight a sunstone gives
+const BEACON_T = 2; // seconds of starting daylight for each zone whose three beacons are all found
+const BEACON_AT = [0.2, 0.5, 0.8]; // where in a zone (as a share of its length) its beacons hang
 const NIGHT_STOP = 150; // after dark the run ends when the sled is this slow on the ground
 const FALL_T = 8; // seconds of daylight lost by falling into a rille
 const VENT_V = 950, BOOST_A = 1300;
@@ -46,7 +50,7 @@ const LIP = 0.24; // the rim of a rille throws the sled up at about this slope
 export const RILLE_V = 420; // slower than this at the rim and the sled will not clear a rille
 const HOLD_PICK = 0.5; // a press this long on a menu screen chooses instead of tapping
 const LOCK = 0.7; // the result screen ignores presses this long
-const MAX_KP = 48, MAX_SHARDS = 64, MAX_CHASMS = 8, MAX_PITS = 8, MAX_PADS = 8, MAX_VENTS = 8, MAX_PARTS = 32, TRAIL = 10;
+const MAX_KP = 48, MAX_SUNS = 6, MAX_SHARDS = 64, MAX_CHASMS = 8, MAX_PITS = 8, MAX_PADS = 8, MAX_VENTS = 8, MAX_PARTS = 32, TRAIL = 10;
 const REASONS = { night: "NIGHT FELL", quit: "RUN ENDED" };
 
 // ---- the hills -----------------------------------------------------------------------
@@ -61,6 +65,32 @@ export const ZONES = [
   { name: "THE FAR SIDE", roman: "VI", from: 4000, L: [630, 960], H: [340, 500], col: LAMP.blue, ink: "#6fa8dc", text: "No Earth in this sky. Trust the lamps.", mix: { chasm: 3, pit: 2, pad: 2, vent: 2, shards: 1 }, dark: true },
 ];
 export const zoneAt = (m) => { for (let i = ZONES.length - 1; i > 0; i--) if (m >= ZONES[i].from) return i; return 0; };
+// Each zone's colours: sky top and horizon, far and near ridges, ground top and depth, the band of
+// lighter regolith under the surface, and the surface line.
+const SKIES = [
+  { sky: ["#040a10", "#13271f"], far: "#172b24", mid: "#1e382b", soil: ["#2c5035", "#10211a"], band: "#3b6a45", edge: "#d6efa4" },
+  { sky: ["#0a0907", "#2a2015"], far: "#2c2417", mid: "#3a2f1e", soil: ["#5a4628", "#211910"], band: "#715a33", edge: "#f0cf96" },
+  { sky: ["#030e17", "#0f2e37"], far: "#12333c", mid: "#18434c", soil: ["#235e67", "#0b2126"], band: "#2f7a83", edge: "#a8e2dc" },
+  { sky: ["#090513", "#231939"], far: "#281f42", mid: "#332955", soil: ["#483876", "#150f29"], band: "#5e4a96", edge: "#d2b8ff" },
+  { sky: ["#090909", "#292925"], far: "#2d2d29", mid: "#3a3a34", soil: ["#58564e", "#1b1b17"], band: "#6e6c62", edge: "#f4eedc" },
+  { sky: ["#010205", "#070d1b"], far: "#0c1323", mid: "#111b2e", soil: ["#17253c", "#070b15"], band: "#213454", edge: "#8fb4e8" },
+];
+const hex = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
+const mix = (a, b, k) => { const A = hex(a), B = hex(b); return "#" + A.map((v, i) => Math.round(v + (B[i] - v) * k).toString(16).padStart(2, "0")).join(""); };
+// A zone's colours at x metres: they blend into the next zone's over its first 80 m.
+function paletteAt(m) {
+  const zi = zoneAt(m), from = ZONES[zi].from, k = zi > 0 ? clamp((m - from) / 80, 0, 1) : 1;
+  if (k >= 1) return SKIES[zi];
+  const a = SKIES[zi - 1], b = SKIES[zi];
+  return { sky: [mix(a.sky[0], b.sky[0], k), mix(a.sky[1], b.sky[1], k)], far: mix(a.far, b.far, k), mid: mix(a.mid, b.mid, k), soil: [mix(a.soil[0], b.soil[0], k), mix(a.soil[1], b.soil[1], k)], band: mix(a.band, b.band, k), edge: mix(a.edge, b.edge, k) };
+}
+// A vertical gradient, or its top colour where the canvas cannot make one.
+function vgrad(g, y0, y1, top, bottom) {
+  const gr = g.createLinearGradient?.(0, y0, 0, y1);
+  if (!gr?.addColorStop) return top;
+  gr.addColorStop(0, top); gr.addColorStop(1, bottom);
+  return gr;
+}
 const MOTIFS = [[392, 494, 587], [440, 554, 659], [330, 415, 494], [294, 370, 440], [523, 659, 784], [262, 311, 392]];
 const PENT = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21];
 const note = (k) => 330 * Math.pow(2, PENT[clamp(k, 0, PENT.length - 1)] / 12);
@@ -108,8 +138,14 @@ export const ORDER_KINDS = {
   hoard: { min: 5, n: (L) => 150 * L, text: (n) => `Collect ${n} shards in all.`, prog: (a) => a.sv.st.shards + a.R.shards },
   speed: { min: 5, n: (L) => Math.min(200, 110 + 6 * L), text: (n) => `Reach ${n} km/h.`, prog: (a) => a.R.top },
   pads: { min: 6, n: (L) => Math.min(20, 2 + Math.floor(L / 2)), text: (n) => `Ride ${n} boost crystals in one run.`, prog: (a) => a.R.pads },
+  sun: { min: 2, n: (L) => Math.min(8, 1 + Math.floor(L / 3)), text: (n) => `Catch ${n} sunstone${n > 1 ? "s" : ""} in one run.`, prog: (a) => a.R.suns },
+  feverlv: { min: 5, n: (L) => Math.min(FEVER_MAX + 1, 2 + Math.floor((L - 5) / 4)), text: (n) => `Raise fever to x${n}.`, prog: (a) => a.R.feverLv },
+  beacon: { min: 4, n: (L) => Math.min(18, 1 + Math.floor((L - 2) / 2)), text: (n) => `Find ${n} survey beacon${n > 1 ? "s" : ""} in all.`, prog: (a) => beaconCount(a.sv.bc) },
   vent: { min: 8, n: (L) => Math.min(8, 1 + Math.floor((L - 8) / 3)), text: (n) => `Ride ${n} vent${n > 1 ? "s" : ""} in one run.`, prog: (a) => a.R.vents },
 };
+const beaconCount = (bc) => bc.reduce((n, m) => n + ((m & 1) + ((m >> 1) & 1) + ((m >> 2) & 1)), 0);
+// Where the survey beacons hang: three per zone, at fixed distances (m). The far side's run past 4000 m.
+export const beaconsOf = (zi) => { const a = ZONES[zi].from, b = zi + 1 < ZONES.length ? ZONES[zi + 1].from : a + 1500; return BEACON_AT.map((k) => Math.round(a + k * (b - a))); };
 const hashText = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return h >>> 0; };
 // The three orders of level L, the same on every console. Level 1 is a fixed introduction.
 export function ordersFor(L) {
@@ -144,7 +180,8 @@ const spent = (costs, tier) => costs.slice(0, clamp(nat(tier), 0, costs.length))
 // - the first release saved { schema: 1, runs, last, milestone }: these carry over, and each 100 m
 //   milestone reached in the old game is worth 5 shards;
 // - the downhill test build (schema 2) had other orders and upgrades: its level, shards, sleds and
-//   stats carry over, the orders of the level start again, and hover pads and headlamp are refunded.
+//   stats carry over, the orders of the level start again, and hover pads and headlamp are refunded;
+// - schema 3 saves from before the beacons have no `bc`, `st.bm` or `st.suns`: they start at 0.
 export function migrateSave(raw) {
   const r = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
   const ob = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : {});
@@ -166,7 +203,8 @@ export function migrateSave(raw) {
     sel: { ride: clamp(nat(sel.ride), 0, RIDES.length - 1), start: clamp(nat(sel.start), 0, ZONES.length - 1), trail: clamp(nat(sel.trail), 0, TRAILS.length - 1) },
     far: clamp(nat(r.far), 0, ZONES.length - 1),
     pb: Array.from({ length: RIDES.length }, (_, i) => nat(Array.isArray(r.pb) ? r.pb[i] : 0)),
-    st: { m: nat(st.m), perfects: nat(st.perfects), shards: nat(st.shards), fevers: nat(st.fevers), chasms: nat(st.chasms), chain: nat(st.chain), zen: nat(st.zen), best: nat(st.best), top: nat(st.top) },
+    st: { m: nat(st.m), bm: nat(st.bm), suns: nat(st.suns), perfects: nat(st.perfects), shards: nat(st.shards), fevers: nat(st.fevers), chasms: nat(st.chasms), chain: nat(st.chain), zen: nat(st.zen), best: nat(st.best), top: nat(st.top) },
+    bc: Array.from({ length: ZONES.length }, (_, i) => clamp(nat(Array.isArray(r.bc) ? r.bc[i] : 0), 0, 7)),
     dl: { d: typeof dl.d === "string" ? dl.d.slice(0, 10) : "", best: nat(dl.best), done: dl.done ? 1 : 0, streak: nat(dl.streak), last: typeof dl.last === "string" ? dl.last.slice(0, 10) : "" },
   };
 }
@@ -222,21 +260,23 @@ export class Moonrunner {
     this.base = 0;
     this.set = null;
     this.vRef = 520; // the speed new hills are sized for: the sled's, smoothed over a few seconds
-    this.chasms = []; this.pits = []; this.pads = []; this.vents = []; this.shards = [];
+    this.chasms = []; this.pits = []; this.pads = []; this.vents = []; this.shards = []; this.suns = [];
+    this.beacons = this.zen ? [] : this.placeBeacons();
     this.extend();
     const x = this.x0 + 40;
     this.r = { x, y: this.gy(x), vx: 260, vy: 0, v: 260, a: this.slopeAt(x), air: false, airT: 0, tx: x, hi: 0, vent: false };
     this.camX = x; this.camY = this.r.y; this.zoom = 1;
     this.runT = 0;
-    this.T = this.zen ? Infinity : START_T + 8 * sv.up.bat;
+    this.T = this.zen ? Infinity : START_T + 8 * sv.up.bat + BEACON_T * sv.bc.filter((m) => m === 7).length;
     this.night = false;
-    this.chain = 0; this.fever = 0;
+    this.chain = 0; this.fever = 0; this.feverLv = 0;
     this.pts = 0;
     this.zone = zoneAt(x / PX_M);
     this.zoneT = 0;
     this.noticeT = 0; this.notice = "";
     this.trickT = 0; this.trick = "";
-    this.fx = { perfect: 0, shard: 0, order: 0, zone: 0, end: 0, record: 0, thud: 0 };
+    this.fx = { perfect: 0, shard: 0, order: 0, zone: 0, end: 0, record: 0, thud: 0, sun: 0, beacon: 0 };
+    this.rings = []; // expanding rings where perfect slides landed: { x, y, t }
     this.overT = 0;
     this.reason = "";
     this.result = null;
@@ -246,13 +286,16 @@ export class Moonrunner {
     this.levelled = null;
     this.goalDone = false;
     this.best0 = this.bestRef();
-    this.R = { m: 0, perfects: 0, chain: 0, fevers: 0, shards: 0, zone: this.zone, chasms: 0, high: 0, longest: 0, top: 0, pads: 0, vents: 0, zenM: 0, falls: 0 };
+    this.R = { m: 0, perfects: 0, chain: 0, fevers: 0, shards: 0, zone: this.zone, chasms: 0, high: 0, longest: 0, top: 0, pads: 0, vents: 0, zenM: 0, falls: 0, suns: 0, feverLv: 0, beacons: 0 };
     this.orders = ordersFor(sv.lv);
     this.trail.fill(0); this.trailN = 0;
     this.parts.fill(0); this.partNext = 0;
   }
   dayKey() { return dateKey(); }
   ride() { return RIDES[this.rideIx]; }
+  // Fever raises the top speed, more at each level.
+  topSpeed() { return this.ride().maxV + (this.fever > 0 ? 150 + 100 * this.feverLv : 0); }
+  feverLen() { return FEVER_T + 2 * this.sv.up.coil; }
   plainRun() { return !this.daily && !this.zen && this.startZone === 0; }
   // The record this run chases: the console's best for a plain run, the day's or the sled's otherwise.
   bestRef() {
@@ -337,6 +380,8 @@ export class Moonrunner {
         for (let k = 0; k < 5; k++) this.addShard(a.x + 80 + k * 90, 260 + 80 * Math.sin((k / 4) * Math.PI));
       } else if (kind === "shards" || kind === "pit" || kind === "none") {
         if (kind !== "none") this.arc(a.x - 20, rng.int(4, 7), 70, 70, 60);
+        // Now and then a sunstone hangs high over a crest: only a big flight reaches it.
+        if (!safe && this.suns.length < MAX_SUNS && rng.next() < 0.22) this.suns.push({ x: a.x + rng.range(-60, 160), y: a.y - rng.range(80, 170), got: 0 });
       }
     } else if (kind === "pit" && this.pits.length < MAX_PITS) {
       // a is a valley: a pit of loose dust either side of the bottom.
@@ -354,6 +399,13 @@ export class Moonrunner {
     const ref = absolute ? this.gy(x - 40) : this.gy(x);
     this.shards.push({ x, y: ref - off, got: 0, pull: 0 });
   }
+  // This run's survey beacons, from the start zone on. Each hangs high above the hills.
+  placeBeacons() {
+    const out = [];
+    for (let zi = this.startZone; zi < ZONES.length; zi++) beaconsOf(zi).forEach((m, k) => { if (m * PX_M > this.x0 + SAFE) out.push({ zi, k, x: m * PX_M, found: (this.sv.bc[zi] >> k) & 1, got: 0 }); });
+    return out;
+  }
+  beaconY(b) { return this.gy(b.x) - BEACON_H; }
   inSpan(list, x) {
     for (const q of list) if (x > q.x0 && x < q.x1) return q;
     return null;
@@ -369,6 +421,7 @@ export class Moonrunner {
     this.pads = this.pads.filter(gone);
     this.vents = this.vents.filter((q) => q.x > left - 100);
     this.shards = this.shards.filter((q) => q.x > left - 100);
+    this.suns = this.suns.filter((q) => q.x > left - 100);
   }
 
   // ---- physics (touches only the rider it is given, so a bot can plan on a copy) --------
@@ -385,7 +438,7 @@ export class Moonrunner {
       if (dark) acc -= 0.6 * r.v;
       const pad = this.inSpan(this.pads, r.x);
       if (pad && dive && !dark) { acc += BOOST_A; if (!probe) pad.used = true; }
-      r.v = clamp(r.v + acc * dt, dark ? 0 : MIN_V, ride.maxV + (this.fever > 0 ? 250 : 0));
+      r.v = clamp(r.v + acc * dt, dark ? 0 : MIN_V, this.topSpeed());
       const vx = r.v * Math.cos(th), vy = r.v * Math.sin(th);
       const nx = r.x + vx * dt;
       for (const v of this.vents) {
@@ -587,7 +640,7 @@ export class Moonrunner {
     this.noticeT = Math.max(0, this.noticeT - dt);
     this.trickT = Math.max(0, this.trickT - dt);
     this.zoneT = Math.max(0, this.zoneT - dt);
-    if (this.fever > 0) { this.fever = Math.max(0, this.fever - dt); if (!this.fever) this.c.tone(300, 0.1, "sine"); }
+    if (this.fever > 0) { this.fever = Math.max(0, this.fever - dt); if (!this.fever) { this.feverLv = 0; this.c.tone(300, 0.1, "sine"); } }
     if (!this.zen) {
       const before = this.T;
       this.T = Math.max(0, this.T - dt);
@@ -611,6 +664,7 @@ export class Moonrunner {
     }
     for (const p of this.pads) if (p.used && !p.counted) { p.counted = true; this.R.pads++; this.c.tone(880, 0.1, "triangle"); this.showTrick("BOOST"); }
     this.collect(r, dt);
+    this.collectSky(r);
     const m = (r.x - this.x0) / PX_M;
     this.R.m = Math.max(this.R.m, m);
     if (this.zen) this.R.zenM = this.R.m;
@@ -670,7 +724,7 @@ export class Moonrunner {
   notify(message, seconds = 2.4) { this.notice = message; this.noticeT = seconds; }
   showTrick(label) { this.trick = label; this.trickT = 1.2; }
   addPoints(n, label) {
-    const k = this.fever > 0 ? 2 : 1;
+    const k = this.fever > 0 ? 1 + this.feverLv : 1;
     this.pts += n * k;
     if (label) this.showTrick(label + "  +" + Math.round(n * k));
   }
@@ -684,16 +738,27 @@ export class Moonrunner {
       this.chain++;
       this.R.perfects++;
       this.R.chain = Math.max(this.R.chain, this.chain);
-      r.v = Math.min(this.ride().maxV + (this.fever > 0 ? 250 : 0), r.v * 1.08 + 60);
+      r.v = Math.min(this.topSpeed(), r.v * 1.08 + 60);
       if (!this.zen && !this.night) this.T += PERFECT_T;
       this.addPoints(30 + 20 * Math.min(this.chain, 10), this.fever > 0 ? "FEVER SLIDE" : "PERFECT");
       this.fx.perfect = 0.45;
+      this.rings.push({ x: r.x, y: r.y, t: 0, fever: this.fever > 0 });
+      if (this.rings.length > 6) this.rings.shift();
       this.c.tone(note(Math.min(9, this.chain)), 0.08, "sine");
       this.c.tone(note(Math.min(9, this.chain)) * 1.5, 0.14, "sine");
-      if (this.chain % FEVER_CHAIN === 0 && this.fever <= 0) {
-        this.fever = FEVER_T + 2 * this.sv.up.coil;
+      if (this.chain % FEVER_CHAIN === 0 && this.fever > 0 && this.feverLv < FEVER_MAX) {
+        // Three more in fever: it rises a level and lasts longer.
+        this.feverLv++;
+        this.fever = Math.min(this.feverLen() + 2, this.fever + 2);
+        this.R.feverLv = Math.max(this.R.feverLv, this.feverLv + 1);
+        this.notify("FEVER x" + (this.feverLv + 1), 1.4);
+        [659, 784, 988, 1319].slice(0, 1 + this.feverLv).forEach((hz, i) => this.c.tone(hz, 0.06 + 0.03 * i, "triangle"));
+      } else if (this.chain % FEVER_CHAIN === 0 && this.fever <= 0) {
+        this.fever = this.feverLen();
+        this.feverLv = 1;
         this.R.fevers++;
-        this.notify("FEVER", 1.6);
+        this.R.feverLv = Math.max(this.R.feverLv, 2);
+        this.notify("FEVER x2", 1.6);
         [523, 659, 784, 1047].forEach((hz, i) => this.c.tone(hz, 0.08 + 0.03 * i, "triangle"));
       }
       this.dust(r.x, r.y, 4);
@@ -747,6 +812,33 @@ export class Moonrunner {
       }
     }
   }
+  // Sunstones buy daylight; beacons are found once for good, and a zone's three together add
+  // daylight to the start of every run.
+  collectSky(r) {
+    const cy = r.y - 18;
+    for (const q of this.suns) {
+      if (q.got || Math.abs(q.x - r.x) > 44 || Math.abs(q.y - cy) > 44) continue;
+      q.got = 1;
+      this.R.suns++;
+      this.fx.sun = 0.5;
+      if (!this.zen && !this.night) { this.T += SUN_T; this.showTrick("SUNSTONE  +" + SUN_T + " S"); }
+      [784, 1175].forEach((hz, i) => this.c.tone(hz, 0.1 + 0.08 * i, "sine"));
+    }
+    for (const b of this.beacons) {
+      if (b.got || Math.abs(b.x - r.x) > 56 || Math.abs(this.beaconY(b) - cy) > 70) continue;
+      b.got = 1;
+      this.fx.beacon = 0.9;
+      if (b.found) { this.addPoints(100, "BEACON"); this.c.tone(988, 0.12, "sine"); continue; }
+      b.found = 1;
+      this.sv.bc[b.zi] |= 1 << b.k;
+      this.R.beacons++;
+      this.sv.sh += 30;
+      this.addPoints(250, "NEW BEACON");
+      const all = this.sv.bc[b.zi] === 7;
+      this.notify(all ? ZONES[b.zi].name + ": ALL BEACONS. +" + BEACON_T + " S OF DAYLIGHT EVERY RUN" : "SURVEY BEACON " + beaconCount(this.sv.bc) + " / " + 3 * ZONES.length + "  +30 SHARDS", 3);
+      [523, 784, 1047, 1568].forEach((hz, i) => this.c.tone(hz, 0.1 + 0.05 * i, "sine"));
+    }
+  }
   checkOrders() {
     if (this.daily && !this.goalDone && this.goalMet()) { this.goalDone = true; this.notify("DAILY GOAL MET", 2.4); this.c.tone(784, 0.2, "sine"); }
     this.orders.forEach((o, i) => {
@@ -791,6 +883,8 @@ export class Moonrunner {
     sv.runs++;
     sv.st.m += metres; sv.st.perfects += R.perfects; sv.st.shards += R.shards; sv.st.fevers += R.fevers;
     sv.st.chasms += R.chasms; sv.st.chain = Math.max(sv.st.chain, R.chain); sv.st.top = Math.max(sv.st.top, R.top);
+    if (this.plainRun()) sv.st.bm = Math.max(sv.st.bm, metres);
+    sv.st.suns += R.suns;
     if (this.zen) sv.st.zen += metres;
     else sv.st.best = Math.max(sv.st.best, score);
     sv.sh += R.shards;
@@ -850,6 +944,8 @@ export class Moonrunner {
     }
   }
   stepParts(dt) {
+    for (const q of this.rings) q.t += dt;
+    if (this.rings.length && this.rings[0].t > 0.6) this.rings = this.rings.filter((q) => q.t <= 0.6);
     for (let k = 0; k < MAX_PARTS; k++) {
       const o = k * 5;
       if (this.parts[o + 4] <= 0) continue;
@@ -889,8 +985,10 @@ export class Moonrunner {
       return lamps(...[0, 1, 2].map((i) => (i <= k ? dim(LAMP.green, i === k ? 0.8 : 0.3) : null)));
     }
     if (this.fx.zone > 0) return fill(zc, 0.45 * (this.fx.zone / 0.8));
+    if (this.fx.beacon > 0) return fill(LAMP.blue, 0.6 * pulse(this.fx.beacon, 3));
+    if (this.fx.sun > 0) return lamps(null, dim(LAMP.amber, 0.4), dim(LAMP.white, 0.8 * (this.fx.sun / 0.5)));
     if (this.fever > 0) {
-      const at = Math.floor(this.runT * 10) % 3;
+      const at = Math.floor(this.runT * (8 + 4 * this.feverLv)) % 3; // the chase quickens with each fever level
       return lamps(...[0, 1, 2].map((i) => dim(i === at ? LAMP.white : LAMP.cyan, i === at ? 0.6 : 0.15)));
     }
     const speed = clamp((Math.hypot(r.vx, r.vy) - 200) / 900, 0, 1);
@@ -921,16 +1019,17 @@ export class Moonrunner {
     let lead = 0;
     if (this.phase === "play" && typeof performance !== "undefined") lead = clamp((performance.now() - this.upAt) / 1000, 0, 1 / 60);
     const z = this.zoom, cx = this.camX + r.vx * lead, cy = this.camY;
-    const zone = ZONES[this.zone], dark = !!zone.dark;
-    space(g, cx * 0.02, dark ? 0.6 : 1);
-    this.drawSky(g, cx, dark);
+    const pal = paletteAt(cx / PX_M), dark = !!ZONES[this.zone].dark;
+    this.drawSky(g, cx, pal, dark);
     this.drawStreaks(g);
     g.save();
     g.translate(RIDER_X, RIDER_Y);
     g.scale(z, z);
     g.translate(-cx, -cy);
-    this.drawGround(g, cx, cy, z, dark);
+    this.drawGround(g, cx, cy, z);
     this.drawFeatures(g, cx, z, dark);
+    this.drawSkyThings(g, cx, z);
+    this.drawRings(g, z);
     this.drawTrail(g, z);
     this.drawParts(g);
     if (this.phase !== "depot") this.drawRider(g, r.x + r.vx * lead, r.y + r.vy * lead, r.a);
@@ -941,21 +1040,48 @@ export class Moonrunner {
     else if (this.phase === "over") this.drawResult(g);
     else this.drawDepot(g);
   }
-  drawSky(g, cx, dark) {
-    if (!dark) {
-      circle(g, 770, 104, 40, "#1c3330", true);
-      circle(g, 770, 104, 40, C.cyan, false, 2);
-      g.fillStyle = C.bg;
-      g.beginPath(); g.arc(784, 104, 38, Math.PI * 0.5, Math.PI * 1.5, true); g.fill();
+  // The sky: the zone's gradient, the stars, the Earth (not on the far side), and three ridges of
+  // far hills and crater rims, each a function of world position so nothing pops as it scrolls.
+  drawSky(g, cx, pal, dark) {
+    g.fillStyle = vgrad(g, 0, 400, pal.sky[0], pal.sky[1]);
+    g.fillRect(0, 0, 960, 540);
+    g.fillStyle = C.muted;
+    for (let i = 0; i < 70; i++) {
+      const x = fract(hash1(i * 3.7) - cx * 0.00002 * (1 + (i % 3))) * 960, y = 360 * hash1(i * 1.3);
+      g.globalAlpha = (dark ? 0.75 : 0.45) * (0.5 + 0.5 * Math.sin(this.t * (0.6 + hash1(i)) + i));
+      const sz = 1 + (i % 3 === 0 ? 1 : 0);
+      g.fillRect(x, y, sz, sz);
     }
-    for (let layer = 0; layer < 2; layer++) {
-      const f = layer ? 0.3 : 0.12, base = layer ? 360 : 320, amp = layer ? 40 : 54;
-      g.fillStyle = dark ? (layer ? "#111c16" : "#0e1712") : layer ? "#1a2e21" : "#14241a";
+    g.globalAlpha = 1;
+    if (!dark) {
+      // The Earth: a lit crescent with a little weather, always in the same place.
+      g.fillStyle = "#16303a";
+      g.beginPath(); g.arc(770, 104, 40, 0, Math.PI * 2); g.fill();
+      g.fillStyle = "#4f8fa8";
+      g.beginPath(); g.arc(770, 104, 40, Math.PI * 0.5, Math.PI * 1.5, false); g.arc(756, 104, 38, Math.PI * 1.5, Math.PI * 0.5, true); g.fill();
+      g.strokeStyle = "#cfe6ea";
+      g.globalAlpha = 0.5; g.lineWidth = 2;
+      g.beginPath(); g.arc(770, 104, 30, Math.PI * 0.75, Math.PI * 1.1); g.stroke();
+      g.beginPath(); g.arc(770, 104, 20, Math.PI * 0.9, Math.PI * 1.3); g.stroke();
+      g.globalAlpha = 1;
+      circle(g, 770, 104, 40, "#8fcbc5", false, 1.5);
+    } else {
+      // The far side: no Earth, a band of the galaxy instead.
+      g.globalAlpha = 0.12;
+      g.fillStyle = "#8fb4e8";
+      g.beginPath(); g.moveTo(0, 220); g.lineTo(960, 40); g.lineTo(960, 110); g.lineTo(0, 300); g.fill();
+      g.globalAlpha = 1;
+    }
+    const layers = [[0.06, 300, 46, pal.far, 0], [0.14, 345, 38, mix(pal.far, pal.mid, 0.5), 1], [0.28, 385, 34, pal.mid, 2]];
+    for (const [f, base, amp, col, n] of layers) {
+      g.fillStyle = col;
       g.beginPath();
       g.moveTo(0, 560);
-      for (let sx = 0; sx <= 960; sx += 24) {
-        const wx = (sx + cx * f) / 140;
-        g.lineTo(sx, base - amp * (Math.sin(wx + layer * 2) * 0.6 + Math.sin(wx * 0.37 + 1.3) * 0.4 + 0.25 * Math.sin(wx * 2.3)));
+      for (let sx = 0; sx <= 960; sx += 16) {
+        const wx = (sx + cx * f) / (150 + 40 * n);
+        // Rolling ridges, with the odd crater rim (a sharp double bump) on the nearest two.
+        const rim = n ? Math.max(0, Math.sin(wx * 0.31 + n)) ** 12 * 30 : 0;
+        g.lineTo(sx, base - amp * (Math.sin(wx + n * 2) * 0.6 + Math.sin(wx * 0.37 + 1.3) * 0.4 + 0.2 * Math.sin(wx * 2.3)) - rim);
       }
       g.lineTo(960, 560);
       g.fill();
@@ -994,50 +1120,70 @@ export class Moonrunner {
     g.stroke();
     g.globalAlpha = 1;
   }
-  drawGround(g, cx, cy, z, dark) {
+  // The ground, in strips of the zone's colours: deep soil, the topsoil, a lighter band of
+  // regolith just under the surface (the stripes that show the hills' shape), and the surface line.
+  drawGround(g, cx, cy, z) {
     const x0 = cx - (RIDER_X + 30) / z, x1 = cx + (960 - RIDER_X + 30) / z, step = 10 / z, bottom = cy + (560 - RIDER_Y) / z;
-    const fillCol = dark ? "#16261c" : "#1f3a28", edge = dark ? C.muted : C.ink;
-    const piece = (a, b) => {
-      if (b <= a) return;
-      g.fillStyle = fillCol;
+    const band = (a, b, o0, o1, col) => {
+      g.fillStyle = col;
       g.beginPath();
-      g.moveTo(a, bottom);
-      for (let x = a; x < b; x += step) g.lineTo(x, this.gy(x));
-      g.lineTo(b, this.gy(b));
-      g.lineTo(b, bottom);
+      g.moveTo(a, o1 === null ? bottom : this.gy(a) + o1);
+      for (let x = a; x < b; x += step) g.lineTo(x, this.gy(x) + o0);
+      g.lineTo(b, this.gy(b) + o0);
+      if (o1 === null) g.lineTo(b, bottom);
+      else for (let x = b; x > a; x -= step) g.lineTo(x, this.gy(x) + o1);
       g.closePath();
       g.fill();
-      g.strokeStyle = edge;
-      g.lineWidth = 2 / z;
-      g.beginPath();
-      g.moveTo(a, this.gy(a));
-      for (let x = a; x < b; x += step) g.lineTo(x, this.gy(x));
-      g.lineTo(b, this.gy(b));
-      g.stroke();
+    };
+    const piece = (a, b) => {
+      if (b <= a) return;
+      // Chunks of 300 px, each in the palette at its middle, so a zone's colours blend in.
+      for (let c0 = a; c0 < b; c0 += 300) {
+        const c1 = Math.min(b, c0 + 300) + (c0 + 300 < b ? 1 / z : 0), pal = paletteAt((c0 + c1) / 2 / PX_M);
+        band(c0, c1, 0, null, pal.soil[1]);
+        band(c0, c1, 0, 90, pal.soil[0]);
+        band(c0, c1, 20, 36, pal.band);
+        band(c0, c1, 58, 64, pal.band);
+        g.strokeStyle = pal.edge;
+        g.lineWidth = 2.5 / z;
+        g.beginPath();
+        g.moveTo(c0, this.gy(c0));
+        for (let x = c0; x < c1; x += step) g.lineTo(x, this.gy(x));
+        g.lineTo(c1, this.gy(c1));
+        g.stroke();
+      }
     };
     let from = x0;
     for (const c of this.chasms) {
       if (c.x1 < x0 || c.x0 > x1) continue;
       piece(from, c.x0);
-      g.fillStyle = "#050a07";
+      g.fillStyle = "#030605";
       g.fillRect(c.x0, Math.min(this.gy(c.x0), this.gy(c.x1)), c.x1 - c.x0, bottom);
       line(g, c.x0, this.gy(c.x0), c.x0 + 6, bottom, C.red, 2 / z);
       line(g, c.x1, this.gy(c.x1), c.x1 - 6, bottom, C.red, 2 / z);
       from = c.x1;
     }
     piece(from, x1);
-    // Regolith marks, fixed to the ground: they show the speed.
-    g.strokeStyle = C.line;
-    g.lineWidth = 2 / z;
-    g.beginPath();
-    for (let n = Math.floor(x0 / 70); n * 70 < x1; n++) {
-      const wx = n * 70 + 40 * hash1(n);
-      if (this.chasmAt(wx) || this.chasmAt(wx + 16)) continue;
-      const y = this.gy(wx) + 14 + 30 * hash1(n + 0.5);
-      g.moveTo(wx, y);
-      g.lineTo(wx + 8 + 10 * hash1(n + 0.25), y);
+    // Small craters and stones, fixed to the ground: they show the speed.
+    g.fillStyle = "#00000033";
+    for (let n = Math.floor(x0 / 90); n * 90 < x1; n++) {
+      const wx = n * 90 + 50 * hash1(n);
+      if (this.chasmAt(wx) || this.chasmAt(wx + 20)) continue;
+      const y = this.gy(wx) + 44 + 60 * hash1(n + 0.5), rr = 3 + 7 * hash1(n + 0.25);
+      g.beginPath(); g.ellipse?.(wx, y, rr * 1.6, rr * 0.6, 0, 0, Math.PI * 2); g.fill();
     }
-    g.stroke();
+    // The best distance of a run from the start: a flag on the hill.
+    const bm = this.sv.st.bm;
+    if (this.phase === "play" && this.plainRun() && bm > 50) {
+      const fx = this.x0 + bm * PX_M;
+      if (fx > x0 && fx < x1) {
+        const fy = this.gy(fx);
+        line(g, fx, fy, fx, fy - 70, C.ink, 3 / z);
+        g.fillStyle = C.amber;
+        g.beginPath(); g.moveTo(fx, fy - 70); g.lineTo(fx + 34, fy - 60); g.lineTo(fx, fy - 50); g.fill();
+        g.save(); g.translate(fx + 6, fy - 82); g.scale(1 / z, 1 / z); text(g, "BEST " + bm + " m", 0, 0, 16, C.amber); g.restore();
+      }
+    }
   }
   drawFeatures(g, cx, z, dark) {
     const r = this.r, edge = r.x + (dark ? 900 : 1e9);
@@ -1046,15 +1192,19 @@ export class Moonrunner {
     for (const p of this.pits) {
       if (!vis(p.x0) && !vis(p.x1)) continue;
       g.globalAlpha = Math.max(0.25, seen(p.x0));
-      g.fillStyle = "#4a3d22";
-      for (let x = p.x0; x < p.x1; x += 14) { const y = this.gy(x); g.fillRect(x, y - 3, 8, 5 + 4 * hash1(x)); }
-      line(g, p.x0, this.gy(p.x0) - 6, p.x1, this.gy(p.x1) - 6, C.amber, 1.5 / z);
+      g.fillStyle = "#6a5631";
+      for (let x = p.x0; x < p.x1; x += 12) { const y = this.gy(x); g.fillRect(x, y - 4, 7, 6 + 5 * hash1(x)); }
+      line(g, p.x0, this.gy(p.x0) - 7, p.x1, this.gy(p.x1) - 7, C.amber, 1.5 / z);
       g.globalAlpha = 1;
     }
     for (const p of this.pads) {
       if (!vis(p.x0) && !vis(p.x1)) continue;
       g.globalAlpha = Math.max(0.25, seen(p.x0));
-      for (let x = p.x0; x < p.x1; x += 36) diamond(g, x, this.gy(x) - 10, 9, p.used ? C.line : "#b48cf0", true);
+      for (let x = p.x0, i = 0; x < p.x1; x += 34, i++) {
+        const y = this.gy(x) - 12, h = 10 + 4 * Math.sin(this.t * 5 + i);
+        diamond(g, x, y, h, p.used ? C.line : "#b48cf0", true);
+        if (!p.used) diamond(g, x, y, h + 5, "#e2d4ff", false);
+      }
       g.globalAlpha = 1;
     }
     for (const vn of this.vents) {
@@ -1063,9 +1213,10 @@ export class Moonrunner {
       const y = this.gy(vn.x);
       g.fillStyle = "#123a36";
       g.fillRect(vn.x - vn.w / 2, y - 6, vn.w, 8);
-      if (!vn.used) for (let k = 0; k < 4; k++) {
-        const u = fract(this.t * 1.2 + k / 4), px = vn.x + Math.sin(k * 2.1 + this.t * 3) * 10;
-        circle(g, px, y - 10 - u * 110, 3 + u * 6, C.cyan, false, 2 / z);
+      if (!vn.used) for (let k = 0; k < 5; k++) {
+        const u = fract(this.t * 1.2 + k / 5), px = vn.x + Math.sin(k * 2.1 + this.t * 3) * 12;
+        g.globalAlpha = Math.max(0.25, seen(vn.x)) * (1 - u);
+        circle(g, px, y - 10 - u * 150, 4 + u * 9, C.cyan, false, 2 / z);
       }
       g.globalAlpha = 1;
     }
@@ -1074,9 +1225,51 @@ export class Moonrunner {
       const a = seen(s.x);
       if (a <= 0) continue;
       g.globalAlpha = a;
-      diamond(g, s.x, s.y, (6 + 1.5 * Math.sin(this.t * 4 + s.x * 0.01)) / Math.sqrt(z), C.cyan, true);
+      const k = Math.sin(this.t * 4 + s.x * 0.01), size = (6 + 1.5 * k) / Math.sqrt(z);
+      diamond(g, s.x, s.y, size, C.cyan, true);
+      g.globalAlpha = a * 0.35;
+      diamond(g, s.x, s.y, size * 1.9, C.cyan, false);
       g.globalAlpha = 1;
     }
+  }
+  // Sunstones (daylight) and survey beacons (found once for good) hang in the sky.
+  drawSkyThings(g, cx, z) {
+    const vis = (x) => x > cx - 400 / z && x < cx + 900 / z;
+    for (const q of this.suns) {
+      if (q.got || !vis(q.x)) continue;
+      const rot = this.t * 1.5;
+      g.strokeStyle = "#ffd98a";
+      g.lineWidth = 2.5 / z;
+      g.beginPath();
+      for (let k = 0; k < 8; k++) {
+        const a = rot + (k * Math.PI) / 4, r0 = 17, r1 = 25 + 4 * Math.sin(this.t * 6 + k);
+        g.moveTo(q.x + Math.cos(a) * r0, q.y + Math.sin(a) * r0);
+        g.lineTo(q.x + Math.cos(a) * r1, q.y + Math.sin(a) * r1);
+      }
+      g.stroke();
+      circle(g, q.x, q.y, 12, "#ffcf6a", true);
+      circle(g, q.x, q.y, 6, "#fff4d6", true);
+    }
+    for (const b of this.beacons) {
+      if (b.got || !vis(b.x)) continue;
+      const y = this.beaconY(b), on = blink(this.t + b.k, 1.5);
+      // A faint guide line down to the ground, so the beacon can be judged from below.
+      g.globalAlpha = 0.25;
+      line(g, b.x, y + 22, b.x, this.gy(b.x), b.found ? C.line : "#8fb4e8", 2 / z);
+      g.globalAlpha = 1;
+      circle(g, b.x, y, 20, b.found ? C.line : "#6fa8dc", false, 3 / z);
+      circle(g, b.x, y, 9, b.found ? C.muted : on ? "#e8f4ff" : "#6fa8dc", true);
+      if (!b.found) { g.globalAlpha = 0.25 + 0.25 * (on ? 1 : 0); circle(g, b.x, y, 30, "#6fa8dc", false, 2 / z); g.globalAlpha = 1; }
+    }
+  }
+  // An expanding ring where each perfect slide landed.
+  drawRings(g, z) {
+    for (const q of this.rings) {
+      const u = q.t / 0.6;
+      g.globalAlpha = Math.max(0, 1 - u);
+      circle(g, q.x, q.y, 14 + 90 * u, q.fever ? C.cyan : "#9fdc7a", false, (4 - 3 * u) / z);
+    }
+    g.globalAlpha = 1;
   }
   drawTrail(g, z) {
     const n = this.trailN;
@@ -1084,8 +1277,8 @@ export class Moonrunner {
     g.strokeStyle = this.fever > 0 ? C.cyan : TRAILS[this.sv.sel.trail]?.col || C.amber;
     for (let i = TRAIL - n + 1; i < TRAIL; i++) {
       const k = (i - (TRAIL - n)) / n;
-      g.globalAlpha = k;
-      g.lineWidth = (1 + 4 * k) / z;
+      g.globalAlpha = k * (this.fever > 0 ? 1 : 0.8);
+      g.lineWidth = ((this.fever > 0 ? 3 : 1) + 5 * k) / z;
       g.beginPath();
       g.moveTo(this.trail[i * 2 - 2], this.trail[i * 2 - 1]);
       g.lineTo(this.trail[i * 2], this.trail[i * 2 + 1]);
@@ -1103,20 +1296,39 @@ export class Moonrunner {
     }
     g.globalAlpha = 1;
   }
+  // The survey sled: curved runners, a cab with a lit window, an antenna with its light. It squats
+  // while diving and glows in fever.
   drawRider(g, x, y, a) {
-    const diving = this.held && this.phase === "play";
+    const diving = this.held && this.phase === "play", fever = this.fever > 0 && this.phase === "play";
+    if (fever) {
+      const glow = g.createRadialGradient?.(x, y - 20, 4, x, y - 20, 70);
+      if (glow?.addColorStop) {
+        glow.addColorStop(0, "rgba(143,203,197,0.45)");
+        glow.addColorStop(1, "rgba(143,203,197,0)");
+        g.fillStyle = glow;
+        g.fillRect(x - 70, y - 90, 140, 140);
+      }
+    }
+    const runner = diving || fever ? C.cyan : C.amber;
     g.save();
     g.translate(x, y);
     g.rotate(a);
     g.scale(1.3, diving ? 1.05 : 1.3); // squats when diving
-    line(g, -24, -2, 24, -2, diving ? C.cyan : C.amber, 3);
-    line(g, 24, -2, 29, -8, diving ? C.cyan : C.amber, 3);
+    g.strokeStyle = runner;
+    g.lineWidth = 3;
+    g.beginPath(); g.moveTo(-24, -2); g.lineTo(20, -2); g.quadraticCurveTo?.(29, -2, 30, -10); g.stroke();
+    line(g, -12, -2, -10, -7, runner, 2);
+    line(g, 10, -2, 8, -7, runner, 2);
     g.fillStyle = C.ink;
-    g.fillRect(-14, -28, 28, 22);
+    g.fillRect(-16, -26, 30, 19);
+    g.fillStyle = "#b9d98a";
+    g.fillRect(-16, -9, 30, 3);
+    g.fillStyle = fever ? "#dff8f4" : "#8fcbc5";
+    g.fillRect(2, -22, 9, 8);
     g.fillStyle = C.bg;
-    g.fillRect(2, -23, 9, 7);
-    line(g, -9, -28, -12, -40, C.ink, 2);
-    circle(g, -12, -42, 3, this.fever > 0 ? C.cyan : C.amber, true);
+    g.fillRect(-11, -21, 8, 4);
+    line(g, -9, -26, -13, -40, C.ink, 2);
+    circle(g, -13, -42, 3.5, fever ? C.cyan : blink(this.t, 2) ? C.amber : "#8a6a3e", true);
     g.restore();
   }
   drawPlay(g) {
@@ -1130,8 +1342,9 @@ export class Moonrunner {
     if (this.trickT > 0) text(g, this.trick, 480, 150, 26, this.trick === "THUD" ? C.red : C.cyan, "center");
     // The perfect chain toward fever, and the fever meter.
     if (this.fever > 0) {
-      text(g, "FEVER", 40, 500, 20, C.cyan);
-      line(g, 120, 500, 120 + 160 * (this.fever / (FEVER_T + 2 * this.sv.up.coil)), 500, C.cyan, 6);
+      text(g, "FEVER x" + (this.feverLv + 1), 40, 500, 20, C.cyan);
+      line(g, 160, 500, 160 + 160 * clamp(this.fever / this.feverLen(), 0, 1), 500, C.cyan, 6);
+      for (let i = 0; i < FEVER_CHAIN; i++) diamond(g, 346 + i * 22, 500, 7, this.feverLv < FEVER_MAX && i < this.chain % FEVER_CHAIN ? C.cyan : C.line, true);
     } else if (this.chain > 0) {
       text(g, "PERFECT", 40, 500, 18, C.muted);
       for (let i = 0; i < FEVER_CHAIN; i++) diamond(g, 140 + i * 24, 500, 8, i < this.chain % FEVER_CHAIN || this.chain % FEVER_CHAIN === 0 ? C.amber : C.line, true);
@@ -1195,7 +1408,7 @@ export class Moonrunner {
         DAILY: this.dailyDone() ? "DONE TODAY" : "SEEDED BY DATE",
         WORKSHOP: "SPEND SHARDS",
         ORDERS: sv.gd.filter(Boolean).length + " / 3",
-        LOG: "REACHED " + ZONES[sv.far].roman + " / VI",
+        LOG: "BEACONS " + beaconCount(sv.bc) + " / " + 3 * ZONES.length,
       };
       DEPOT.forEach((id, i) => {
         const y = 150 + i * 36, on = i === this.cur;
@@ -1212,7 +1425,7 @@ export class Moonrunner {
       else if (id === "DAILY") { const gl = dailyGoal(this.dayKey()); info = "Today: " + gl.text + (sv.dl.streak > 1 ? "  STREAK " + sv.dl.streak : ""); }
       else if (id === "WORKSHOP") info = "Magnet, battery and fever coil.";
       else if (id === "ORDERS") info = "Meet all three to reach the next level.";
-      else info = "Zones reached and the expedition's totals.";
+      else info = "Zones, beacons found, and the expedition's totals.";
       text(g, info, 480, 446, 18, C.muted, "center");
       text(g, "TAP = NEXT LINE     HOLD = CHOOSE", 480, 480, 18, C.cyan, "center");
     } else if (this.view === "workshop") {
@@ -1236,11 +1449,13 @@ export class Moonrunner {
     } else {
       const st = sv.st;
       text(g, "RUNS " + sv.runs + "   " + st.m + " m   PERFECT " + st.perfects + "   SHARDS " + st.shards, 480, 150, 18, C.cyan, "center");
-      text(g, "FEVERS " + st.fevers + "   RILLES " + st.chasms + "   BEST CHAIN " + st.chain + "   TOP " + st.top + " km/h", 480, 178, 18, C.cyan, "center");
+      text(g, "FEVERS " + st.fevers + "   RILLES " + st.chasms + "   SUNSTONES " + st.suns + "   BEST " + st.bm + " m", 480, 178, 18, C.cyan, "center");
       ZONES.forEach((zz, i) => {
         const y = 222 + i * 34, got = i <= sv.far;
         text(g, zz.roman + "  " + zz.name.slice(4), 160, y, 20, got ? zz.ink : C.line);
-        text(g, got ? "REACHED" : "FROM " + zz.from + " m", 800, y, 18, got ? C.amber : C.line, "right");
+        const m = sv.bc[i];
+        text(g, [0, 1, 2].map((k) => ((m >> k) & 1 ? "◆" : "◇")).join(" "), 520, y, 18, m === 7 ? C.cyan : got ? C.muted : C.line);
+        text(g, got ? (m === 7 ? "+" + BEACON_T + " S DAYLIGHT" : "REACHED") : "FROM " + zz.from + " m", 800, y, 18, got ? C.amber : C.line, "right");
       });
       text(g, RIDES.map((rd, i) => rd.name + " " + (rd.lv <= sv.lv ? sv.pb[i] : "-")).join("   "), 480, 440, 18, C.muted, "center");
       text(g, "TAP = BACK", 480, 480, 18, C.cyan, "center");

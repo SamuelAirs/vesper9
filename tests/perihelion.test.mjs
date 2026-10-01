@@ -881,6 +881,32 @@ test("a spare probe: a lost probe waits parked before the next sun, the run and 
   assert.ok(app.result.shards >= 0 && app.sv.shards === app.result.shards);
 });
 
+test("each run has a goal from its own generator; meeting it pays bonus shards; a daily run has none", () => {
+  const ctx = appContext({ seed: 5, progress: { schema: 2, runs: 3 } });
+  const app = new Perihelion(ctx);
+  app.launches = 1;
+  const rng0 = ctx.rng.state;
+  app.down(); app.up();
+  assert.ok(app.goal && app.goal.n > 0 && app.goal.reward === 3);
+  assert.ok(app.goalText().length > 5);
+  const again = new Perihelion(appContext({ seed: 99, progress: { schema: 2, runs: 3 } }));
+  again.launches = 1; again.down(); again.up();
+  assert.deepEqual(again.goal, app.goal, "drawn from the run count, not the world's generator");
+  // Meet it whatever it is.
+  Object.assign(app.R, { loops: 9, stalls: 9, relics: 9, near: 9, far: 5 });
+  app.bestChain = 99;
+  app.checkFeats();
+  assert.ok(app.goal.done);
+  const shards0 = app.sv.shards;
+  app.crash("fall");
+  assert.ok(app.result.shards >= 3 + 9, "goal and relics paid: " + app.result.shards);
+  assert.equal(app.sv.shards, shards0 + app.result.shards);
+  app.draw(fakeCanvas());
+  app.startDaily();
+  assert.equal(app.goal, null);
+  assert.ok(Number.isFinite(rng0));
+});
+
 test("the daily run is the same world for the same date and a different one for another", () => {
   const worldOn = (key, seed) => {
     const ctx = appContext({ seed });

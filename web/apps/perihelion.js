@@ -51,6 +51,17 @@ const UPGRADES = [
   { id: "dark", name: "DARK BRAKE", cost: [4, 10], text: "The dark behind you sweeps 10 % slower a level." },
   { id: "fuse", name: "COOLANT", cost: [5, 12], text: "Amber suns hold the tether 0.6 s longer a level." },
 ];
+// A goal for each run (not daily runs), drawn from the run count; meeting it pays bonus shards.
+// `n` holds three tiers; the tier rises with the furthest region reached.
+const GOALS = [
+  { text: (n) => "Swing " + n + " loops.", n: [2, 3, 4], prog: (a) => a.R.loops },
+  { text: (n) => "Stall " + n + " times.", n: [2, 3, 4], prog: (a) => a.R.stalls },
+  { text: (n) => "Collect " + n + " relics.", n: [3, 4, 6], prog: (a) => a.R.relics },
+  { text: (n) => "Make " + n + " close passes.", n: [3, 5, 7], prog: (a) => a.R.near },
+  { text: (n) => "Reach a chain of " + n + ".", n: [10, 15, 20], prog: (a) => a.bestChain },
+  { text: (n) => "Reach " + REGIONS[n].name + ".", n: [2, 3, 4], prog: (a) => a.R.far },
+];
+const goalRng = new Random(1);
 const SHARD_PX = 2000; // one shard per 200 Mkm flown, plus one a relic and five for an arrival
 const REASONS = {
   fall: "FELL INTO THE DARK",
@@ -109,6 +120,7 @@ const GUIDE = [
     "A daily run never changes the console's best."],
   ["SHARDS AND UPGRADES",
     "Every run earns shards: 1 per 200 Mkm, 1 a relic, 5 for arriving.",
+    "Each run has a GOAL (top right). Meet it for bonus shards.",
     "Spend them in the hangar under UPGRADES.",
     "SPARE PROBE: lose a probe and the run goes on from the next sun.",
     "LONG LINE, RELIC MAGNET, DARK BRAKE, COOLANT: small help.",
@@ -166,6 +178,16 @@ const FEAT_IDS = FEATS.map((f) => f.id);
 const smooth = (x) => { const t = clamp(x, 0, 1); return t * t * (3 - 2 * t); };
 const regIndex = (x) => { for (let i = REGIONS.length - 1; i > 0; i--) if (x >= REGIONS[i].from) return i; return 0; };
 const num = (v, d = 0) => (Number.isFinite(v) ? v : d);
+// "#rrggbb" at alpha a, for glows.
+const rgba = (hex, a) => "rgba(" + parseInt(hex.slice(1, 3), 16) + "," + parseInt(hex.slice(3, 5), 16) + "," + parseInt(hex.slice(5, 7), 16) + "," + a + ")";
+// A soft round glow: one gradient-filled disc.
+function glow(g, x, y, r, hex, a) {
+  const gr = g.createRadialGradient(x, y, 0, x, y, r);
+  gr.addColorStop(0, rgba(hex, a));
+  gr.addColorStop(1, rgba(hex, 0));
+  g.fillStyle = gr;
+  g.fillRect(x - r, y - r, 2 * r, 2 * r);
+}
 const mmss = (s) => Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0");
 // A sun's place and velocity at clock `clk` (seconds into the run). Most suns do not move.
 function place(a, clk, o) {
@@ -268,6 +290,14 @@ export class Perihelion {
     this.pick = RELIC_PICK + 14 * up("magnet");
     this.darkK = 1 - 0.1 * up("dark");
     this.fuseT = FUSE + 0.6 * up("fuse");
+    this.goal = null;
+    if (!this.daily) { // its own generator, so the world is untouched
+      goalRng.state = mixSeed(this.sv.runs * 7919 + 17) || 1;
+      const i = Math.floor(goalRng.next() * GOALS.length), tier = Math.min(2, Math.floor(this.sv.far / 2));
+      let n = GOALS[i].n[tier];
+      if (i === 5) n = Math.min(5, Math.max(n, this.startReg + 1));
+      this.goal = { i, n, reward: 3 + 2 * tier, done: false };
+    }
     const x0 = REGIONS[this.startReg].from;
     this.p = { x: x0 + 140, y: 220, vx: 280, vy: -70, a: null, r: 0, phi: 0, om: 0, t: 0, v0x: 0, v0y: 0, fuse: 0, lastId: -1, back: x0, clk: 0, g: G * PROBES[this.probeIx].g, reach: this.reach };
     this.dstate = this.daily ? (mixSeed(hashText("day" + this.dayKey())) || 1) : 0;
@@ -616,7 +646,19 @@ export class Perihelion {
     this.setHint(this.ready ? "Hold to throw a tether to the marked sun. Release to fly on." : "Hold to catch the marked sun. Release to fly on.");
     this.noticeT = 0;
     this.announceRegion(this.reg, true);
+    if (this.goal) { this.notice = "GOAL: " + this.goalText() + " +" + this.goal.reward + " shards."; this.noticeT = 5; }
     this.c.hud(this.hudItems(0));
+  }
+  goalText() { return GOALS[this.goal.i].text(this.goal.n); }
+  goalProg() { return Math.min(this.goal.n, Math.floor(GOALS[this.goal.i].prog(this) || 0)); }
+  checkGoal() {
+    const gl = this.goal;
+    if (!gl || gl.done || this.phase !== "play" || GOALS[gl.i].prog(this) < gl.n) return;
+    gl.done = true;
+    this.notice = "GOAL MET: +" + gl.reward + " SHARDS";
+    this.noticeT = 4;
+    this.flare(LAMP.cyan);
+    [784, 988, 1175].forEach((hz, k) => this.queueNote(0.05 + 0.09 * k, hz, 0.14, "sine"));
   }
   startDaily() {
     this.daily = true;
@@ -718,6 +760,8 @@ export class Perihelion {
     this.tether = { counted: false, flightAtCatch: this.flightT, pulse: a.kind === "pulse", spin: 0, loops: 0, stalls: 0 };
     this.catchFlash = 0.14;
     this.burst(A.x, A.y, 5, 90);
+    this.ripple = 0.45;
+    this.rippleAt = { x: A.x, y: A.y };
     this.bottomT = 0;
     this.c.tone(300 + 35 * Math.min(this.chain, 8), 0.06, "triangle");
   }
@@ -822,6 +866,7 @@ export class Perihelion {
     this.regFlash = Math.max(0, this.regFlash - dt);
     this.bannerT = Math.max(0, this.bannerT - dt);
     this.trickT = Math.max(0, this.trickT - dt);
+    this.ripple = Math.max(0, (this.ripple || 0) - dt);
     this.trickFlash = Math.max(0, (this.trickFlash || 0) - dt);
     if (this.pending) {
       this.pendT += dt;
@@ -993,6 +1038,7 @@ export class Perihelion {
   }
   // Mark feats whose progress has reached its goal.
   checkFeats() {
+    this.checkGoal();
     for (const f of FEATS) {
       if (this.sv.ft.includes(f.id) || this.newFeats.includes(f.id)) continue;
       if (f.prog(this) >= f.n) {
@@ -1087,7 +1133,7 @@ export class Perihelion {
       else sv.pb[this.probeIx] = Math.max(sv.pb[this.probeIx] || 0, score);
       this.checkFeats();
       this.result = { mkm: score, chain: this.bestChain, catches: this.catches, reason: REASONS[why] || why, milestone: Math.floor(score / 100), relics: this.R.relics, region: REGIONS[this.reg].name };
-      const gain = Math.floor(Math.max(0, this.maxX - REGIONS[this.startReg].from - 140) / SHARD_PX) + this.R.relics + (why === "arrived" ? 5 : 0);
+      const gain = Math.floor(Math.max(0, this.maxX - REGIONS[this.startReg].from - 140) / SHARD_PX) + this.R.relics + (why === "arrived" ? 5 : 0) + (this.goal?.done ? this.goal.reward : 0);
       sv.shards += gain;
       this.result.shards = gain;
       sv.milestone = Math.max(sv.milestone, this.result.milestone);
@@ -1256,6 +1302,14 @@ export class Perihelion {
   // ---- drawing -----------------------------------------------------------
   draw(g) {
     space(g, this.cam * 0.25, 0.5);
+    if (this.phase !== "hangar") { // each region tints the sky ahead
+      const ri = this.phase === "title" ? this.sv.far : regIndex(this.cam + 480);
+      const gr = g.createRadialGradient(760, 270, 40, 760, 270, 620);
+      gr.addColorStop(0, rgba(REGIONS[ri].ink, 0.09));
+      gr.addColorStop(1, rgba(REGIONS[ri].ink, 0));
+      g.fillStyle = gr;
+      g.fillRect(0, 0, 960, 540);
+    }
     if (this.phase !== "hangar") this.drawBackdrop(g);
     this.drawField(g);
     if (this.phase === "title") {
@@ -1367,14 +1421,23 @@ export class Perihelion {
     }
     if (p.a) { // the tether: a solid rod from the sun to the probe
       const A = place(p.a, clk, PD);
+      g.globalAlpha = 0.25;
+      line(g, A.x - cam, A.y, p.x - cam, p.y, C.amber, 10);
+      g.globalAlpha = 1;
       line(g, A.x - cam, A.y, p.x - cam, p.y, C.amber, 4);
+    }
+    if (this.ripple > 0 && this.rippleAt) { // a catch rings out from the sun
+      const f = 1 - this.ripple / 0.45;
+      g.globalAlpha = 0.7 * (1 - f);
+      circle(g, this.rippleAt.x - cam, this.rippleAt.y, 16 + 60 * f, C.ink, false, 2.5);
+      g.globalAlpha = 1;
     }
     // Trail, then probe.
     const n = this.trailN, tr = TRAILS[this.sv.sel.trail] || TRAILS[0];
     if (tr.dash) g.setLineDash([5, 6]);
     for (let i = TRAIL - n; i < TRAIL - 1; i++) {
       g.globalAlpha = ((i - (TRAIL - n)) / n) * 0.55;
-      line(g, this.trail[i * 2] - cam, this.trail[i * 2 + 1], this.trail[i * 2 + 2] - cam, this.trail[i * 2 + 3], tr.col, 3);
+      line(g, this.trail[i * 2] - cam, this.trail[i * 2 + 1], this.trail[i * 2 + 2] - cam, this.trail[i * 2 + 3], tr.col, 1 + 3 * (i - (TRAIL - n)) / n);
     }
     g.setLineDash(NO_DASH);
     g.globalAlpha = 1;
@@ -1422,6 +1485,7 @@ export class Perihelion {
         g.setLineDash(NO_DASH);
         g.globalAlpha = 1;
       }
+      glow(g, x, y, held ? 46 : 34, ink, held ? 0.45 : 0.28);
       circle(g, x, y, 14, ink, false, 3);
       circle(g, x, y, 5, ink, true);
       return;
@@ -1429,6 +1493,7 @@ export class Perihelion {
     if (kind === "pulse") {
       const on = lit(a, clk), ink = REGIONS[5].ink;
       if (on || held) {
+        glow(g, x, y, held ? 46 : 34, ink, held ? 0.45 : 0.3);
         circle(g, x, y, 14, ink, false, 3);
         circle(g, x, y, 5, ink, true);
         const left = held ? 1 : clamp((a.pu.duty - ((clk / a.pu.per + a.pu.ph) % 1)) / a.pu.duty, 0, 1);
@@ -1447,6 +1512,7 @@ export class Perihelion {
     }
     const decay = kind === "decay";
     const col = a.dead ? C.line : decay ? C.amber : C.ink;
+    if (!a.dead) glow(g, x, y, (held ? 46 : 32) + 2 * pulse(this.t + a.id * 0.37, 0.6), kind === "sling" ? C.cyan : col, held ? 0.42 : 0.22);
     circle(g, x, y, 14, col, false, 3);
     circle(g, x, y, 5, col, true);
     if (kind === "sling") {
@@ -1496,9 +1562,22 @@ export class Perihelion {
   }
   drawProbe(g, x, y, ang) {
     const k = this.probeIx === 1 ? 1.25 : this.probeIx === 2 ? 0.85 : 1;
+    glow(g, x, y, 26 * k, C.amber, 0.3);
     g.save();
     g.translate(x, y);
     g.rotate(ang);
+    if (this.phase === "play" && !this.ready) { // a flickering exhaust, longer with speed
+      const sp = clamp((Math.hypot(this.p.vx, this.p.vy) - 150) / 300, 0, 1), fl = (8 + 14 * sp) * (0.75 + 0.25 * Math.sin(this.t * 41));
+      g.beginPath();
+      g.moveTo(-5 * k, -4 * k);
+      g.lineTo(-5 * k - fl * k, 0);
+      g.lineTo(-5 * k, 4 * k);
+      g.closePath();
+      g.fillStyle = C.cyan;
+      g.globalAlpha = 0.75;
+      g.fill();
+      g.globalAlpha = 1;
+    }
     g.beginPath();
     g.moveTo(16 * k, 0);
     g.lineTo(-10 * k, -10 * k);
@@ -1511,6 +1590,10 @@ export class Perihelion {
   }
   drawOverlay(g) {
     const p = this.p;
+    if (this.goal) {
+      const gl = this.goal;
+      text(g, gl.done ? "GOAL MET" : "GOAL " + this.goalProg() + "/" + gl.n, 912, 34, 18, gl.done ? C.cyan : C.muted, "right");
+    }
     for (let i = 0; this.lives + this.lost > 1 && i < this.lives; i++) { // probes left, the one flying included
       g.save(); g.translate(40 + i * 30, 30); g.beginPath();
       g.moveTo(11, 0); g.lineTo(-7, -7); g.lineTo(-3, 0); g.lineTo(-7, 7); g.closePath();
@@ -1562,6 +1645,7 @@ export class Perihelion {
     row("BEST CHAIN", r.chain + "   CAUGHT " + r.catches);
     const far = REGIONS[this.reg];
     if (this.reg > 0 || this.sv.far > 0) row("REGION", far.name.slice(4), far.ink);
+    if (this.goal) row("GOAL", this.goal.done ? "MET +" + this.goal.reward : this.goalProg() + " / " + this.goal.n, this.goal.done ? C.cyan : C.muted);
     row("SHARDS", "+" + (r.shards || 0) + "   (" + this.sv.shards + ")", C.cyan);
     if (this.R.tricks > 0) row("TRICKS", this.R.tricks + "   +" + this.R.trickPts);
     if (this.R.relics > 0 || this.sv.st.relics > 0) row("RELICS", this.R.relics + (this.R.near ? "   NEAR " + this.R.near : ""));
@@ -1571,9 +1655,9 @@ export class Perihelion {
     if (this.daily) { text(g, this.goalDone ? "DAILY GOAL MET   DAYS IN A ROW: " + this.streakNow() : "DAILY: " + dailyGoal(this.dayKey()).text, 480, y, 18, this.goalDone ? C.cyan : C.muted, "center"); y += 28; }
     for (const id of this.newFeats.slice(0, 2)) {
       const f = FEATS.find((x) => x.id === id);
-      if (f) { text(g, "FEAT  " + f.name, 480, y, 20, C.cyan, "center"); y += 28; }
+      if (f && y < 456) { text(g, "FEAT  " + f.name, 480, y, 20, C.cyan, "center"); y += 28; }
     }
-    if (this.sv.runs >= 3) for (const line1 of (r.next || []).slice(0, 2)) { text(g, line1, 480, y, 18, C.muted, "center"); y += 26; }
+    if (this.sv.runs >= 3) for (const line1 of (r.next || []).slice(0, 2)) { if (y < 456) text(g, line1, 480, y, 18, C.muted, "center"); y += 26; }
     if (this.deadT > 0.7) text(g, this.sv.runs >= 3 ? "TAP = AGAIN     HOLD = HANGAR" : "PRESS TO LAUNCH AGAIN", 480, 478, 18, C.amber, "center");
   }
   drawHangar(g) {

@@ -346,10 +346,18 @@ test("actions: stable list, all run, content built once while polling and paging
   assert.equal(h.ctx.calls.content.length, 1, "content is built once");
   assert.equal(h.ctx.calls.actions.length, actionCalls, "action list is not rebuilt");
   assert.deepEqual(h.ctx.currentActions.map((a) => a.label), labels);
-  h.ctx.currentActions[3].run();
+  // four rows are all it takes (the screen has room for the hint line under them): next and
+  // previous reach every page in at most two steps
+  assert.deepEqual(labels, ["NEXT PAGE →", "PREVIOUS PAGE", "REFRESH NOW", "RETURN TO DASHBOARD"]);
+  const [next, previous] = h.ctx.currentActions;
+  next.run(); next.run();
   assert.equal(h.app.attrs["page-2|hidden"], false);
   assert.equal(h.app.attrs["page-0|hidden"], true);
-  h.ctx.currentActions[0].run();
+  next.run();
+  assert.equal(h.app.attrs["page-3|hidden"], false);
+  next.run();
+  assert.equal(h.app.attrs["page-0|hidden"], false);
+  previous.run();
   assert.equal(h.app.attrs["page-3|hidden"], false);
 });
 
@@ -370,4 +378,54 @@ test("payload text never enters markup", async () => {
   h.app.cancel();
   assert.ok(!h.ctx.calls.content.some((c) => c.includes("onerror")));
   assert.equal(text(h.app, "port"), "<img src=x onerror=alert(1)>"); // written with textContent
+});
+
+// What the host does with the highlight when a list is published (web/main.js setNav): it stays
+// on the action with the same id, otherwise on the same row number. `card` is the row the
+// dashboard had highlighted when the instrument opened: the first list starts at that row.
+function highlighted(ctx, card) {
+  let items = null, index = card;
+  const idOf = (i) => i.id || i.label;
+  for (const next of ctx.calls.actions) {
+    const match = items ? next.findIndex((i) => idOf(i) === idOf(items[index])) : -1;
+    index = Math.min(match >= 0 ? match : index, next.length - 1);
+    items = next;
+  }
+  return items[index].label;
+}
+
+test("opened from any dashboard card NEXT PAGE is highlighted, not REFRESH NOW or RETURN TO DASHBOARD", () => {
+  for (let card = 0; card < 8; card++) assert.equal(highlighted(open(payload()).ctx, card), "NEXT PAGE →", "card " + card);
+});
+
+test("frames are requested only while a lamp pulses or blinks, and not while the system menu is open", async () => {
+  const queue = [];
+  globalThis.requestAnimationFrame = (fn) => queue.push(fn);
+  globalThis.cancelAnimationFrame = () => {};
+  try {
+    const rig = open(payload());
+    await flush();
+    assert.equal(queue.length, 0, "a healthy panel needs no frames");
+    rig.serve(payload({ cpuTempC: 85 }));
+    await rig.step(2);
+    assert.equal(queue.length, 1, "critical pulses red, which needs frames");
+    rig.app.pause();
+    const n = rig.ctx.calls.leds.length;
+    while (queue.length) queue.shift()();
+    await rig.step(2);
+    assert.equal(rig.ctx.calls.leds.length, n, "nothing is written while paused");
+    assert.equal(queue.length, 0);
+    rig.app.resume();
+    assert.ok(rig.ctx.calls.leds.length > n);
+    assert.equal(queue.length, 1);
+    rig.serve(payload());
+    await rig.step(2);
+    while (queue.length) queue.shift()();
+    assert.equal(queue.length, 0, "the loop ends when the verdict is steady again");
+    rig.app.dispose();
+    assert.deepEqual(lastLeds(rig.ctx), DARK);
+  } finally {
+    delete globalThis.requestAnimationFrame;
+    delete globalThis.cancelAnimationFrame;
+  }
 });

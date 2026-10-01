@@ -10,6 +10,12 @@ import { LightDirector } from "./engine/lights.js";
 import { microphoneStatus } from "./engine/status.js";
 
 const $ = (id) => document.getElementById(id);
+// Assigning identical text still replaces the text node and dirties layout, so
+// the once-a-second status refresh writes only what changed.
+const setText = (id, value) => {
+  const element = $(id);
+  if (element.textContent !== value) element.textContent = value;
+};
 const ICONS = [
   '<circle cx="24" cy="24" r="16"/><ellipse cx="24" cy="24" rx="23" ry="8" transform="rotate(-35 24 24)"/><circle cx="37" cy="11" r="3" fill="currentColor"/>',
   '<path d="M5 36L17 11l12 25M17 11l12 9 13 16M9 29h24M5 42h38"/><circle cx="37" cy="9" r="4"/>',
@@ -64,11 +70,11 @@ export class Vesper {
     bridge.connect();
     requestAnimationFrame((t) => this.frame(t));
     this.clockTask = setInterval(() => {
-      $("clock").textContent = new Date().toLocaleTimeString([], {
+      setText("clock", new Date().toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit",
         hour12: false,
-      });
+      }));
       this.status();
       this.lifecycle("tick");
     }, 1000);
@@ -774,37 +780,38 @@ export class Vesper {
     const s = this.state,
       connected = s.device.connected;
     $("link-dot").classList.toggle("live", connected);
-    $("link-text").textContent = connected
+    setText("link-text", connected
       ? s.simulated
         ? "SIMULATED NODE"
         : "NODE LINK ACTIVE"
-      : "NODE DISCONNECTED";
-    $("mode-tag").textContent =
+      : "NODE DISCONNECTED");
+    setText("mode-tag",
       s.controller === false
         ? "MONITOR"
         : s.simulated
           ? "SIMULATOR"
-          : "HARDWARE";
+          : "HARDWARE");
     const unit = (s.settings || DEFAULT).tempUnit;
-    $("temp-mini").textContent = s.sensor
+    setText("temp-mini", s.sensor
       ? formatTemp(s.sensor.temperature, unit)
-      : "— " + tempUnit(unit);
-    $("rh-mini").textContent = s.sensor
+      : "— " + tempUnit(unit));
+    setText("rh-mini", s.sensor
       ? s.sensor.humidity.toFixed(0) + " % RH"
-      : "— % RH";
+      : "— % RH");
     const stale = !connected || !s.sensor?.at || Date.now() / 1000 - s.sensor.at > 15;
     $("temp-mini").classList.toggle("stale", stale);
     $("rh-mini").classList.toggle("stale", stale);
-    $("temp-mini").title = stale ? "Last reading / stale or unavailable" : "Live reading";
+    const tempTitle = stale ? "Last reading / stale or unavailable" : "Live reading";
+    if ($("temp-mini").title !== tempTitle) $("temp-mini").title = tempTitle;
     const micStatus = microphoneStatus(s), active = micStatus.active;
     $("mic-button").classList.toggle("active", active);
-    $("mic-text").textContent = micStatus.label;
-    $("mic-dot").textContent = active ? "●" : "○";
-    if (!active) $("level-fill").style.width = "0%";
+    setText("mic-text", micStatus.label);
+    setText("mic-dot", active ? "●" : "○");
+    if (!active && $("level-fill").style.width !== "0%") $("level-fill").style.width = "0%";
     const running = s.timers.filter((t) => t.running);
-    $("timer-badge").textContent = running.length
+    setText("timer-badge", running.length
       ? `${running.length} TIMER${running.length > 1 ? "S" : ""} / ${formatTime(Math.min(...running.map((t) => t.remaining)))}`
-      : "NO ACTIVE TIMERS";
+      : "NO ACTIVE TIMERS");
   }
   frameStats() {
     const ordered = this.frameTimes.slice().sort((a,b) => a-b);

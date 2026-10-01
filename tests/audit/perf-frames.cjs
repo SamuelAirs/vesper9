@@ -42,12 +42,15 @@ const COUNT = `(() => {
       if (id !== "dashboard") await L.launchApp(page, id, isGame);
       await page.evaluate(WRAP);
       const cpu = await L.cpuWindow(svc, secs * 1000);
-      // performance.now() is 100 us resolution here, so also time 300 back-to-back draws.
-      const batchDrawMs = isGame || id === "dashboard" ? await page.evaluate(async () => {
-        window.__bot?.stop?.(); const v = window.vesper, g = v.g, d = v.app ? v.app.draw?.bind(v.app) : () => { /* ambient */ };
-        const m = await import("/engine/draw.js"); const run = v.app ? () => d(g) : () => m.ambient(v.ag, 1, 450, 300);
-        for (let i = 0; i < 30; i++) run();
-        const t = performance.now(); for (let i = 0; i < 300; i++) run(); return (performance.now() - t) / 300;
+      // performance.now() is 100 us resolution and the Pi is shared, so also time
+      // 15 batches of 50 back-to-back calls and keep the minimum (robust to preemption).
+      const batch = isGame || id === "dashboard" ? await page.evaluate(async () => {
+        window.__bot?.stop?.(); const v = window.vesper, g = v.g, m = await import("/engine/draw.js");
+        const draw = v.app ? () => v.app.draw(g) : () => m.ambient(v.ag, 1, 450, 300);
+        const upd = v.app?.update ? () => v.app.update(1 / 60) : null;
+        const time = (fn) => { const r = []; for (let b = 0; b < 15; b++) { const t = performance.now(); for (let i = 0; i < 50; i++) fn(); r.push((performance.now() - t) / 50); } r.sort((x, y) => x - y); return { min: r[0], median: r[7] }; };
+        for (let i = 0; i < 30; i++) draw();
+        return { draw: time(draw), update: upd ? time(upd) : null };
       }) : null;
       const rec = await page.evaluate(() => ({ frames: window.__rec.frames, phase: window.__rec.phase, bot: window.__bot ? { ticks: window.__bot.ticks, error: window.__bot.error } : null, errors: vesper.errors.slice() }));
       const fr = rec.frames, col = (i) => fr.map((f) => f[i]);
@@ -56,7 +59,7 @@ const COUNT = `(() => {
         frames: fr.length, fps: +(fr.length / cpu.seconds).toFixed(1), updatesPerSec: +(col(3).reduce((a, b) => a + b, 0) / cpu.seconds).toFixed(1),
         frameTotalMs: L.summary(col(0)), updateMs: L.summary(col(1)), drawMs: L.summary(col(2)),
         hostMs: L.summary(fr.map((f) => Math.max(0, f[0] - f[1] - f[2]))), rafIntervalMs: L.summary(intervals),
-        batchDrawMs: batchDrawMs === null ? null : L.r3(batchDrawMs), phase: rec.phase, bot: rec.bot, appErrors: rec.errors, cpu,
+        batchMinMs: batch && { draw: L.r3(batch.draw.min), drawMedian: L.r3(batch.draw.median), update: batch.update && L.r3(batch.update.min) }, phase: rec.phase, bot: rec.bot, appErrors: rec.errors, cpu,
       };
       console.log(id.padEnd(12), "draw", result.apps[id].drawMs.mean, "/", result.apps[id].drawMs.p95, " update", result.apps[id].updateMs.mean, "/", result.apps[id].updateMs.p95, " host", result.apps[id].hostMs.mean, " fps", result.apps[id].fps, JSON.stringify(rec.phase));
       await page.evaluate(() => { window.__bot?.stop?.(); });

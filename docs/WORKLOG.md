@@ -62,3 +62,10 @@ The long integrated run was started while final review continued. The final held
 - Browser workflow and extension tests pass on this Pi with Playwright 1.63 driving the system Chromium 151 (32 s). Tests now take a free port each and mute audio so several checkouts can run them at once.
 - Project placed under local git: `v0.2.0-as-delivered`, then bring-up commits. The generated simulator is no longer tracked.
 - Sam's feedback after playing: fun; the lamps are underused; dictation a little inaccurate; wants more games and instruments. Plan for the overnight agent fleet: `../fleet/PLAN.md`.
+
+## 2026-10-01 — The Stacks, a book library (desktop, not verified on the device)
+
+- New app `library` (THE STACKS, `web/apps/library.js`) and service module `vesper/library.py` with `GET /api/library`, `GET /api/library/{book}/{chapter}` and the commands `library_import` and `library_fetch` (docs/PROTOCOL.md). Tap turns the page, hold-and-release opens the reader's menu (previous page, chapters, auto-turn at 160/220/300 words a minute, text size, shelf). Lamps: a low amber bar of the chapter, cyan filling while a hold is counted, a cyan dot walking to the next auto-turn.
+- Books: DRM-free EPUB, plain text (Gutenberg licence trimmed), a Kindle `My Clippings.txt` as a book of highlights. Kindle purchases (AZW/AZW3/KFX) and DRM EPUBs are listed as locked with the reason; nothing removes DRM. Amazon withdrew Download & Transfer via USB in February 2025, so there is no legitimate export of Kindle book text.
+- Reading places are saved per book in the app's progress, versioned (`v: 1`, `migrateSave`), at most 30 books (tests/library.test.mjs). The menu gesture's two taps turn pages that are taken back (AppGuard).
+- The Gutenberg download and USB import could not be exercised from the desktop (no network to gutenberg.org here, no USB drive); both are covered by tests with fakes only.

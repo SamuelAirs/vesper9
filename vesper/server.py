@@ -21,6 +21,7 @@ from aiohttp import web, WSMsgType, WSCloseCode
 from . import analysis
 from .device import SerialDevice, SimulatedDevice
 from .health import HostProbe, safe
+from .library import Library, LockedBook, LOCKED_REASONS, SHELF
 from .protocol import Kind
 from .speech import Speech, COMMANDS
 from .storage import Store
@@ -111,6 +112,8 @@ class Console:
                 logging.warning("Ignoring stored setting %r", key)
         self.started = time.time()
         self.host = HostProbe(args.data)
+        self.library = Library(Path(args.data) / "library", getattr(args, "media", "/media"))
+        self.library_busy = None            # "fetch" or "import" while the library is bringing books in
         self.tasks = []
         self.task_names = []
         self.closing = False
@@ -538,6 +541,15 @@ class Console:
             self.store.put("settings", settings)
             self.settings = settings
             await self.broadcast({"type": "settings", "settings": self.settings})
+        elif kind == "library_fetch":
+            item = data.get("item")
+            if not isinstance(item, str) or not any(entry["id"] == item for entry in SHELF):
+                raise ValueError("Unknown book")
+            self.library_work("fetch", lambda: self.library.fetch(item))
+            return {"accepted": True, "started": True}
+        elif kind == "library_import":
+            self.library_work("import", self.library.import_media)
+            return {"accepted": True, "started": True}
         elif kind == "focus":
             focus = data.get("app")
             if not isinstance(focus, str) or (focus != "home" and focus not in APP_IDS):
@@ -546,6 +558,26 @@ class Console:
         else:
             raise ValueError("Unknown command")
         return {"accepted": True}
+
+    def library_work(self, kind, job):
+        """Bring books in (a download, a copy from a USB drive) off the event loop, one job at a time;
+        the result reaches every tab as a "library" event."""
+        if self.library_busy:
+            raise ValueError("The library is busy; wait for the current " + self.library_busy)
+        self.library_busy = kind
+        async def run():
+            event = {"type": "library", "op": kind, "ok": True}
+            try:
+                result = await asyncio.to_thread(job)
+                if kind == "import":
+                    event["copied"] = result
+            except Exception as exc:
+                logging.info("Library %s failed: %s", kind, exc)
+                event.update(ok=False, error=str(exc) or type(exc).__name__)
+            finally:
+                self.library_busy = None
+            await self.broadcast(event)
+        self.schedule(run())
 
     # ---- background work -----------------------------------------------------------------
 
@@ -740,6 +772,20 @@ def make_app(args):
             text = "VESPER-9 / FIELD TRANSCRIPT\n\n" + "\n".join(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(r["at"])) + "  " + r["text"] for r in lines)
             return web.Response(text=text, content_type="text/plain", headers={"Content-Disposition": f'attachment; filename="vesper-transcript-{sid[:8]}.txt"'})
         return web.json_response(lines)
+    async def library(request):
+        return web.json_response({**await asyncio.to_thread(console.library.listing), "busy": console.library_busy},
+                                 dumps=lambda data: json.dumps(data, ensure_ascii=False))
+    async def chapter(request):
+        ident, index = request.match_info["book"], request.match_info["chapter"]
+        if not re.fullmatch(r"[0-9a-f]{16}", ident) or not re.fullmatch(r"[0-9]{1,5}", index):
+            raise web.HTTPBadRequest(text="Invalid book or chapter")
+        try:
+            data = await asyncio.to_thread(console.library.chapter, ident, int(index))
+        except LockedBook as locked:
+            raise web.HTTPForbidden(text=LOCKED_REASONS[locked.reason])
+        except (KeyError, IndexError):
+            raise web.HTTPNotFound(text="No such book or chapter")
+        return web.json_response(data, dumps=lambda data: json.dumps(data, ensure_ascii=False))
     async def websocket(request):
         ws = web.WebSocketResponse(heartbeat=15, max_msg_size=65536, timeout=2)
         await ws.prepare(request)
@@ -801,6 +847,8 @@ def make_app(args):
     app.router.add_get("/api/sessions", sessions)
     app.router.add_get("/api/transcript/{sid}", transcript)
     app.router.add_get("/api/export/{sid}", transcript)
+    app.router.add_get("/api/library", library)
+    app.router.add_get("/api/library/{book}/{chapter}", chapter)
     app.router.add_get("/ws", websocket)
     app.router.add_static("/", ROOT / "web", show_index=False)
     app.on_startup.append(console.start)
@@ -818,6 +866,7 @@ def main():
     parser.add_argument("--http-port", type=int, default=8799)
     parser.add_argument("--data", default=None)
     parser.add_argument("--model", default=str(ROOT / "models" / "vosk-model-small-en-us-0.15"))
+    parser.add_argument("--media", default="/media", help="Where USB drives are mounted; the Library imports books from here on request")
     parser.add_argument("--refine-model", default=None, help="Second-pass dictation model directory (default: next to --model)")
     args = parser.parse_args()
     if args.data is None:

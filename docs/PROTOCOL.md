@@ -77,6 +77,10 @@ Every command is type-checked: a field of the wrong type (a boolean or a numeric
 
 `/api/state`, `/api/system`, `/api/history`, `/api/sessions`, `/api/transcript/{session}`, and `/api/export/{session}` provide local reads. The first WebSocket tab is the controller; additional tabs monitor events. The controller slot is released as soon as the controlling tab leaves for any reason (close, reload, crash, a connection that stops accepting data, a failed handshake), and the next tab to connect takes it; that tab's first command waits (up to 5 s) for the previous controller's cleanup (microphone off, lamps off) to finish. Cross-origin requests and unexpected Host headers are rejected. Every response carries `Cache-Control: no-cache` so the browser revalidates the user interface after the console is updated in place.
 
+### Library: `GET /api/library`, `GET /api/library/{book}/{chapter}`
+
+The Stacks (`web/apps/library.js`) reads books from `<data>/library` (on the console `data/console/library`) through `vesper/library.py`. `GET /api/library` lists `{books, folder, shelf, busy}`; each book has a 16-hex `id`, `title`, `author`, `format`, chapter titles, a word count and `locked` (`null`, or `KINDLE`, `MOBI`, `PDF`, `DRM`, `BROKEN` with a plain `reason`). `GET /api/library/{book}/{chapter}` returns one chapter as `blocks`, a list of `[kind, text]` with kind `h` (heading), `p` (paragraph), `q` (a Kindle highlight) or `m` (a small note). Readable formats are DRM-free EPUB, plain text and a Kindle e-reader's `My Clippings.txt`; DRM is detected and never removed. Two controller commands bring books in, one job at a time, off the event loop, each answered later by a `{"type": "library", "op", "ok", "error"?, "copied"?}` event: `library_import` copies EPUB/text files and `My Clippings.txt` from drives mounted under `--media` (default `/media`), and `library_fetch` with `item` (an id from `shelf`) downloads that public-domain EPUB from Project Gutenberg (https only, redirects must stay on gutenberg.org, 40 MB cap).
+
 ### Microphone modes
 
 `{"command":"mic","mode":M}` with `M` one of:

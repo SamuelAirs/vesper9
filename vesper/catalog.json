@@ -58,7 +58,8 @@
       "apps": [
         "lantern",
         "resonance",
-        "oracle"
+        "oracle",
+        "library"
       ]
     }
   ],
@@ -593,6 +594,26 @@
       ],
       "capabilities": [
         "sensor"
+      ]
+    },
+    {
+      "id": "library",
+      "name": "THE STACKS",
+      "subtitle": "A shelf of books, one page at a time.",
+      "description": "A library of DRM-free books: EPUB and text files, free classics from Project Gutenberg, and your Kindle highlights. Tap turns the page; hold for the reader's menu.",
+      "controls": "TAP: NEXT PAGE · HOLD & RELEASE: MENU",
+      "category": "INSTRUMENT / READING",
+      "glyph": 3,
+      "icon": "<path d=\"M8 10h9v30H8zM19 10h8v30h-8z\"/><path d=\"M30 12l7-2 6 28-7 2z\"/><path d=\"M10 16h5M21 16h4M10 34h5M21 34h4\"/><path d=\"M4 42h40\"/>",
+      "factory": "Library",
+      "voice": [
+        "library"
+      ],
+      "capabilities": [
+        "button",
+        "lights",
+        "audio",
+        "progress"
       ]
     }
   ],

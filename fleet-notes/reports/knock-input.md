@@ -169,3 +169,32 @@ Re-test: the same counter log during button-only play, now reading both `n` and 
 strays left are `n` minus `knockGuarded`; the ones with a button edge nearby should be gone. Any that
 remain without a button edge (the bursts) are either tones or handling: one run with the sound muted
 would tell which.
+
+## Round 5: what the remaining strays are
+
+The Pi's re-test with the button guard (9 minutes, button-only play, sound at 100 %): 14 knocks sent,
+2 dropped as the button, 12 reached the games (about 1.3 a minute, down from 3). Most are not the button.
+
+Likely cause, found offline: **the console's own tones are shaped like a tap.** `synth.tone()` rises in
+8 ms and falls exponentially to silence at the tone's end, so every tone of 0.25 s or less has died
+away by the detector's 40-90 ms check. Run through `knock.h` (440 Hz, sine, square and triangle at
+level 12000), every tone from 0.025 s to 0.25 s is a HIT and every one of 0.4 s or more is sustained.
+Almost all game sounds are 0.025 to 0.25 s (Perihelion, Descent, Pulsar, the menu tick). So whether a
+tone counts depends only on how loud it reaches the microphone. Handling the case is still possible.
+
+Next, hands-off on the Pi (Sam only needs to leave the deck alone with the volume where he plays):
+
+```bash
+.venv/bin/python scripts/tone-sweep.py          # the service running, knock input on, console at home
+```
+
+It plays each kind of game tone 3 times through the speaker with the console's envelope, plus silent
+slots, and prints the taps each produced with peak and `hf`. Then, without a reflash:
+
+- If tones produce taps and their `hf` sits below taps' (the arithmetic says a 150 Hz square or 520 Hz
+  sine reads under 25; real taps measured 48 to 126), the console ignores a knock with `hf` under a
+  floor set from that table.
+- If `hf` overlaps, the console ignores a knock that arrives shortly after it started a sound, except
+  where a game plays a sound on the tap's own beat (Pulsar's ticks), which then needs the `hf` floor or
+  quieter ticks.
+- If silence also produces taps, it is handling or the room, and the threshold is the lever.

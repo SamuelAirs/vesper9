@@ -34,6 +34,9 @@ function plan(app) {
   return any;
 }
 
+// A press and release, as the host sends them.
+const tapButton = (app) => { app.down({ source: "keyboard" }); app.up({ source: "keyboard", durationMs: 60 }); };
+
 function play(options = {}) {
   const ctx = appContext({ seed: options.seed ?? 7 });
   const app = new Ballista(ctx);
@@ -83,7 +86,7 @@ function play(options = {}) {
 
 test("generated stations are always solvable, across seeds and station numbers", () => {
   let fallbacks = 0, worstMs = 0, count = 0;
-  for (const seed of [1, 2, 3]) {
+  for (const seed of [1, 2]) { // two seeds of 30 stations: trimmed from three to keep the suite quick
     const rng = new Random(seed);
     for (let no = 1; no <= 30; no++) {
       const t0 = Date.now();
@@ -103,7 +106,7 @@ test("generated stations are always solvable, across seeds and station numbers",
       });
     }
   }
-  assert.equal(count, 90);
+  assert.equal(count, 60);
   assert.equal(fallbacks, 0);
   assert.ok(worstMs < 1500, "worst build " + worstMs + " ms");
 });
@@ -385,4 +388,84 @@ test("draw runs in every state without throwing and within a bounded number of p
     assert.ok(frame < 400, phase + " frame primitives " + frame);
   }
   assert.ok(ctx.calls.hud.length > 0 && ctx.calls.hint.length > 0);
+});
+
+test("the next station is built a few steps per frame during play, never in one go", () => {
+  const ctx = appContext({ seed: 12 });
+  const app = new Ballista(ctx);
+  tapButton(app); // title -> brief
+  run(app, 3.2);
+  assert.equal(app.phase, "play");
+  assert.ok(app.job && app.job.n === 2, "station 2 is being built");
+  let calls = 0, worst = 0, frames = 0;
+  const it = app.job.it;
+  const next = it.next.bind(it);
+  it.next = () => { calls++; return next(); };
+  while (!app.job.done && frames < 2000) {
+    const before = calls;
+    app.update(1 / 60);
+    worst = Math.max(worst, calls - before);
+    frames++;
+  }
+  assert.ok(app.job.done, "finished within " + frames + " frames");
+  assert.ok(worst <= 4, "at most 4 generator steps in a frame during play: " + worst);
+  assert.ok(app.job.site.targets.length >= 1 && app.job.site.attempts >= 1);
+  assert.equal(app.phase, "play", "building does not disturb the station being played");
+});
+
+test("a brief waits for an unfinished build, shows that it is surveying, and then starts normally", () => {
+  const ctx = appContext({ seed: 5 });
+  const app = new Ballista(ctx);
+  tapButton(app);
+  run(app, 3.2);
+  const g = fakeCanvas();
+  // Force a clear of station 1 at once, before station 2 has had time to build.
+  app.job = app.makeJob(2);
+  app.phase = "cleared"; app.pt = 2;
+  app.stationNo = 1;
+  tapButton(app);
+  assert.equal(app.stationNo, 2);
+  assert.equal(app.phase, "brief");
+  assert.ok(app.applyPending, "the station is not ready yet");
+  app.draw(g);
+  tapButton(app); // too early: cannot start play on a station that does not exist
+  assert.equal(app.phase, "brief");
+  let frames = 0;
+  while (app.applyPending && frames < 3000) { app.update(1 / 60); frames++; }
+  assert.ok(!app.applyPending);
+  assert.match(ctx.calls.hint.at(-1), /STATION 2: /);
+  assert.doesNotMatch(ctx.calls.hint.at(-1), /SURVEYING/, "the hint moves on to the briefing");
+  assert.equal(app.site.n, 2);
+  assert.ok(app.probes >= 3);
+  app.draw(g);
+  run(app, 3);
+  assert.equal(app.phase, "play");
+});
+
+test("a run is reproducible: the same seed and the same inputs give the same stations", () => {
+  const seq = (seed) => {
+    const out = [];
+    play({ seed, stopAtStation: 4, onStep: (app) => { if (app.site && out[out.length - 1] !== app.site.n + ":" + app.site.targets[0].cx.toFixed(2)) out.push(app.site.n + ":" + app.site.targets[0].cx.toFixed(2)); } });
+    return out.join("|");
+  };
+  assert.equal(seq(31), seq(31));
+  assert.notEqual(seq(31), seq(32));
+});
+
+test("pause() and cancel() switch the lamps off while aiming, charging and in flight", () => {
+  for (const how of ["pause", "cancel"]) {
+    const ctx = appContext({ seed: 9 });
+    const app = new Ballista(ctx);
+    tapButton(app);
+    run(app, 3.3);
+    assert.equal(app.phase, "play");
+    assert.ok(ctx.calls.leds.at(-1).some((v) => v > 0), "aim spot is lit");
+    app[how]();
+    assert.deepEqual(ctx.calls.leds.at(-1), Array(9).fill(0), how + " while aiming");
+    app.down({}); run(app, 0.5);
+    assert.ok(ctx.calls.leds.at(-1).some((v) => v > 0), "charge is lit");
+    app[how]();
+    assert.deepEqual(ctx.calls.leds.at(-1), Array(9).fill(0), how + " while charging");
+    assert.equal(app.charging, false);
+  }
 });

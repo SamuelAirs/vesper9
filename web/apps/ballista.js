@@ -5,7 +5,7 @@
 // The three lamps carry the shot: a spot of light follows the sweep, then they fill green, amber,
 // red as power rises, follow the probe to the target, and say on which side a miss fell.
 import { C, space, text, line, circle, diamond, banner } from "../engine/draw.js";
-import { clamp, lerp, TAU } from "../engine/math.js";
+import { clamp, lerp, TAU, Random } from "../engine/math.js";
 import { LAMP, lamps, fill, dim, blink, pulse, chase, spot, lightsOff } from "../engine/lightshow.js";
 import { recordRun } from "../engine/kit.js";
 
@@ -118,7 +118,7 @@ export const hitsTarget = (s, ti, angle, power, wind, launchT) =>
 // Is there a shot that hits target `ti` and survives small errors in angle and power? For each
 // angle the power is bisected on where the probe lands (short or long of the target); a hit must
 // then still hit one degree either side and a little more or less power.
-export function robustShot(s, ti, wind, launchT, aStep = 0, pStep = 0.012) {
+function* robustSteps(s, ti, wind, launchT, aStep = 0, pStep = 0.012) {
   const fixed = s.fixedPower, tg = s.targets[ti];
   const robust = (a, p) =>
     hitsTarget(s, ti, a - 1, p, wind, launchT) && hitsTarget(s, ti, a + 1, p, wind, launchT) &&
@@ -126,6 +126,7 @@ export function robustShot(s, ti, wind, launchT, aStep = 0, pStep = 0.012) {
   // a quick coarse pass, then a fine one only for stations where the coarse pass finds nothing
   const passes = aStep ? [aStep] : [2.5, 1];
   for (const step of passes) for (let a = s.aLo + 0.5; a <= s.aHi; a += step) {
+    yield; // one angle is a fraction of a millisecond: the caller may pause here
     if (fixed) {
       if (hitsTarget(s, ti, a, fixed, wind, launchT) && robust(a, fixed)) return { angle: a, power: fixed };
       continue;
@@ -144,18 +145,31 @@ export function robustShot(s, ti, wind, launchT, aStep = 0, pStep = 0.012) {
   }
   return null;
 }
+// Runs a generator to the end and returns its value.
+function drain(it) {
+  for (;;) {
+    const r = it.next();
+    if (r.done) return r.value;
+  }
+}
+export function robustShot(s, ti, wind, launchT, aStep = 0, pStep = 0.012) {
+  return drain(robustSteps(s, ti, wind, launchT, aStep, pStep));
+}
 
 // Every target must be hittable across the station's wind (both extremes, calm and the halves), and at several
 // phases of any moving target.
-export function verifyStation(s) {
+function* verifySteps(s) {
   const moving = s.targets.some((t) => t.amp);
   const winds = s.windA > 0 ? (moving ? [-1, 0, 1] : [-1, -0.5, 0, 0.5, 1]).map((k) => k * s.windA) : [0];
   for (let ti = 0; ti < s.targets.length; ti++) {
     const tg = s.targets[ti];
     const phases = tg.amp ? [0, tg.period / 3, (2 * tg.period) / 3] : [0];
-    for (const w of winds) for (const ph of phases) if (!robustShot(s, ti, w, ph)) return false;
+    for (const w of winds) for (const ph of phases) if (!(yield* robustSteps(s, ti, w, ph))) return false;
   }
   return true;
+}
+export function verifyStation(s) {
+  return drain(verifySteps(s));
 }
 
 // ---- stations ----
@@ -224,17 +238,21 @@ function draftStation(n, rng, k) {
 
 // Draws a station from the rng and proves it can be hit; a draft that cannot is softened and
 // redrawn, and a plain calm range is the last resort.
-export function buildStation(n, rng) {
+function* buildSteps(n, rng) {
   for (let k = 0; k < 14; k++) {
     const s = draftStation(n, rng, k);
-    if (verifyStation(s)) {
+    if (yield* verifySteps(s)) {
       s.attempts = k + 1;
       return s;
     }
+    yield;
   }
   const s = draftStation(n, rng, 99);
   s.attempts = 15;
   return s;
+}
+export function buildStation(n, rng) {
+  return drain(buildSteps(n, rng));
 }
 
 const pad2 = (n) => String(n).padStart(2, "0");
@@ -277,6 +295,8 @@ export class Ballista {
     this.outcome = null;
     this.traces = [0, 1, 2].map(() => ({ pts: new Float32Array(TRACE_POINTS * 2), n: 0, hit: false }));
     this.ground = new Float32Array(121);
+    this.job = null; // a station being built a few steps per frame: { n, it, site, done }
+    this.applyPending = false;
     this.site = buildStation(1, ctx.rng);
     this.cacheGround();
     this.setHint("TITLE", "PRESS TO BEGIN. HOLD TO CHARGE, RELEASE TO LAUNCH.");
@@ -314,7 +334,7 @@ export class Ballista {
   down() {
     this.btn = true;
     if (this.phase === "title" || (this.phase === "over" && this.pt > 1)) this.newRun();
-    else if (this.phase === "brief" && this.pt > 0.5) this.startPlay();
+    else if (this.phase === "brief" && this.pt > 0.5 && !this.applyPending) this.startPlay();
     else if (this.phase === "cleared" && this.pt > 1) {
       this.stationNo++;
       this.startBrief();
@@ -343,8 +363,12 @@ export class Ballista {
     this.btn = false;
     this.latched = false;
     this.cancelCharge();
+    this.ctx.leds(lightsOff());
   }
-  pause() { this.cancelCharge(); }
+  pause() {
+    this.cancelCharge();
+    this.ctx.leds(lightsOff());
+  }
   resume() {
     this.btn = false;
     this.latched = false;
@@ -381,10 +405,37 @@ export class Ballista {
     this.last = null;
     this.startBrief();
   }
+  // Building a station proves every target can be hit, which can take over a hundred milliseconds
+  // in one go. So the next station is built a few steps per frame while the current one is played
+  // (from a private generator seeded from ctx.rng, so a run stays reproducible), and a brief only
+  // waits if the build is not finished yet.
+  makeJob(n) {
+    return { n, it: buildSteps(n, new Random(this.ctx.rng.int(1, 0x3fffffff))), site: null, done: false };
+  }
+  pump(job, steps) {
+    for (let i = 0; i < steps && !job.done; i++) {
+      const r = job.it.next();
+      if (r.done) { job.site = r.value; job.done = true; }
+    }
+  }
   startBrief() {
-    this.site = buildStation(this.stationNo, this.ctx.rng);
-    this.cacheGround();
     this.cancelCharge();
+    this.phase = "brief";
+    this.pt = 0;
+    this.flight = null;
+    this.fx = null;
+    if (!this.job || this.job.n !== this.stationNo) this.job = this.makeJob(this.stationNo);
+    this.applyPending = true;
+    if (this.job.done) this.applySite();
+    else {
+      this.hudNow();
+      this.setHint("SURVEY" + this.stationNo, "STATION " + this.stationNo + ": SURVEYING THE SITE...");
+    }
+  }
+  applySite() {
+    this.applyPending = false;
+    this.site = this.job.site;
+    this.cacheGround();
     this.probes = this.site.probes + this.reserve;
     this.carried = this.reserve;
     this.reserve = 0;
@@ -395,7 +446,6 @@ export class Ballista {
     this.st = 0;
     for (const tr of this.traces) { tr.n = 0; tr.hit = false; }
     this.last = null;
-    this.phase = "brief";
     this.pt = 0;
     this.hudNow();
     this.setHint("BRIEF" + this.stationNo, "STATION " + this.stationNo + ": " + this.site.name + ". " + this.site.note);
@@ -403,6 +453,7 @@ export class Ballista {
   startPlay() {
     this.phase = "play";
     this.pt = 0;
+    if (!this.job || this.job.n !== this.stationNo + 1) this.job = this.makeJob(this.stationNo + 1);
     this.latched = this.btn; // a press that skipped the briefing does not become a charge
     this.hintKey = "";
   }
@@ -518,7 +569,11 @@ export class Ballista {
     if (this.phase === "play") this.play(step);
     else if (this.phase === "cleared" || this.phase === "failed") this.after();
     else this.idleLamps();
-    if (this.phase === "brief" && this.pt >= 2.8) this.startPlay();
+    if (this.job && !this.job.done) {
+      this.pump(this.job, this.phase === "brief" ? 10 : 4); // about a millisecond a step
+      if (this.job.done && this.applyPending) this.applySite();
+    }
+    if (this.phase === "brief" && this.pt >= 2.8 && !this.applyPending) this.startPlay();
   }
 
   play(step) {
@@ -885,6 +940,12 @@ export class Ballista {
   }
 
   drawBrief(g, s) {
+    if (this.applyPending) {
+      this.panel(g, 110, 100);
+      text(g, "STATION " + pad2(this.stationNo), 480, 150, 30, C.ink, "center");
+      text(g, "SURVEYING THE SITE...", 480, 198, 20, C.amber, "center");
+      return;
+    }
     this.panel(g, 110, 176);
     text(g, "STATION " + pad2(s.n) + " / " + s.name, 480, 150, 30, C.ink, "center");
     text(g, s.note.length > 52 ? s.note.slice(0, s.note.lastIndexOf(" ", 52)) : s.note, 480, 198, 20, C.amber, "center");

@@ -30,6 +30,7 @@ const MAX_SPEED = 560;
 const WIDE_TIME = 14, SLOW_TIME = 12;
 const FREEZE_AFTER = 0.6; // seconds held before the world freezes (a tap is far shorter)
 const LIVES = 3;
+const FREE_BALLS = 2; // chamber 1 is practice: a newcomer learns the paddle before lives count
 const DROP_SPEED = 130;
 const SCALE = [262, 294, 330, 392, 440, 494, 523];
 
@@ -39,7 +40,7 @@ const PAD_WIDTHS = [168, 156, 144, 132, 120, 110, 100, 92, 84];
 const padWidth = (ch) => PAD_WIDTHS[Math.min(PAD_WIDTHS.length - 1, ch - 1)];
 const rowsFor = (ch) => (ch < 3 ? 3 : ch < 5 ? 4 : ch < 7 ? 5 : ch < 10 ? 6 : 7);
 const NEWS = {
-  1: "READ THE BRACKET", 2: "NEW: BONUS CELLS", 3: "NEW: HARDENED CELLS",
+  1: "PRACTICE: TWO FREE BALLS", 2: "NEW: BONUS CELLS", 3: "NEW: HARDENED CELLS",
   4: "FASTER SIGNAL / NARROWER PADDLE",
 };
 
@@ -79,6 +80,8 @@ export class Ricochet {
   reset() {
     this.score = 0;
     this.lives = LIVES;
+    this.free = FREE_BALLS; // balls that can be lost in chamber 1 without costing a life
+    this.lostFree = false;
     this.chamber = 1;
     this.cellsBroken = 0;
     this.bestChain = 0;
@@ -230,7 +233,9 @@ export class Ricochet {
     this.pressing = false;
     this.heldTime = 0;
     if (this.phase === "play" && this.sub === "dying" && this.lostAt >= this.downs[3] - 1.5) {
-      this.lives = Math.min(LIVES, this.lives + 1);
+      if (this.lostFree) this.free++;
+      else this.lives = Math.min(LIVES, this.lives + 1);
+      this.lostFree = false;
       this.lostAt = -9;
       this.serveBall();
       this.setHint("Ball returned. Tap reverses the paddle.");
@@ -549,7 +554,9 @@ export class Ricochet {
   }
 
   loseBall() {
-    this.lives--;
+    this.lostFree = this.chamber === 1 && this.free > 0;
+    if (this.lostFree) this.free--;
+    else this.lives--;
     this.lostAt = this.clock;
     this.sub = "dying";
     this.timer = 1.2;
@@ -560,7 +567,7 @@ export class Ricochet {
     this.drops.length = 0;
     this.ctx.tone(220, 0.15, "triangle");
     this.ctx.tone(165, 0.25, "triangle");
-    this.setHint(this.lives > 0 ? "Ball lost. " + this.lives + " left." : "Last ball lost.");
+    this.setHint(this.lostFree ? "Ball lost. In chamber 1 that one was free." : this.lives > 0 ? "Ball lost. " + this.lives + " left." : "Last ball lost.");
   }
 
   clearChamber() {

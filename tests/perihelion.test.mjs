@@ -10,6 +10,8 @@ const start = (options) => {
   const app = new Perihelion(ctx);
   app.down(); // leave the title
   app.up();
+  app.down(); // the first run of a session waits parked until a second press launches it
+  app.up();
   return { ctx, app };
 };
 const clone = (p) => ({ ...p });
@@ -341,4 +343,53 @@ test("every screen draws and the title, play and result states are distinct", ()
   app.crash("void");
   app.draw(g);
   assert.equal(app.phase, "over");
+});
+
+test("the first run of a session waits parked until a deliberate press; later runs start at once", () => {
+  const ctx = appContext({ seed: 6 });
+  const app = new Perihelion(ctx);
+  app.down(); app.up(); // leave the title
+  assert.equal(app.phase, "play");
+  assert.ok(app.ready, "parked");
+  const x0 = app.p.x, y0 = app.p.y;
+  run(app, 10, null);
+  assert.equal(app.p.x, x0);
+  assert.equal(app.p.y, y0);
+  assert.equal(app.phase, "play", "a hesitating newcomer is not killed");
+  assert.equal(app.runT, 0);
+  app.draw(fakeCanvas());
+  assert.ok(ctx.calls.leds.at(-1).every((x) => x < 60), "parked lamps are dim");
+  // Menu open and resume while parked changes nothing.
+  app.cancel(); app.pause(); app.resume();
+  assert.ok(app.ready);
+  app.down(); // launches and throws the tether
+  run(app, 0.5, null);
+  assert.ok(!app.ready);
+  assert.ok(app.p.a, "the launching press caught the first sun");
+  app.up();
+  // After a loss the next press starts a live run at once.
+  app.crash("fall");
+  run(app, 1, null);
+  app.down(); app.up();
+  assert.equal(app.phase, "play");
+  assert.ok(!app.ready);
+  const before = app.p.x;
+  run(app, 0.5, null);
+  assert.ok(app.p.x > before + 50, "moving");
+});
+
+test("the dark quickens after five minutes until it outpaces any probe", () => {
+  const { app } = start({ seed: 2 });
+  assert.equal(app.frontSpeed(), 36);
+  app.runT = 300;
+  assert.equal(app.frontSpeed(), 96);
+  app.runT = 600;
+  assert.ok(app.frontSpeed() > 250, "front " + app.frontSpeed());
+  app.runT = 1200;
+  assert.ok(app.frontSpeed() > 400);
+  // The notice is announced once.
+  app.runT = 301;
+  app.p.x = 500; app.p.y = 200; app.p.vx = 280; app.p.vy = 0; app.front = 0;
+  app.update(DT);
+  assert.match(app.notice, /quickening/);
 });

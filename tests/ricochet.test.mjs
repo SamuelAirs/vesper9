@@ -375,6 +375,7 @@ test("the menu gesture cannot cost a ball: a three-second hold, or a burst of ta
   run(app, 3);
   toLive(app);
   const lives = app.lives;
+  app.free = 0; // the practice balls of chamber 1 are covered by their own test
   // A burst of quick taps then cancel: still playing, nothing lost, lamps dark.
   app.down(); app.up(); run(app, 0.1); app.down(); app.up(); run(app, 0.1); app.down(); app.up();
   app.cancel();
@@ -529,4 +530,54 @@ test("update plus draw is cheap", () => {
   const ms = (performance.now() - t0) / (3600 + 600);
   console.log(`update+draw (fake canvas, this machine): ${ms.toFixed(3)} ms per call`);
   assert.ok(ms < 2);
+});
+
+test("chamber 1 is practice: two lost balls are free, then lives count; a menu cancel returns a free ball as a free ball", () => {
+  const { app } = fresh(5);
+  app.down();
+  toLive(app);
+  const doomed = () => { const b = app.balls[0]; b.x = G.L + 30; b.y = G.PAD_Y - 40; b.vx = 0.01; b.vy = 300; app.px = G.R - 100; app.dir = 1; };
+  const lose = () => { doomed(); run(app, 1); assert.equal(app.sub, "dying"); };
+  assert.equal(app.free, 2);
+  lose();
+  assert.equal(app.lives, 3);
+  assert.equal(app.free, 1);
+  assert.ok(app.lostFree);
+  toLive(app);
+  lose();
+  assert.equal(app.lives, 3);
+  assert.equal(app.free, 0);
+  // The system menu opening right after a free loss gives the free ball back, not a life.
+  app.cancel();
+  assert.equal(app.free, 1);
+  assert.equal(app.lives, 3);
+  assert.equal(app.sub, "serve");
+  toLive(app);
+  lose();
+  assert.equal(app.free, 0);
+  toLive(app);
+  lose();
+  assert.equal(app.lives, 2, "now a lost ball costs a life");
+  // Later chambers never grant free balls.
+  app.free = 2;
+  app.chamber = 2;
+  toLive(app);
+  lose();
+  assert.equal(app.lives, 1);
+  // A new run restores them.
+  app.begin();
+  assert.equal(app.free, 2);
+});
+
+test("an idle newcomer lasts well past twenty seconds", () => {
+  const times = [];
+  for (const seed of [1, 4, 7, 9, 12]) {
+    const { app } = fresh(seed);
+    app.down();
+    let n = 0;
+    while (app.phase === "play" && n < 60 * 120) { app.update(1 / 60); n++; }
+    assert.equal(app.phase, "over");
+    times.push(n / 60);
+  }
+  assert.ok(Math.min(...times) > 19, times.join(" "));
 });

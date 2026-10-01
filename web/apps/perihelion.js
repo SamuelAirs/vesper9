@@ -37,6 +37,8 @@ export class Perihelion {
     this.c = ctx;
     this.t = 0;
     this.held = false;
+    this.launches = 0; // runs started in this session; the first waits for a deliberate press
+    this.ready = false;
     this.parts = new Float32Array(MAX_PARTS * 5); // x, y, vx, vy, life
     this.trail = new Float32Array(TRAIL * 2);
     this.reset();
@@ -76,6 +78,7 @@ export class Perihelion {
     this.notice = "";
     this.noticeT = 0;
     this.stage = 0;
+    this.quickened = false;
     this.lastHint = "";
     this.trail.fill(0);
     this.trailN = 0;
@@ -218,6 +221,12 @@ export class Perihelion {
       return;
     }
     if (this.phase !== "play") return;
+    if (this.ready) {
+      // The first run of a session starts parked: the first press of the run launches
+      // it and throws the tether, so a newcomer has time to read the screen.
+      this.ready = false;
+      this.setHint("Hold to catch the marked sun. Release to fly on.");
+    }
     this.held = true;
     this.buffer = 0.18;
     this.tryCatch();
@@ -245,8 +254,10 @@ export class Perihelion {
   start() {
     this.held = false;
     this.reset();
-    this.setHint("Hold to catch the marked sun. Release to fly on.");
+    this.ready = this.launches++ === 0;
+    this.setHint(this.ready ? "Hold to throw a tether to the marked sun. Release to fly on." : "Hold to catch the marked sun. Release to fly on.");
     this.noticeT = 0;
+    this.c.hud([["DISTANCE", "0 Mkm"], ["CHAIN", "-"], ["CAUGHT", 0], ["BEST", this.c.best()]]);
   }
   tryCatch() {
     const p = this.p;
@@ -298,7 +309,7 @@ export class Perihelion {
   }
   update(dt) {
     this.t += dt;
-    if (this.phase === "play") this.stepPlay(dt);
+    if (this.phase === "play") { if (!this.ready) this.stepPlay(dt); }
     else if (this.phase === "over") {
       this.deadT += dt;
       this.stepParts(dt);
@@ -335,7 +346,7 @@ export class Perihelion {
       }
     } else if (this.chain > 0 && this.flightT > CHAIN_GAP) this.chain = 0;
     // The terminator: a wall of dark sweeping up from behind, so stalling costs.
-    this.front += Math.min(110, 36 + 0.2 * this.runT) * dt;
+    this.front += this.frontSpeed() * dt;
     let why = this.fate(p);
     if (!why && p.x < this.front + 8) why = "dark";
     if (why) { this.crash(why); return; }
@@ -366,7 +377,18 @@ export class Perihelion {
     else if (p.a) this.setHint(p.a.kind === "decay" ? "This sun is burning out. Release." : "Release to fly on the tangent.");
     else this.setHint(this.pickTarget(p) ? "Hold to catch the marked sun." : "Coasting. No sun in reach.");
   }
+  // How fast the dark sweeps up, px/s. It rises to 110 over the first six minutes;
+  // after five minutes it keeps quickening until nobody can outrun it, so a run ends.
+  frontSpeed() {
+    return Math.min(110, 36 + 0.2 * this.runT) + 0.5 * Math.max(0, this.runT - 300);
+  }
   stageEvents() {
+    if (this.runT > 300 && !this.quickened) {
+      this.quickened = true;
+      this.notice = "The dark is quickening.";
+      this.noticeT = 4;
+      this.c.tone(660, 0.1, "sine");
+    }
     const x = this.maxX;
     const notes = [
       [1800, "Dark bodies ahead. Steer clear."],
@@ -431,7 +453,7 @@ export class Perihelion {
   }
   lampValues() {
     const p = this.p;
-    if (this.phase === "title") return spot(0.5 + 0.5 * Math.sin(this.t * 0.7), dim(LAMP.green, 0.1));
+    if (this.phase === "title" || this.ready) return spot(0.5 + 0.5 * Math.sin(this.t * 0.7), dim(LAMP.green, 0.1));
     if (this.phase === "over") {
       if (this.deadT < 1.4) return fill(LAMP.red, 0.32 * (1 - this.deadT / 1.4));
       if (this.newRecord) return fill(LAMP.amber, 0.08 + 0.1 * pulse(this.t, 0.5));
@@ -465,6 +487,12 @@ export class Perihelion {
       if (this.c.best() > 0) text(g, "BEST " + this.c.best() + " Mkm", 480, 422, 18, C.amber, "center");
     } else if (this.phase === "over") this.drawResult(g);
     else this.drawOverlay(g);
+    if (this.ready) {
+      g.fillStyle = "#0c1511e8";
+      g.fillRect(190, 300, 580, 110);
+      text(g, "HOLD TO THROW THE TETHER", 480, 336, 28, C.amber, "center");
+      text(g, "RELEASE TO FLY ON", 480, 376, 22, C.muted, "center");
+    }
   }
   drawField(g) {
     const cam = this.cam, p = this.p;

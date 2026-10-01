@@ -30,6 +30,13 @@ const START_LEN = 3, MIN_LEN = 4, MAX_LEN = 40, GROW = 2;
 const SLOW = 0.3, FAST = 0.11, SPEED_PER_CELL = 0.007, SPEED_PER_LEVEL = 0.006; // seconds per step
 const MILESTONE_LEN = 8; // the thread is cut to this length at each milestone
 const READY = 1.4; // seconds before the first step of a run
+// For the first GRACE seconds of every run the boundary is soft: a thread that reaches it is
+// turned clockwise instead of dying, so a newcomer who hesitates (or an idle one) still has
+// the time to read the screen and learn the single turn. After that the walls kill.
+const GRACE = 20;
+// A press held this long is not a tap: the world waits until release, so the three-second
+// hold that opens the system menu cannot cost the run.
+const FREEZE_AFTER = 0.6;
 const DECAY_AFTER = 10, DECAY_EVERY = 4; // steps without a fragment before the tail shortens
 const MILESTONE = 5; // fragments per milestone
 const MAX_QUEUE = 3;
@@ -99,6 +106,9 @@ export class Helix {
     this.frag = -1;
     this.nObs = 0;
     this.ready = READY;
+    this.pressing = false;
+    this.heldTime = 0;
+    this.runT = 0; // seconds of live play, for the grace period
     this.news = "";
     this.newsT = 0;
     this.accent = 0; // seconds of green accent left
@@ -133,16 +143,19 @@ export class Helix {
       if (this.t - this.endedAt > RESTART_DELAY) this.begin();
       return;
     }
+    this.pressing = true;
+    this.heldTime = 0;
     if (this.ready > 0) return; // taps before the first step do nothing
     if (this.queue.length < MAX_QUEUE) {
       this.queue.push(1);
       this.ctx.tone(520, 0.03, "triangle");
     }
   }
-  up() {} // holding does nothing; the menu gesture belongs to the host
-  cancel() { this.queue.length = 0; this.ctx.leds(lightsOff()); }
+  up() { this.pressing = false; this.heldTime = 0; }
+  get frozen() { return this.phase === "play" && this.pressing && this.heldTime >= FREEZE_AFTER; }
+  cancel() { this.pressing = false; this.heldTime = 0; this.queue.length = 0; this.ctx.leds(lightsOff()); }
   pause() { this.cancel(); }
-  dispose() { this.queue.length = 0; this.ctx.leds(lightsOff()); }
+  dispose() { this.pressing = false; this.queue.length = 0; this.ctx.leds(lightsOff()); }
 
   begin() {
     this.reset();
@@ -252,13 +265,22 @@ export class Helix {
     if (this.chaseT > 0) this.chaseT -= dt;
     if (this.newsT > 0) this.newsT -= dt;
     if (this.stepFlash > 0) this.stepFlash -= dt;
-    if (this.phase === "play") {
+    if (this.phase === "play" && this.pressing) this.heldTime += dt;
+    if (this.frozen) {
+      // held: nothing moves, and the lamps just breathe
+    } else if (this.phase === "play") {
       if (this.ready > 0) {
         this.ready -= dt;
       } else {
         if (this.bonus) {
           this.bonus.life -= dt;
           if (this.bonus.life <= 0) this.bonus = null;
+        }
+        this.runT += dt;
+        if (this.runT >= GRACE && this.runT - dt < GRACE) {
+          this.news = "THE WALLS ARE LIVE";
+          this.newsT = 2;
+          this.ctx.tone(220, 0.12, "square");
         }
         this.acc += dt;
         let guard = 0;
@@ -290,9 +312,21 @@ export class Helix {
     this.turnNow();
     this.steps++;
     this.stepFlash = 0.08;
-    const hc = this.head, nx = (hc % W) + DX[this.dir], ny = ((hc / W) | 0) + DY[this.dir];
-    const nc = ny * W + nx;
-    const bad = this.hazard(nc, nx, ny, 1, this.charge);
+    const hc = this.head;
+    let nx = (hc % W) + DX[this.dir], ny = ((hc / W) | 0) + DY[this.dir];
+    let nc = ny * W + nx;
+    let bad = this.hazard(nc, nx, ny, 1, this.charge);
+    if (bad === "WALL" && this.runT < GRACE) {
+      // Soft boundary: turn clockwise until the way is clear (a corner needs two turns).
+      for (let k = 0; k < 3 && bad === "WALL"; k++) {
+        this.dir = (this.dir + 1) & 3;
+        nx = (hc % W) + DX[this.dir]; ny = ((hc / W) | 0) + DY[this.dir];
+        nc = ny * W + nx;
+        bad = this.hazard(nc, nx, ny, 1, this.charge);
+      }
+      this.ctx.tone(300, 0.05, "triangle");
+      if (this.newsT <= 0) { this.news = "THE WALL TURNS YOU. IT IS SOFT FOR A FEW SECONDS."; this.newsT = 2; }
+    }
     if (bad) { this.die(bad); return; }
     if (this.cnt[nc] && !this.free(nc, 1)) { // phased through the trail
       this.charge = 0;
@@ -433,6 +467,7 @@ export class Helix {
       const nx = (c % W) + DX[dir], ny = ((c / W) | 0) + DY[dir];
       const nc = ny * W + nx;
       const bad = this.hazard(nc, nx, ny, i + 1, charge);
+      if (bad === "WALL" && this.runT < GRACE) return "";
       if (bad) return bad;
       if (this.cnt[nc] && !this.free(nc, i + 1)) charge = 0;
       c = nc;
@@ -505,7 +540,7 @@ export class Helix {
     if (this.phase === "title") {
       banner(g, "HELIX", "THE THREAD ONLY TURNS RIGHT");
       text(g, "EACH TAP TURNS CLOCKWISE / THREE TAPS TURN LEFT", 480, 380, 18, C.muted, "center");
-      text(g, "HOLD 3 SECONDS FOR THE MENU", 480, 406, 18, C.muted, "center");
+      text(g, "COLLECT THE AMBER DIAMONDS. AVOID WALLS AND YOUR TAIL.", 480, 406, 18, C.muted, "center");
     } else if (this.phase === "play") {
       this.drawPlay(g);
     } else {
@@ -589,10 +624,11 @@ export class Helix {
       if (this.charge) circle(g, x, y, 18, C.cyan, false, 3);
     }
     // Status strip above the field.
-    if (this.newsT > 0 && this.phase === "play") text(g, this.news, 480, 22, 20, C.amber, "center");
+    if (this.frozen) text(g, "HELD: PAUSED UNTIL YOU LET GO", 480, 22, 20, C.amber, "center");
+    else if (this.newsT > 0 && this.phase === "play") text(g, this.news, 480, 22, 20, C.amber, "center");
     else if (this.phase === "play") {
-      const tail = this.charge ? "PHASE READY" : "";
-      text(g, tail, 480, 22, 20, C.cyan, "center");
+      if (this.runT < GRACE && this.ready <= 0) text(g, "WALLS ARE SOFT FOR " + Math.ceil(GRACE - this.runT) + " S", 480, 22, 20, C.muted, "center");
+      else text(g, this.charge ? "PHASE READY" : "", 480, 22, 20, C.cyan, "center");
     }
     if (this.phase === "play" && this.ready > 0) {
       text(g, this.ready > 0.5 ? "READY" : "GO", 480, 280, 42, C.ink, "center");
@@ -612,5 +648,7 @@ export class Helix {
 }
 
 Helix.bearing = bearing;
+Helix.GRACE = GRACE;
+Helix.FREEZE_AFTER = FREEZE_AFTER;
 Helix.W = W;
 Helix.H = H;

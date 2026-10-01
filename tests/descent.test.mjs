@@ -44,7 +44,7 @@ function play(options = {}) {
     } else {
       set(false);
       sinceEdge++;
-      if (app.phase !== "brief" && sinceEdge > 200) { app.down({}); app.up({}); sinceEdge = 0; }
+      if ((app.phase !== "brief" || app.waitBrief) && sinceEdge > 200) { app.down({}); app.up({}); sinceEdge = 0; }
     }
     app.update(1 / 60);
     if (options.onStep) options.onStep(app, ctx);
@@ -100,11 +100,18 @@ test("numeric state stays finite, lists stay bounded, lamps are nine whole bytes
   assert.ok(seen.size > 20, "lamps change during play");
 });
 
+// Leave the title, then press again to leave the first briefing (it waits for a press).
+function launch(app) {
+  app.down(); app.up();
+  run(app, 0.8);
+  app.down(); app.up();
+  run(app, 0.1);
+}
+
 function started(seed) {
   const ctx = appContext({ seed });
   const app = new Descent(ctx);
-  app.down(); app.up();
-  run(app, 2.5);
+  launch(app);
   assert.equal(app.phase, "play");
   return { ctx, app };
 }
@@ -162,7 +169,7 @@ test("cancel and dispose mid-play stop the engine and leave the lamps off", () =
   ctx.synth.startTone = () => tone++;
   ctx.synth.stopTone = () => { tone = 0; };
   const app = new Descent(ctx);
-  app.down(); app.up();
+  launch(app);
   run(app, 3);
   app.down({ source: "keyboard" });
   run(app, 0.5);
@@ -218,6 +225,7 @@ test("draw works in every phase and stays small", () => {
   app.draw(g);
   app.down(); app.up();
   app.draw(g);
+  launch(app);
   run(app, 3);
   app.draw(g);
   const before = g.count.lineTo || 0;
@@ -229,4 +237,59 @@ test("draw works in every phase and stays small", () => {
   app.draw(g);
   run(app, 3);
   app.draw(g);
+});
+
+test("the first briefing waits for a press; later briefings and retries start by themselves", () => {
+  const ctx = appContext({ seed: 8 });
+  const app = new Descent(ctx);
+  app.down(); app.up();
+  assert.equal(app.phase, "brief");
+  run(app, 20);
+  assert.equal(app.phase, "brief", "a newcomer can read the briefing for as long as needed");
+  assert.ok(app.waitBrief);
+  const g = fakeCanvas();
+  app.draw(g);
+  app.down(); app.up();
+  assert.equal(app.phase, "play");
+  // A crash on site 1 and the retry: the briefing starts the descent on its own.
+  app.w.alt = 0.2; app.w.vy = 20;
+  run(app, 0.1);
+  run(app, 1.6);
+  app.down(); app.up();
+  assert.equal(app.phase, "brief");
+  assert.ok(!app.waitBrief);
+  run(app, 2.6);
+  assert.equal(app.phase, "play");
+});
+
+test("an idle newcomer on site 1 has about fifteen seconds before the ground", () => {
+  const app = new Descent(appContext({ seed: 3 }));
+  launch(app);
+  let t = 0;
+  while (app.phase === "play" && t < 60) { app.update(1 / 60); t += 1 / 60; }
+  assert.equal(app.phase, "crashed");
+  assert.ok(t > 14, "fall took " + t.toFixed(1) + " s");
+});
+
+test("pause and cancel switch the lamps off", () => {
+  for (const how of ["pause", "cancel"]) {
+    const ctx = appContext({ seed: 2 });
+    const app = new Descent(ctx);
+    launch(app);
+    run(app, 1);
+    assert.ok(ctx.calls.leds.at(-1).some((v) => v > 0), "lit in play");
+    app[how]();
+    assert.deepEqual(ctx.calls.leds.at(-1), Array(9).fill(0), how);
+  }
+});
+
+test("the title says what the button does", () => {
+  const rows = [];
+  const g = fakeCanvas();
+  const spy = new Proxy(g, { get(o, k) { return k === "fillText" ? (t) => rows.push(t) : o[k]; } });
+  new Descent(appContext()).draw(spy);
+  const all = rows.join(" ");
+  assert.match(all, /HOLD TO BURN/);
+  assert.match(all, /RELEASE TO FALL/);
+  assert.match(all, /LAND SLOWLY/);
 });

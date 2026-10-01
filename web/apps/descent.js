@@ -117,7 +117,7 @@ const BASIC = [
 function buildSite(n, rng) {
   const level = Math.max(0, n - 8);
   const s = {
-    n, name: "SITE", tag: "", note: "", g: 1.6, a: 4, H: 170, vy0: n === 1 ? 3 : 0, safe: n === 1 ? 6 : n === 2 ? 5.5 : n === 3 ? 5 : n < 10 ? 4.5 : 4,
+    n, name: "SITE", tag: "", note: "", g: 1.6, a: 4, H: n === 1 ? 240 : 170, vy0: n === 1 ? 3 : 0, safe: n === 1 ? 6 : n === 2 ? 5.5 : n === 3 ? 5 : n < 10 ? 4.5 : 4,
     drift: 0, gusts: [], gustA: 0, gustP: 5.5, padHalf: clamp(52 - 3.2 * n, 24, 50), padSpeed: 0, padRange: 0,
     canyon: 0, rim: 0, gap: 0, delay: 0, margin: 1.5, pc: rng.range(140, 340), terrain: [],
   };
@@ -172,6 +172,8 @@ export class Descent {
     this.btn = false;
     this.latched = false;
     this.burning = false;
+    this.intro = true; // the very first briefing of a session waits for a press
+    this.waitBrief = false;
     this.warnClock = 0;
     this.siteNo = 1;
     this.lives = 3;
@@ -224,8 +226,9 @@ export class Descent {
     this.btn = false;
     this.latched = false;
     this.stopEngine();
+    this.ctx.leds(lightsOff());
   }
-  pause() { this.stopEngine(); }
+  pause() { this.stopEngine(); this.ctx.leds(lightsOff()); }
   resume() { this.burning = false; }
   dispose() {
     this.stopEngine();
@@ -250,9 +253,11 @@ export class Descent {
     this.resetWorld();
     this.phase = "brief";
     this.pt = 0;
+    this.waitBrief = this.intro && this.siteNo === 1;
+    this.intro = false;
     this.stopEngine();
     this.hudNow();
-    this.setHint("BRIEF" + this.siteNo, this.siteNo === 1 ? "HOLD TO BURN. KEEP THE LAMPS GREEN AT TOUCHDOWN." : "SITE " + this.siteNo + ": " + (this.site.tag || this.site.name));
+    this.setHint("BRIEF" + this.siteNo, this.siteNo === 1 ? (this.waitBrief ? "PRESS TO START THE DESCENT. HOLD TO BURN, RELEASE TO FALL." : "HOLD TO BURN. KEEP THE LAMPS GREEN AT TOUCHDOWN.") : "SITE " + this.siteNo + ": " + (this.site.tag || this.site.name));
   }
   resetWorld() {
     const s = this.site;
@@ -264,6 +269,7 @@ export class Descent {
   startPlay() {
     this.phase = "play";
     this.pt = 0;
+    this.waitBrief = false;
     this.latched = this.btn; // a press that skipped the briefing does not become a burn
     this.hintKey = "";
   }
@@ -280,7 +286,7 @@ export class Descent {
     if (this.phase === "play") this.play(step);
     else if (this.phase === "landed" || this.phase === "crashed") this.after(step);
     else this.idleLamps();
-    if (this.phase === "brief" && this.pt >= 2.4) this.startPlay();
+    if (this.phase === "brief" && this.pt >= 2.4 && !this.waitBrief) this.startPlay();
   }
 
   play(dt) {
@@ -441,7 +447,7 @@ export class Descent {
       this.drawLander(g, s);
       this.drawInstruments(g, s);
     }
-    if (this.phase === "title") banner(g, "DESCENT", "SET DOWN GENTLY, OR NOT AT ALL");
+    if (this.phase === "title") banner(g, "DESCENT", "HOLD TO BURN THE ENGINE / RELEASE TO FALL / LAND SLOWLY ON THE PAD");
     else if (this.phase === "brief") this.drawBrief(g);
     else if (this.phase === "landed" || this.phase === "crashed") this.drawAfter(g);
     else if (this.phase === "over") this.drawOver(g);
@@ -571,7 +577,8 @@ export class Descent {
     text(g, "SITE " + String(s.n).padStart(2, "0") + " / " + s.name, 480, 190, 30, C.ink, "center");
     text(g, s.note, 480, 240, 20, C.amber, "center");
     text(g, "FUEL " + s.fuel.toFixed(1) + " S   SAFE UNDER " + s.safe.toFixed(1) + " M/S", 480, 272, 18, C.muted, "center");
-    text(g, "DESCENT BEGINS", 480, 304, 18, C.muted, "center");
+    if (this.waitBrief) text(g, "PRESS TO START THE DESCENT", 480, 304, 20, C.amber, "center");
+    else text(g, "DESCENT BEGINS", 480, 304, 18, C.muted, "center");
   }
 
   drawAfter(g) {

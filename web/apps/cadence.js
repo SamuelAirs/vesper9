@@ -3,10 +3,12 @@
 // the conductor's beat, a slow second-sweep, a draining bar.
 //
 // Timing. An instrument gets tick() once a second, far too coarse for a beat, and the host
-// has no per-frame hook for instruments. So this file runs one requestAnimationFrame loop of
-// its own (like lantern.js and oracle.js: started in the constructor, ended by dispose() or
-// when ctx.alive() turns false); tick() calls the same frame() so everything still follows
-// time when frames stop (hidden page) or do not exist (tests). Every time is computed from a
+// has no per-frame hook for instruments. So this file runs a requestAnimationFrame loop of
+// its own, but only while something is going on (a click sounding, a stopwatch counting, an
+// interval running, a flash fading): every action and button edge wakes it, and it ends by
+// itself when idle, on dispose() or when ctx.alive() turns false. tick() calls the same
+// frame() so everything still follows time when frames stop (hidden page) or do not exist
+// (tests). Every time is computed from a
 // start time and a count, never by adding intervals: beat n of a metronome is due at
 // beatTime(anchor, bpm, n). ctx.tone has no start-time argument, so a click sounds when the
 // first frame at or after (within half a frame of) its due time arrives: the scheduled time
@@ -175,6 +177,9 @@ export class Cadence {
     this.bpm = s.bpm; this.sig = s.sig; this.preset = s.preset; this.custom = s.custom; this.lastTool = s.tool;
     this.tool = "menu";
     this.paused = false; this.dead = false;
+    this.raf = 0;
+    this.touched = false; // the lamps have been written: until then they belong to the host
+    this.chosen = null; // id of the action that was run last (see focusOn)
     this.down = null;
     this.frameGap = 16;
     this.lastFrame = null;
@@ -189,17 +194,32 @@ export class Cadence {
     this.iv = { running: false, startAt: 0, before: 0, cfg: null, key: "", ceil: -1, changeAt: -1e9, doneAt: -1, paused: false };
     this.leds = lightsOff();
     this.menu();
-    this.startLoop();
   }
 
   startLoop() {
-    if (typeof requestAnimationFrame !== "function") return;
+    if (this.raf || this.dead || typeof requestAnimationFrame !== "function") return;
     const loop = () => {
+      this.raf = 0;
       if (this.dead || !this.ctx.alive()) return;
-      try { this.frame(this.clock()); } catch {}
-      this.raf = requestAnimationFrame(loop);
+      const now = this.clock();
+      try { this.frame(now); } catch {}
+      if (this.busy(now)) this.raf = requestAnimationFrame(loop);
     };
     this.raf = requestAnimationFrame(loop);
+  }
+  // Is anything moving that needs a frame at the display's pace?
+  busy(now) {
+    return this.m.running || this.sw.running || this.iv.running || this.cues.length > 0 ||
+      now - this.tap.flashAt < 400 || now - this.sw.lapAt < 500 || now - this.iv.changeAt < 500 ||
+      (this.iv.doneAt >= 0 && now - this.iv.doneAt < 8500);
+  }
+  // After an action or a button edge: bring the lamps and the screen up to date at once and
+  // keep the loop going while there is something to follow.
+  wake() {
+    if (this.dead) return;
+    const now = this.clock();
+    try { this.frame(now); } catch {}
+    if (this.busy(now)) this.startLoop();
   }
 
   // ---- host hooks ----
@@ -222,6 +242,8 @@ export class Cadence {
     if (!(dur >= 0) || dur >= finite(this.ctx.settings?.().holdMs, 650)) return;
     if (this.tool === "tap") this.tapAt(d.stamp, d.src, d.arrival);
     else if (this.tool === "stop" && this.sw.running) this.lap(d.arrival);
+    else return;
+    this.wake();
   }
   cancel() { this.down = null; }
   // The system menu opened. A running metronome keeps clicking and a running interval keeps
@@ -229,8 +251,16 @@ export class Cadence {
   // stopwatch must keep counting, and does, because it is computed from the clock. Only the
   // lamps are given up: the menu owns them while it is open.
   pause() { this.paused = true; this.down = null; }
-  resume() { this.paused = false; this.down = null; this.ctx.leds(this.leds); }
-  tick() { this.frame(this.clock()); }
+  resume() {
+    this.paused = false; this.down = null;
+    if (this.touched) this.ctx.leds(this.leds);
+    this.wake();
+  }
+  tick() {
+    const now = this.clock();
+    this.frame(now);
+    if (this.busy(now)) this.startLoop();
+  }
   dispose() {
     this.dead = true;
     try { if (typeof cancelAnimationFrame === "function" && this.raf) cancelAnimationFrame(this.raf); } catch {}
@@ -341,6 +371,7 @@ export class Cadence {
       return since >= 0 && since < 300 ? only(1, LAMP.cyan, 0.5 * (1 - since / 300)) : lightsOff();
     }
     if (this.tool === "stop") return stopwatchLamps(this.swElapsed(now), now - this.sw.lapAt, this.sw.running);
+    if (this.tool === "int" && this.iv.paused) return only(1, LAMP.amber, 0.1); // paused: one dim amber lamp
     if (this.tool === "int" && (this.iv.running || this.iv.doneAt >= 0)) {
       if (this.iv.running) return intervalLamps(intervalState(this.iv.cfg, this.ivSeconds(now)), now - this.iv.changeAt, 0);
       return intervalLamps({ phase: "done" }, 0, (now - this.iv.doneAt) / 1000);
@@ -351,8 +382,10 @@ export class Cadence {
   show(values) {
     if (!Array.isArray(values) || values.length !== 9) values = lightsOff();
     this.leds = values.map(byte);
-    // While the system menu is open it owns the lamps; sending would take them back.
-    if (this.paused) return;
+    // While the system menu is open it owns the lamps; sending would take them back. Until a
+    // tool has lit them they stay with the host (its focus and hold feedback shows on them).
+    if (this.paused || (!this.touched && this.leds.every((v) => v === 0))) return;
+    this.touched = true;
     this.ctx.leds(this.leds);
   }
 
@@ -434,16 +467,17 @@ export class Cadence {
   }
   stopIntervals() {
     Object.assign(this.iv, { running: false, paused: false, before: 0, doneAt: -1, key: "" });
-    this.build();
+    this.build("go");
     this.render(this.clock(), true);
   }
 
   // ---- screens ----
 
-  go(tool) {
+  // `want` says where the highlight lands in the new list (see focusOn).
+  go(tool, want = "first") {
     this.tool = tool;
     if (tool === "metro" || tool === "stop" || tool === "int") this.lastTool = tool;
-    this.build(); this.render(this.clock(), true);
+    this.build(want); this.render(this.clock(), true);
   }
 
   render(now, force = false) {
@@ -503,8 +537,28 @@ export class Cadence {
     }
   }
 
+  // The host keeps the highlight on the action with the same id, else on the same row number,
+  // which after a screen change is an arbitrary row (STOPWATCH used to open on BACK). So the
+  // action that should be highlighted next takes over the id of the one just chosen. `want` is
+  // an id or "first". Every action also wakes the frame loop and refreshes the lamps. On
+  // opening (`park`) the highlight would otherwise start on the row numbered like the
+  // dashboard card that was chosen (RESONANCE used to open on RETURN TO DASHBOARD), so a
+  // one-item list is published first, which pins the highlight to the target.
+  focusOn(items, want, park = false) {
+    const target = want === "first" ? items[0] : items.find((i) => i.id === want);
+    if (target && this.chosen) {
+      for (const item of items) if (item !== target && item.id === this.chosen) item.id += "~";
+      target.id = this.chosen;
+    }
+    for (const item of items) {
+      const run = item.run;
+      item.run = () => { this.chosen = item.id; const result = run(); this.wake(); return result; };
+    }
+    if (park && target) this.ctx.actions([target]);
+  }
+
   // Rebuild the action list for the current screen. Ids stay stable so the host keeps focus.
-  build() {
+  build(want = null, park = false) {
     const a = (id, label, run) => ({ id, label, run });
     const back = a("back", "BACK", () => this.go("menu"));
     let items, hint;
@@ -521,12 +575,12 @@ export class Cadence {
           a("sig", "BEATS / " + this.sig, () => this.cycleSignature()),
         ];
         if (!running) items.push(back);
-        hint = "Tap to advance. Hold and release to choose. TAP TEMPO lets you tap the button along with the music.";
+        hint = "Tap to advance. Hold and release to choose. TAP TEMPO lets you tap the button in time. Hold three seconds for the system menu.";
         break;
       }
       case "tap":
-        items = [a("done", "DONE", () => { this.lastTool = "metro"; this.persist(); this.go("metro"); })];
-        hint = "Tap the button in time with the music. Hold and release to finish.";
+        items = [a("done", "DONE", () => { this.lastTool = "metro"; this.persist(); this.go("metro", "go"); })];
+        hint = "Tap the button in time with the music. Hold and release to finish. (Hold three seconds for the system menu.)";
         break;
       case "stop": {
         const sw = this.sw;
@@ -545,7 +599,7 @@ export class Cadence {
         const iv = this.iv;
         if (iv.running || iv.paused) {
           items = [a("pause", iv.paused ? "RESUME" : "PAUSE", () => this.pauseIntervals()), a("end", "STOP", () => this.stopIntervals())];
-          hint = "The lamps drain across the period: green work, cyan rest, amber at the end.";
+          hint = "The lamps drain across the period: green work, cyan rest, amber at the end. (Hold three seconds for the system menu.)";
         } else if (iv.doneAt >= 0) {
           items = [a("end", "FINISHED / CLEAR", () => this.stopIntervals())];
           hint = "All rounds complete.";
@@ -568,21 +622,24 @@ export class Cadence {
           a("w", "WORK / " + spoken(c.work), cycle("work", WORK_CHOICES)),
           a("r", "REST / " + spoken(c.rest), cycle("rest", REST_CHOICES)),
           a("n", "ROUNDS / " + c.rounds, cycle("rounds", ROUND_CHOICES)),
-          a("ok", "DONE", () => this.go("int")),
+          a("ok", "DONE", () => this.go("int", "go")),
         ];
         hint = "Each choice steps to its next value. DONE returns to the start screen.";
         break;
       }
       default: {
-        const order = [...TOOLS.slice(TOOLS.findIndex((t) => t.id === this.lastTool)), ...TOOLS.slice(0, TOOLS.findIndex((t) => t.id === this.lastTool))];
-        items = [...order.map((t) => a("tool-" + t.id, t.label, () => this.go(t.id))), a("home", "RETURN TO DASHBOARD", this.ctx.home)];
+        // The tools keep their places (a list that reorders itself cannot be learned); the
+        // highlight starts on the one used last.
+        items = [...TOOLS.map((t) => a("tool-" + t.id, t.label, () => this.go(t.id))), a("home", "RETURN TO DASHBOARD", this.ctx.home)];
+        if (want === "first") want = "tool-" + this.lastTool;
         hint = "Choose a tool. The lamps follow it.";
       }
     }
+    this.focusOn(items, want, park);
     this.ctx.actions(items);
     this.ctx.hint(hint);
   }
-  menu() { this.build(); this.render(this.clock(), true); }
+  menu() { this.build("first", true); this.render(this.clock(), true); }
 
   cycleSignature() {
     this.sig = SIGNATURES[(SIGNATURES.indexOf(this.sig) + 1) % SIGNATURES.length];

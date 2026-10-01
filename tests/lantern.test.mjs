@@ -247,12 +247,14 @@ test("a retired context is tolerated and no NaN reaches the page", () => {
 
 // What the host does with the highlight after a list is replaced (web/main.js setNav): it stays
 // on the action with the same id, otherwise on the same row number. Tapping moves down one.
-function pad(ctx) {
-  let items = ctx.currentActions, index = 0, seen = ctx.calls.actions.length;
+// `card` is the row the dashboard had highlighted when the instrument was opened: the host
+// starts the first list at that row number (the dashboard's items have no ids to match).
+function pad(ctx, card = 0) {
+  let items = null, index = card, seen = 0;
   const idOf = (i) => i.id || i.label;
   const sync = () => {
     for (; seen < ctx.calls.actions.length; seen++) {
-      const next = ctx.calls.actions[seen], match = next.findIndex((i) => idOf(i) === idOf(items[index]));
+      const next = ctx.calls.actions[seen], match = items ? next.findIndex((i) => idOf(i) === idOf(items[index])) : -1;
       index = Math.min(match >= 0 ? match : index, next.length - 1);
       items = next;
     }
@@ -335,4 +337,13 @@ test("while the system menu is open the lamps are left to it, and return when it
   assert.ok(ctx.calls.leds.length > n && peak(ctx.calls.leds.at(-1)) > 0);
   app.pause(); app.dispose();
   assert.deepEqual(ctx.calls.leds.at(-1), Array(9).fill(0), "dispose darkens even when paused");
+});
+
+test("opened from any dashboard card the first action is highlighted, not RETURN TO DASHBOARD", () => {
+  for (let card = 0; card < 8; card++) {
+    const { ctx } = open();
+    assert.match(pad(ctx, card).label, /^LIGHT/, "card " + card);
+  }
+  const saved = open({ progress: { schema: 1, scene: "tide", colour: 3, set: 0, level: 2, sunrise: 20 } });
+  assert.match(pad(saved.ctx, 5).label, /^RESUME/);
 });

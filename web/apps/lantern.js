@@ -185,7 +185,7 @@ export class Lantern {
     this.chosen = null; // id of the action that was run last (see focusOn)
     this.clock = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
     this.render();
-    this.buildActions();
+    this.buildActions("first", true);
   }
 
   animating() {
@@ -347,17 +347,23 @@ export class Lantern {
   // The host keeps the highlight on the action with the same id, else on the same row number,
   // which after a menu change is an arbitrary row (once it was RETURN TO DASHBOARD). So the
   // action that should be highlighted next takes over the id of the one just chosen. `want` is
-  // an id or "first".
-  focusOn(items, want) {
+  // an id or "first". On opening (`park`) the highlight would otherwise start on the row
+  // numbered like the dashboard card that was chosen (RESONANCE used to open on RETURN TO
+  // DASHBOARD), so a one-item list is published first, which pins the highlight to the target.
+  focusOn(items, want, park = false) {
     const target = want === "first" ? items[0] : items.find((i) => i.id === want);
-    if (target && this.chosen && !items.some((i) => i.id === this.chosen)) target.id = this.chosen;
+    if (target && this.chosen) {
+      for (const item of items) if (item !== target && item.id === this.chosen) item.id += "~";
+      target.id = this.chosen;
+    }
     for (const item of items) {
       const run = item.run;
       item.run = () => { this.chosen = item.id; return run(); };
     }
+    if (park && target) this.ctx.actions([target]);
   }
 
-  buildActions(want = null) {
+  buildActions(want = null, park = false) {
     const mark = (on) => (on ? "● " : "");
     const back = (from) => ({ id: "back", label: "BACK", run: () => this.go("main", from) });
     const backToScenes = (from) => ({ id: "back-scene", label: "BACK", run: () => this.go("scene", from) });
@@ -425,7 +431,7 @@ export class Lantern {
         if (this.lit) items.push({ id: "off", label: "LAMPS OFF", run: () => { this.off(); this.buildActions("home"); } });
         items.push({ id: "home", label: "RETURN TO DASHBOARD", run: this.ctx.home });
     }
-    this.focusOn(items, want);
+    this.focusOn(items, want, park);
     this.ctx.actions(items);
     this.ctx.hint("Tap to advance. Hold and release to choose. The lamps go dark when you leave.");
   }

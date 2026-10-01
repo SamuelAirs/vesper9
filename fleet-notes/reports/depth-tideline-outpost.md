@@ -29,15 +29,29 @@ Outpost (schema 4; schema 3 saves migrate with everything kept, statistics not r
 
 The learner's help used to switch off after the third fish, and a slow-reacting bot (0.18 s, no prediction) then dropped from landing everything to 53% of commons and 35% of uncommons at gear 0. Now the help tapers over the first 40 landings (larger zone, calmer fish, fuller and slower-draining meter, a longer bite window) and a quarter of it stays for good as the new base difficulty. A learner's first early press in a cast is forgiven with a reminder instead of scaring the fish. Same bot, no gear: 100% of commons, uncommons and rares up to 20 fish; after 40, 98% commons, 81% uncommons, 23% rares (rares and legends still need skill and gear). Easy fish only for the first five catches (was three).
 
+## Follow-up: visuals and more life (Sam, 2026-10-01: "visuals should be improved across the board")
+
+Restyling stays inside the two games; the dashboard has its own thread.
+
+Tideline:
+- **The scene is redrawn.** A sky gradient for each part of the day with a halo round the sun or moon, a solid far shore and a nearer ridge, a water gradient with faint bands for each water (brighter when it is in reach), a shimmering reflection column, five fish shadows drifting under the surface (hidden during the catch and on the card), a planked pier and an angler with a curved rod whose tip the line now leaves from. Splashes on the cast, on the bite and on the landing. The catch gauge has a water fill and rising bubbles. Catch and card frames are 363 and 357 canvas calls (budget 400).
+- **Today's catch.** Each calendar day names one species (rarity up to rare, in a water you can reach). It bites 2.5x as often, pays double scrip all day, and the first one each day pays +60 + 20 per rarity step and 1.5x experience. The shore shows TODAY'S CATCH with the water, or LANDED. Save field `dy` (schema 3; old saves just lack it). New test.
+
+Outpost:
+- **Horizon and ground.** A horizon glow that warms as the station grows (teal with the aurora), a far planet lit on one side, the ridge filled as a silhouette, and a ground gradient below the machines.
+- **Signal you can see.** Two pulses rise from each working machine toward the signal count, faster and brighter as the machine works harder.
+- **Taps ripple.** Each gathering tap sends a pulse out along the ground from the middle, amber normally and cyan in full groove, so the beat is visible as well as heard. Drawn only; it uses no random numbers, so the game's sequences are unchanged.
+- A busy late frame is about 1,290 canvas calls, roughly 70 more than before (Outpost has no 400 cap; its line check passes).
+
 ## Shared code touched
 
 `web/engine/audio.js`: `Synth.tone(hz, seconds, type, gain = 1)`; one multiplication, default unchanged for every other app. `docs/ENGINE.md` row updated. `docs/WORKLOG.md` entry. Nothing else outside the two games, their tests, `tests/helpers/outpost-bot.mjs` and a new fixture.
 
 ## Verification (desktop)
 
-- `node --test tests/*.test.mjs`: 834 pass, 1 fail. The failure is `perihelion.test.mjs` "a planning bot crosses every region" on seed 3003, which fails identically on `main` without these changes.
+- `node --test tests/*.test.mjs`: 835 pass, 1 fail. The failure is `perihelion.test.mjs` "a planning bot crosses every region" on seed 3003, which fails identically on `main` without these changes.
 - Python suite 189 OK (1 skipped), `build-catalog.py --check` clean, `build-demo.py`, browser-smoke (26 apps), extension-smoke, host-browser, voice-host all pass (Playwright 1.56.1 with the container's Chromium).
-- Screenshots (1024 x 600) looked at: Tideline shore with notices and rank, a catch with a chest, a perfect silver card with chest, menu, notice board, log with stars; Outpost groove at x1.50 after 32 real taps through the simulator, a constellation entry in the tree, the update card.
+- Screenshots (1024 x 600) looked at: Tideline shore with notices and rank, a catch with a chest, a perfect silver card with chest, menu, notice board, log with stars; Outpost groove at x1.50 after 32 real taps through the simulator, a constellation entry in the tree, the update card. After the visual pass: Tideline shore and wait with the new scene and today's catch; Outpost mid-game with seven machines, ripples and the planet.
 
 ## For Sam to try on the console
 
@@ -45,3 +59,5 @@ The learner's help used to switch off after the third fish, and a slow-reacting 
 2. Tideline at rank 3+: watch for a small box drifting at the left of the gauge during a catch; steer the zone onto it.
 3. Outpost: open your save, read the update card, then tap a steady beat for ten seconds or so and watch GROOVE climb to x1.50 at the top right. Buy or check the voice upgrades: are they now quiet enough under the tune?
 4. Constellations appear only at 1,000 bearings held, so they may be a while away on your save.
+5. Tideline: does the new shore (sky, pier, angler, shadows in the water) read well on the 7" screen? Look for TODAY'S CATCH on the shore and try to land it.
+6. Outpost: tap a beat and watch the ripple run along the ground; it turns cyan in full groove. Do the rising signal pulses look busy or just alive?

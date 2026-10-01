@@ -450,6 +450,8 @@ const fmtInt = (n) => (n < 1e15 ? Math.floor(n).toString().replace(/\B(?=(\d{3})
 const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 const fmtDate = (ms) => { const d = new Date(ms); return Number.isFinite(d.getTime()) ? d.getDate() + " " + MONTHS[d.getMonth()] + " " + d.getFullYear() : "?"; };
 const FREE_KINDS = ["close", "back", "sub", "panel", "mode", "song", "songnew"]; // entries that cost nothing to choose
+// Horizon colour by stage: cold at first, warmer with the town, the aurora's teal at the end.
+const HORIZON = ["#16231c", "#1a271d", "#20291d", "#2a2a1c", "#2a2a20", "#1c2a2c", "#173033"];
 const HILLS = [[0, 424], [90, 408], [170, 418], [260, 394], [350, 412], [450, 400], [560, 416], [660, 398], [760, 414], [850, 402], [960, 420]];
 const clock = (sec) => { sec = Math.max(0, Math.ceil(sec)); return Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0"); };
 
@@ -652,6 +654,7 @@ export class Outpost {
     this.tapTimes = [];
     this.tuneClean = true;
     this.noteFx = null; // { pos 0..1, t } the lamp glow for the latest note
+    this.ripples = Array.from({ length: 6 }, () => ({ t: 9, full: false })); // tap pulses along the ground
     this.panel = null; // the statistics view: { page }
     this.news = false;
     this.newsFrom = 0; // the schema the save came from, when it shows the "updated" card
@@ -1071,6 +1074,11 @@ export class Outpost {
   arp(notes, gap, len, wave) {
     notes.forEach((hz, i) => { if (this.queue.length < QUEUE_MAX) this.queue.push({ at: this.clk + i * gap, hz, len, wave }); });
   }
+  ripple() { // drawn only; reuses the oldest slot and draws no random numbers
+    let slot = this.ripples[0];
+    for (const r of this.ripples) if (r.t > slot.t) slot = r;
+    slot.t = 0; slot.full = Math.floor(this.groove) >= GROOVE_MAX;
+  }
   spawnFloat(textValue, x, y) {
     let slot = this.floats[0];
     for (const f of this.floats) { if (f.life <= 0) { slot = f; break; } if (f.life < slot.life) slot = f; }
@@ -1189,6 +1197,7 @@ export class Outpost {
     if (this.tapTimes.length > 12) this.tapTimes.shift();
     if (this.tapTimes.length === 12 && this.clk - this.tapTimes[0] < 1.8) s.ev |= EV.presto;
     this.playNote();
+    this.ripple();
     this.spawnFloat("+" + fmt(v), 480 + this.c.rng.range(-70, 70), 215 + this.c.rng.range(-8, 8));
     if (this.flare) this.catchFlare();
   }
@@ -1557,6 +1566,7 @@ export class Outpost {
       if (this.flash[i] > 0) this.flash[i] = Math.max(0, this.flash[i] - dt * 2);
     }
     for (const f of this.floats) if (f.life > 0) { f.life -= dt; f.y -= dt * 40; }
+    for (const r of this.ripples) if (r.t < 9) r.t += dt;
     if (this.note) { this.note.t -= dt; if (this.note.t <= 0) this.note = null; }
     if (this.noteFx) { this.noteFx.t += dt; if (this.noteFx.t > 0.3) this.noteFx = null; }
     if (this.accent) { this.accent.t += dt; if (this.accent.t >= this.accent.dur) this.accent = null; }
@@ -1732,9 +1742,24 @@ export class Outpost {
   }
   drawBackdrop(g, stage) {
     const gy = 440, t = this.t;
+    // a horizon glow that warms as the station grows, and the aurora's colour once it comes
+    const glow = g.createLinearGradient(0, 250, 0, gy);
+    glow.addColorStop(0, "#0c151100");
+    glow.addColorStop(1, HORIZON[Math.min(stage, HORIZON.length - 1)]);
+    g.fillStyle = glow; g.fillRect(0, 250, 960, gy - 250);
+    // a far world low in the sky, lit on one side
+    g.globalAlpha = 0.5;
+    circle(g, 800, 300, 54, "#141f1a", true);
+    g.beginPath(); g.arc(800, 300, 54, -0.5 * Math.PI, 0.5 * Math.PI); g.arc(812, 300, 52, 0.5 * Math.PI, -0.5 * Math.PI, true);
+    g.fillStyle = stage >= 6 ? C.cyan : C.muted; g.fill();
+    g.globalAlpha = 1;
     this.drawSky(g);
-    g.lineWidth = 2;
-    g.strokeStyle = C.dark;
+    // the ridge as a dark silhouette with a lit edge
+    g.beginPath();
+    HILLS.forEach((p, k) => (k ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])));
+    g.lineTo(960, gy); g.lineTo(0, gy); g.closePath();
+    g.fillStyle = "#0a110d"; g.fill();
+    g.lineWidth = 2; g.strokeStyle = C.dark;
     g.beginPath();
     HILLS.forEach((p, k) => (k ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])));
     g.stroke();
@@ -1847,8 +1872,13 @@ export class Outpost {
   drawScene(g) {
     const s = this.s, gy = 440;
     this.drawBackdrop(g, stageOf(s));
+    const ground = g.createLinearGradient(0, gy, 0, 540);
+    ground.addColorStop(0, "#111c15"); ground.addColorStop(1, "#070b09");
+    g.fillStyle = ground; g.fillRect(0, gy, 960, 540 - gy);
     line(g, 0, gy, 960, gy, C.line, 2);
     for (let x = 30; x < 960; x += 90) line(g, x, gy + 8, x + 40, gy + 8, C.dark, 2);
+    this.drawRipples(g, gy);
+    this.drawPulses(g, gy);
     let ghost = -1;
     for (let i = 0; i < NP; i++) {
       const x = 56 + i * (848 / (NP - 1)), n = s.own[i]; // twelve machines across the width
@@ -1862,6 +1892,34 @@ export class Outpost {
         text(g, "?", x, gy - 30, 22, C.line, "center");
       }
     }
+  }
+  // Each tap sends a pulse out along the ground from the middle; cyan in full groove.
+  drawRipples(g, gy) {
+    g.save(); g.scale(1, 0.16);
+    for (const r of this.ripples) {
+      if (r.t >= 1.2) continue;
+      const u = r.t / 1.2;
+      g.globalAlpha = 0.7 * (1 - u);
+      circle(g, 480, (gy + 2) / 0.16, 30 + 460 * u, r.full ? C.cyan : C.amber, false, 3);
+    }
+    g.restore();
+    g.globalAlpha = 1;
+  }
+  // Signal rising from each working machine toward the count at the top; faster as it works harder.
+  drawPulses(g, gy) {
+    const s = this.s;
+    g.fillStyle = C.cyan;
+    for (let i = 0; i < NP; i++) {
+      if (!(s.own[i] > 0)) continue;
+      const x0 = 56 + i * (848 / (NP - 1)), y0 = gy - 70, a = this.act[i];
+      for (let k = 0; k < 2; k++) {
+        const u = (this.phase[i] * 0.25 + k / 2) % 1;
+        const x = x0 + (480 - x0) * u * u, y = y0 + (130 - y0) * u;
+        g.globalAlpha = (0.25 + 0.55 * a) * Math.sin(Math.PI * u);
+        g.fillRect(x - 2, y - 2, 4, 4);
+      }
+    }
+    g.globalAlpha = 1;
   }
   // Each machine is a few lines; motion speed follows its output (act) and phase.
   structure(g, i, x, y, n) {

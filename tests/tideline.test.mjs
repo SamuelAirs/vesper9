@@ -1013,3 +1013,31 @@ test("the learning curve: help tapers over the first forty fish instead of endin
   assert.ok(rate(100, 1, 11) >= 0.8, "commons stay landable without gear");
   assert.ok(rate(100, 3, 11) < 0.6, "rare fish still need skill or gear");
 });
+
+test("today's catch: one species a day in reach, bites more, pays double, first one pays a bonus once", () => {
+  const { app } = make({ seed: 61 });
+  app.sv.landed = 50;
+  app.today = () => 20261001;
+  const d = app.daily();
+  assert.ok(d && !d.treasure && d.rar <= 4 && app.reachWater() >= d.water, "today's species is catchable: " + d.name);
+  assert.equal(app.daily(), d, "same species all day");
+  const days = new Set();
+  for (let k = 0; k < 30; k++) { app.today = () => 20261001 + k; days.add(app.daily().id); }
+  assert.ok(days.size >= 3, "it changes from day to day: " + days.size);
+  app.today = () => 20261001;
+  const other = SP.find((s) => !s.treasure && s.rar === d.rar && s.id !== d.id) || SP.find((s) => !s.treasure && s.id !== d.id);
+  const first = land(app, d);
+  assert.ok(first.daily && first.dailyBonus === 60 + 20 * d.rar, "first daily pays a bonus");
+  assert.equal(app.sv.dy, 20261001);
+  assert.ok(app.dailyDone());
+  const again = land(app, d);
+  assert.ok(again.daily && again.dailyBonus === 0, "bonus once a day");
+  const plain = land(app, other);
+  assert.ok(!plain.daily);
+  // The day rolls over: the bonus is available again and the save keeps the day.
+  const back = M.normalizeSave(JSON.parse(JSON.stringify(app.sv)));
+  assert.equal(back.dy, 20261001);
+  app.today = () => 20261002;
+  assert.ok(!app.dailyDone());
+  app.draw(fakeCanvas());
+});

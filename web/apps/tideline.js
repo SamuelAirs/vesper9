@@ -232,13 +232,13 @@ function stepCatch(c, held, rng, dt) {
 // `runs`, `last` and `milestone` keep the host's record list meaningful.
 // schema 3 adds q[] best stars per species (0 none, 1 landed, 2 silver, 3 gold), xp angler
 // experience, r rest tokens, b the notice board (three notices), pf perfect catches, ch chests
-// salvaged, bn notices completed. A schema 2 save gets one star for everything it has landed
+// salvaged, bn notices completed, dy the last day (YYYYMMDD) whose daily catch was landed. A schema 2 save gets one star for everything it has landed
 // and experience worked out from what it has done, so its rank reflects the past.
 const SCHEMA = 3;
 function freshSave() {
   return { schema: SCHEMA, runs: 0, last: {}, milestone: 0, n: Array(N).fill(0), m: Array(N).fill(0), $: 0,
     g: [0, 0, 0, 0], c: 0, f: 0, casts: 0, landed: 0, tides: 0,
-    q: Array(N).fill(0), xp: 0, r: 0, b: [], pf: 0, ch: 0, bn: 0 };
+    q: Array(N).fill(0), xp: 0, r: 0, b: [], pf: 0, ch: 0, bn: 0, dy: 0 };
 }
 // A notice: k kind, s species (sp, sz) or water (wt), n how many, p progress, x size in tenths
 // of a cm (sz), $ scrip paid, d done.
@@ -276,6 +276,7 @@ function normalizeSave(raw) {
       s.pf = int(raw.pf, 0, 1e6);
       s.ch = int(raw.ch, 0, 1e6);
       s.bn = int(raw.bn, 0, 1e6);
+      s.dy = int(raw.dy, 0, 99991231);
     } else {
       // From schema 2: one star for each species landed, experience from the past.
       for (let i = 0; i < N; i++) s.q[i] = s.n[i] > 0 ? 1 : 0;
@@ -290,6 +291,12 @@ function normalizeSave(raw) {
 const hash01 = (i) => { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
 const WAVES = [262, 272, 285, 302, 325, 355, 392, 437, 490, 536];
 // A jagged far shore along the horizon, drawn once as a polyline.
+// A nearer, lower ridge on the left, and the sky's gradient per part of the day: [top, horizon, water].
+const NEAR = Array.from({ length: 14 }, (_, i) => [i * 30, 250 - 4 - Math.floor(hash01(i + 50) * 3) * 5 - (i === 5 ? 10 : 0)]);
+const SKY = { D: ["#0c1511", "#3a3324", "#16231c"], d: ["#11201a", "#24402f", "#13241b"], u: ["#0c1511", "#3b2a22", "#1a1d17"], n: ["#070d0a", "#0f1b14", "#0b1510"] };
+// Shadows that drift under the water: shapes borrowed from the catalogue, at fixed depths.
+const SHADOW_SRC = [0, 9, 16, 12, 21];
+const SHADOWS = SHADOW_SRC.map((id, k) => ({ x: hash01(k + 300) * 1200, y: 300 + k * 30, v: (k % 2 ? -1 : 1) * (8 + 6 * hash01(k + 310)), shape: SPECIES[id].shape }));
 const RIDGE = Array.from({ length: 33 }, (_, i) => [i * 30, 250 - 6 - Math.floor(hash01(i) * 4) * 6 - (i % 7 === 3 ? 18 : 0)]);
 
 export class Tideline {
@@ -323,6 +330,8 @@ export class Tideline {
     this.lastLeds = lightsOff();
     this.sky = 0; // periods rested ahead of the real clock (this visit only)
     this.clickAt = 0; // the next reel click during a catch
+    this.splashes = [];
+    this.tip = [205, 345]; // the rod tip, where the line starts
     this.fillBoard();
     this.setHint("Press to begin. Hold to cast.");
     this.refreshHud();
@@ -351,6 +360,13 @@ export class Tideline {
     return clamp((this.sv.xp - RANK_XP[r - 1]) / (RANK_XP[r] - RANK_XP[r - 1]), 0, 1);
   }
   reachWater() { return this.waterAt(this.castMax()); }
+  // ---- the daily catch: one species a day (by the calendar) bites more and pays double ----
+  today() { const d = new Date(); return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate(); }
+  daily() {
+    const pool = SPECIES.filter((sp) => sp.rar <= 4 && sp.water <= this.reachWater());
+    return pool[Math.floor(hash01(this.today() % 100000 + 0.5) * pool.length) % pool.length];
+  }
+  dailyDone() { return this.sv.dy === this.today(); }
   pickWeather() {
     let r = this.c.rng.next() * 100;
     for (let i = 0; i < WEATHER.length; i++) { r -= WEATHER_ODDS[i]; if (r < 0) return WEATHER[i]; }
@@ -385,6 +401,7 @@ export class Tideline {
       let w = RARITY_WEIGHT[sp.rar];
       if (sp.rar >= 3) w *= LURE_MULT[gearLure] * (chum ? 1.5 : 1);
       if (sp.wx) w *= sp.wx === weather ? 3 : 0.6;
+      if (sp === this.daily()) w *= 2.5;
       out.push({ sp, w });
     }
     return out;
@@ -646,6 +663,7 @@ export class Tideline {
   }
   startWait() {
     this.go("wait");
+    this.splash(...this.bobberXY());
     const rng = this.c.rng;
     this.waitFor = rng.range(1.6, 4.8);
     this.nibbleAt = rng.next() < 0.5 ? rng.range(0.7, Math.max(0.8, this.waitFor - 0.7)) : -1;
@@ -664,6 +682,7 @@ export class Tideline {
   }
   startBite() {
     this.go("bite");
+    this.splash(...this.bobberXY(), true);
     this.biteFor = 1.0 + 0.6 * this.learning() + 0.04 * (this.rank() - 1);
     this.tone(880, 0.08, "square");
     this.tone(1175, 0.1, "square", 0.1);
@@ -724,12 +743,14 @@ export class Tideline {
       sv.n[sp.id] = Math.min(9999, sv.n[sp.id] + 1);
       sv.m[sp.id] = Math.max(sv.m[sp.id], Math.round(size * 10));
       sv.q[sp.id] = Math.max(sv.q[sp.id], q);
-      const scrip = Math.round(RARITY_VALUE[sp.rar] * (0.7 + 0.6 * frac) * (first ? 1.25 : 1) * QUALITY_PAY[q]);
+      const isDaily = sp === this.daily(), dailyBonus = isDaily && !this.dailyDone() ? 60 + 20 * sp.rar : 0;
+      const scrip = Math.round(RARITY_VALUE[sp.rar] * (0.7 + 0.6 * frac) * (first ? 1.25 : 1) * QUALITY_PAY[q] * (isDaily ? 2 : 1)) + dailyBonus;
       sv.$ = Math.min(MAX_SCRIP, sv.$ + scrip);
+      if (isDaily) sv.dy = this.today();
       if (perfect) sv.pf = Math.min(1e6, sv.pf + 1);
-      card = { sp, name: sp.name, size, isNew: first, isRecord: rec, scrip, rar: sp.rar, note: sp.note, q, perfect, better };
+      card = { sp, name: sp.name, size, isNew: first, isRecord: rec, scrip, rar: sp.rar, note: sp.note, q, perfect, better, daily: isDaily, dailyBonus };
       if (first) this.bag.tideNew++;
-      this.addXp(landXp(sp.rar) * QUALITY_XP[q] * (first ? 1.5 : 1));
+      this.addXp(landXp(sp.rar) * QUALITY_XP[q] * (first ? 1.5 : 1) * (dailyBonus ? 1.5 : 1));
     }
     if (c?.chest?.got) card.chest = this.openChest();
     card.notices = this.progressBoard({ sp: sp.treasure ? null : sp, size: card.size || 0, perfect, chest: !!card.chest });
@@ -740,6 +761,7 @@ export class Tideline {
     this.finishCast(true);
     this.go("card");
     this.fanfare(card.rar, card.isNew, card.treasure);
+    this.splash(...this.bobberXY(), true);
     if (card.q === 3 || card.perfect) this.tone(card.q === 3 ? 2093 : 1760, 0.2, "sine", 0.9);
     if (card.notices.length) [784, 988, 1175].forEach((hz, i) => this.tone(hz, 0.12, "triangle", 1.1 + i * 0.09));
     if (card.rankUp) [523, 784, 1047, 1568].forEach((hz, i) => this.tone(hz, 0.2, "triangle", 1.5 + i * 0.12));
@@ -856,6 +878,8 @@ export class Tideline {
     this.t += dt;
     this.phaseT += dt;
     if (this.held) this.pressT += dt;
+    for (const sp of this.splashes) sp.t += dt;
+    if (this.splashes.length && this.splashes[0].t > 1.5) this.splashes.shift();
     if (this.sfx.length) {
       const keep = [];
       for (const s of this.sfx) { if (this.t >= s.at) this.c.tone(s.hz, s.dur, s.wave); else keep.push(s); }
@@ -1015,13 +1039,23 @@ export class Tideline {
     const d = this.dist;
     return [260 + 4.2 * d, 440 - 1.55 * d];
   }
+  // The scene: a sky that follows the hour, a solid far shore with a nearer ridge, water whose
+  // bands show the four waters (nearest at the pier), the sun or moon reflected, shadows of fish
+  // drifting under the surface, the angler on the pier, and splashes where the line lands.
   drawScene(g) {
     const t = this.t, per = this.period(), day = per === "d";
-    space(g, t, per === "n" ? 0.5 : 0.25);
-    // Sun or ringed moon.
-    if (day) {
-      circle(g, 790, 100, 30, C.amber, false, 2);
-      for (let i = 0; i < 12; i++) { const a = i * TAU / 12; line(g, 790 + Math.cos(a) * 38, 100 + Math.sin(a) * 38, 790 + Math.cos(a) * 50, 100 + Math.sin(a) * 50, C.amber, 2); }
+    space(g, t, per === "n" ? 0.5 : per === "d" ? 0.08 : 0.25);
+    const sky = SKY[per];
+    let gr = g.createLinearGradient(0, 0, 0, 250);
+    gr.addColorStop(0, sky[0]); gr.addColorStop(1, sky[1]);
+    g.globalAlpha = 0.55; g.fillStyle = gr; g.fillRect(0, 0, 960, 250); g.globalAlpha = 1;
+    // Sun or ringed moon, with a soft halo.
+    g.globalAlpha = 0.12; circle(g, 790, 100, 64, day ? C.amber : C.cyan, true); g.globalAlpha = 1;
+    if (day || per === "D" || per === "u") {
+      circle(g, 790, 100, 30, C.amber, per === "u", 2);
+      g.beginPath();
+      for (let i = 0; i < 12; i++) { const a = i * TAU / 12 + t * 0.05; g.moveTo(790 + Math.cos(a) * 38, 100 + Math.sin(a) * 38); g.lineTo(790 + Math.cos(a) * 50, 100 + Math.sin(a) * 50); }
+      g.strokeStyle = C.amber; g.lineWidth = 2; g.stroke();
     } else {
       circle(g, 790, 100, 28, C.muted, false, 2);
       g.save();
@@ -1029,12 +1063,39 @@ export class Tideline {
       circle(g, 0, 0, 52, C.line, false, 3);
       g.restore();
     }
-    // Far shore and horizon.
+    // Far shore (solid) and a nearer, darker ridge.
     g.beginPath();
-    g.moveTo(RIDGE[0][0], RIDGE[0][1]);
-    for (let i = 1; i < RIDGE.length; i++) g.lineTo(RIDGE[i][0], RIDGE[i][1]);
+    g.moveTo(0, 250);
+    for (let i = 0; i < RIDGE.length; i++) g.lineTo(RIDGE[i][0], RIDGE[i][1]);
+    g.lineTo(960, 250); g.closePath();
+    g.fillStyle = "#14231a"; g.fill();
     g.strokeStyle = C.line; g.lineWidth = 2; g.stroke();
+    g.beginPath();
+    g.moveTo(0, 250);
+    for (let i = 0; i < NEAR.length; i++) g.lineTo(NEAR[i][0], NEAR[i][1]);
+    g.lineTo(380, 250); g.closePath();
+    g.fillStyle = "#0f1b14"; g.fill();
+    // Water: a gradient, then faint bands for the four waters.
+    gr = g.createLinearGradient(0, 250, 0, 540);
+    gr.addColorStop(0, sky[2]); gr.addColorStop(1, "#08100c");
+    g.fillStyle = gr; g.fillRect(0, 250, 960, 290);
+    const reach = this.castMax();
+    for (let w = 0; w < WATERS.length; w++) {
+      const near = WATERS[w].from, far = WATERS[w + 1]?.from ?? 110;
+      const y1 = 440 - 1.55 * near, y0 = Math.max(252, 440 - 1.55 * far);
+      g.globalAlpha = near < reach ? 0.07 : 0.025;
+      g.fillStyle = WCOL[w]; g.fillRect(200, y0, 760, y1 - y0);
+    }
+    g.globalAlpha = 1;
     line(g, 0, 250, 960, 250, C.muted, 2);
+    // The reflection of the sun or moon: a broken column that shimmers.
+    g.fillStyle = day ? C.amber : C.cyan;
+    for (let i = 0; i < 9; i++) {
+      const y = 258 + i * 14, w = 36 - i * 2.5 + 8 * Math.sin(t * 1.7 + i * 1.3);
+      g.globalAlpha = 0.28 - i * 0.025;
+      g.fillRect(790 - w / 2 + 4 * Math.sin(t + i), y, w, 2);
+    }
+    g.globalAlpha = 1;
     // The water: broken lines that drift.
     g.setLineDash([36, 22]);
     for (let i = 0; i < WAVES.length; i++) {
@@ -1042,27 +1103,79 @@ export class Tideline {
       line(g, 0, WAVES[i] + Math.sin(t * 0.8 + i) * 1.5, 960, WAVES[i] + Math.sin(t * 0.8 + i) * 1.5, i < 4 ? "#233929" : C.line, 2);
     }
     g.setLineDash([]); g.lineDashOffset = 0;
+    // Shadows of fish under the surface (not during a catch or under a card).
+    if (this.phase !== "catch" && this.phase !== "card") {
+      g.globalAlpha = 0.16;
+      for (let k = 0; k < SHADOWS.length; k++) {
+        const sh = SHADOWS[k], x = ((sh.x + t * sh.v) % 1200 + 1200) % 1200 - 120;
+        this.drawShape(g, sh.shape, sh.v > 0 ? x : 960 - x, sh.y + 4 * Math.sin(t * 0.7 + k), 0.7, C.cyan, 2);
+      }
+      g.globalAlpha = 1;
+    }
     this.drawWeather(g);
-    // Pier, post and rod.
-    line(g, 0, 428, 200, 428, C.muted, 4);
-    line(g, 40, 428, 40, 470, C.line, 3); line(g, 120, 428, 120, 470, C.line, 3); line(g, 190, 428, 190, 470, C.line, 3);
-    line(g, 120, 420, 205, 345, C.amber, 3);
+    this.drawSplashes(g);
+    // Pier with planks and posts, and the angler holding the rod.
+    g.fillStyle = "#1b2a1f"; g.fillRect(0, 424, 204, 8);
+    line(g, 0, 424, 204, 424, C.muted, 3);
+    g.beginPath();
+    for (let x = 12; x < 200; x += 24) { g.moveTo(x, 425); g.lineTo(x, 431); }
+    g.strokeStyle = C.line; g.lineWidth = 1; g.stroke();
+    g.beginPath();
+    for (const x of [40, 120, 190]) { g.moveTo(x, 432); g.lineTo(x, 474); }
+    g.lineWidth = 3; g.stroke();
+    g.globalAlpha = 0.25; g.beginPath();
+    for (const x of [40, 120, 190]) { g.moveTo(x, 480); g.lineTo(x, 500 + 4 * Math.sin(t + x)); }
+    g.stroke(); g.globalAlpha = 1;
+    const lean = this.phase === "catch" ? 4 * Math.sin(t * 9) : this.phase === "charge" ? -6 * this.power : 0;
+    g.beginPath(); // legs, body and the arm to the rod
+    g.moveTo(92, 424); g.lineTo(98 + lean * 0.3, 396); g.lineTo(104, 424);
+    g.moveTo(98 + lean * 0.3, 396); g.lineTo(102 + lean * 0.5, 368);
+    g.moveTo(101 + lean * 0.5, 376); g.lineTo(120, 380);
+    g.strokeStyle = C.muted; g.lineWidth = 3; g.stroke();
+    circle(g, 104 + lean * 0.5, 358, 7, C.muted, false, 2); // head
+    const tipX = 205 + lean, tipY = 345 - (this.phase === "catch" ? 6 + 4 * Math.sin(t * 9) : 0);
+    g.beginPath(); g.moveTo(112, 392); g.quadraticCurveTo(160, 360 + (this.phase === "catch" ? 12 : 0), tipX, tipY);
+    g.strokeStyle = C.amber; g.lineWidth = 3; g.stroke();
+    this.tip = [tipX, tipY];
     // Line and bobber.
     const showLine = ["cast", "wait", "bite", "catch"].includes(this.phase);
     if (showLine) this.drawLine(g);
+  }
+  // Rings on the water where the line lands, where a fish bites and where a catch is landed.
+  splash(x, y, big = false) {
+    if (this.splashes.length > 5) this.splashes.shift();
+    this.splashes.push({ x, y, t: 0, big });
+  }
+  drawSplashes(g) {
+    for (const sp of this.splashes) {
+      const life = sp.big ? 1.2 : 0.8, k = sp.t / life;
+      if (k >= 1) continue;
+      g.globalAlpha = 0.7 * (1 - k);
+      g.save(); g.translate(sp.x, sp.y); g.scale(1, 0.3);
+      circle(g, 0, 0, 6 + k * (sp.big ? 60 : 34), C.ink, false, 2);
+      if (sp.big) circle(g, 0, 0, 3 + k * 34, C.cyan, false, 2);
+      g.restore();
+      for (let i = 0; i < (sp.big ? 6 : 3); i++) {
+        const a = Math.PI * (0.15 + 0.7 * (i + 0.5) / (sp.big ? 6 : 3)), r = k * (sp.big ? 40 : 22);
+        g.fillStyle = C.ink;
+        g.fillRect(sp.x - Math.cos(a) * r, sp.y - Math.sin(a) * r * 1.4 + k * k * 30, 3, 3);
+      }
+    }
+    g.globalAlpha = 1;
   }
   drawLine(g) {
     const [bx0, by0] = this.bobberXY(), t = this.t, ph = this.phase;
     let bx = bx0, by = by0;
     if (ph === "cast") {
       const k = clamp(this.phaseT / 0.6, 0, 1);
-      bx = lerp(205, bx0, k); by = lerp(345, by0, k) - Math.sin(k * Math.PI) * 120;
+      bx = lerp(this.tip[0], bx0, k); by = lerp(this.tip[1], by0, k) - Math.sin(k * Math.PI) * 120;
     } else if (ph === "wait") by += Math.sin(t * 2) * 1.5 + this.nibble * 14;
     else if (ph === "bite") by += 12 * blink(this.phaseT, 7);
     else if (ph === "catch") bx += Math.sin(t * 17) * 2.5;
     g.beginPath();
-    g.moveTo(205, 345);
-    g.quadraticCurveTo((205 + bx) / 2, Math.max(345, by) + (ph === "catch" ? 4 : 38), bx, by - 6);
+    const [tx, ty] = this.tip;
+    g.moveTo(tx, ty);
+    g.quadraticCurveTo((tx + bx) / 2, Math.max(ty, by) + (ph === "catch" ? 4 : 38), bx, by - 6);
     g.strokeStyle = C.ink; g.lineWidth = 1.5; g.stroke();
     if (ph === "wait" || ph === "bite") {
       const r = (t * 14) % 28;
@@ -1099,6 +1212,8 @@ export class Tideline {
     if (this.affordable()) text(g, "GEAR AVAILABLE", 480, 126, 20, C.cyan, "center");
     text(g, "REACH " + this.castMax() + "   " + WATERS[this.waterAt(this.castMax())].name, 480, 498, 18, C.muted, "center");
     this.drawRank(g, 480, 526);
+    const dsp = this.daily();
+    text(g, "TODAY'S CATCH  " + (this.sv.n[dsp.id] > 0 ? dsp.name : "AN UNRECORDED " + RARITY[dsp.rar]) + "  " + WATERS[dsp.water].name + (this.dailyDone() ? "  LANDED" : "  PAYS DOUBLE"), 480, 232, 16, this.dailyDone() ? C.muted : C.amber, "center");
     if (this.boardOpen() && this.sv.b.length) {
       g.fillStyle = "#0c1511c8"; g.fillRect(14, 140, 420, 26 + 24 * this.sv.b.length);
       text(g, "NOTICES", 26, 158, 16, C.cyan);
@@ -1144,7 +1259,17 @@ export class Tideline {
     const GX = 770, GW = 56, Y0 = 60, Y1 = 470, len = Y1 - Y0;
     const yOf = (v) => Y1 - v * len;
     g.fillStyle = "#0c1511d8"; g.fillRect(GX - 60, Y0 - 24, 170, len + 106);
-    // Gauge with the catch zone and the fish.
+    // Gauge: a column of water (lighter at the top), rising bubbles, the catch zone and the fish.
+    const wg = g.createLinearGradient(0, Y0, 0, Y1);
+    wg.addColorStop(0, "#1d3a2c"); wg.addColorStop(1, "#08130d");
+    g.fillStyle = wg; g.fillRect(GX - GW / 2, Y0, GW, len);
+    g.fillStyle = C.cyan;
+    for (let i = 0; i < 6; i++) {
+      const k = (this.t * (0.12 + 0.05 * hash01(i + 400)) + hash01(i + 410)) % 1;
+      g.globalAlpha = 0.35 * (1 - k);
+      g.fillRect(GX - GW / 2 + 6 + hash01(i + 420) * (GW - 12) + 3 * Math.sin(this.t * 3 + i), Y1 - k * len, 3, 3);
+    }
+    g.globalAlpha = 1;
     g.strokeStyle = C.muted; g.lineWidth = 3; g.strokeRect(GX - GW / 2, Y0, GW, len);
     const inside = inZone(c);
     const zt = yOf(c.z + c.h), zh = c.h * 2 * len;
@@ -1198,7 +1323,7 @@ export class Tideline {
       if (this.phaseT > 0.7) text(g, "PRESS TO CAST AGAIN", 480, 468, 22, C.amber, "center");
       return;
     }
-    const head = k.treasure ? (k.isNew ? "NEW FIND" : "SALVAGED") : k.isNew ? "NEW SPECIES RECORDED" : k.isRecord ? "NEW SIZE RECORD" : "LANDED";
+    const head = k.treasure ? (k.isNew ? "NEW FIND" : "SALVAGED") : k.isNew ? "NEW SPECIES RECORDED" : k.isRecord ? "NEW SIZE RECORD" : k.daily ? "TODAY'S CATCH" : "LANDED";
     text(g, head, 480, 80, 32, k.isNew || k.isRecord ? C.cyan : C.ink, "center");
     this.drawShape(g, k.sp.shape, 290, 210, this.cardScale(k.sp.shape, 3.4), k.rar >= 4 ? C.amber : C.ink, 3);
     text(g, k.name, 600, 150, k.name.length > 16 ? 24 : 30, C.ink, "center");
@@ -1213,7 +1338,7 @@ export class Tideline {
     } else text(g, "NOT A FISH", 600, 200, 26, C.amber, "center");
     wrapText(k.note, 52).slice(0, 2).forEach((ln, i) => text(g, ln, 480, 330 + i * 26, 20, C.muted, "center"));
     text(g, "+" + k.scrip + " SCRIP" + (k.chest ? "    CHEST: " + k.chest.label + " +" + k.chest.scrip : ""), 480, 394, k.chest ? 20 : 24, C.amber, "center");
-    const extra = k.rankUp ? "ANGLER RANK " + k.rankUp + (RANK_UNLOCK[k.rankUp] ? ": " + RANK_UNLOCK[k.rankUp] : "")
+    const extra = k.dailyBonus ? "TODAY'S CATCH: DOUBLE SCRIP AND +" + k.dailyBonus + " FOR THE FIRST" : k.rankUp ? "ANGLER RANK " + k.rankUp + (RANK_UNLOCK[k.rankUp] ? ": " + RANK_UNLOCK[k.rankUp] : "")
       : k.notices?.length ? "NOTICE DONE: " + this.noticeText(k.notices[0]) + "  +" + k.notices[0].$ : "";
     if (extra) text(g, extra, 480, 422, 18, C.cyan, "center");
     if (k.tide) text(g, "TIDE COMPLETE  " + k.tide.landed + " LANDED  +" + k.tide.bonus + (k.tide.rest ? "  +1 REST" : ""), 480, 448, 18, C.cyan, "center");

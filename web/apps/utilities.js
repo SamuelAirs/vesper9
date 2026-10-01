@@ -406,7 +406,7 @@ export class Environment {
     const T = (celsius) => (celsius === null || celsius === undefined ? '—' : tempValue(celsius, unit).toFixed(1));
     const cell = (label, value, sub = '') => `<div><div class="data-label">${label}</div><div class="atmo-value">${value}${sub ? `<small> ${sub}</small>` : ''}</div></div>`;
     const head = (label, aside) => `<div class="data-label atmo-head"><span>${label}</span><span class="atmo-aside">${aside}</span></div>`;
-    const top = `<div class="atmo-top"><div class="utility-panel">${head('TEMPERATURE' + (off ? ' · CORRECTED ' + esc(formatOffset(off, unit)) : ''), live ? this.trendText(tTrend && { ...tTrend, rate: tempDelta(tTrend.rate, unit) }, 1, u) : '')}<div class="big-readout">${T(t)}<small> ${u}</small></div></div>`
+    const top = `<div class="atmo-top"><div class="utility-panel">${head('TEMPERATURE', live ? this.trendText(tTrend && { ...tTrend, rate: tempDelta(tTrend.rate, unit) }, 1, u) : '')}<div class="big-readout">${T(t)}<small> ${u}</small>${off ? `<small class="atmo-case"> CASE ${esc(formatOffset(off, unit))}</small>` : ''}</div></div>`
       + `<div class="utility-panel">${head('HUMIDITY', live ? this.trendText(hTrend, 1, '%') : '')}<div class="big-readout">${live ? h.toFixed(1) : '—'}<small> %</small></div></div>`
       + `<div class="utility-panel atmo-${band ? band.id : 'none'}">${head('COMFORT', band ? band.note : 'NO READING')}<div class="big-readout atmo-verdict">${band ? band.label : '—'}</div></div></div>`;
     const derived = '<div class="utility-panel atmo-derived">'
@@ -435,7 +435,7 @@ export class Environment {
       ...(off ? [{ id: 'off-zero', label: 'CASE OFFSET / CLEAR ' + formatOffset(off, unit), run: () => this.setOffset(0) }] : []),
       { id: 'home', label: 'RETURN TO DASHBOARD', run: this.c.home },
     ]);
-    this.c.hint(`Case offset corrects the sensor's self-heating (steps of 0.5 °C). Feels like: NWS heat index from ${unit === "F" ? "80 °F" : "26.7 °C"} and 40 % RH, else air temperature. The lamps show comfort.`);
+    this.c.hint(`Case offset removes the sensor's self-heating, 0.5 °C a step. Feels like: heat index from ${unit === "F" ? "80 °F" : "26.7 °C"}, else air temperature.`);
   }
   setOffset(value) {
     return this.c.command('settings', { key: 'tempOffset', value: clampOffset(value) }).catch(this.c.error);

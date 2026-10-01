@@ -1311,3 +1311,4 @@ main {
 .fn-caret { margin-left: 2px; color: var(--muted); animation: fn-blink 1s steps(2, jump-none) infinite; }
 .fn-still .fn-caret, .fn-panel.fn-still .fn-caret { animation: none; }
 @media (prefers-reduced-motion: reduce) { .fn-rec i, .fn-caret { animation: none; } }
+.atmo-top .big-readout small.atmo-case { color: var(--amber); font-size: 13px; letter-spacing: 1px; }

@@ -43,7 +43,7 @@ test("Atmosphere applies the offset to the reading, derived values, extremes and
   assert.match(h0, /26\.0<small> °C/); assert.match(h1, /23\.0<small> °C/);
   assert.doesNotMatch(h0, /CASE OFFSET/, "no offset, no note");
   assert.match(h1, /CASE OFFSET −3\.0 °C APPLIED TO TEMPERATURE \(HISTORY STORED RAW\)/);
-  assert.match(h1, /CORRECTED −3\.0 °C/);
+  assert.match(h1, /CASE −3\.0 °C<\/small>/);
   // Dew point and absolute humidity use the corrected temperature with the measured humidity.
   near(dewPoint(23, 40), 8.7, 0.1);
   assert.ok(h1.includes(dewPoint(23, 40).toFixed(1) + " °C"), "dew point from the corrected temperature");

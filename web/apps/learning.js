@@ -76,3 +76,30 @@ export function practiseDay(days, today) {
   out.last = today;
   return out;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Long-term goals shared by both games: a rank from experience, one contract a day, and feats.
+// A rank table is [[xp needed, name], ...] in rising order.
+export function rankOf(xp, ranks) {
+  let i = 0;
+  while (i + 1 < ranks.length && xp >= ranks[i + 1][0]) i++;
+  const at = ranks[i][0], next = ranks[i + 1]?.[0];
+  return { index: i, name: ranks[i][1], at, next, fraction: next ? Math.min(1, (xp - at) / (next - at)) : 1 };
+}
+// A stable small number from a day ("YYYY-MM-DD"), so the day's contract is the same all day.
+export function dayIndex(day, n) {
+  let h = 2166136261;
+  for (const ch of String(day)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); }
+  return n > 0 ? (h >>> 0) % n : 0;
+}
+// Today's contract: kept while it is still today, otherwise a fresh one.
+export function dailyFor(daily, today, count) {
+  return daily && daily.day === today && Number.isInteger(daily.id) && daily.id >= 0 && daily.id < count
+    ? { day: today, id: daily.id, done: !!daily.done } : { day: today, id: dayIndex(today, count), done: false };
+}
+// Feats are kept as a list of ids; returns the names of those newly earned.
+export function award(feats, list, check) {
+  const got = [];
+  for (const f of list) if (!feats.includes(f.id) && check(f.id)) { feats.push(f.id); got.push(f.name); }
+  return got;
+}

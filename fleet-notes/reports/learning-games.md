@@ -8,6 +8,21 @@ Echo Vault teaches Morse by keying words against a timer; Glyph Archive teaches 
 spaced-practice model (`web/apps/learning.js`), migrate the old saves, and pass all eight suites except one
 Perihelion bot test that also fails on `main` in this environment. **Nothing here was verified on the device.**
 
+## Second pass: depth and visuals (Sam, 2026-10-01 23:05: "their own game that you can sink time into")
+
+- Both games: a rank from experience (Echo CADET to LEGEND OF THE BAND, Glyph NOVICE to LOREMASTER), one
+  daily contract (same all day, +150 XP) and feats (13 Echo, 12 Glyph). Shared helpers `rankOf`, `dayIndex`,
+  `dailyFor`, `award` in `learning.js`. New save fields (xp, contracts, feats, daily; Echo stations; Glyph
+  plates) migrate inside schema 2, with tests; full saves stay well under 8 KiB.
+- Echo Vault: the last word of each 30-word shift is a far station's call sign (contact, double points);
+  keying it logs the station (20 to find). The vault door's 30 tumblers fill as words clear, the key trace
+  scrolls as a scope with sparks, the timer is a travelling packet. Hold on the title: code card, then the
+  logbook (stations and feats), then back.
+- Glyph Archive: each wing is split into plates (Braille 3, Greek 4, Elements 4, Phonetic 4); a plate is
+  restored (+100 XP) when every entry on it reaches strength 3. New hall backdrop, slabs slide in, verdict
+  stamp, combo pips, wax seals. Holding past the last wing opens the archivist's desk (rank, all plates,
+  feats); a tap goes back.
+
 ## Details
 
 **Echo Vault** (`web/apps/echo.js`, whole file replaced)
@@ -62,7 +77,10 @@ gesture rewind, lamps, legibility); `tests/gesture-apps.test.mjs` now compares G
 
 ## Verification (desktop container, not the Pi)
 
-- `node --test tests/*.test.mjs`: 837 pass, 1 fail. The failure is Perihelion's planning-bot test (seed 3003
+- Second pass: `node --test tests/*.test.mjs` 842 pass, same 1 Perihelion failure; echo 20 and glyph 15
+  tests; the other seven suites pass; new screenshots (Echo title, code card, logbook, play, result; Glyph
+  title, play, result, desk) opened and checked, logbook column clipping fixed.
+- First pass: `node --test tests/*.test.mjs`: 837 pass, 1 fail. The failure is Perihelion's planning-bot test (seed 3003
   falls); it fails the same way on unmodified `main` here.
 - `tests/echo.test.mjs` 17 and `tests/glyphs.test.mjs` 13 tests: migration from the old save, Signal School
   letters, keying, hint fading, spacing, unlocks, competent vs idle bots, lamps, three stray taps, lockout.
@@ -80,4 +98,4 @@ gesture rewind, lamps, legibility); `tests/gesture-apps.test.mjs` now compares G
   the 7-inch screen, whether 30 cards / 30 transmissions is the right session length.
 - `tests/audit/balance.mjs` and `tests/audit/gesture.mjs` (manual audit scripts, not in the suites) still
   drive the old mechanics of these two games and would fail if run.
-- No daily-challenge or feats layer yet; the day streak is shown but rewards nothing.
+- Contract and feat thresholds are guesses until Sam plays them; the streak only feeds the week feats.

@@ -473,6 +473,7 @@
       "category": "INSTRUMENT / CHANCE",
       "glyph": 5,
       "factory": "Oracle",
+      "icon": "<rect x=\"7\" y=\"7\" width=\"34\" height=\"34\" rx=\"7\"/><circle cx=\"17\" cy=\"17\" r=\"2.4\" fill=\"currentColor\"/><circle cx=\"31\" cy=\"17\" r=\"2.4\" fill=\"currentColor\"/><circle cx=\"24\" cy=\"24\" r=\"2.4\" fill=\"currentColor\"/><circle cx=\"17\" cy=\"31\" r=\"2.4\" fill=\"currentColor\"/><circle cx=\"31\" cy=\"31\" r=\"2.4\" fill=\"currentColor\"/><path d=\"M2 24h2M44 24h2M24 2v2M24 44v2\"/>",
       "voice": [
         "dice"
       ],

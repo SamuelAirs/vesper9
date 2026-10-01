@@ -132,3 +132,19 @@ the console's own tones with sound up, and a run at about 2500 to measure the li
 Confirmed on the device (threshold 2500, three spots, 127 light taps): all 127 would pass 4000, 125
 pass 5000, 115 pass 8000; lightest 4123 (top of the case), no stray events in 80 s. The presets
 above stand. Remaining: the console-tones check.
+
+## Pulsar tap lane (Sam's idea: tap a spot matching the lit lamp)
+
+Telling spots apart from one microphone is not reliable: light taps at the usual spot peak 6827 to
+32767 (median 9002), the top 4123 to 32742 (median 15814), the other side 13291 to 32767 (median
+23607), and `hf` overlaps everywhere (40 to 103). How hard you tap moves a tap across all three.
+The closest reliable version is button versus case: in Pulsar, with knock input on, beats in the
+right lane (white lamp, ring on screen) are struck by tapping the case anywhere; the left and
+middle lanes stay on the button (holds only there). Same rhythm per seed. A knock is judged at the
+node's time of the tap (mapped onto the host clock by the button presses' own timestamps), so its
+~100 ms delivery delay costs no accuracy; a tap beat waits 250 ms past its window for its knock.
+The system menu has PULSAR / TAP LANE to switch it off for the session; Calibration OFF removes it.
+
+Test on the console (sound at 100 %): play Pulsar a few phrases with the tap lane; check that right-
+lane beats register as PERFECT/GOOD when tapped on time, that the button cannot strike them, and
+that the game's own beats and tones do not register as taps (stray count, or Node Scope KNOCK COUNTS).

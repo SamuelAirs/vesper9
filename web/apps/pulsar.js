@@ -1,7 +1,8 @@
 // PULSAR — a one-button rhythm game. Beats fall down three lanes toward a strike
 // line; tap short beats, hold long signals from head to tail. The lane changes
 // what you see, hear and which physical lamp answers (left, middle, right), not
-// what you press. The music is generated: a quiet pulse plus a pentatonic
+// what you press, except in the TAP LANE: with knock input on (Calibration), beats
+// in the right lane are struck by tapping the case instead of pressing the button. The music is generated: a quiet pulse plus a pentatonic
 // melody that sounds when you hit a beat (a missed beat stays silent).
 //
 // Everything runs on the simulation clock `song` (accumulated dt). Charts are
@@ -19,7 +20,14 @@ import { AppGuard } from "../engine/input.js";
 const INPUT_OFFSET = 0.04;
 const APPROACH = 1.6; // seconds a beat is visible before it reaches the line
 const SWELL = 0.4; // seconds the lamp swells before a beat
-const HOLD_TOLERANCE = 0.22; // a hold may be released this early and still count
+const HOLD_TOLERANCE = 0.22;
+// The tap lane. A knock on the case is judged on the node's clock: the node reports when the tap
+// started, and the button's own events tell how the node's clock maps onto ours. Until a press has
+// shown that, a knock is assumed to have happened TAP_LATENCY before it arrived (the node decides
+// about 90 ms after the tap). A tap beat waits TAP_GRACE past its window for its knock to arrive.
+const TAP_LANE = 2;
+const TAP_LATENCY = 0.1;
+const TAP_GRACE = 0.25; // a hold may be released this early and still count
 const LOOKAHEAD = 6; // chart is generated this far ahead of the song clock
 const STRIKE_Y = 430, TOP_Y = 70;
 const SPEED = (STRIKE_Y - TOP_Y) / APPROACH;
@@ -59,12 +67,16 @@ export class Pulsar {
     this.endedAt = -9;
     this.lastKey = "";
     this.lastHint = "";
+    this.tapPref = null; // the TAP LANE menu choice this session; null follows the knock setting
+    this.offsets = []; // recent (host ms - node ms) of button presses, to place knocks in time
+    this.clock = () => performance.now();
     this.reset();
     this.setHint("Tap on the beat. Hold the long signals. Lamps swell before each beat.");
   }
 
   reset() {
     const bd = 60 / 80;
+    this.tapMode = !!this.ctx.knockInput?.() && this.tapPref !== false;
     this.song = -3 * bd; // three count-in ticks before the first beat at 0
     this.notes = [];
     this.beats = [];
@@ -138,7 +150,10 @@ export class Pulsar {
         const slots = rng.int(2, s.maxHold);
         if (k + slots <= SLOTS - 3) { len = slots * slot; busy = k + slots + 2; }
       }
-      this.notes.push({ t: start + k * slot, len, lane: LANE_OF[this.melody], freq: SCALE[this.melody], state: "pending", q: 0 });
+      const lane = LANE_OF[this.melody], tap = this.tapMode && lane === TAP_LANE;
+      // A tap beat is an instant: no hold. (The random draws are the same, so a seed gives the same rhythm.)
+      if (tap) len = 0;
+      this.notes.push({ t: start + k * slot, len, lane, tap, freq: SCALE[this.melody], state: "pending", q: 0 });
     }
     this.genEnd = start + SLOTS * slot;
     this.phrases.push({ start, end: this.genEnd, bpm: s.bpm, index, news: s.news });
@@ -147,8 +162,12 @@ export class Pulsar {
 
   // ---- input -------------------------------------------------------------
 
-  down() {
+  down(e = {}) {
     this.guard.mark();
+    if (Number.isFinite(e.at_us)) {
+      this.offsets.push(this.clock() - e.at_us / 1000);
+      if (this.offsets.length > 8) this.offsets.shift();
+    }
     if (this.phase === "title") return this.begin();
     if (this.phase === "over") {
       if (this.t - this.endedAt > 0.8) this.begin();
@@ -157,21 +176,50 @@ export class Pulsar {
     if (this.phase !== "play" || this.pressing) return;
     this.pressing = true;
     const now = this.song - INPUT_OFFSET;
-    const { good, perfect } = this.cur;
-    let target = null;
+    const target = this.reach(now, false);
+    if (!target) return this.strayInput();
+    this.hit(target, now);
+  }
+
+  // The first unplayed beat of this kind (button or case tap) within reach of `now`, or null.
+  reach(now, tap) {
+    const { good } = this.cur;
     for (const n of this.notes) {
-      if (n.state === "pending" && n.t >= now - good) { target = n; break; }
+      if (n.state === "pending" && !!n.tap === tap && n.t >= now - good) return Math.abs(now - n.t) <= good ? n : null;
     }
-    if (!target || Math.abs(now - target.t) > good) {
-      // A press with no beat in reach. It costs a little once the song is
-      // running, so mashing is a poor strategy but stray taps are survivable.
-      if (this.song > 0) {
-        this.stab = clamp(this.stab - 0.015, 0, 1);
-        this.stray++;
-        this.ctx.tone(70, 0.05, "square");
-      }
-      return;
+    return null;
+  }
+
+  // An input with no beat in reach. It costs a little once the song is
+  // running, so mashing is a poor strategy but stray taps are survivable.
+  strayInput() {
+    if (this.song > 0) {
+      this.stab = clamp(this.stab - 0.015, 0, 1);
+      this.stray++;
+      this.ctx.tone(70, 0.05, "square");
     }
+  }
+
+  // A knock on the case (docs/ENGINE.md): strikes a beat in the tap lane, judged at the moment the
+  // node says the tap happened.
+  knock(e = {}) {
+    if (this.phase !== "play" || !this.tapMode) return;
+    const now = this.song - this.knockLateness(e);
+    const target = this.reach(now, true);
+    if (!target) return this.strayInput();
+    this.hit(target, now);
+  }
+
+  // Seconds between the tap and now. The smallest recent (host - node) gap of a button press is the
+  // best estimate of the clocks' offset, since a press reaches us almost at once.
+  knockLateness(e) {
+    if (!Number.isFinite(e.at_us) || !this.offsets.length) return TAP_LATENCY;
+    const offset = Math.min(...this.offsets);
+    return clamp((this.clock() - (e.at_us / 1000 + offset)) / 1000, 0, 0.35);
+  }
+
+  hit(target, now) {
+    const { perfect } = this.cur;
     const delta = now - target.t;
     target.q = Math.abs(delta) <= perfect ? 0 : 1;
     this.judge = { text: target.q ? "GOOD" : "PERFECT", color: target.q ? C.amber : C.ink,
@@ -210,6 +258,16 @@ export class Pulsar {
     this.ctx.leds(lightsOff());
   }
   pause() { this.guard.settle(); this.cancel(); }
+  // With knock input on, the tap lane can be switched off for this session (it restarts the song).
+  menuActions() {
+    if (!this.ctx.knockInput?.()) return [];
+    return [{ label: "PULSAR / TAP LANE " + (this.tapMode ? "ON: SWITCH OFF" : "OFF: SWITCH ON"), run: () => {
+      this.tapPref = !this.tapMode;
+      this.reset();
+      this.phase = "title";
+      this.ctx.resume?.();
+    } }];
+  }
   dispose() {
     this.guard.settle();
     this.pressing = false;
@@ -222,7 +280,8 @@ export class Pulsar {
     this.reset();
     this.phase = "play";
     this.ctx.synth?.stopTone?.();
-    this.setHint("Count-in. Tap when a beat reaches the line; hold long signals to their tail.");
+    this.setHint(this.tapMode ? "Count-in. Press for the left and middle beats; tap the case for the right ones."
+      : "Count-in. Tap when a beat reaches the line; hold long signals to their tail.");
   }
 
   flashLane(lane, rgb, dur, level) {
@@ -279,7 +338,7 @@ export class Pulsar {
         this.cur = spec(cur.index);
         this.curPhrase = cur;
         this.setHint("Phrase " + (cur.index + 1) + " of " + FINALE + " at " + cur.bpm + " BPM. " + (cur.index < 4
-          ? "Tap on the beat." : "Tap short beats, hold the long signals."));
+          ? "Tap on the beat." : "Tap short beats, hold the long signals.") + (this.tapMode ? " Right lane: tap the case." : ""));
       }
     }
     // The pulse.
@@ -294,7 +353,7 @@ export class Pulsar {
     const now = this.song - INPUT_OFFSET;
     for (const n of this.notes) {
       if (n.t > now) break;
-      if (n.state === "pending" && n.t + this.cur.good < now) {
+      if (n.state === "pending" && n.t + this.cur.good + (n.tap ? TAP_GRACE : 0) < now) {
         n.state = "missed";
         this.combo = 0;
         this.counts.miss++;
@@ -395,7 +454,7 @@ export class Pulsar {
         seen[n.lane] = true;
         const k = 1 - clamp(ahead, 0, SWELL) / SWELL;
         const swell = 0.06 + 0.44 * Math.pow(k, 1.5);
-        const colour = dim(n.len > 0 ? LAMP.violet : LAMP.cyan, swell);
+        const colour = dim(n.tap ? LAMP.white : n.len > 0 ? LAMP.violet : LAMP.cyan, swell);
         out[n.lane] = base.map((v, j) => Math.max(v, colour[j]));
       }
     }
@@ -431,7 +490,8 @@ export class Pulsar {
       text(g, "PULSAR", 480, 206, 42, C.ink, "center");
       text(g, "TAP WHEN A DIAMOND TOUCHES THE LINE", 480, 252, 22, C.muted, "center");
       text(g, "HOLD THE LONG BARS TO THE END", 480, 282, 22, C.muted, "center");
-      text(g, "THE LAMPS SWELL BEFORE EACH BEAT", 480, 322, 16, C.muted, "center");
+      text(g, this.tapMode ? "RIGHT LANE (WHITE LAMP): TAP THE CASE, NOT THE BUTTON" : "THE LAMPS SWELL BEFORE EACH BEAT",
+        480, 322, 16, this.tapMode ? C.amber : C.muted, "center");
       text(g, "PRESS TO BEGIN", 480, 360, 22, C.amber, "center");
     } else if (this.phase === "play") {
       this.drawPlay(g);
@@ -459,7 +519,7 @@ export class Pulsar {
       const x = LANE_X[i], f = this.flash[i];
       circle(g, x, STRIKE_Y, 34, C.muted, false, 3);
       if (f && play) circle(g, x, STRIKE_Y, 34 + 14 * ((this.t - f.t0) / f.dur), "rgb(" + f.rgb.join(",") + ")", false, 4);
-      text(g, LANE_NAME[i], x, STRIKE_Y + 54, 16, C.muted, "center");
+      text(g, this.tapMode && i === TAP_LANE ? "TAP CASE" : LANE_NAME[i], x, STRIKE_Y + 54, 16, this.tapMode && i === TAP_LANE ? C.amber : C.muted, "center");
       // A copy of what the physical lamp is doing, so the lamps can be learned by eye.
       const l = lampsNow[i];
       circle(g, x, STRIKE_Y + 86, 15, C.line, false, 2);
@@ -485,8 +545,13 @@ export class Pulsar {
         if (yTail >= TOP_Y - 20) line(g, x - 26, yTail, x + 26, yTail, held ? C.cyan : C.muted, 3);
       }
       if (yHead >= TOP_Y - 30 && yHead < STRIKE_Y + 40) {
-        diamond(g, x, yHead, 28, missed ? C.red : n.len > 0 ? C.cyan : C.ink, true);
-        if (!missed) diamond(g, x, yHead, 28, C.bg, false);
+        if (n.tap) {
+          // A ring, not a diamond: struck with the case, not the button.
+          circle(g, x, yHead, 22, missed ? C.red : C.amber, false, 6);
+        } else {
+          diamond(g, x, yHead, 28, missed ? C.red : n.len > 0 ? C.cyan : C.ink, true);
+          if (!missed) diamond(g, x, yHead, 28, C.bg, false);
+        }
       }
       g.globalAlpha = 1;
     }
@@ -536,3 +601,4 @@ export class Pulsar {
 
 Pulsar.INPUT_OFFSET = INPUT_OFFSET;
 Pulsar.FINALE = FINALE;
+Pulsar.TAP_LATENCY = TAP_LATENCY;

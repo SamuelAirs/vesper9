@@ -26,20 +26,29 @@ class Layout(unittest.TestCase):
         self.assertEqual(len(names), len(set(names)))
         seen = []
         for sector in CATALOG['sectors']:
-            self.assertEqual(set(sector), {'name', 'apps'})
+            self.assertTrue({'name', 'apps'} <= set(sector) <= {'name', 'apps', 'tagline'})
             self.assertTrue(1 <= len(sector['apps']) <= SECTOR_PAGE_SIZE, sector['name'])
             for ident in sector['apps']:
                 self.assertIn(ident, IDS)
             seen += sector['apps']
         self.assertEqual(len(seen), len(set(seen)), 'an app is on two pages')
 
-    def test_games_come_first_in_three_sectors_with_perihelion_on_the_first_page(self):
-        sectors = CATALOG['sectors']
-        self.assertEqual(sorted(sum((s['apps'] for s in sectors[:3]), [])), sorted(GAMES))
-        self.assertEqual(sectors[0]['apps'][0], 'perihelion')
-        for sector in sectors[:3]:
-            self.assertTrue(4 <= len(sector['apps']) <= 5, sector['name'])
-        self.assertTrue(all(i not in GAMES for s in sectors[3:] for i in s['apps']))
+    def test_sectors_are_grouped_by_kind_games_first_with_perihelion_on_the_first_page(self):
+        # Games by how they are played (long voyages, quick arcade runs, mind games), then the tools.
+        # Pulsar and Helix are retired (Sam, 2026-10-01): registered until removed, off the dashboard.
+        sectors = {s['name']: s['apps'] for s in CATALOG['sectors']}
+        names = [s['name'] for s in CATALOG['sectors']]
+        self.assertEqual(names[0], 'VOYAGES')
+        self.assertEqual(sectors['VOYAGES'][0], 'perihelion')
+        self.assertIn('outpost', sectors['VOYAGES'])
+        games = [i for s in CATALOG['sectors'] for i in s['apps'] if i in GAMES]
+        on_games_pages = [i for s in CATALOG['sectors'] if any(a in GAMES for a in s['apps']) for i in s['apps']]
+        self.assertEqual(games, on_games_pages, 'no page mixes games and tools')
+        self.assertEqual(sorted(games), sorted(set(GAMES) - {'pulsar', 'helix'}))
+        self.assertLess(names.index('MIND'), names.index('TOOLS'), 'games come before tools')
+        self.assertEqual(sorted(sectors['TOOLS'] + sectors['SENSORS']),
+                         sorted(['morse', 'cadence', 'lantern', 'oracle', 'environment', 'resonance', 'transcribe']))
+        self.assertTrue(all(s.get('tagline') for s in CATALOG['sectors']), 'every page says what it is for')
 
     def test_chronometer_is_retired_in_favour_of_the_timer_tool_in_cadence(self):
         on_dashboard = {i for s in CATALOG['sectors'] for i in s['apps']}
@@ -60,7 +69,9 @@ class Layout(unittest.TestCase):
         self.assertEqual(ephemeris['voice'], [], 'its voice name is gone')
         self.assertEqual(ephemeris['factory'], 'Ephemeris', 'but it is still registered and launchable by id')
         # Everything that is not on the dashboard is a system tool or retired (Ephemeris, Chronometer).
-        self.assertEqual({i for i in IDS if i not in on_dashboard}, {'settings', 'diagnostics', 'telemetry', 'ephemeris', 'timers'})
+        # Pulsar and Helix are retired games, removed from the catalog by their own pull requests.
+        self.assertEqual({i for i in IDS if i not in on_dashboard} - {'pulsar', 'helix'},
+                         {'settings', 'diagnostics', 'telemetry', 'ephemeris', 'timers'})
 
     def test_the_catalog_no_longer_carries_a_menu_policy(self):
         self.assertTrue(all('escape' not in app for app in CATALOG['apps']))
@@ -75,6 +86,7 @@ class Validation(unittest.TestCase):
         ids = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
         ok = validate_sectors([{'name': 'ONE', 'apps': ['a', 'b']}, {'name': 'TWO', 'apps': ['c']}], ids)
         self.assertEqual(ok[0]['apps'], ['a', 'b'])
+        self.assertEqual(validate_sectors([{'name': 'ONE', 'apps': ['a'], 'tagline': 'For one.'}], ids)[0]['tagline'], 'For one.')
         for bad in (
             [],
             None,
@@ -85,6 +97,8 @@ class Validation(unittest.TestCase):
             [{'name': 'ONE', 'apps': ['a']}, {'name': 'ONE', 'apps': ['b']}],
             [{'name': '', 'apps': ['a']}],
             [{'name': 'ONE', 'apps': ['a'], 'extra': 1}],
+            [{'name': 'ONE', 'apps': ['a'], 'tagline': ''}],
+            [{'name': 'ONE', 'apps': ['a'], 'tagline': 3}],
             ['ONE', 2],
         ):
             with self.assertRaises(ValueError, msg=repr(bad)):

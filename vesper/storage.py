@@ -26,6 +26,17 @@ class Store:
         self.db.execute("""UPDATE sessions SET ended=COALESCE((SELECT MAX(at) FROM lines WHERE session=sessions.id), started)
                          WHERE ended IS NULL""")
         self.db.commit()
+        self.migrate()
+
+    # One-off data migrations, each run once and remembered by name under the "migrations" key.
+    def migrate(self):
+        done = self.get("migrations", [])
+        if "ballista_metres_v2" not in done:
+            # Ballista was rebuilt as a distance launcher scored in metres. Its best is kept as the
+            # MAX of every score, so the old artillery best would hide every new distance: keep it,
+            # under its own name, and let the launcher start a fresh best.
+            self.db.execute("UPDATE OR IGNORE scores SET app='ballista:artillery' WHERE app='ballista'")
+            self.put("migrations", done + ["ballista_metres_v2"])
 
     def get(self, key, default=None):
         row = self.db.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()

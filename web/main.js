@@ -33,7 +33,7 @@ function icon(app) {
 
 // The dashboard's pages, from the catalog's explicit sectors: each is a named list of app ids in order.
 // An app in no sector is not on the dashboard (it stays launchable by id, by voice and from the menu).
-const PAGES = SECTORS.map((sector) => ({ name: sector.name, apps: sector.apps.map((id) => APPS.find((a) => a.id === id)).filter(Boolean) }))
+const PAGES = SECTORS.map((sector) => ({ name: sector.name, tagline: sector.tagline || "", apps: sector.apps.map((id) => APPS.find((a) => a.id === id)).filter(Boolean) }))
   .filter((page) => page.apps.length);
 function locateCard(id) {
   for (let page = 0; page < PAGES.length; page++) {
@@ -41,6 +41,16 @@ function locateCard(id) {
     if (index >= 0) return { page, index };
   }
   return null;
+}
+
+// The card's small kind label: the part of the category after the slash ("PLAY / MOMENTUM" → MOMENTUM).
+const kind = (app) => (app.category.split("/").pop() || "").trim();
+const isGame = (app) => app.category.startsWith("PLAY");
+function standing(best, runs) {
+  const parts = [];
+  if (best > 0) parts.push("BEST " + Math.round(best).toLocaleString("en-US"));
+  if (runs > 0) parts.push(runs + (runs === 1 ? " RUN" : " RUNS"));
+  return parts.length ? parts.join(" · ") : "UNCHARTED";
 }
 
 export class Vesper {
@@ -364,17 +374,26 @@ export class Vesper {
     $("app-grid").innerHTML = collection
       .map(
         (app, i) =>
-          `<button class="app-card" type="button" data-app="${app.id}"><span class="card-number">${String(i + 1).padStart(2, "0")}</span><span class="app-icon">${icon(app)}</span><span class="card-name">${app.name}</span><span class="card-desc">${app.subtitle}</span></button>`,
+          `<button class="app-card" type="button" data-app="${app.id}"><span class="card-number">${String(i + 1).padStart(2, "0")} · ${esc(kind(app))}</span><span class="app-icon">${icon(app)}</span><span class="card-name">${app.name}</span><span class="card-desc">${app.subtitle}</span><span class="card-stat"></span></button>`,
       )
-      .join("");
+      .join("") + '<div class="app-slot" aria-hidden="true">◇ OPEN BAY</div>'.repeat((3 - (collection.length % 3)) % 3);
     const pages = PAGES.length;
-    const name = PAGES[this.page]?.name || "EXPANSION";
-    $("collection-title").textContent =
-      name + " / " + collection.length + " CHANNELS";
+    const sector = PAGES[this.page] || { name: "EXPANSION" };
+    const next = PAGES[(this.page + 1) % pages];
+    $("collection-title").textContent = collection.length + (collection.length === 1 ? " CHANNEL" : " CHANNELS");
     $("sector-label").textContent =
-      "SECTOR " + String(this.page + 1).padStart(2, "0") + " / " + name;
-    $("sector-button").textContent =
-      "NEXT SECTOR → " + (PAGES[(this.page + 1) % pages]?.name || "EXPANSION");
+      "SECTOR " + String(this.page + 1).padStart(2, "0") + " / " + sector.name;
+    $("sector-title").textContent = sector.name.charAt(0) + sector.name.slice(1).toLowerCase();
+    $("sector-tagline").textContent = sector.tagline || "";
+    // Every sector at a glance: this one lit, the one NEXT SECTOR goes to marked. The tabs are a
+    // pointer shortcut only; the button reaches every sector through NEXT SECTOR.
+    $("sector-strip").innerHTML = PAGES.map((p, i) =>
+      `<button type="button" tabindex="-1" class="sector-tab${i === this.page ? " is-current" : ""}${pages > 1 && i === (this.page + 1) % pages ? " is-next" : ""}" data-page="${i}">${esc(p.name)}</button>`).join("");
+    $("sector-strip").querySelectorAll("button").forEach((tab) => {
+      tab.onclick = () => { this.page = Number(tab.dataset.page); this.buildHome(); };
+    });
+    $("sector-button").textContent = "NEXT SECTOR → " + (next?.name || "EXPANSION");
+    this.cardStats();
     const nav = [...$("app-grid").querySelectorAll("button")].map(
       (element, i) => ({ element, run: () => this.launch(collection[i].id) }),
     );
@@ -389,6 +408,18 @@ export class Vesper {
       { element: $("system-button"), run: () => this.systemMenu() },
     );
     this.setNav(nav, index);
+  }
+  // Each game card carries its standing: the best score and the runs logged, or UNCHARTED.
+  // Instruments keep their subtitle alone. Rewritten in place when scores or progress arrive.
+  cardStats() {
+    for (const card of $("app-grid").querySelectorAll(".app-card")) {
+      const app = APPS.find((a) => a.id === card.dataset.app);
+      const stat = card.querySelector(".card-stat");
+      if (!app || !stat) continue;
+      const value = isGame(app) ? standing(this.state.scores?.[app.id], this.state.progress?.[app.id]?.runs) : "";
+      if (stat.textContent !== value) stat.textContent = value;
+      card.classList.toggle("is-uncharted", value === "UNCHARTED");
+    }
   }
   home() {
     // Come back to the card the player just left, on its own sector. An app that is not on the
@@ -649,7 +680,7 @@ export class Vesper {
           this.help(
             this.meta
               ? this.meta.description + " To open the menu from anywhere: tap, tap, then press and hold for about a second. The two taps and the hold reach the app first; when the menu opens, the app puts back anything they changed."
-              : "Tap to move between items. Hold and release to select. To open the system menu from anywhere, in any app: tap, tap, then press and hold for about a second. Space or the on-screen arcade button also works. Games come first on the dashboard, then the instruments; Calibration, Node Scope and Telemetry are under SYSTEM TOOLS in the system menu.",
+              : "Tap to move between items. Hold and release to select. To open the system menu from anywhere, in any app: tap, tap, then press and hold for about a second. Space or the on-screen arcade button also works. The dashboard's sectors are " + PAGES.map((p) => p.name.charAt(0) + p.name.slice(1).toLowerCase()).join(", ") + ": the games come first, then the instruments. Calibration, Node Scope and Telemetry are under SYSTEM TOOLS in the system menu.",
           ),
       },
       { label: "CALIBRATION / SETTINGS", run: () => this.launch("settings") },
@@ -838,6 +869,7 @@ export class Vesper {
           progress: e.progress || {},
         };
         this.loaded = true;
+        this.cardStats();
         this.settings();
         this.lightVisual(e.leds);
         this.status();
@@ -930,6 +962,7 @@ export class Vesper {
         break;
       case "scores":
         this.state.scores = e.scores;
+        this.cardStats();
         break;
       case "settings":
         this.state.settings = { ...DEFAULT, ...e.settings };

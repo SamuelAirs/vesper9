@@ -82,7 +82,8 @@ async function button(page, ms = 80) {
   await button(page);
   assert.equal(await page.evaluate(() => vesper.nav.index), 1);
   await button(page, 800);
-  assert.equal(await page.evaluate(() => vesper.meta.id), "orbit");
+  // The second card of the first sector (VOYAGES: Outpost).
+  assert.equal(await page.evaluate(() => vesper.meta.id), "outpost");
   await button(page, 3150);
   assert.equal(await page.locator("#menu-overlay").isVisible(), false, "a plain game hold must not open the menu");
   // A stalled frame can still break one sequence on a busy machine; allow a few attempts.

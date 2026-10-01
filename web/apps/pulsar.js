@@ -28,7 +28,7 @@ const LANE_NAME = ["LOW", "MID", "HIGH"];
 const SCALE = [220, 261.63, 293.66, 329.63, 392, 440, 523.25];
 const LANE_OF = [0, 0, 1, 1, 2, 2, 2];
 const SLOTS = 16; // half-beats per phrase (eight beats)
-// The song has an end: after this many phrases (about two and a half minutes) the
+// The song has an end: after this many phrases (about two minutes) the
 // chart stops, and a player who is still holding the signal wins.
 const FINALE = 32;
 

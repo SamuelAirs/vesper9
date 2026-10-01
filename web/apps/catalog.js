@@ -42,7 +42,7 @@ export const CARTRIDGES = [
     "id": "drift",
     "name": "UNDERTOW",
     "subtitle": "Follow the silent current.",
-    "description": "Pilot a small craft through an impossible ocean. Hold to rise, release to sink, and thread the openings between ancient columns. The hull survives a bump or two. The lamps show your depth and where the next opening is.",
+    "description": "Pilot a small craft down through an impossible ocean. Hold to rise, release to sink, and thread the openings between ancient columns through six zones of currents, dark water and breathing vents. Gather pearls for new craft at the dock (hold on the title screen), try the daily dive, earn feats. The lamps show your depth and where the next opening is.",
     "controls": "HOLD TO RISE · RELEASE TO SINK",
     "category": "PLAY / FLIGHT",
     "glyph": 2,
@@ -55,7 +55,12 @@ export const CARTRIDGES = [
       "lights",
       "audio",
       "progress"
-    ]
+    ],
+    "record": {
+      "passages": "Passages",
+      "pearls": "Pearls",
+      "zone": "Deepest zone"
+    }
   },
   {
     "id": "echo",
@@ -222,8 +227,8 @@ export const CARTRIDGES = [
     "id": "helix",
     "name": "HELIX",
     "subtitle": "Grow without crossing yourself.",
-    "description": "A signal thread that only turns one way. Tap to turn, gather fragments, and do not touch your own trail. The walls are soft for the first twenty seconds.",
-    "controls": "TAP TO TURN",
+    "description": "A signal thread that turns both ways: tap for right, hold a moment for left. Gather fragments quickly for a combo, do not touch your own trail, and meet portals and obstacles at each milestone. Hold on the title screen for the hangar: the old one-way SPIRAL mode, new fields, a daily run and feats.",
+    "controls": "TAP: RIGHT · HOLD: LEFT",
     "category": "PLAY / TRAIL",
     "glyph": 2,
     "factory": "Helix",

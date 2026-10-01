@@ -6,7 +6,7 @@ import { Outpost } from "../../web/apps/outpost.js";
 import { appContext } from "./app-context.mjs";
 
 const E = Outpost.econ;
-const TREE_ORDER = [0, 1, 3, 5, 4, 2, 6, 9, 7, 8];
+const TREE_ORDER = [0, 1, 10, 3, 5, 4, 2, 6, 9, 7, 8, 12, 11];
 
 export function simulate({ runs = 3, maxMin = 240, active = 150, cycle = 600, checkin = 150, seed = 1, tapRate = 4, dt = 0.25, ready = (s) => E.readyOf(s) } = {}) {
   let wall = 1.8e12;
@@ -29,7 +29,10 @@ export function simulate({ runs = 3, maxMin = 240, active = 150, cycle = 600, ch
           for (let k = 0; k < tapRate * dt; k++) app.gather();
           app.buyAll();
         } else if (checking) { app.buyAll(); nextCheck = t + checkin; }
-        if (app.s.tree[5] > 0 && app.s.ex.length < app.s.tree[5] && (isActive || checking)) app.launch(app.s.rt > 3e5 ? 2 : 1);
+        if (app.s.tree[5] > 0 && app.s.ex.length < app.s.tree[5] && (isActive || checking)) {
+          if (!app.launch(app.s.rt > 3e7 && E.hasRes(app.s, 3) ? 3 : app.s.rt > 3e5 ? 2 : 1)) app.launch(app.s.rt > 3e5 ? 2 : 1);
+        }
+        if (isActive || checking) for (let k = 0; k < E.NR; k++) app.startResearch(k); // the bot always starts what it can afford
         app.update(dt);
         wall += dt * 1000;
         t += dt;
@@ -41,6 +44,14 @@ export function simulate({ runs = 3, maxMin = 240, active = 150, cycle = 600, ch
         if (s.up.some((x, i) => x && E.UPG[i].kind === "prod")) mark("first upgrade", m);
         if (s.own.some((n) => n >= 10)) mark("first milestone", m);
         if (s.up.some((x, i) => x && E.UPG[i].kind === "syn")) mark("first synergy", m);
+        if (s.st.md > 0) mark("first tune", m);
+        if (s.gl.length > 0) mark("first goal", m);
+        if (s.gl.length >= 10) mark("10 goals", m);
+        if (s.rs.length || s.rd.length) mark("research started", m);
+        if (s.rd.length) mark("research done", m);
+        if (s.up.some((x, i) => x && E.UPG[i].kind === "voice")) mark("first voice", m);
+        if (E.unlockedN(s) >= 8) mark("8 tunes", m);
+        if (s.own[10] > 0) mark("zero-point listener", m);
         if (E.revealOf(s)) mark("relocation shown", m);
         if (E.readyOf(s)) mark("relocation ready", m);
         if (E.pendingOf(s) >= 100) mark("100 bearings", m);

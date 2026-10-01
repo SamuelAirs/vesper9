@@ -1,0 +1,40 @@
+test_missing_kiosk_dependency_leaves_existing_service_untouched (test_install.ServiceInstallTests.test_missing_kiosk_dependency_leaves_existing_service_untouched) ... ok
+test_upgrade_preserves_files_and_data_and_replaces_active_process (test_install.ServiceInstallTests.test_upgrade_preserves_files_and_data_and_replaces_active_process) ... ok
+test_catalog_voice_aliases_and_ids_stay_in_sync (test_runtime.CatalogTests.test_catalog_voice_aliases_and_ids_stay_in_sync) ... ok
+test_audio_gap_accounting_and_button_decode (test_runtime.DeviceTests.test_audio_gap_accounting_and_button_decode) ... ok
+test_node_boot_generation_and_current_button_are_reported (test_runtime.DeviceTests.test_node_boot_generation_and_current_button_are_reported) ... ok
+test_reaction_same_clock_and_cancel (test_runtime.DeviceTests.test_reaction_same_clock_and_cancel) ... ok
+test_corrupt_frame_recovers_to_next_frame (test_runtime.ProtocolTests.test_corrupt_frame_recovers_to_next_frame) ... ok
+test_every_fragment_boundary (test_runtime.ProtocolTests.test_every_fragment_boundary) ... ok
+test_known_crc (test_runtime.ProtocolTests.test_known_crc) ... ok
+test_large_noise_and_oversize_header_are_bounded (test_runtime.ProtocolTests.test_large_noise_and_oversize_header_are_bounded) ... ok
+test_random_packet_chunks (test_runtime.ProtocolTests.test_random_packet_chunks) ... ok
+test_complete_dashboard_and_explicit_simulator (test_runtime.RuntimeTests.test_complete_dashboard_and_explicit_simulator) ... /workspace/scratch/9c0802e2f43f/VESPER-9-v0.2.0/vesper9/vesper/server.py:346: NotAppKeyWarning: It is recommended to use web.AppKey instances for keys.
+https://docs.aiohttp.org/en/stable/web_advanced.html#application-s-config
+  app["console"] = console
+ok
+test_failed_mute_still_closes_transcription (test_runtime.RuntimeTests.test_failed_mute_still_closes_transcription) ... ok
+test_full_timer_list_does_not_break_voice_worker (test_runtime.RuntimeTests.test_full_timer_list_does_not_break_voice_worker) ... ok
+test_invalid_commands_rejected_and_microphone_stays_off (test_runtime.RuntimeTests.test_invalid_commands_rejected_and_microphone_stays_off) ... ok
+test_led_ack_and_progress (test_runtime.RuntimeTests.test_led_ack_and_progress) ... ok
+test_new_settings_validate_and_reset_without_erasing_progress (test_runtime.RuntimeTests.test_new_settings_validate_and_reset_without_erasing_progress) ... ok
+test_one_controller_and_origin_protection (test_runtime.RuntimeTests.test_one_controller_and_origin_protection) ... ok
+test_reaction_score_classes_preserve_ambiguous_legacy_record (test_runtime.RuntimeTests.test_reaction_score_classes_preserve_ambiguous_legacy_record) ... ok
+test_saved_notes_are_paginated_and_selected_export_is_exact (test_runtime.RuntimeTests.test_saved_notes_are_paginated_and_selected_export_is_exact) ... ok
+test_sensor_event_includes_observation_age_and_no_fake_resampling (test_runtime.RuntimeTests.test_sensor_event_includes_observation_age_and_no_fake_resampling) ... ok
+test_speech_worker_fault_turns_capture_off_and_closes_session (test_runtime.RuntimeTests.test_speech_worker_fault_turns_capture_off_and_closes_session) ... ERROR:root:Speech stopped: injected decoder failure
+ok
+test_timer_clock_policy_follows_wall_deadline_and_never_negative (test_runtime.RuntimeTests.test_timer_clock_policy_follows_wall_deadline_and_never_negative) ... ok
+test_timer_validation_pause_and_resume (test_runtime.RuntimeTests.test_timer_validation_pause_and_resume) ... ok
+test_timers_background_completion_and_persistence (test_runtime.RuntimeTests.test_timers_background_completion_and_persistence) ... ok
+test_emit_failure_notifies_independent_fault_handler_and_retry_restarts (test_runtime.SpeechRecoveryTests.test_emit_failure_notifies_independent_fault_handler_and_retry_restarts) ... ERROR:root:Speech stopped: injected storage callback failure
+ok
+test_final_result_failure_cannot_prevent_off (test_runtime.SpeechRecoveryTests.test_final_result_failure_cannot_prevent_off) ... WARNING:root:Final speech text could not be saved: bad final
+ok
+test_scores_progress_and_transcripts_persist (test_runtime.StorageTests.test_scores_progress_and_transcripts_persist) ... ok
+test_allowlist_requires_prefix_and_has_no_shell (test_runtime.VoiceTests.test_allowlist_requires_prefix_and_has_no_shell) ... ok
+
+----------------------------------------------------------------------
+Ran 29 tests in 1.484s
+
+OK

@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#111914" />
+    <title>VESPER-9 · Field console</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23111914'/%3E%3Ccircle cx='32' cy='32' r='22' stroke='%23d8f3a6' fill='none' stroke-width='3'/%3E%3Cpath d='M19 23l13 26 13-26M32 10v13' stroke='%23d8f3a6' fill='none' stroke-width='3'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div id="console" class="console crt">
+      <header class="masthead">
+        <a href="#" id="brand" aria-label="VESPER dashboard"
+          ><span class="brand-symbol" aria-hidden="true">◉</span
+          ><span>VESPER<span class="brand-number">—9</span></span></a
+        >
+        <div class="manufacture">
+          OFFWORLD SYSTEMS<br /><span>FIELD CONSOLE / SERIES 79</span>
+        </div>
+        <div class="connection">
+          <span class="status-dot" id="link-dot"></span
+          ><span id="link-text">ESTABLISHING LINK</span
+          ><span class="mode-tag" id="mode-tag">LOCAL</span>
+        </div>
+      </header>
+      <div class="instrument-bar">
+        <div class="physical-lights" aria-label="Node lights">
+          <span class="lamp" id="lamp-0">I</span
+          ><span class="lamp" id="lamp-1">II</span
+          ><span class="lamp" id="lamp-2">III</span>
+        </div>
+        <span class="bar-label">FIELD NODE</span>
+        <div class="environment-mini">
+          <span id="temp-mini">— °C</span><span id="rh-mini">— % RH</span>
+        </div>
+        <button
+          type="button"
+          id="mic-button"
+          class="mic-pill"
+          aria-label="Microphone settings"
+        >
+          <span id="mic-dot">○</span> <span id="mic-text">MIC OFF</span
+          ><span class="level-track"><span id="level-fill"></span></span>
+        </button>
+        <time id="clock">00:00</time>
+      </div>
+      <main>
+        <section id="dashboard" aria-label="Dashboard">
+          <div class="hero">
+            <div class="hero-copy">
+              <span class="eyebrow">A SMALL SIGNAL IN THE DARK</span>
+              <h1>The quiet<br />between <em>stars.</em></h1>
+              <p>One switch. Unfamiliar worlds.</p>
+              <div class="hero-bottom">
+                <span class="tiny-glyph" aria-hidden="true">⌁ ◇ ⊙</span
+                ><span id="sector-label">SECTOR 01 / PLAY</span>
+              </div>
+            </div>
+            <div class="orrery">
+              <canvas
+                id="ambient"
+                width="450"
+                height="300"
+                aria-label="Decorative orbital instrument"
+              ></canvas
+              ><span class="orrery-label"
+                >VESPER SURVEY INSTRUMENT<br />CALIBRATION / 09</span
+              >
+            </div>
+          </div>
+          <div class="section-line">
+            <span id="collection-title">PLAY / SIX EXPERIMENTS</span
+            ><span id="focus-counter">01 — 08</span>
+          </div>
+          <div id="app-grid" class="app-grid"></div>
+          <div class="dashboard-actions">
+            <button id="sector-button" type="button" class="scan-action">
+              NEXT SECTOR → INSTRUMENTS</button
+            ><button id="system-button" type="button" class="scan-action">
+              SYSTEM / SETTINGS
+            </button>
+          </div>
+        </section>
+        <section id="application" hidden>
+          <div class="app-heading">
+            <div>
+              <span class="eyebrow" id="app-category">PLAY</span>
+              <h1 id="app-title"></h1>
+            </div>
+            <button id="pause-button" class="small-button" type="button">
+              PAUSE / MENU
+            </button>
+          </div>
+          <div id="app-description" class="app-description"></div>
+          <div id="hud" class="hud" aria-live="off"></div>
+          <div id="game-stage" class="game-stage">
+            <canvas
+              id="game"
+              width="960"
+              height="540"
+              aria-label="Game play area"
+            ></canvas>
+            <div class="stage-corners" aria-hidden="true"></div>
+          </div>
+          <div id="utility-stage" hidden>
+            <div id="utility-content"></div>
+            <div id="utility-actions" class="utility-actions"></div>
+          </div>
+          <div class="app-readout" id="app-readout" aria-live="polite"></div>
+        </section>
+      </main>
+      <footer class="control-deck">
+        <button
+          id="arcade"
+          class="arcade"
+          type="button"
+          aria-label="Arcade button: tap to advance, hold and release to select, use the displayed menu gesture"
+        >
+          <span class="arcade-cap">●</span
+          ><span class="arcade-label">INPUT / 01</span>
+        </button>
+        <div class="control-copy">
+          <span class="eyebrow" id="control-title"
+            >SINGLE-SWITCH INTERFACE</span
+          >
+          <div id="control-hint">TAP TO ADVANCE · HOLD & RELEASE TO ENTER</div>
+          <div class="control-secondary" id="control-secondary">
+            <span id="escape-hint">MENU: HOLD 3s</span> · SPACE = BUTTON
+          </div>
+          <div class="hold-track"><span id="hold-fill"></span></div>
+        </div>
+        <div class="footer-right">
+          <span id="timer-badge">NO ACTIVE TIMERS</span
+          ><span id="build-tag">VESPER SYSTEM 0.2</span>
+        </div>
+      </footer>
+      <div class="case-label">
+        <span>VESPER LABORATORIES</span
+        ><span>EXPLORATION IS A FORM OF LISTENING</span><span>09 / 79</span>
+      </div>
+    </div>
+    <div id="menu-overlay" class="overlay" hidden>
+      <section
+        class="system-menu"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="menu-title"
+      >
+        <span class="eyebrow">CONTROL CHANNEL</span>
+        <h2 id="menu-title">System menu</h2>
+        <div id="menu-description"></div>
+        <div id="menu-actions"></div>
+        <div class="menu-switch">
+          <button
+            id="menu-arcade"
+            class="arcade"
+            type="button"
+            aria-label="Arcade switch for menu"
+          >
+            <span class="arcade-cap">●</span>
+          </button>
+          <div>
+            <p class="menu-foot">TAP: NEXT<br />HOLD & RELEASE: CHOOSE</p>
+            <div class="hold-track"><span id="menu-hold-fill"></span></div>
+          </div>
+        </div>
+      </section>
+    </div>
+    <div id="toast" role="status" aria-live="polite" hidden></div>
+    <noscript>VESPER needs JavaScript enabled in the local browser.</noscript>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>

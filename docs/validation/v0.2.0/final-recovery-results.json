@@ -1,0 +1,43 @@
+{
+  "passed": true,
+  "scope": "Development-host simulated node; not Pi/hardware",
+  "browser": "153.0.8010.0",
+  "durationSeconds": 20.123,
+  "reconnected": true,
+  "recordedSpeech": null,
+  "timerCompleted": true,
+  "endsMuted": true,
+  "samples": [
+    {
+      "elapsed": 0,
+      "app": "orbit",
+      "frames": {
+        "samples": 8,
+        "medianMs": 16.700000000000003,
+        "p95Ms": 16.700000000000017,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10000000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 15,
+      "app": "orbit",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999999818,
+        "p95Ms": 33.29999999999927,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10000000,
+      "pythonRssKiB": null
+    }
+  ],
+  "pageErrors": []
+}

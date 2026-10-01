@@ -1,0 +1,16 @@
+{
+  "passed": true,
+  "appsExercised": 12,
+  "checks": [
+    "single-button navigation",
+    "three-second escape",
+    "modal switch",
+    "every app mounts and updates",
+    "timer create/pause/resume",
+    "LED commands",
+    "settings persistence",
+    "responsive layout",
+    "standalone bundle"
+  ],
+  "pageErrors": []
+}

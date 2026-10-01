@@ -1,0 +1,7 @@
+ESP-IDF v5.4.2 / ESP32-S3 / Xtensa GCC 14.2.0
+Project build complete.
+Bootloader: 13600 bytes
+Application: 269632 bytes
+Portable C protocol tests passed with -Wall -Wextra -Werror.
+C/Python golden frame matches: 563901117b00090000010203040506070831f4
+Physical Pi and ESP32 have not been accessed.

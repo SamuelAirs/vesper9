@@ -1,0 +1,25 @@
+test_audio_gap_accounting_and_button_decode (test_runtime.DeviceTests.test_audio_gap_accounting_and_button_decode) ... ok
+test_reaction_same_clock_and_cancel (test_runtime.DeviceTests.test_reaction_same_clock_and_cancel) ... ok
+test_corrupt_frame_recovers_to_next_frame (test_runtime.ProtocolTests.test_corrupt_frame_recovers_to_next_frame) ... ok
+test_every_fragment_boundary (test_runtime.ProtocolTests.test_every_fragment_boundary) ... ok
+test_known_crc (test_runtime.ProtocolTests.test_known_crc) ... ok
+test_large_noise_and_oversize_header_are_bounded (test_runtime.ProtocolTests.test_large_noise_and_oversize_header_are_bounded) ... ok
+test_random_packet_chunks (test_runtime.ProtocolTests.test_random_packet_chunks) ... ok
+test_complete_dashboard_and_explicit_simulator (test_runtime.RuntimeTests.test_complete_dashboard_and_explicit_simulator) ... vesper/server.py:335: NotAppKeyWarning: It is recommended to use web.AppKey instances for keys.
+https://docs.aiohttp.org/en/stable/web_advanced.html#application-s-config
+  app["console"] = console
+ok
+test_failed_mute_still_closes_transcription (test_runtime.RuntimeTests.test_failed_mute_still_closes_transcription) ... ok
+test_full_timer_list_does_not_break_voice_worker (test_runtime.RuntimeTests.test_full_timer_list_does_not_break_voice_worker) ... ok
+test_invalid_commands_rejected_and_microphone_stays_off (test_runtime.RuntimeTests.test_invalid_commands_rejected_and_microphone_stays_off) ... ok
+test_led_ack_and_progress (test_runtime.RuntimeTests.test_led_ack_and_progress) ... ok
+test_one_controller_and_origin_protection (test_runtime.RuntimeTests.test_one_controller_and_origin_protection) ... ok
+test_timer_validation_pause_and_resume (test_runtime.RuntimeTests.test_timer_validation_pause_and_resume) ... ok
+test_timers_background_completion_and_persistence (test_runtime.RuntimeTests.test_timers_background_completion_and_persistence) ... ok
+test_scores_progress_and_transcripts_persist (test_runtime.StorageTests.test_scores_progress_and_transcripts_persist) ... ok
+test_allowlist_requires_prefix_and_has_no_shell (test_runtime.VoiceTests.test_allowlist_requires_prefix_and_has_no_shell) ... ok
+
+----------------------------------------------------------------------
+Ran 17 tests in 1.388s
+
+OK

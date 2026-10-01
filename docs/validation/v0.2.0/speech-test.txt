@@ -1,0 +1,2 @@
+Recognized and saved: one zero zero zero one / nah no to i know / zero one eight zero three
+PASS: real recognition, saved session, command grammar, capture off, no dropped chunks

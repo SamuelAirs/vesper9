@@ -1,0 +1,22 @@
+✔ short tap advances and hold selects only on release (2.410411ms)
+✔ 3-second escape suppresses the release action (0.145195ms)
+✔ raw input is immediate, source-owned, and carries node duration (0.164043ms)
+✔ release does not leak into an app entered during the press (0.111245ms)
+✔ disconnect cancellation requires a release before reuse (0.207427ms)
+✔ deterministic random and bounded geometry (0.268467ms)
+✔ orbit awards alignment and ends after three misses (0.347926ms)
+✔ holding runner jump yields a higher apex than tapping (0.540932ms)
+✔ runner collision ends expedition once (0.27679ms)
+✔ flight thrust and release move in opposite directions (1.332104ms)
+✔ echo playback reaches input and accepts the short-long sequence (0.638657ms)
+✔ reaction ignores stale cues, measures node time, cancels on pause (0.755244ms)
+✔ glyph puzzle progresses only on correct selections (0.616032ms)
+✔ all Morse symbols roundtrip and the learning app accepts E (0.725915ms)
+ℹ tests 14
+ℹ suites 0
+ℹ pass 14
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 96.211025

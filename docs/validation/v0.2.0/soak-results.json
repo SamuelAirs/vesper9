@@ -1,0 +1,1187 @@
+{
+  "passed": true,
+  "scope": "Development-host simulated node; not Pi/hardware",
+  "browser": "153.0.8010.0",
+  "durationSeconds": 1200.358,
+  "reconnected": true,
+  "recordedSpeech": {
+    "passed": true,
+    "savedLines": 3,
+    "droppedChunks": 0
+  },
+  "timerCompleted": true,
+  "endsMuted": true,
+  "samples": [
+    {
+      "elapsed": 0,
+      "app": "orbit",
+      "frames": {
+        "samples": 575,
+        "medianMs": 16.699999999999818,
+        "p95Ms": 16.700000000000728,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 16,
+      "app": "orbit",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.69999999999891,
+        "p95Ms": 16.700000000000728,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 32,
+      "app": "runner",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.69999999999709,
+        "p95Ms": 16.700000000004366,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 48,
+      "app": "drift",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.69999999999709,
+        "p95Ms": 16.799999999995634,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 1,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 64,
+      "app": "echo",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.69999999999709,
+        "p95Ms": 16.79999999998836,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 79,
+      "app": "echo",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.69999999999709,
+        "p95Ms": 16.79999999998836,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 94,
+      "app": "reaction",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.69999999999709,
+        "p95Ms": 16.79999999998836,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 109,
+      "app": "glyphs",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.69999999999709,
+        "p95Ms": 16.70000000001164,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 124,
+      "app": "morse",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.69999999999709,
+        "p95Ms": 16.70000000001164,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 140,
+      "app": "morse",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999982538,
+        "p95Ms": 16.79999999998836,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 156,
+      "app": "timers",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999982538,
+        "p95Ms": 16.79999999998836,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 172,
+      "app": "environment",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999982538,
+        "p95Ms": 16.79999999998836,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 187,
+      "app": "transcribe",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999982538,
+        "p95Ms": 16.70000000001164,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 203,
+      "app": "diagnostics",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999982538,
+        "p95Ms": 16.79999999998836,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 218,
+      "app": "diagnostics",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999982538,
+        "p95Ms": 16.70000000001164,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 234,
+      "app": "settings",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999982538,
+        "p95Ms": 16.79999999998836,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 249,
+      "app": "orbit",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999982538,
+        "p95Ms": 16.79999999998836,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 265,
+      "app": "runner",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.70000000001164,
+        "p95Ms": 16.79999999998836,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 280,
+      "app": "drift",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.70000000001164,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 295,
+      "app": "drift",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.70000000001164,
+        "p95Ms": 16.70000000001164,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 311,
+      "app": "echo",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.70000000001164,
+        "p95Ms": 16.70000000001164,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 327,
+      "app": "reaction",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.70000000001164,
+        "p95Ms": 16.70000000001164,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 343,
+      "app": "glyphs",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.79999999998836,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 359,
+      "app": "glyphs",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.79999999998836,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 375,
+      "app": "morse",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.70000000001164,
+        "p95Ms": 16.70000000001164,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 390,
+      "app": "timers",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.70000000001164,
+        "p95Ms": 16.79999999998836,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 405,
+      "app": "environment",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.70000000001164,
+        "p95Ms": 16.70000000001164,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 420,
+      "app": "transcribe",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.70000000001164,
+        "p95Ms": 16.70000000001164,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 436,
+      "app": "transcribe",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.70000000001164,
+        "p95Ms": 16.79999999998836,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 451,
+      "app": "diagnostics",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.70000000001164,
+        "p95Ms": 16.70000000001164,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 466,
+      "app": "settings",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.70000000001164,
+        "p95Ms": 16.70000000001164,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 481,
+      "app": "orbit",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.70000000001164,
+        "p95Ms": 16.70000000001164,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 497,
+      "app": "orbit",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.70000000001164,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 513,
+      "app": "runner",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.70000000001164,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 529,
+      "app": "drift",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.70000000006985,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 545,
+      "app": "echo",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.70000000006985,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 561,
+      "app": "reaction",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.79999999993015,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 576,
+      "app": "reaction",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.70000000006985,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 591,
+      "app": "glyphs",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.70000000006985,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 607,
+      "app": "morse",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 33.29999999993015,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 623,
+      "app": "timers",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.70000000006985,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 639,
+      "app": "timers",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.79999999993015,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 654,
+      "app": "environment",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.70000000006985,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 669,
+      "app": "transcribe",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.79999999993015,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 684,
+      "app": "diagnostics",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.70000000006985,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 699,
+      "app": "diagnostics",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.70000000006985,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 715,
+      "app": "settings",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.79999999993015,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 730,
+      "app": "orbit",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.70000000006985,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 745,
+      "app": "runner",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.70000000006985,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 761,
+      "app": "drift",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.70000000006985,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 777,
+      "app": "drift",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.70000000006985,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 793,
+      "app": "echo",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.70000000006985,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 809,
+      "app": "reaction",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.70000000006985,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 825,
+      "app": "glyphs",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.70000000006985,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 841,
+      "app": "morse",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.70000000006985,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 856,
+      "app": "morse",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.70000000006985,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 871,
+      "app": "timers",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.79999999993015,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 886,
+      "app": "environment",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.79999999993015,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 902,
+      "app": "transcribe",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.79999999993015,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 918,
+      "app": "transcribe",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.70000000006985,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 934,
+      "app": "diagnostics",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.70000000006985,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 950,
+      "app": "settings",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.70000000006985,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 966,
+      "app": "orbit",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.79999999993015,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 981,
+      "app": "runner",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.79999999993015,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 996,
+      "app": "runner",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.79999999993015,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 1011,
+      "app": "drift",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.70000000006985,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 1027,
+      "app": "echo",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.70000000006985,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 1042,
+      "app": "reaction",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.799999999813735,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 1057,
+      "app": "reaction",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.799999999813735,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 1072,
+      "app": "glyphs",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.700000000186265,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 1088,
+      "app": "morse",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.700000000186265,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 1104,
+      "app": "timers",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.700000000186265,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 1120,
+      "app": "timers",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.700000000186265,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 1135,
+      "app": "environment",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.700000000186265,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 1150,
+      "app": "transcribe",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.700000000186265,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 1165,
+      "app": "diagnostics",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.799999999813735,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 1180,
+      "app": "settings",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.700000000186265,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    },
+    {
+      "elapsed": 1196,
+      "app": "settings",
+      "frames": {
+        "samples": 600,
+        "medianMs": 16.699999999953434,
+        "p95Ms": 16.799999999813735,
+        "errors": 0
+      },
+      "errors": [],
+      "pending": 0,
+      "mic": "off",
+      "heap": 10600000,
+      "pythonRssKiB": null
+    }
+  ],
+  "pageErrors": []
+}

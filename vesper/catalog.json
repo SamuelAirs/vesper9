@@ -1,0 +1,246 @@
+{
+  "version": 2,
+  "settings": {
+    "sound": true,
+    "volume": 0.25,
+    "crt": true,
+    "reducedMotion": false,
+    "morseWpm": 10,
+    "holdMs": 650,
+    "menuClicks": 4,
+    "gesturePace": "standard",
+    "scanMs": 850
+  },
+  "apps": [
+    {
+      "id": "orbit",
+      "name": "ORBIT LOCK",
+      "subtitle": "Catch a wandering satellite.",
+      "description": "Acquire the amber gate as your satellite crosses it. Each lock tightens the window. Three missed alignments end the expedition.",
+      "controls": "PRESS AT THE GATE",
+      "category": "PLAY / PRECISION",
+      "glyph": 0,
+      "factory": "OrbitLock",
+      "voice": [
+        "orbit"
+      ],
+      "escape": "adaptive",
+      "capabilities": [
+        "button",
+        "lights",
+        "audio",
+        "progress"
+      ]
+    },
+    {
+      "id": "runner",
+      "name": "MOONRUNNER",
+      "subtitle": "Leave footprints in the dark.",
+      "description": "Cross a crystal desert with a stubborn little survey robot. Tap to jump; hold briefly for more height. Your best distance is saved.",
+      "controls": "TAP TO JUMP · HOLD FOR HEIGHT",
+      "category": "PLAY / RUNNER",
+      "glyph": 1,
+      "factory": "Moonrunner",
+      "voice": [
+        "runner"
+      ],
+      "escape": "adaptive",
+      "capabilities": [
+        "button",
+        "lights",
+        "audio",
+        "progress"
+      ]
+    },
+    {
+      "id": "drift",
+      "name": "UNDERTOW",
+      "subtitle": "Follow the silent current.",
+      "description": "Pilot a small craft through an impossible ocean. Hold to rise, release to sink, and thread the openings between ancient columns.",
+      "controls": "HOLD TO RISE · RELEASE TO SINK",
+      "category": "PLAY / FLIGHT",
+      "glyph": 2,
+      "factory": "Undertow",
+      "voice": [
+        "drift"
+      ],
+      "escape": "adaptive",
+      "capabilities": [
+        "button",
+        "lights",
+        "audio",
+        "progress"
+      ]
+    },
+    {
+      "id": "echo",
+      "name": "ECHO VAULT",
+      "subtitle": "Return the signal you receive.",
+      "description": "Watch and hear a growing pattern. Reproduce it with short taps and long holds. Each successful sequence opens another chamber.",
+      "controls": "SHORT TAP / LONG HOLD",
+      "category": "PLAY / MEMORY",
+      "glyph": 3,
+      "factory": "EchoVault",
+      "voice": [
+        "echo"
+      ],
+      "escape": "hold",
+      "capabilities": [
+        "button",
+        "lights",
+        "audio",
+        "progress"
+      ]
+    },
+    {
+      "id": "reaction",
+      "name": "LIGHT TRIAL",
+      "subtitle": "Measure the space before action.",
+      "description": "Press to arm a trial. Wait for the middle physical light to turn green. ESP32 button trials use the node clock; keyboard trials use approximate screen timing.",
+      "controls": "WAIT FOR LIGHT II · THEN PRESS",
+      "category": "PLAY / REACTION",
+      "glyph": 4,
+      "factory": "LightTrial",
+      "voice": [
+        "lights"
+      ],
+      "escape": "adaptive",
+      "capabilities": [
+        "button",
+        "lights",
+        "audio",
+        "progress"
+      ]
+    },
+    {
+      "id": "glyphs",
+      "name": "GLYPH ARCHIVE",
+      "subtitle": "Remember a forgotten language.",
+      "description": "Memorize the inscription before it disappears. The cursor cycles through six glyphs; press to rebuild the sequence. Three mistakes seal the archive.",
+      "controls": "PRESS TO CHOOSE THE LIT GLYPH",
+      "category": "PLAY / PUZZLE",
+      "glyph": 5,
+      "factory": "GlyphVault",
+      "voice": [
+        "glyphs"
+      ],
+      "escape": "adaptive",
+      "capabilities": [
+        "button",
+        "lights",
+        "audio",
+        "progress"
+      ]
+    },
+    {
+      "id": "morse",
+      "name": "SIGNAL SCHOOL",
+      "subtitle": "Speak in dots and dashes.",
+      "description": "Learn the alphabet through a progressive Morse lesson. The lights and optional sidetone follow your key. Beginner letter gaps are deliberately forgiving.",
+      "controls": "TAP A DOT · HOLD A DASH",
+      "category": "INSTRUMENT / TELEGRAPHY",
+      "glyph": 3,
+      "factory": "MorseSchool",
+      "voice": [
+        "morse"
+      ],
+      "escape": "hold",
+      "capabilities": [
+        "button",
+        "lights",
+        "audio",
+        "progress"
+      ]
+    },
+    {
+      "id": "timers",
+      "name": "CHRONOMETER",
+      "subtitle": "Keep time beyond this screen.",
+      "description": "Create up to eight persistent background timers. A completed timer announces itself without interrupting a game’s physical lights.",
+      "controls": "TAP NEXT · HOLD TO CHOOSE",
+      "category": "INSTRUMENT / TIME",
+      "glyph": 0,
+      "factory": "Timers",
+      "voice": [
+        "timer"
+      ],
+      "escape": "adaptive",
+      "capabilities": [
+        "timers",
+        "progress"
+      ]
+    },
+    {
+      "id": "transcribe",
+      "name": "FIELD NOTES",
+      "subtitle": "Let the room tell its story.",
+      "description": "Local speech-to-text with visible microphone status, saved sessions, and text export. Recording continues when you leave this screen; mute is always in the system menu.",
+      "controls": "TAP NEXT · HOLD TO CHOOSE",
+      "category": "INSTRUMENT / TRANSCRIPTION",
+      "glyph": 2,
+      "factory": "Transcription",
+      "voice": [
+        "notes"
+      ],
+      "escape": "adaptive",
+      "capabilities": [
+        "microphone",
+        "notes"
+      ]
+    },
+    {
+      "id": "environment",
+      "name": "ATMOSPHERE",
+      "subtitle": "Observe the world around you.",
+      "description": "Temperature and relative humidity from your SHT3x, with local history. Simulator readings are explicitly marked and stored separately.",
+      "controls": "TAP NEXT · HOLD TO CHOOSE",
+      "category": "INSTRUMENT / ENVIRONMENT",
+      "glyph": 4,
+      "factory": "Environment",
+      "voice": [
+        "environment"
+      ],
+      "escape": "adaptive",
+      "capabilities": [
+        "sensor"
+      ]
+    },
+    {
+      "id": "diagnostics",
+      "name": "NODE SCOPE",
+      "subtitle": "Look inside the instrument.",
+      "description": "Live button state, light-channel checks, microphone level, sensor readings, and communication counters.",
+      "controls": "TAP NEXT · HOLD TO CHOOSE",
+      "category": "SYSTEM / DIAGNOSTICS",
+      "glyph": 1,
+      "factory": "Diagnostics",
+      "voice": [
+        "diagnostics"
+      ],
+      "escape": "adaptive",
+      "capabilities": [
+        "button",
+        "lights",
+        "microphone",
+        "sensor"
+      ]
+    },
+    {
+      "id": "settings",
+      "name": "CALIBRATION",
+      "subtitle": "Make the console your own.",
+      "description": "Sound, volume, phosphor texture, reduced motion, Morse speed, and button hold duration. All controls work with one button.",
+      "controls": "TAP NEXT · HOLD TO CHOOSE",
+      "category": "SYSTEM / SETTINGS",
+      "glyph": 5,
+      "factory": "Settings",
+      "voice": [
+        "settings"
+      ],
+      "escape": "adaptive",
+      "capabilities": [
+        "settings"
+      ]
+    }
+  ]
+}

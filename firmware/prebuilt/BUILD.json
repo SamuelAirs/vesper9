@@ -1,0 +1,19 @@
+{
+  "version": "0.1.0",
+  "target": "esp32s3",
+  "profile": "N16R8",
+  "esp_idf": "v5.4.2",
+  "esp_idf_commit": "f5c3654a1c2d2a01f7f67def7a0dc48e691f63c0",
+  "toolchain": "xtensa-esp-elf GCC 14.2.0_20241119",
+  "flash_mode": "dio",
+  "flash_size": "16MB",
+  "flash_frequency": "80m",
+  "application_bytes": 269632,
+  "physically_tested": false,
+  "sha256": {
+    "bootloader.bin": "1f5cbeed390ff8e55e569f70119422cd16cf4ec34060844ca031679ad1352b3c",
+    "partition-table.bin": "fd8026bff850ca0dee41c41305160317fffe604dda30a9bd5a701ac82d96fa17",
+    "vesper_node.bin": "26d56020c039a5e8a4f993172ffd31677898b2680d21b5cc8f455469f39913ea",
+    "sdkconfig": "5515c1ba6936101893cfdb06e2ea69ab909073cbc5a522cb74b570ea2faa81a3"
+  }
+}

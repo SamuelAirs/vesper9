@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+data/**
+!data/.gitkeep
+models/
+backups/
+firmware/build/
+firmware/sdkconfig
+firmware/sdkconfig.old
+node_modules/
+test-output/
+.flash-env/
+test-output/

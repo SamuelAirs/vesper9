@@ -1,0 +1,41 @@
+✔ short tap advances and hold selects only on release (2.940993ms)
+✔ 3-second escape suppresses the release action (0.260623ms)
+✔ raw input is immediate, source-owned, and carries node duration (0.214984ms)
+✔ release does not leak into an app entered during the press (0.166591ms)
+✔ disconnect cancellation requires a release before reuse (0.280282ms)
+✔ deterministic random and bounded geometry (0.345942ms)
+✔ orbit awards alignment and ends after three misses (0.406272ms)
+✔ holding runner jump yields a higher apex than tapping (0.966837ms)
+✔ runner collision ends expedition once (0.341094ms)
+✔ flight thrust and release move in opposite directions (0.731322ms)
+✔ echo playback reaches input and accepts the short-long sequence (0.712925ms)
+✔ reaction ignores stale cues, measures node time, cancels on pause (0.453414ms)
+✔ glyph puzzle progresses only on correct selections (0.832004ms)
+✔ all Morse symbols roundtrip and the learning app accepts E (0.973828ms)
+✔ quadruple menu delivers raw downs immediately and consumes only terminal release (1.272859ms)
+✔ triple profile and long-hold exception are explicit (0.251379ms)
+✔ sustained gameplay holds remain ordinary holds in click profile (0.093711ms)
+✔ partial, overlong, mixed-source, repeated-key and expired gestures do not escape (0.273942ms)
+✔ node timestamps determine timing even if packets arrive together (0.235585ms)
+✔ reconnect reconciles an already released button without swallowing a fresh press (0.193842ms)
+✔ cancelling a partial gesture removes it from the resumed scene (0.180212ms)
+✔ light effect release writes off even when the previous ordinary value was off (0.411049ms)
+✔ late light ACK cannot overwrite a new generation cache or final output (0.17223ms)
+✔ Morse migrates history and saves each accepted learning outcome before exit (0.387714ms)
+✔ listening mode demonstrates, offers replay, and accepts a scanned answer (0.336447ms)
+✔ adaptive review prioritizes a due weak character and completes bounded sessions (0.765123ms)
+✔ runner challenge shapes are clearable using the actual jump physics (4.832519ms)
+✔ flight gate changes are bounded and a fixed-step pilot can traverse seeded layouts (10.461136ms)
+✔ reaction classes stay separate and a reboot invalidates a pending trial (0.412021ms)
+✔ Morse and Echo catalogs protect legitimate repeated taps (0.204788ms)
+✔ sensor age and disconnect cannot present an old value as live (0.347754ms)
+✔ microphone status never equates a requested mute with confirmed acquisition off (0.244148ms)
+✔ ordinary scene cancellation preserves an outstanding release requirement (0.23235ms)
+ℹ tests 33
+ℹ suites 0
+ℹ pass 33
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 142.403634

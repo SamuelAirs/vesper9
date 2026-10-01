@@ -1,0 +1,8 @@
+{
+  "passed": true,
+  "firmware_files_identical_to_original": 57,
+  "prebuilt_checksums_verified": 4,
+  "node_firmware": "0.1.0",
+  "rebuilt_in_this_pass": false,
+  "physical_test": false
+}

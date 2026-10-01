@@ -109,9 +109,12 @@ run on the node):
 Rebuild and flash this branch's head as before (`git -C ../knock-test pull`, then
 `flash-node.sh`), then `node-probe.py "$NODE" --listen 3 --knock 90`:
 
-1. 10 firm knocks, 10 soft taps: count, and note each `hf`.
-2. 15 hard knocks that clip, a second apart: how many arrive (target: all).
-3. 10 claps at the distances Sam would clap: note each `hf`.
+Sam only wants soft taps, not hard knocks (2026-10-01), so the hard-knock check is dropped.
+
+1. 15 soft taps, the way Sam would tap during a game: count, and note each `peak` and `hf`.
+2. 10 claps at the distances Sam would clap: note each `peak` and `hf`.
+3. If the taps' peaks all stay well below the claps' (the first test had claps at 16738 or more),
+   a peak ceiling can reject claps along with hard knocks; if `hf` separates them, that works too.
 4. The console with sound up (`--http-port 8800` run as before): a minute of a game with frequent
    tones; KNOCK COUNTS in Node Scope should not rise.
 

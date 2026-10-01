@@ -63,6 +63,13 @@ The long integrated run was started while final review continued. The final held
 - Project placed under local git: `v0.2.0-as-delivered`, then bring-up commits. The generated simulator is no longer tracked.
 - Sam's feedback after playing: fun; the lamps are underused; dictation a little inaccurate; wants more games and instruments. Plan for the overnight agent fleet: `../fleet/PLAN.md`.
 
+## 2026-10-01 — Moonrunner: more air, bigger hills (desktop/cloud session)
+
+- Sam played the hill-flyer on the console: "a lot better, but it's pretty difficult. It should be closer to tiny wings. It's super hard to get air on it, and the hills are all very shallow." Measured with the by-eye bot: about 11 flights a minute, 18 percent of the time in the air.
+- Changes in `web/apps/runner.js`: hills about 1.5x longer and 1.4x taller (steepest about 55 degrees, `H <= 0.9 L`); a released sled is light on the ground too (`ride.air`), so it leaves crests from about 110 km/h; a dive within 140 px above a downslope bends the sled's line toward the slope (2.2 rad/s); the perfect window is 0.5 rad; any landing keeps at least 70 percent of the flight speed.
+- Balance (`BALANCE_ONLY=runner BALANCE_SEEDS=6`): by eye about 5 600 in 167 s and about half the time in the air; a bot timing each dive about 11 000 in 229 s; 150 ms late about 6 900; never pressing about 660 in 66 s.
+- Not verified on the device.
+
 ## 2026-10-01 — Moonrunner reworked as a hill-flyer (desktop/cloud session)
 
 - Sam played the downhill build: "a good mvp, but kind of a flop. The flipping is too fast and linear, and there's no sense of speed or obstacles. Maybe it should be closer to tiny wings than alto." `web/apps/runner.js` is now a Tiny Wings-style hill-flyer: hold to dive (gravity x3 on the ground for the SURVEYOR), let go to fly (x0.7 in the air); the hills are cosine half-waves between key points with a slight overall descent. A landing within 0.42 rad of a downslope is a perfect slide (x1.08 + 60 px/s, +0.5 s daylight, chain points); three in a row is fever (5 s, double points, +250 px/s top speed). The run is timed by daylight (40 s, +25 s per new zone; at night the sled coasts to a stop), which replaces crashing.

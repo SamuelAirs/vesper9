@@ -111,6 +111,7 @@ test("a fast sled flies off a crest; a slow one rolls over it", () => {
     return flew;
   };
   assert.ok(over(900), "a fast sled stayed on the ground");
+  assert.ok(over(600), "a sled at about 110 km/h stayed on the ground: getting air should be easy");
   assert.ok(!over(MIN_V), "a crawling sled took off");
 });
 test("a perfect slide: speed, points, daylight and the chain; a thud breaks the chain", () => {
@@ -131,6 +132,25 @@ test("a perfect slide: speed, points, daylight and the chain; a thud breaks the 
   assert.equal(g.R.perfects, 2);
   assert.equal(g.R.chain, 2);
   assert.equal(g.phase, "play", "a thud ended the run");
+});
+test("a dive close above a downslope bends the sled onto it; any landing keeps most of the speed", () => {
+  const { g } = started({ seed: 18 });
+  clearAll(g);
+  const x = onDownslope(g), th = g.slopeAt(x + 60);
+  const steep = th + 0.7; // falling far more steeply than the slope
+  Object.assign(g.r, { x, y: g.gy(x) - 100, air: true, airT: 0.6, vx: 600 * Math.cos(steep), vy: 600 * Math.sin(steep), tx: x - 200, hi: 100 });
+  g.down();
+  let landed = null;
+  const on = g.onLand.bind(g);
+  g.onLand = (ev) => { landed = ev; on(ev); };
+  for (let i = 0; i < 60 && !landed; i++) g.update(DT);
+  assert.ok(landed && landed.diff < 0.7 - 0.15, "the dive did not bend toward the slope: " + landed?.diff);
+  const b = started({ seed: 18 }).g;
+  clearAll(b);
+  const u = onUpslope(b);
+  Object.assign(b.r, { x: u, y: b.gy(u) + 3, air: true, airT: 0.6, vx: 500, vy: 500, tx: u - 200 });
+  b.update(DT);
+  assert.ok(!b.r.air && b.r.v >= 0.69 * Math.hypot(500, 500), "a thud on a climb lost too much speed: " + b.r.v);
 });
 test("a skip over a bump is not a landing: it neither scores nor breaks the chain", () => {
   const { g } = started({ seed: 13 });
@@ -240,8 +260,9 @@ test("the hills are smooth and continuous, and the camera follows the sled and p
     if (s > 1000) zoomFast = Math.min(zoomFast, g.zoom);
     if (s < 400) zoomSlow = Math.max(zoomSlow, g.zoom);
   }
-  assert.ok(worst < 1.2, "the ground jumps by " + worst + " px in 1 px");
-  assert.ok(steep < 0.85, "a slope is too steep: " + steep);
+  // The steepest hill is about 55 degrees (H <= 0.9 L), so 1 px across is at most ~1.43 px down.
+  assert.ok(steep < 0.97, "a slope is too steep: " + steep);
+  assert.ok(worst < Math.tan(0.97) + 0.05, "the ground jumps by " + worst + " px in 1 px");
   assert.ok(zoomFast < zoomSlow - 0.1, `zoom fast ${zoomFast}, slow ${zoomSlow}`);
 });
 test("each zone adds its own thing: pits from II, rilles from III, crystals from IV, vents from V", () => {

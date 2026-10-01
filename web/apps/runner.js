@@ -23,7 +23,7 @@ import { LampBus } from "./game-kit.js";
 export const G = 900; // px/s^2
 export const PX_M = 20; // px per metre
 export const MIN_V = 110; // the sled never quite stops while there is light
-export const PERFECT = 0.42; // a touchdown this close (radians, about 24 degrees) to a downslope is a perfect slide
+export const PERFECT = 0.5; // a touchdown this close (radians, about 29 degrees) to a downslope is a perfect slide
 export const THUD = 0.8; // beyond this the landing thuds and loses speed
 const DRAG = 0.00035, FRICT = 12;
 const RIDER_X = 300, RIDER_Y = 290; // where the camera's focus sits on screen
@@ -34,6 +34,8 @@ const FEVER_T = 5, FEVER_CHAIN = 3;
 const NIGHT_STOP = 150; // after dark the run ends when the sled is this slow on the ground
 const FALL_T = 8; // seconds of daylight lost by falling into a rille
 const VENT_V = 950, BOOST_A = 1300;
+const ASSIST_H = 140, ASSIST_W = 2.2; // a dive this close (px) above a downslope bends toward it, this fast (rad/s)
+const LAND_KEEP = 0.7; // a landing keeps at least this much of the speed in flight
 const HOP = 0.12; // flights shorter than this (s) neither score nor break a chain
 const LIP = 0.24; // the rim of a rille throws the sled up at about this slope
 export const RILLE_V = 420; // slower than this at the rim and the sled will not clear a rille
@@ -46,12 +48,12 @@ const REASONS = { night: "NIGHT FELL", quit: "RUN ENDED" };
 // Each zone starts at `from` metres. `L` is the range of half-wavelengths (crest to valley, px),
 // `H` the range of drops, `mix` the weights of what the planner puts on a crest or a valley.
 export const ZONES = [
-  { name: "THE MARE", roman: "I", from: 0, L: [330, 480], H: [70, 130], col: LAMP.green, ink: "#9fdc7a", text: "Hold to dive down the slopes. Let go to fly.", mix: { shards: 3, none: 2 } },
-  { name: "THE DUNES", roman: "II", from: 400, L: [380, 560], H: [110, 190], col: LAMP.amber, ink: C.amber, text: "Dust pits in the valleys. Fly over them.", mix: { pit: 4, shards: 2, none: 1 } },
-  { name: "THE RILLES", roman: "III", from: 1000, L: [400, 600], H: [130, 220], col: LAMP.cyan, ink: C.cyan, text: "Rilles past the crests. Be fast to fly them.", mix: { chasm: 4, pit: 2, shards: 2 } },
-  { name: "THE CRYSTALS", roman: "IV", from: 1800, L: [420, 640], H: [150, 240], col: LAMP.violet, ink: "#b48cf0", text: "Hold over a crystal to be thrown forward.", mix: { pad: 4, chasm: 2, pit: 2, shards: 1 } },
-  { name: "THE RIMS", roman: "V", from: 2800, L: [480, 760], H: [190, 300], col: LAMP.white, ink: "#ece4d0", text: "Crater rims and gas vents. Go high.", mix: { vent: 3, chasm: 3, pad: 2, pit: 1, shards: 1 } },
-  { name: "THE FAR SIDE", roman: "VI", from: 4000, L: [460, 760], H: [180, 300], col: LAMP.blue, ink: "#6fa8dc", text: "No Earth in this sky. Trust the lamps.", mix: { chasm: 3, pit: 2, pad: 2, vent: 2, shards: 1 }, dark: true },
+  { name: "THE MARE", roman: "I", from: 0, L: [450, 630], H: [210, 320], col: LAMP.green, ink: "#9fdc7a", text: "Hold to dive down the slopes. Let go to fly.", mix: { shards: 3, none: 2 } },
+  { name: "THE DUNES", roman: "II", from: 400, L: [510, 720], H: [250, 360], col: LAMP.amber, ink: C.amber, text: "Dust pits in the valleys. Fly over them.", mix: { pit: 4, shards: 2, none: 1 } },
+  { name: "THE RILLES", roman: "III", from: 1000, L: [540, 780], H: [280, 420], col: LAMP.cyan, ink: C.cyan, text: "Rilles past the crests. Be fast to fly them.", mix: { chasm: 4, pit: 2, shards: 2 } },
+  { name: "THE CRYSTALS", roman: "IV", from: 1800, L: [570, 840], H: [310, 450], col: LAMP.violet, ink: "#b48cf0", text: "Hold over a crystal to be thrown forward.", mix: { pad: 4, chasm: 2, pit: 2, shards: 1 } },
+  { name: "THE RIMS", roman: "V", from: 2800, L: [630, 960], H: [360, 530], col: LAMP.white, ink: "#ece4d0", text: "Crater rims and gas vents. Go high.", mix: { vent: 3, chasm: 3, pad: 2, pit: 1, shards: 1 } },
+  { name: "THE FAR SIDE", roman: "VI", from: 4000, L: [630, 960], H: [340, 500], col: LAMP.blue, ink: "#6fa8dc", text: "No Earth in this sky. Trust the lamps.", mix: { chasm: 3, pit: 2, pad: 2, vent: 2, shards: 1 }, dark: true },
 ];
 export const zoneAt = (m) => { for (let i = ZONES.length - 1; i > 0; i--) if (m >= ZONES[i].from) return i; return 0; };
 const MOTIFS = [[392, 494, 587], [440, 554, 659], [330, 415, 494], [294, 370, 440], [523, 659, 784], [262, 311, 392]];
@@ -291,7 +293,7 @@ export class Moonrunner {
       const last = this.kp[this.kp.length - 1], zi = zoneAt(last.x / PX_M), z = ZONES[zi];
       const deep = clamp((last.x / PX_M - z.from) / 900, 0, 1);
       const L = rng.range(z.L[0], z.L[1]);
-      const H = Math.min(rng.range(z.H[0], z.H[1]) * (0.85 + 0.3 * deep), L * 0.68); // the steepest slope stays under ~47 degrees
+      const H = Math.min(rng.range(z.H[0], z.H[1]) * (0.85 + 0.3 * deep), L * 0.9); // the steepest slope stays under ~55 degrees
       const valley = !last.valley;
       this.base += L * 0.06; // a slight overall descent, so even a careless sled keeps moving
       const p = { x: last.x + L, y: this.base + (valley ? H / 2 : -H / 2) };
@@ -359,7 +361,7 @@ export class Moonrunner {
   // trying a line on a copy of the sled) leaves the vents and crystals as they are.
   advance(r, dt, dive, probe = false) {
     const ride = this.ride(), dark = this.night;
-    const heavy = dive && !dark ? ride.dive : 1;
+    const heavy = dive && !dark ? ride.dive : ride.air; // light, the sled is as light on the ground as in the air
     if (!r.air) {
       const th = this.slopeAt(r.x);
       let acc = G * heavy * Math.sin(th) - DRAG * r.v * r.v - FRICT;
@@ -397,6 +399,16 @@ export class Moonrunner {
     const g = G * (dive && !dark ? ride.dive * 0.75 : ride.air);
     r.vx -= r.vx * 0.02 * dt;
     r.vy += g * dt;
+    // Diving close above a downslope, the sled is drawn onto it: its line bends toward the slope, so
+    // a dive that is roughly right lands as a perfect slide.
+    if (dive && !dark) {
+      const th = this.slopeAt(r.x + r.vx * 0.1), below = this.gy(r.x) - r.y;
+      if (th > 0.1 && below < ASSIST_H) {
+        const sp = Math.hypot(r.vx, r.vy), path = Math.atan2(r.vy, r.vx);
+        const turn = clamp(wrapAngle(th - path), -ASSIST_W * dt, ASSIST_W * dt), na = path + turn;
+        r.vx = sp * Math.cos(na); r.vy = sp * Math.sin(na);
+      }
+    }
     const px = r.x;
     r.x += r.vx * dt;
     r.y += r.vy * dt;
@@ -410,7 +422,9 @@ export class Moonrunner {
       const th = this.slopeAt(r.x), diff = Math.abs(wrapAngle(Math.atan2(r.vy, r.vx) - th));
       const ev = { type: "land", diff, th, airT: r.airT, hi: r.hi, dist: r.x - r.tx, vent: r.vent };
       r.air = false; r.y = gr; r.a = th; r.vent = false;
-      r.v = Math.max(dark ? 0 : MIN_V, r.vx * Math.cos(th) + r.vy * Math.sin(th));
+      // Speed along the slope, but never less than LAND_KEEP of the speed in flight.
+      const sp = Math.hypot(r.vx, r.vy);
+      r.v = Math.max(dark ? 0 : MIN_V, r.vx * Math.cos(th) + r.vy * Math.sin(th), dark ? 0 : LAND_KEEP * sp);
       return ev;
     }
     return null;

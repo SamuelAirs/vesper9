@@ -12,8 +12,12 @@
 // list with small permanent rewards, and a research track (timers that run while closed) that
 // unlocks new kinds of things: generated tunes, voices, an expedition, two late machines.
 //
+// Taps that keep a steady beat build GROOVE (up to x1.5 per tap and per phrase); a stumble
+// halves it and a pause lets it fade. Late on, bearings left over after the tree can chart
+// CONSTELLATIONS: each multiplies all output and draws itself into the sky, without end.
+//
 // Numbers are plain doubles clamped to BIG (1e150) everywhere they can grow, so nothing
-// reaches Infinity or NaN. The save is one small JSON object (schema 3; schema 2 saves migrate).
+// reaches Infinity or NaN. The save is one small JSON object (schema 4; schemas 1-3 migrate).
 // The three lamps are the status board: left breathes with production, middle fills toward
 // the next purchase and goes steady green when one is affordable, right shows the timed
 // thing (flare, boost, expedition) or that relocation is worth doing. On top of that, each tap
@@ -24,7 +28,7 @@ import { TAU, clamp } from "../engine/math.js";
 import { LAMP, lamps, dim, pulse, blink, spot, only, chase, lightsOff } from "../engine/lightshow.js";
 
 // ---- constants ---------------------------------------------------------------
-const SCHEMA = 3;
+const SCHEMA = 4;
 const BIG = 1e150; // every growing number is clamped here
 const GROWTH = 1.15; // cost growth per machine owned
 const MAX_OWN = 1500;
@@ -47,6 +51,14 @@ const FLARE_LIFE = 14;
 const FLOATERS = 12;
 const QUEUE_MAX = 16;
 const LUMP_SEC = 0.08; // a finished tune pays this many seconds of production per note (more with voices)
+// Groove: a tap within GROOVE_TOL of the recent beat adds a step; GROOVE_MAX steps add GROOVE_BONUS
+// (half again) to every tap and phrase.
+const GROOVE_BONUS = 0.5, GROOVE_MAX = 24, GROOVE_TOL = 0.2, GROOVE_MIN_GAP = 0.12, GROOVE_MAX_GAP = 1.5, GROOVE_FADE = 8;
+// Voice levels under the lead (ctx.tone's gain): the station's extra voices sit quietly beneath it.
+const VOICE_GAIN = [0.4, 0.25, 0.45, 0.2];
+// Constellations: charted with bearings once the outpost has held CHART_REQ of them; each one
+// multiplies all output by CHART_MULT and costs CHART_GROWTH times the one before.
+const CHART_REQ = 1000, CHART_BASE = 250, CHART_GROWTH = 1.45, CHART_MULT = 1.3, CHART_MAX = 200;
 
 const PROD = [
   { n: "RECEIVER DISH", c: 10, r: 0.2, fx: "listens to the sky" },
@@ -338,7 +350,7 @@ const masteredN = (s) => { let n = 0; for (const c of s.sc) if (c >= 5) n++; ret
 // ---- goals ---------------------------------------------------------------------------------
 // Each goal is worth +1% output for ever and 2 data. `hid` goals show only a hint until done; the
 // hints point at mechanics (event flags are bits of s.ev, set where the thing happens).
-const EV = { presto: 1, perfect: 2, quick: 4 };
+const EV = { presto: 1, perfect: 2, quick: 4, groove: 8 };
 const GOALS = [
   { n: "WARMING UP", d: "TAP 100 TIMES", v: (s) => s.taps, t: 100 },
   { n: "STEADY HAND", d: "TAP 1,000 TIMES", v: (s) => s.taps, t: 1e3 },
@@ -374,12 +386,36 @@ const GOALS = [
   { n: "COMPLETE SURVEY", d: "FINISH EVERY PROJECT", v: (s) => s.rd.length, t: NR },
   { n: "AN HOUR ON THE KEY", d: "PLAY FOR AN HOUR IN ALL", v: (s) => s.st.tp, t: 3600 },
   { n: "NIGHT WATCH", d: "", hid: true, hint: "LET THE STATION RUN A FULL DAY WHILE YOU ARE AWAY", v: (s) => s.st.ta, t: 86400 },
+  // schema 4 (appended: earlier goals keep their indices)
+  { n: "IN THE POCKET", d: "", hid: true, hint: "KEEP A STEADY BEAT UNTIL THE GROOVE IS FULL", v: (s) => (s.ev & EV.groove ? 1 : 0), t: 1 },
+  { n: "HOUSE BAND", d: "TAP 1,000 TIMES IN FULL GROOVE", v: (s) => s.st.gt, t: 1e3 },
+  { n: "FIRST LIGHT", d: "CHART A CONSTELLATION", v: (s) => s.cn, t: 1 },
+  { n: "THE WHOLE SKY", d: "CHART ALL TWELVE CONSTELLATIONS", v: (s) => s.cn, t: 12 },
 ];
 const NG = GOALS.length;
 const goalFrac = (s, g) => clamp(g.v(s) / g.t, 0, 1);
 
 // ---- sense of place ------------------------------------------------------------------------
 const STAGES = ["LANDING SITE", "FIELD STATION", "SURVEY CAMP", "DEEP BASE", "LISTENING CAMPUS", "DEEP-SKY COMPLEX", "SILENT COAST"];
+// Twelve named constellations (star positions in a 0..1 box, then the lines between them); later
+// charts reuse the shapes, brighter, as "deep" charts.
+const CONST = [
+  ["THE KEY", [[0, 0.5], [0.3, 0.5], [0.5, 0.2], [0.7, 0.5], [1, 0.5]], [[0, 1], [1, 2], [2, 3], [3, 4]]],
+  ["THE DISH", [[0, 0], [0.25, 0.7], [0.5, 1], [0.75, 0.7], [1, 0], [0.5, 0.4]], [[0, 1], [1, 2], [2, 3], [3, 4], [2, 5]]],
+  ["THE LANTERN", [[0.5, 0], [0.2, 0.4], [0.8, 0.4], [0.2, 0.9], [0.8, 0.9]], [[0, 1], [0, 2], [1, 3], [2, 4], [3, 4]]],
+  ["THE MAST", [[0.5, 0], [0.5, 1], [0.1, 0.3], [0.9, 0.3], [0.2, 0.7], [0.8, 0.7]], [[0, 1], [2, 3], [4, 5]]],
+  ["THE DRILL", [[0, 0], [0.4, 0.3], [0.6, 0.6], [1, 1], [0.8, 0.2]], [[0, 1], [1, 2], [2, 3], [1, 4]]],
+  ["THE CHOIR", [[0, 0.8], [0.25, 0.4], [0.5, 0.7], [0.75, 0.3], [1, 0.6]], [[0, 1], [1, 2], [2, 3], [3, 4]]],
+  ["THE WATCHER", [[0.5, 0.5], [0.1, 0.2], [0.9, 0.2], [0.1, 0.8], [0.9, 0.8]], [[0, 1], [0, 2], [0, 3], [0, 4]]],
+  ["THE ARCHIVE", [[0, 0], [1, 0], [1, 1], [0, 1], [0.5, 0.5]], [[0, 1], [1, 2], [2, 3], [3, 0]]],
+  ["THE ECHO", [[0, 0.5], [0.35, 0.2], [0.35, 0.8], [0.7, 0.1], [0.7, 0.9], [1, 0.5]], [[0, 1], [0, 2], [1, 3], [2, 4], [3, 5], [4, 5]]],
+  ["THE LATTICE", [[0, 0], [0.5, 0], [1, 0], [0, 1], [0.5, 1], [1, 1]], [[0, 4], [1, 3], [1, 5], [2, 4]]],
+  ["THE FAR EAR", [[0, 1], [0.3, 0.2], [0.7, 0], [1, 0.4], [0.6, 0.6]], [[0, 1], [1, 2], [2, 3], [3, 4], [4, 1]]],
+  ["THE SILENCE", [[0.5, 0.1], [0.5, 0.9]], [[0, 1]]],
+];
+const chartCost = (k) => Math.ceil(CHART_BASE * Math.pow(CHART_GROWTH, k));
+const chartName = (k) => (k < CONST.length ? CONST[k % CONST.length][0] : "DEEP " + CONST[k % CONST.length][0].replace("THE ", "") + " " + (Math.floor(k / CONST.length) + 1));
+const chartsOpen = (s) => s.L >= CHART_REQ || s.cn > 0;
 const stageOf = (s) => { const n = tiersOwned(s); return n < 1 ? 0 : n < 3 ? 1 : n < 5 ? 2 : n < 7 ? 3 : n < 9 ? 4 : n < 11 ? 5 : 6; };
 
 // ---- pure economy ------------------------------------------------------------
@@ -421,7 +457,7 @@ const costOf = (s, i, n = s.own[i]) => Math.ceil(PROD[i].c * Math.pow(GROWTH, Ma
 const milestonesAt = (n) => MILESTONES.filter((m) => n >= m).length;
 const nextMilestone = (n) => MILESTONES.find((m) => n < m) || 0;
 const globalMult = (s) => {
-  let g = (1 + s.L * (0.2 + 0.04 * s.tree[6])) * (1 + 0.25 * s.tree[9]) * (1 + 0.03 * s.relics) * (1 + 0.01 * s.gl.length) * (1 + 0.02 * masteredN(s));
+  let g = (1 + s.L * (0.2 + 0.04 * s.tree[6])) * (1 + 0.25 * s.tree[9]) * (1 + 0.03 * s.relics) * (1 + 0.01 * s.gl.length) * (1 + 0.02 * masteredN(s)) * Math.pow(CHART_MULT, s.cn);
   for (const k of GRID_IDX) if (s.up[k]) g *= 1.3;
   return num(g);
 };
@@ -455,7 +491,10 @@ const capHours = (s) => {
 };
 const pendingOf = (s) => int(Math.pow(s.rt / PRESTIGE_K, 0.25), 1e9);
 const revealOf = (s) => { const p = pendingOf(s); return p >= 3 || (s.runs > 0 && p >= 1); };
-const readyOf = (s) => { const p = pendingOf(s); return p >= READY_MIN && p >= READY_RATIO * s.L; };
+// How many times the bearings already held a relocation should bring before it is called ready:
+// twice early on, less once the holdings are large (otherwise late runs grow without end).
+const readyRatio = (L) => (L < 500 ? READY_RATIO : L < 5000 ? 1.6 : L < 20000 ? 1.35 : 1.25);
+const readyOf = (s) => { const p = pendingOf(s); return p >= READY_MIN && p >= readyRatio(s.L) * s.L; };
 const slotsOf = (s) => (s.tree[5] ? s.tree[5] : 0);
 
 function upgradeVisible(s, u) {
@@ -476,12 +515,12 @@ function prodVisible(s, i) {
 // Statistics: counts that began at the migration (or at founding) are marked with * on screen.
 // tp/ta seconds played and away, hand/mach/off/bon signal by source (off = credited while away,
 // bon = flares, expeditions), rtaps/rhand/rmach the same for this run, fr the fastest relocation.
-const ST_KEYS = ["rp", "hand", "mach", "off", "bon", "peak", "tp", "ta", "buys", "md", "nt", "ph", "fl", "ex", "fr", "rtaps", "rhand", "rmach", "gen"];
+const ST_KEYS = ["rp", "hand", "mach", "off", "bon", "peak", "tp", "ta", "buys", "md", "nt", "ph", "fl", "ex", "fr", "rtaps", "rhand", "rmach", "gen", "gb", "gt"]; // schema 4: gb best groove, gt taps in full groove
 const freshStats = () => Object.fromEntries(ST_KEYS.map((k) => [k, 0]));
 function freshState() {
   return { sig: 0, rt: 0, lt: 0, own: Array(NP).fill(0), up: new Uint8Array(NUP), taps: 0, b: 0, L: 0, tree: Array(NT).fill(0),
     relics: 0, runs: 0, maxTier: 0, ex: [], play: 0, last: {}, milestone: 0, extra: null,
-    st: freshStats(), f: Date.now(), fk: 1, sg: 0, sp: 0, gs: 1, sm: 0, sc: Array(NS).fill(0), gl: [], ev: 0, rd: [], rs: [], dat: 0 };
+    st: freshStats(), f: Date.now(), fk: 1, sg: 0, sp: 0, gs: 1, sm: 0, sc: Array(NS).fill(0), gl: [], ev: 0, rd: [], rs: [], dat: 0, cn: 0 };
 }
 function applyKit(s) {
   const l = s.tree[0], kit = KIT[l] || [];
@@ -492,12 +531,12 @@ function applyKit(s) {
 
 // ---- saving -------------------------------------------------------------------
 const KNOWN = new Set(["v", "t", "sig", "rt", "lt", "own", "up", "taps", "b", "L", "tree", "relics", "runs", "maxTier", "ex", "play", "last", "milestone",
-  "st", "f", "fk", "sg", "sp", "gs", "sm", "sc", "gl", "ev", "rd", "rs", "dat"]);
+  "st", "f", "fk", "sg", "sp", "gs", "sm", "sc", "gl", "ev", "rd", "rs", "dat", "cn"]);
 function serialize(s, t) {
   const out = { v: SCHEMA, t, sig: num(s.sig), rt: num(s.rt), lt: num(s.lt), own: s.own.slice(), up: [], taps: s.taps, b: s.b, L: s.L,
     tree: s.tree.slice(), relics: s.relics, runs: s.runs, maxTier: s.maxTier, ex: s.ex.map((e) => [e.k, e.end]), play: Math.floor(s.play),
     last: s.last, milestone: s.milestone, st: Object.fromEntries(Object.entries(s.st).map(([k, v]) => [k, Math.round(v * 100) / 100])), f: s.f, fk: s.fk, sg: s.sg, sp: s.sp, gs: s.gs, sm: s.sm, sc: s.sc.slice(), gl: s.gl.slice(),
-    ev: s.ev, rd: s.rd.slice(), rs: s.rs.map((e) => [e.k, e.end]), dat: Math.round(s.dat * 100) / 100 };
+    ev: s.ev, rd: s.rd.slice(), rs: s.rs.map((e) => [e.k, e.end]), dat: Math.round(s.dat * 100) / 100, cn: s.cn };
   for (let i = 0; i < NUP; i++) if (s.up[i]) out.up.push(i);
   if (s.extra && JSON.stringify(s.extra).length < 1500) Object.assign(out, s.extra);
   return out;
@@ -545,13 +584,14 @@ function migrate(raw) {
     if (Array.isArray(r.rd)) for (const k of r.rd) { const i = Math.floor(Number(k)); if (i >= 0 && i < NR && !s.rd.includes(i)) s.rd.push(i); }
     if (Array.isArray(r.rs)) for (const e of r.rs.slice(0, 3)) if (Array.isArray(e) && e[0] >= 0 && e[0] < NR) s.rs.push({ k: Math.floor(e[0]), end: num(Number(e[1]), 1e15) });
     s.dat = num(Number(r.dat), 1e12);
+    s.cn = int(r.cn, CHART_MAX); // schema 4 (a schema 3 save has none: 0)
   }
   if (v > SCHEMA) {
     const extra = {};
     for (const key of Object.keys(raw)) if (!KNOWN.has(key)) extra[key] = raw[key];
     s.extra = extra;
   }
-  return { s, t: num(Number(r.t), 1e15), future: v > SCHEMA, upgraded };
+  return { s, t: num(Number(r.t), 1e15), future: v > SCHEMA, upgraded, from: v };
 }
 
 // ---- the cartridge -----------------------------------------------------------
@@ -614,6 +654,10 @@ export class Outpost {
     this.noteFx = null; // { pos 0..1, t } the lamp glow for the latest note
     this.panel = null; // the statistics view: { page }
     this.news = false;
+    this.newsFrom = 0; // the schema the save came from, when it shows the "updated" card
+    this.groove = 0; // 0..GROOVE_MAX, this visit only
+    this.gaps = []; // the last few gaps between gathering taps, for the beat
+    this.lastGather = -9;
     this.stageNow = -1;
     this.nextGoal = null;
     this.goalIn = 0;
@@ -632,9 +676,10 @@ export class Outpost {
     const summary = this.creditAway(sec);
     this.collectExpeditions(now, summary);
     this.collectResearch(now, summary);
-    if (loaded.upgraded && !loaded.fresh && (this.s.lt > 0 || this.s.taps > 0)) { // goals already met are credited quietly, once
+    if (loaded.from > 0 && loaded.from < SCHEMA && !loaded.fresh && (this.s.lt > 0 || this.s.taps > 0)) { // goals already met are credited quietly, once
       this.checkGoals(true);
       this.news = true;
+      this.newsFrom = loaded.from;
     }
     this.unlocked = unlockedN(this.s);
     this.stageNow = stageOf(this.s);
@@ -667,8 +712,9 @@ export class Outpost {
   surge() { let m = 1; for (const b of this.boosts) if (b.k === "surge") m = Math.max(m, b.mult); return m; }
   frenzy() { let m = 1; for (const b of this.boosts) if (b.k === "frenzy") m = Math.max(m, b.mult); return m; }
   effRate() { return num(this.rate * this.surge()); }
+  grooveMult() { return 1 + GROOVE_BONUS * Math.floor(this.groove) / GROOVE_MAX; }
   tapValue() {
-    const v = (this.tapMult * globalMult(this.s) + this.tapFrac * this.rate) * this.frenzy();
+    const v = (this.tapMult * globalMult(this.s) + this.tapFrac * this.rate) * this.frenzy() * this.grooveMult();
     return Math.max(1, num(v));
   }
   pending() { return pendingOf(this.s); }
@@ -756,6 +802,19 @@ export class Outpost {
     s.tree[k]++;
     s.st.buys++;
     if (k === 0) this.applyKitNow();
+    this.dirty = true;
+    this.recalc();
+    return true;
+  }
+  chartNext() {
+    const s = this.s;
+    if (!chartsOpen(s) || s.cn >= CHART_MAX) return false;
+    const cost = chartCost(s.cn);
+    if (s.b < cost) return false;
+    s.b -= cost;
+    s.cn++;
+    s.st.buys++;
+    this.setNote("CHARTED " + chartName(s.cn - 1) + "  ALL OUTPUT x" + CHART_MULT, 4.5);
     this.dirty = true;
     this.recalc();
     return true;
@@ -914,17 +973,18 @@ export class Outpost {
   voices() { let n = 0; for (const k of VOICE) if (this.s.up[k]) n++; return n; }
   // The tap that gathers also plays the next note: a lead voice sized to the player's tempo, and
   // whatever extra voices the station has learnt (a third above, an octave above, a low note at
-  // each phrase start, a bell partial). ctx.tone has no volume, so the extra voices are kept
-  // short and sine-pure to sit under the lead.
+  // each phrase start, a bell partial). The extra voices are short, sine-pure and quiet (their
+  // gain is VOICE_GAIN), and the lead steps down a little as they join, so the full band is
+  // about twice as loud as one note rather than five times.
   sound(midi, gap, idx) {
     if (this.clk - this.lastTapTone <= 0.03) return; // faster than any hand: skip the sound, not the note
     this.lastTapTone = this.clk;
     const c = this.c, m = this.mel, s = this.s, len = clamp(gap * 1.25, 0.16, 0.55), hz = midiHz(midi);
-    c.tone(hz, len, "triangle");
-    if (s.up[VOICE[0]]) c.tone(midiHz(scaleUp(midi, m.pcs, 2)), len * 0.7, "sine");
-    if (s.up[VOICE[1]]) c.tone(hz * 2, Math.min(len, 0.25), "sine");
-    if (s.up[VOICE[2]] && (idx === 0 || m.ends.includes(idx - 1))) c.tone(midiHz(m.root + 12), 0.8, "sine");
-    if (s.up[VOICE[3]]) c.tone(hz * 2.76, 0.12, "sine");
+    c.tone(hz, len, "triangle", this.voices() >= 2 ? 0.8 : 1);
+    if (s.up[VOICE[0]]) c.tone(midiHz(scaleUp(midi, m.pcs, 2)), len * 0.7, "sine", VOICE_GAIN[0]);
+    if (s.up[VOICE[1]]) c.tone(hz * 2, Math.min(len, 0.25), "sine", VOICE_GAIN[1]);
+    if (s.up[VOICE[2]] && (idx === 0 || m.ends.includes(idx - 1))) c.tone(midiHz(m.root + 12), 0.8, "sine", VOICE_GAIN[2]);
+    if (s.up[VOICE[3]]) c.tone(hz * 2.76, 0.12, "sine", VOICE_GAIN[3]);
   }
   playNote() {
     const s = this.s, m = this.mel, st = s.st;
@@ -1101,8 +1161,25 @@ export class Outpost {
     this.c.leds(lightsOff());
   }
 
+  // Groove: a tap close to the recent beat adds a step, a stumble halves it, a long gap ends it.
+  beatTap() {
+    const s = this.s, gap = this.clk - this.lastGather;
+    this.lastGather = this.clk;
+    if (gap > GROOVE_MAX_GAP) { this.gaps.length = 0; this.groove = 0; return; }
+    if (gap < GROOVE_MIN_GAP) { this.groove = Math.floor(this.groove / 2); return; }
+    if (this.gaps.length >= 2) {
+      const beat = this.gaps.reduce((a, b) => a + b, 0) / this.gaps.length;
+      if (Math.abs(gap / beat - 1) <= GROOVE_TOL) this.groove = Math.min(GROOVE_MAX, Math.floor(this.groove) + 1);
+      else this.groove = Math.floor(this.groove / 2);
+    }
+    this.gaps.push(gap);
+    if (this.gaps.length > 4) this.gaps.shift();
+    s.st.gb = Math.max(s.st.gb, Math.floor(this.groove));
+    if (this.groove >= GROOVE_MAX) { s.ev |= EV.groove; s.st.gt = Math.min(1e15, s.st.gt + 1); }
+  }
   gather() {
     const s = this.s;
+    this.beatTap();
     const v = this.tapValue();
     this.gain(v, "h");
     s.taps = Math.min(1e12, s.taps + 1);
@@ -1175,7 +1252,7 @@ export class Outpost {
     }
     list.push({ key: "goals", kind: "sub", sub: "goals", label: "GOALS", aff: false, big: s.gl.length + " / " + NG + " DONE", lines: ["EACH ONE IS +1% OUTPUT FOR EVER.", "SOME ARE HIDDEN."] });
     if (s.L > 0 || s.b > 0 || s.runs > 0) {
-      const can = TREE.some((nd, k) => s.L >= nd.req && s.tree[k] < nd.max && s.b >= nd.cost(s.tree[k]));
+      const can = TREE.some((nd, k) => s.L >= nd.req && s.tree[k] < nd.max && s.b >= nd.cost(s.tree[k])) || (chartsOpen(s) && s.cn < CHART_MAX && s.b >= chartCost(s.cn));
       list.push({ key: "tree", kind: "sub", sub: "tree", label: "BEARING TREE", aff: can, big: s.b + " BEARINGS", lines: ["SPEND BEARINGS ON LASTING", "BONUSES. KEPT FOR EVER."] });
     }
     const p = this.pending();
@@ -1221,6 +1298,11 @@ export class Outpost {
       nodes.push({ key: "n" + k, kind: "node", k, label: nd.n, sub: "L" + lvl + "/" + nd.max, aff, cost, sort: aff ? 0 : 1, big: "COST " + cost + " BEARINGS", lines: [nd.eff(lvl), "YOU HAVE " + s.b + " BEARINGS"] });
     });
     nodes.sort((a, b) => a.sort - b.sort || (a.cost || 0) - (b.cost || 0));
+    if (chartsOpen(s) && s.cn < CHART_MAX) {
+      const cost = chartCost(s.cn);
+      nodes.push({ key: "chart", kind: "chart", label: "CHART " + chartName(s.cn), sub: "SKY " + s.cn, aff: s.b >= cost, cost, big: "COST " + cost + " BEARINGS",
+        lines: ["ALL OUTPUT x" + CHART_MULT + ", FOR EVER.", s.cn + " CHARTED SO FAR: x" + fmt(Math.pow(CHART_MULT, s.cn)), "YOU HAVE " + s.b + " BEARINGS"] });
+    } else if (s.L >= CHART_REQ / 2) nodes.push({ key: "chartl", kind: "info", label: "CONSTELLATIONS", sub: "LOCKED", aff: false, big: "AT " + CHART_REQ + " BEARINGS", lines: ["HOLD " + CHART_REQ + " BEARINGS IN ALL", "TO START CHARTING THE SKY."] });
     return list.concat(nodes);
   }
   buildSongs() {
@@ -1326,6 +1408,7 @@ export class Outpost {
       case "prod": ok = this.buyProd(e.i); break;
       case "upg": ok = this.buyUpg(e.i); break;
       case "node": ok = this.buyNode(e.k); break;
+      case "chart": ok = this.chartNext(); break;
       case "launch": ok = this.launch(e.k); break;
       case "sub": r.menu = e.sub; r.idx = 0; this.entries = []; this.rebuild(true); this.arp([330, 392], 0.05, 0.08, "sine"); return;
       case "panel": this.ring = null; this.panel = { page: 0 }; this.arp([392, 523], 0.05, 0.08, "sine"); this.setHint(); return;
@@ -1351,7 +1434,7 @@ export class Outpost {
     }
     if (ok) {
       this.accent = this.accent?.k === "milestone" ? this.accent : { k: "buy", t: 0, dur: 0.35 };
-      if (e.kind !== "node" && e.kind !== "launch" && e.kind !== "research") this.arp([392, 494, 587, 784], 0.055, 0.14, "triangle");
+      if (e.kind !== "node" && e.kind !== "launch" && e.kind !== "research" && e.kind !== "chart") this.arp([392, 494, 587, 784], 0.055, 0.14, "triangle");
       else this.arp([330, 440, 554, 659], 0.06, 0.16, "triangle");
       this.saveSoon();
     } else this.refused = this.clk;
@@ -1409,6 +1492,11 @@ export class Outpost {
         this.flareIn = this.c.rng.range(50, 130) * 0.75 ** lvl;
         this.arp([880, 1175], 0.1, 0.12, "sine");
       }
+    }
+    // groove fades once the beat has stopped
+    if (this.groove > 0) {
+      const beat = this.gaps.length ? this.gaps.reduce((a, b) => a + b, 0) / this.gaps.length : 0.5;
+      if (this.clk - this.lastGather > Math.max(1.2, 2.5 * beat)) this.groove = Math.max(0, this.groove - GROOVE_FADE * dt);
     }
     // held press opens the ring
     if (this.down_ && !this.ring && !this.panel && !this.consume && this.phase_ === "play" && this.clk - this.downAt >= HOLD_OPEN) {
@@ -1516,8 +1604,10 @@ export class Outpost {
     let v = lamps(left, mid, right);
     // the latest note glows on the lamp for its place in the tune's range: low notes left, high right
     if (this.noteFx) {
-      const f = 1 - this.noteFx.t / 0.3, glow = spot(this.noteFx.pos, LAMP.white, 0.7);
-      v = v.map((x, i) => Math.max(x, Math.round(glow[i] * 0.5 * f)));
+      // brighter with groove; in full groove the glow turns cyan
+      const gf = Math.floor(this.groove) / GROOVE_MAX, f = 1 - this.noteFx.t / 0.3;
+      const glow = spot(this.noteFx.pos, gf >= 1 ? LAMP.cyan : LAMP.white, 0.7);
+      v = v.map((x, i) => Math.max(x, Math.round(glow[i] * (0.5 + 0.3 * gf) * f)));
     }
     const a = this.accent;
     if (a) {
@@ -1591,6 +1681,12 @@ export class Outpost {
     text(g, "+" + fmt(this.tapValue()), 936, 50, 24, C.ink, "right");
     text(g, s.L > 0 ? "BEARINGS" : "BEST RATE" + star, 936, 84, 16, C.muted, "right");
     text(g, s.L > 0 ? s.b + " / " + s.L : fmtRate(s.st.peak) + " /S", 936, 110, 24, C.amber, "right");
+    if (this.groove >= 1) {
+      const gf = Math.floor(this.groove) / GROOVE_MAX;
+      text(g, "GROOVE x" + this.grooveMult().toFixed(2), 936, 140, 16, gf >= 1 ? C.cyan : C.muted, "right");
+      g.fillStyle = C.dark; g.fillRect(836, 148, 100, 5);
+      g.fillStyle = gf >= 1 ? C.cyan : C.amber; g.fillRect(836, 148, 100 * gf, 5);
+    }
     let y = 150;
     for (const b of this.boosts) { text(g, (b.k === "surge" ? "SURGE x" : "TAP x") + b.mult + " " + clock(b.t), 24, y, 16, C.cyan, "left"); y += 22; }
     for (const e of s.ex) { text(g, EXPED[e.k].n + " " + clock((e.end - Date.now()) / 1000), 24, y, 16, C.cyan, "left"); y += 22; }
@@ -1614,8 +1710,29 @@ export class Outpost {
   }
   // The place grows with the station: a ridge from the start, then a fence, power poles, huts with
   // lit windows, a radar, orbiting satellites and finally an aurora. Faint line art behind the machines.
+  // Charted constellations, faint in the sky: twelve places, later charts drawn over them brighter.
+  drawSky(g) {
+    const n = this.s.cn;
+    if (!n) return;
+    const shown = Math.min(n, CONST.length);
+    for (let k = 0; k < shown; k++) {
+      const [, stars, links] = CONST[k];
+      const col = k % 6, row = Math.floor(k / 6);
+      const x0 = 30 + col * 160 + (row ? 70 : 0), y0 = 176 + row * 70 + (col % 2) * 18, w = 70, h = 40;
+      const deep = Math.floor((n - 1 - k) / CONST.length) + 1; // how many times this place has been charted
+      g.globalAlpha = Math.min(0.75, 0.22 + 0.12 * deep);
+      g.strokeStyle = deep > 1 ? C.cyan : C.line; g.lineWidth = 1;
+      g.beginPath();
+      for (const [a, b] of links) { g.moveTo(x0 + stars[a][0] * w, y0 + stars[a][1] * h); g.lineTo(x0 + stars[b][0] * w, y0 + stars[b][1] * h); }
+      g.stroke();
+      g.fillStyle = deep > 1 ? C.cyan : C.ink;
+      for (const [sx, sy] of stars) g.fillRect(x0 + sx * w - 1.5, y0 + sy * h - 1.5, 3, 3);
+    }
+    g.globalAlpha = 1;
+  }
   drawBackdrop(g, stage) {
     const gy = 440, t = this.t;
+    this.drawSky(g);
     g.lineWidth = 2;
     g.strokeStyle = C.dark;
     g.beginPath();
@@ -1691,7 +1808,7 @@ export class Outpost {
       : [
       ["NOTES PLAYED", fmtInt(st.nt) + star], ["TUNES COMPLETED", fmtInt(st.md) + star], ["PHRASES", fmtInt(st.ph) + star], ["TUNES UNLOCKED", unlockedN(s) + " / " + NS],
       ["TUNES MASTERED", masteredN(s) + " / " + NS], ["FLARES CAUGHT", fmtInt(st.fl) + star], ["EXPEDITIONS SENT", fmtInt(st.ex) + star], ["GOALS MET", s.gl.length + " / " + NG],
-      ["RESEARCH DONE", s.rd.length + " / " + NR], ["DATA", String(Math.floor(s.dat))]];
+      ["RESEARCH DONE", s.rd.length + " / " + NR], ["BEST GROOVE", (st.gb >= GROOVE_MAX ? "FULL" : Math.floor(st.gb) + " / " + GROOVE_MAX) + "  " + fmtInt(st.gt) + " IN THE POCKET"]];
     cells.forEach((c, k) => {
       const col = k % 2, row = Math.floor(k / 2), x = 54 + col * 440, y = 196 + row * 56;
       text(g, c[0], x, y, 16, C.muted, "left");
@@ -1705,6 +1822,15 @@ export class Outpost {
     g.fillStyle = "#0c1511f0"; g.fillRect(100, 130, 760, 330);
     g.strokeStyle = C.line; g.lineWidth = 2; g.strokeRect(100, 130, 760, 330);
     text(g, "OUTPOST UPDATED", 480, 168, 30, C.cyan, "center");
+    if (this.newsFrom >= 3) { // from schema 3: groove and constellations
+      text(g, "KEEP A STEADY BEAT TO BUILD GROOVE", 480, 218, 22, C.ink, "center");
+      text(g, "FULL GROOVE: EVERY TAP AND PHRASE x1.5", 480, 250, 22, C.muted, "center");
+      text(g, "AT " + CHART_REQ + " BEARINGS THE TREE CAN CHART CONSTELLATIONS", 480, 290, 20, C.ink, "center");
+      text(g, "THE EXTRA VOICES ARE QUIETER UNDER THE TUNE", 480, 322, 20, C.muted, "center");
+      text(g, "NOTHING WAS LOST.", 480, 366, 18, C.muted, "center");
+      text(g, "PRESS TO CONTINUE", 480, 424, 22, C.amber, "center");
+      return;
+    }
     text(g, "TAPS NOW PLAY MELODIES", 480, 218, 22, C.ink, "center");
     text(g, "HOLD, THEN SONGBOOK, TO CHOOSE THE TUNE", 480, 250, 22, C.muted, "center");
     text(g, "STATISTICS, GOALS AND RESEARCH ARE NEW", 480, 290, 22, C.ink, "center");
@@ -1842,7 +1968,7 @@ export class Outpost {
     const dwellNeed = e.dwell || DWELL, locked = e.kind !== "close" && e.kind !== "back" && this.clk - r.hiAt < dwellNeed;
     text(g, e.label, 500, 204, 26, C.ink, "left");
     if (e.big) text(g, e.big, 500, 250, 32, e.aff ? C.ink : C.amber, "left");
-    if (e.cost > 0 && !e.aff && e.kind !== "node") text(g, "NEED " + fmt(e.cost - this.s.sig) + " MORE", 500, 288, 22, C.muted, "left");
+    if (e.cost > 0 && !e.aff && e.kind !== "node" && e.kind !== "chart") text(g, "NEED " + fmt(e.cost - this.s.sig) + " MORE", 500, 288, 22, C.muted, "left");
     let y = e.cost > 0 && !e.aff && e.kind !== "node" ? 326 : 296;
     for (const ln of e.lines) for (const part of wrapText(ln, 29).slice(0, 2)) { text(g, part, 500, y, 22, C.muted, "left"); y += 28; }
     // hold bar
@@ -1894,4 +2020,5 @@ export class Outpost {
 }
 Outpost.music = { SONGS, MEL, GEN_ID, makeMelody, genTune, genName, scaleUp, midiHz, noteName, noteMidi, seeded, SCALES };
 Outpost.econ = { RES, GOALS, STAGES, VOICE, EV, NR, NG, NS, NT, hasRes, tierOpen, tiersOwned, dataRate, masteredN, unlockedN, stageOf, fmtInt, fmtDate, revealOf, fmt, fmtRate, dur, costOf, prodMult, globalMult, evaluate, tapParts, capHours, pendingOf, readyOf, migrate, serialize, freshState, applyKit,
-  PROD, UPG, TREE, EXPED, READY_RATIO, MILESTONES, SCHEMA, BIG, PRESTIGE_K, READY_MIN, KIT, NUP, NP, milestonesAt };
+  PROD, UPG, TREE, EXPED, READY_RATIO, MILESTONES, SCHEMA, BIG, PRESTIGE_K, READY_MIN, KIT, NUP, NP, milestonesAt,
+  readyRatio, chartCost, chartName, chartsOpen, CONST, CHART_REQ, CHART_MULT, CHART_MAX, GROOVE_MAX, VOICE_GAIN };

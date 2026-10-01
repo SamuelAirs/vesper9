@@ -62,3 +62,9 @@ The long integrated run was started while final review continued. The final held
 - Browser workflow and extension tests pass on this Pi with Playwright 1.63 driving the system Chromium 151 (32 s). Tests now take a free port each and mute audio so several checkouts can run them at once.
 - Project placed under local git: `v0.2.0-as-delivered`, then bring-up commits. The generated simulator is no longer tracked.
 - Sam's feedback after playing: fun; the lamps are underused; dictation a little inaccurate; wants more games and instruments. Plan for the overnight agent fleet: `../fleet/PLAN.md`.
+
+## 2026-10-01 — Tideline and Outpost depth (desktop, not verified on the device)
+
+- TIDELINE save schema 3 (schema 2 migrates, with a test against a save in the old format): perfect catches and silver/gold stars per species, angler rank 1-10 from experience (schema 2 saves get experience from what they had landed), a notice board of three commissions from rank 2, salvage chests that drift through the catch gauge from rank 3, and rests (one per tide, up to three) that move the sky to the next part of the day from rank 4. The sustained tension tone is replaced by short reel clicks. Lamp scheme during the catch unchanged. Report: `fleet-notes/reports/depth-tideline-outpost.md`.
+- OUTPOST save schema 4 (schema 3 migrates, fixture written by the previous build): groove (a steady beat raises tap and phrase value up to x1.5), extra voices mixed under the lead with the new `gain` argument of `ctx.tone`, constellations bought with bearings from 1000 held (x1.3 output each, without end), and a lower "relocation ready" ratio once bearings are large. Bot: the eighth relocation now takes about 50 minutes (it did not finish in four hours before).
+- Shared change: `Synth.tone` takes an optional fourth `gain` argument (0..1, default 1); `docs/ENGINE.md` updated.

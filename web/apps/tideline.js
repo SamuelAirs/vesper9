@@ -3,7 +3,12 @@
 // release lets it sink, and the meter fills while the fish is inside it.
 // Playable by the lamps alone: left lamp = fish below the zone, right lamp = fish above it,
 // middle lamp green = fish inside it, overall brightness = how close the landing is.
-import { C, space, text, line, circle, banner, wrapText } from "../engine/draw.js";
+//
+// Around the catch: a catch kept inside the zone is PERFECT, and perfect catches of big fish
+// earn silver and gold stars in the log; every landing earns angler experience, and the rank it
+// builds opens a notice board of commissions (rank 2), salvage chests that drift through the
+// gauge during a catch (rank 3) and resting until another time of day (rank 4).
+import { C, space, text, line, circle, diamond, banner, wrapText } from "../engine/draw.js";
 import { TAU, clamp, lerp } from "../engine/math.js";
 import { LAMP, lamps, dim, ramp, spot, pulse, blink, fill, only, meter, lightsOff } from "../engine/lightshow.js";
 import { AppGuard } from "../engine/input.js";
@@ -40,6 +45,18 @@ const CHUM_COST = 40, CHUM_CASTS = 5, CHUM_MAX = 25;
 const TIDE_CASTS = 5;
 const LEGEND_NEEDS = 4; // species recorded in a water before its legend will rise
 const MAX_SCRIP = 99999;
+// Angler rank: experience needed for ranks 1..10, and what each rank opens.
+const RANK_XP = [0, 30, 90, 200, 400, 750, 1300, 2100, 3300, 5000];
+const RANK_BOARD = 2, RANK_CHEST = 3, RANK_REST = 4;
+const RANK_UNLOCK = { 2: "THE NOTICE BOARD", 3: "SALVAGE CHESTS IN THE CATCH", 4: "RESTING UNTIL ANOTHER HOUR" };
+const QUALITY = ["", "", "SILVER", "GOLD"]; // stars 1..3; a plain landing is one star
+const QUALITY_PAY = [1, 1, 1.25, 1.6];
+const QUALITY_XP = [1, 1, 1.5, 2];
+const PERFECT_SLIP = 0.25; // seconds outside the zone a catch may spend and still be perfect
+const REST_MAX = 3;
+const PERIOD_ORDER = ["D", "d", "u", "n"];
+const NOTICE_KINDS = ["sp", "wt", "sz", "pf", "ch"];
+const MAX_XP = 1e7;
 
 // [name, water, rarity, kind, difficulty, cm min, cm max, periods ("" = any), weather boost, shape, note]
 // shape: type:length:height:extras (S spines, L lantern, T streamers, R bands, H horns)
@@ -95,18 +112,41 @@ const TREASURE = [
 // ---- the catch model (pure, no drawing: tests and bots drive it directly) ------------
 const ZONE_UP = 3.4, ZONE_DOWN = 2.7, ZONE_DRAG = 1.1, ZONE_VMAX = 1.35, BOUNCE = 0.35;
 const FISH_LO = 0.12, FISH_HI = 0.92;
+const CHEST_FILL = 0.5, CHEST_DECAY = 0.25, CHEST_LIFE = 9;
 
+// gear: { zone, reel, rank?, chest? }. A chest, when there is one, appears a little into the
+// catch at its own height and drifts; holding it inside the zone fills its own small meter.
 function newCatch(sp, gear, rng, beginner) {
   const h = ZONE_H[gear.zone] + (beginner ? 0.03 : 0);
   const d = sp.d * (beginner ? 0.5 : 1);
+  const rank = gear.rank || 1;
   return {
     kind: sp.kind, d, h, z: 0.5, zv: 0, f: 0.55, fv: 0, tgt: 0.55, timer: 0.4, mode: 0, t: 0,
     meter: beginner ? 0.42 : 0.32,
-    fill: 0.17 * REEL_MULT[gear.reel] * (beginner ? 1.25 : 1),
+    fill: 0.17 * REEL_MULT[gear.reel] * (beginner ? 1.25 : 1) * (1 + 0.02 * (rank - 1)),
     drain: (0.06 + 0.24 * d * d) * (beginner ? 0.6 : 1),
-    grace: 0.8, seed: rng.next() * 6.28,
+    grace: 0.8, seed: rng.next() * 6.28, out: 0,
+    chest: gear.chest ? { at: rng.range(1.2, 3.5), y: rng.range(0.2, 0.85), y0: 0, p: 0, on: false, got: false, gone: false, ph: rng.next() * 6.28 } : null,
   };
 }
+// The chest: appears at `at`, bobs about its height, fills while inside the zone, decays outside,
+// and sinks away after CHEST_LIFE seconds if it was not salvaged.
+function stepChest(c, dt) {
+  const k = c.chest;
+  if (!k || k.got || k.gone) return 0;
+  if (!k.on) { if (c.t < k.at) return 0; k.on = true; k.y0 = k.y; }
+  const age = c.t - k.at;
+  k.y = clamp(k.y0 + 0.07 * Math.sin(age * 0.9 + k.ph), 0.14, 0.9);
+  if (Math.abs(k.y - c.z) <= c.h) k.p += CHEST_FILL * dt; else k.p = Math.max(0, k.p - CHEST_DECAY * dt);
+  if (k.p >= 1) { k.p = 1; k.got = true; return 1; }
+  if (age > CHEST_LIFE) { k.gone = true; return -1; }
+  return 0;
+}
+const perfectCatch = (c) => c.out < PERFECT_SLIP;
+// Stars for a landing: gold = perfect and a good size, silver = perfect or a very big one.
+const qualityOf = (perfect, frac) => (perfect && frac >= 0.6 ? 3 : perfect || frac >= 0.8 ? 2 : 1);
+const landXp = (rar) => 2 + 4 * RARITY_POINTS[rar];
+const rankOf = (xp) => { let r = 0; for (const v of RANK_XP) if (xp >= v) r++; return Math.max(1, r); };
 function stepZone(c, held, dt) {
   c.zv += (held ? ZONE_UP : -ZONE_DOWN) * dt;
   c.zv /= 1 + ZONE_DRAG * dt;
@@ -171,6 +211,8 @@ function stepCatch(c, held, rng, dt) {
   c.t += dt;
   stepZone(c, held, dt);
   stepFish(c, rng, dt);
+  c.chestEvent = stepChest(c, dt);
+  if (!inZone(c)) c.out += dt;
   if (inZone(c)) c.meter += c.fill * dt;
   else if (c.grace > 0) c.grace -= dt;
   else c.meter -= (c.drain + Math.max(0, c.t - 25) * 0.01) * dt;
@@ -184,9 +226,25 @@ function stepCatch(c, held, rng, dt) {
 // schema 2: n[] catch counts and m[] largest size in tenths of a cm, per species in catalogue
 // order; $ scrip; g gear levels; c chum casts left; f treasure finds bitmask; plus tallies.
 // `runs`, `last` and `milestone` keep the host's record list meaningful.
+// schema 3 adds q[] best stars per species (0 none, 1 landed, 2 silver, 3 gold), xp angler
+// experience, r rest tokens, b the notice board (three notices), pf perfect catches, ch chests
+// salvaged, bn notices completed. A schema 2 save gets one star for everything it has landed
+// and experience worked out from what it has done, so its rank reflects the past.
+const SCHEMA = 3;
 function freshSave() {
-  return { schema: 2, runs: 0, last: {}, milestone: 0, n: Array(N).fill(0), m: Array(N).fill(0), $: 0,
-    g: [0, 0, 0, 0], c: 0, f: 0, casts: 0, landed: 0, tides: 0 };
+  return { schema: SCHEMA, runs: 0, last: {}, milestone: 0, n: Array(N).fill(0), m: Array(N).fill(0), $: 0,
+    g: [0, 0, 0, 0], c: 0, f: 0, casts: 0, landed: 0, tides: 0,
+    q: Array(N).fill(0), xp: 0, r: 0, b: [], pf: 0, ch: 0, bn: 0 };
+}
+// A notice: k kind, s species (sp, sz) or water (wt), n how many, p progress, x size in tenths
+// of a cm (sz), $ scrip paid, d done.
+function cleanNotice(raw) {
+  if (!raw || typeof raw !== "object" || !NOTICE_KINDS.includes(raw.k)) return null;
+  const k = raw.k;
+  const s = int(raw.s, 0, k === "wt" ? WATERS.length - 1 : N - 1);
+  if ((k === "sp" || k === "sz") && SPECIES[s].rar === 5) return null;
+  const n = int(raw.n, 1, 9);
+  return { k, s, n, p: int(raw.p, 0, n), x: int(raw.x, 0, 99999), $: int(raw.$, 0, 5000), d: raw.d ? 1 : 0 };
 }
 const int = (v, lo, hi) => (Number.isFinite(v) ? clamp(Math.round(v), lo, hi) : lo);
 function normalizeSave(raw) {
@@ -206,6 +264,21 @@ function normalizeSave(raw) {
     s.casts = int(raw.casts, 0, 1e6);
     s.landed = int(raw.landed, 0, 1e6);
     s.tides = int(raw.tides, 0, 1e6);
+    if (raw.schema === 3) {
+      for (let i = 0; i < N; i++) s.q[i] = s.n[i] > 0 ? int(Array.isArray(raw.q) ? raw.q[i] : 1, 1, 3) : 0;
+      s.xp = int(raw.xp, 0, MAX_XP);
+      s.r = int(raw.r, 0, REST_MAX);
+      if (Array.isArray(raw.b)) for (const x of raw.b.slice(0, 3)) { const nt = cleanNotice(x); if (nt) s.b.push(nt); }
+      s.pf = int(raw.pf, 0, 1e6);
+      s.ch = int(raw.ch, 0, 1e6);
+      s.bn = int(raw.bn, 0, 1e6);
+    } else {
+      // From schema 2: one star for each species landed, experience from the past.
+      for (let i = 0; i < N; i++) s.q[i] = s.n[i] > 0 ? 1 : 0;
+      let xp = 0;
+      for (const sp of SPECIES) xp += Math.min(s.n[sp.id], 40) * landXp(sp.rar);
+      s.xp = int(xp + 2 * s.tides, 0, MAX_XP);
+    }
   }
   return s;
 }
@@ -244,6 +317,9 @@ export class Tideline {
     this.water = 0;
     this.nibble = 0;
     this.lastLeds = lightsOff();
+    this.sky = 0; // periods rested ahead of the real clock (this visit only)
+    this.clickAt = 0; // the next reel click during a catch
+    this.fillBoard();
     this.setHint("Press to begin. Hold to cast.");
     this.refreshHud();
   }
@@ -253,10 +329,24 @@ export class Tideline {
     const d = new Date();
     return d.getHours() + d.getMinutes() / 60;
   }
-  period() {
+  realPeriod() {
     const h = this.nowHour();
     return h >= 5 && h < 8 ? "D" : h >= 8 && h < 17 ? "d" : h >= 17 && h < 21 ? "u" : "n";
   }
+  // The sky the game uses: the real clock, moved on by any rests taken this visit.
+  period() {
+    if (!this.sky) return this.realPeriod();
+    return PERIOD_ORDER[(PERIOD_ORDER.indexOf(this.realPeriod()) + this.sky) % 4];
+  }
+  nextPeriod() { return PERIOD_ORDER[(PERIOD_ORDER.indexOf(this.period()) + 1) % 4]; }
+  rank() { return rankOf(this.sv.xp); }
+  // Experience into the current rank, as 0..1 (1 at the top rank).
+  rankFrac() {
+    const r = this.rank();
+    if (r >= RANK_XP.length) return 1;
+    return clamp((this.sv.xp - RANK_XP[r - 1]) / (RANK_XP[r] - RANK_XP[r - 1]), 0, 1);
+  }
+  reachWater() { return this.waterAt(this.castMax()); }
   pickWeather() {
     let r = this.c.rng.next() * 100;
     for (let i = 0; i < WEATHER.length; i++) { r -= WEATHER_ODDS[i]; if (r < 0) return WEATHER[i]; }
@@ -266,7 +356,7 @@ export class Tideline {
   recordedIn(water) { return SPECIES.reduce((a, s) => a + (s.water === water && this.sv.n[s.id] > 0 ? 1 : 0), 0); }
   catScore() {
     let s = 0;
-    for (const sp of SPECIES) if (this.sv.n[sp.id] > 0) s += RARITY_POINTS[sp.rar];
+    for (const sp of SPECIES) if (this.sv.n[sp.id] > 0) s += RARITY_POINTS[sp.rar] + Math.max(0, this.sv.q[sp.id] - 1);
     for (let i = 0; i < TREASURE.length; i++) if (this.sv.f & (1 << i)) s += 2;
     return s;
   }
@@ -277,6 +367,7 @@ export class Tideline {
     return w;
   }
   beginner() { return this.sv.landed < 3; }
+  starsTotal() { return this.sv.q.reduce((a, v) => a + v, 0); }
   timeOK(sp, period) { return !sp.times || sp.times.includes(period); }
   // Relative bite weights for a water now: [{ sp, w }]. Rarer fish rise with the lure and chum.
   candidates(water, period, weather, gearLure = this.sv.g[3], chum = this.sv.c > 0) {
@@ -322,6 +413,103 @@ export class Tideline {
   }
   nextCost(i) { return GEAR[i].costs[this.sv.g[i]] ?? null; }
 
+  // ---- the notice board (rank 2): three commissions at a time ----------------------------
+  boardOpen() { return this.rank() >= RANK_BOARD; }
+  fillBoard() {
+    if (!this.boardOpen()) return;
+    const b = this.sv.b;
+    for (let guard = 0; b.length < 3 && guard < 20; guard++) { const nt = this.makeNotice(); if (nt) b.push(nt); }
+  }
+  makeNotice() {
+    const rng = this.c.rng, sv = this.sv, reach = this.reachWater(), per = this.period();
+    const taken = new Set(sv.b.map((x) => x.k + ":" + x.s));
+    const kinds = ["sp", "sp", "wt", "sz", "pf"];
+    if (this.rank() >= RANK_CHEST) kinds.push("ch");
+    const k = rng.pick(kinds.filter((x) => !(x === "pf" || x === "ch") || !sv.b.some((y) => y.k === x)));
+    if (k === "pf") { const n = rng.int(2, 3); return { k, s: 0, n, p: 0, x: 0, $: 50 * n, d: 0 }; }
+    if (k === "ch") return { k, s: 0, n: 1, p: 0, x: 0, $: 90, d: 0 };
+    if (k === "wt") {
+      const w = rng.int(0, reach);
+      if (taken.has("wt:" + w)) return null;
+      const n = rng.int(3, 5);
+      return { k, s: w, n, p: 0, x: 0, $: (20 + 15 * w) * n, d: 0 };
+    }
+    // A species: mostly one that is biting at this hour, sometimes one that needs another.
+    let pool = SPECIES.filter((sp) => sp.water <= reach && sp.rar <= 3 && !taken.has("sp:" + sp.id) && !taken.has("sz:" + sp.id));
+    if (k === "sz") pool = pool.filter((sp) => sv.n[sp.id] > 0);
+    const now = pool.filter((sp) => this.timeOK(sp, per));
+    if (now.length && rng.next() < 0.75) pool = now;
+    if (!pool.length) return null;
+    const sp = rng.pick(pool);
+    if (k === "sz") {
+      const x = Math.round((sp.min + (sp.max - sp.min) * rng.range(0.68, 0.84)) * 10);
+      return { k, s: sp.id, n: 1, p: 0, x, $: RARITY_VALUE[sp.rar] * 2 + 40, d: 0 };
+    }
+    const n = sp.rar === 1 ? rng.int(2, 3) : 1;
+    return { k, s: sp.id, n, p: 0, x: 0, $: Math.round(RARITY_VALUE[sp.rar] * 1.5 * n + 30), d: 0 };
+  }
+  noticeText(nt) {
+    const sp = SPECIES[nt.s];
+    switch (nt.k) {
+      case "sp": return "LAND " + (nt.n > 1 ? nt.n + " " : "A ") + sp.name;
+      case "wt": return "LAND " + nt.n + " FISH IN " + WATERS[nt.s].name;
+      case "sz": return "A " + sp.name + " OVER " + (nt.x / 10).toFixed(1) + " CM";
+      case "pf": return nt.n + " PERFECT CATCHES";
+      default: return "SALVAGE A CHEST";
+    }
+  }
+  // Moves notices on after a landing: ev = { sp, size, perfect, chest }. Pays finished ones.
+  progressBoard(ev) {
+    const done = [];
+    for (const nt of this.sv.b) {
+      if (nt.d) continue;
+      const sp = ev.sp;
+      let hit = false;
+      if (nt.k === "sp") hit = !!sp && sp.id === nt.s;
+      else if (nt.k === "wt") hit = !!sp && sp.water === nt.s;
+      else if (nt.k === "sz") hit = !!sp && sp.id === nt.s && Math.round(ev.size * 10) >= nt.x;
+      else if (nt.k === "pf") hit = !!sp && ev.perfect;
+      else if (nt.k === "ch") hit = ev.chest;
+      if (!hit) continue;
+      nt.p = Math.min(nt.n, nt.p + 1);
+      if (nt.p >= nt.n) {
+        nt.d = 1;
+        this.sv.$ = Math.min(MAX_SCRIP, this.sv.$ + nt.$);
+        this.sv.bn++;
+        this.addXp(Math.round(nt.$ / 4));
+        done.push(nt);
+      }
+    }
+    return done;
+  }
+  // Finished notices come down when a tide ends; new ones go up in their place.
+  turnBoard() {
+    this.sv.b = this.sv.b.filter((nt) => !nt.d);
+    this.fillBoard();
+  }
+  addXp(v) {
+    const before = this.rank();
+    this.sv.xp = Math.min(MAX_XP, this.sv.xp + Math.max(0, Math.round(v)));
+    const after = this.rank();
+    if (after > before) {
+      this.rankUp = after;
+      if (after >= RANK_BOARD && before < RANK_BOARD) this.fillBoard();
+    }
+    return after > before;
+  }
+  // ---- resting (rank 4): move the sky on to the next part of the day ----------------------
+  restOpen() { return this.rank() >= RANK_REST; }
+  rest() {
+    if (!this.restOpen() || this.sv.r <= 0) return false;
+    this.sv.r--;
+    this.sky = (this.sky + 1) % 4;
+    this.weather = this.pickWeather();
+    this.weatherLeft = this.c.rng.int(3, 6);
+    this.persist();
+    this.refreshHud();
+    return true;
+  }
+
   // ---- hints and readouts --------------------------------------------------------------
   setHint(message) {
     if (message === this.lastHint) return;
@@ -329,10 +517,10 @@ export class Tideline {
     this.c.hint(message);
   }
   refreshHud() {
-    const key = [this.sv.$, this.recorded(), this.weather, this.period(), this.bag.tideCasts].join("|");
+    const key = [this.sv.$, this.recorded(), this.weather, this.period(), this.bag.tideCasts, this.rank()].join("|");
     if (key === this.lastHud) return;
     this.lastHud = key;
-    this.c.hud([["SCRIP", this.sv.$], ["LOG", this.recorded() + "/" + N], ["SKY", PERIODS[this.period()] + " " + this.weather], ["TIDE", this.bag.tideCasts + "/" + TIDE_CASTS]]);
+    this.c.hud([["SCRIP", this.sv.$], ["LOG", this.recorded() + "/" + N], ["RANK", this.rank()], ["SKY", PERIODS[this.period()] + " " + this.weather], ["TIDE", this.bag.tideCasts + "/" + TIDE_CASTS]]);
   }
   tone(hz, dur, wave = "sine", delay = 0) {
     if (delay <= 0) { this.c.tone(hz, dur, wave); return; }
@@ -344,8 +532,11 @@ export class Tideline {
     notes.forEach((hz, i) => this.tone(hz, rar >= 4 ? 0.28 : 0.18, rar >= 4 ? "triangle" : "sine", i * 0.11));
     if (fresh) this.tone(1568, 0.3, "sine", notes.length * 0.11 + 0.05);
   }
+  // Older builds held a sustained tension tone; the reel now clicks with short tones instead, so
+  // there is nothing to stop beyond the next click.
   stopTension() {
-    if (this.toneOn) { this.c.synth.stopTone(); this.toneOn = false; this.toneStep = -1; }
+    if (this.toneOn) { this.c.synth.stopTone(); this.toneOn = false; }
+    this.clickAt = 0;
   }
   go(phase) {
     if (this.phase === "catch" && phase !== "catch") this.stopTension();
@@ -462,14 +653,21 @@ export class Tideline {
   }
   startBite() {
     this.go("bite");
-    this.biteFor = this.beginner() ? 1.6 : 1.0;
+    this.biteFor = (this.beginner() ? 1.6 : 1.0) + 0.04 * (this.rank() - 1);
     this.tone(880, 0.08, "square");
     this.tone(1175, 0.1, "square", 0.1);
     this.tone(880, 0.08, "square", 0.22);
     this.setHint("BITE! Press now.");
   }
+  // A chest may come with the catch from rank 3: more often with a better lure and in a storm.
+  chestChance() {
+    if (this.rank() < RANK_CHEST || this.beginner() || this.fishSp?.treasure) return 0;
+    return 0.12 + 0.04 * this.sv.g[3] + (this.weather === "STORM" ? 0.08 : 0);
+  }
   hook() {
-    this.cur = newCatch(this.fishSp, { zone: this.sv.g[0], reel: this.sv.g[1] }, this.c.rng, this.beginner());
+    const odds = this.chestChance(), chest = odds > 0 && this.c.rng.next() < odds;
+    this.cur = newCatch(this.fishSp, { zone: this.sv.g[0], reel: this.sv.g[1], rank: this.rank(), chest }, this.c.rng, this.beginner());
+    this.clickAt = 0;
     this.go("catch");
     this.tone(330, 0.07, "square");
     this.setHint("Hold lifts the zone. Keep the fish inside it.");
@@ -494,34 +692,64 @@ export class Tideline {
     this.afterCast();
   }
   land() {
-    const sp = this.fishSp, rng = this.c.rng, sv = this.sv;
+    const sp = this.fishSp, rng = this.c.rng, sv = this.sv, c = this.cur;
+    const perfect = !!c && perfectCatch(c);
     let card;
+    this.rankUp = 0;
     if (sp.treasure) {
       const tr = TREASURE[sp.item], first = !(sv.f & (1 << sp.item));
       sv.f |= 1 << sp.item;
       const scrip = tr.value + rng.int(0, 30);
       card = { treasure: true, item: sp.item, name: tr.name, note: tr.note, isNew: first, scrip, rar: 3, sp };
       sv.$ = Math.min(MAX_SCRIP, sv.$ + scrip);
+      this.addXp(10);
     } else {
       const frac = clamp((rng.next() + rng.next()) / 2, 0, 1);
       const size = Math.round((sp.min + (sp.max - sp.min) * frac) * 10) / 10;
       const first = sv.n[sp.id] === 0;
       const rec = !first && Math.round(size * 10) > sv.m[sp.id];
+      const q = qualityOf(perfect, frac);
+      const better = q > sv.q[sp.id] && !first && q > 1;
       sv.n[sp.id] = Math.min(9999, sv.n[sp.id] + 1);
       sv.m[sp.id] = Math.max(sv.m[sp.id], Math.round(size * 10));
-      const scrip = Math.round(RARITY_VALUE[sp.rar] * (0.7 + 0.6 * frac) * (first ? 1.25 : 1));
+      sv.q[sp.id] = Math.max(sv.q[sp.id], q);
+      const scrip = Math.round(RARITY_VALUE[sp.rar] * (0.7 + 0.6 * frac) * (first ? 1.25 : 1) * QUALITY_PAY[q]);
       sv.$ = Math.min(MAX_SCRIP, sv.$ + scrip);
-      card = { sp, name: sp.name, size, isNew: first, isRecord: rec, scrip, rar: sp.rar, note: sp.note };
+      if (perfect) sv.pf = Math.min(1e6, sv.pf + 1);
+      card = { sp, name: sp.name, size, isNew: first, isRecord: rec, scrip, rar: sp.rar, note: sp.note, q, perfect, better };
       if (first) this.bag.tideNew++;
+      this.addXp(landXp(sp.rar) * QUALITY_XP[q] * (first ? 1.5 : 1));
     }
+    if (c?.chest?.got) card.chest = this.openChest();
+    card.notices = this.progressBoard({ sp: sp.treasure ? null : sp, size: card.size || 0, perfect, chest: !!card.chest });
+    card.rankUp = this.rankUp;
     sv.landed++;
     this.bag.sessionLanded++;
     this.card = card;
     this.finishCast(true);
     this.go("card");
     this.fanfare(card.rar, card.isNew, card.treasure);
-    this.setHint(card.isNew ? "New entry in the log. Press to cast again." : "Press to cast again.");
+    if (card.q === 3 || card.perfect) this.tone(card.q === 3 ? 2093 : 1760, 0.2, "sine", 0.9);
+    if (card.notices.length) [784, 988, 1175].forEach((hz, i) => this.tone(hz, 0.12, "triangle", 1.1 + i * 0.09));
+    if (card.rankUp) [523, 784, 1047, 1568].forEach((hz, i) => this.tone(hz, 0.2, "triangle", 1.5 + i * 0.12));
+    this.setHint(card.rankUp ? "Angler rank " + card.rankUp + ". Press to cast again." : card.isNew ? "New entry in the log. Press to cast again." : "Press to cast again.");
     this.afterCast();
+  }
+  // What a salvaged chest held: a find not yet made (sometimes), chum, or scrip by the water.
+  openChest() {
+    const rng = this.c.rng, sv = this.sv;
+    sv.ch = Math.min(1e6, sv.ch + 1);
+    const missing = TREASURE.map((_, i) => i).filter((i) => !(sv.f & (1 << i)));
+    if (missing.length && rng.next() < 0.35) {
+      const item = rng.pick(missing);
+      sv.f |= 1 << item;
+      sv.$ = Math.min(MAX_SCRIP, sv.$ + TREASURE[item].value);
+      return { label: TREASURE[item].name, scrip: TREASURE[item].value };
+    }
+    const scrip = 40 + 40 * this.water + rng.int(0, 40);
+    sv.$ = Math.min(MAX_SCRIP, sv.$ + scrip);
+    if (rng.next() < 0.25 && sv.c < CHUM_MAX) { sv.c = Math.min(CHUM_MAX, sv.c + 3); return { label: "CHUM FOR 3 CASTS", scrip }; }
+    return { label: "SALVAGE", scrip };
   }
   // Tide bookkeeping and saving after every resolved cast.
   afterCast() {
@@ -530,8 +758,11 @@ export class Tideline {
       const bonus = b.tideLanded * 10 + (b.tideLanded === TIDE_CASTS ? 50 : 0) + b.tideNew * 20;
       this.sv.$ = Math.min(MAX_SCRIP, this.sv.$ + bonus);
       this.sv.tides++;
-      if (this.card) this.card.tide = { landed: b.tideLanded, fresh: b.tideNew, bonus };
+      const rest = this.restOpen() && this.sv.r < REST_MAX;
+      if (rest) this.sv.r++;
+      if (this.card) this.card.tide = { landed: b.tideLanded, fresh: b.tideNew, bonus, rest };
       b.tideCasts = 0; b.tideLanded = 0; b.tideNew = 0;
+      this.turnBoard();
     }
     this.persist();
     this.refreshHud();
@@ -541,7 +772,7 @@ export class Tideline {
     sv.milestone = rec;
     sv.last = { recorded: rec, score, landed: sv.landed, tides: sv.tides };
     if (score > 0) this.c.score(score);
-    const out = { ...sv, n: sv.n.slice(), m: sv.m.slice(), g: sv.g.slice() };
+    const out = { ...sv, n: sv.n.slice(), m: sv.m.slice(), g: sv.g.slice(), q: sv.q.slice(), b: sv.b.map((nt) => ({ ...nt })) };
     return this.c.saveProgress?.(out)?.catch?.(this.c.error);
   }
 
@@ -554,7 +785,12 @@ export class Tideline {
   menuItems() {
     if (this.menu.mode === "gear") return ["BACK", ...GEAR.map((g) => g.id), "chum"];
     if (this.menu.mode === "log") return Array.from({ length: N + 2 }, (_, i) => i);
-    return ["close", "gear", "log"];
+    if (this.menu.mode === "board") return ["BACK"];
+    const out = ["close"];
+    if (this.boardOpen()) out.push("board");
+    out.push("gear", "log");
+    if (this.restOpen()) out.push("rest");
+    return out;
   }
   menuStep() {
     this.menu.at = (this.menu.at + 1) % this.menuItems().length;
@@ -567,9 +803,13 @@ export class Tideline {
     this.tone(520, 0.08, "triangle");
     if (m.mode === "root") {
       if (it === "close") this.toShore();
-      else { m.mode = it; m.at = 0; m.lines = ""; }
-    } else if (m.mode === "log") { m.mode = "root"; m.at = 2; }
-    else if (it === "BACK") { m.mode = "root"; m.at = 1; }
+      else if (it === "rest") {
+        const to = PERIODS[this.nextPeriod()];
+        if (this.rest()) { m_note(this, "RESTED UNTIL " + to + ". THE SKY HAS CHANGED"); this.tone(392, 0.2, "sine"); this.tone(294, 0.3, "sine", 0.18); }
+        else { m_note(this, "NO RESTS LEFT. EACH TIDE EARNS ONE"); this.tone(200, 0.1, "square"); }
+      } else { const from = m.at; m.mode = it; m.at = 0; m.lines = ""; m.from = from; }
+    } else if (m.mode === "log" || m.mode === "board") { m.at = m.from ?? 0; m.mode = "root"; }
+    else if (it === "BACK") { m.at = m.from ?? 0; m.mode = "root"; }
     else if (it === "chum") this.buyChum();
     else this.buyGear(GEAR.findIndex((g) => g.id === it));
   }
@@ -649,6 +889,9 @@ export class Tideline {
     if (g.shield > 0) { g.shield -= dt; c.grace = Math.max(c.grace, 0.2); }
     const r = stepCatch(c, this.held, this.c.rng, dt);
     this.updateTension(c);
+    const k = c.chest;
+    if (k?.on && !k.heard) { k.heard = true; this.tone(1320, 0.05, "sine"); this.tone(1760, 0.07, "sine", 0.07); }
+    if (c.chestEvent === 1) [660, 880, 1320].forEach((hz, i) => this.tone(hz, 0.09, "triangle", i * 0.06));
     if (r === 1) this.land();
     else if (r === -1) {
       this.card = { lost: true, reason: "THE LINE WENT SLACK.", sp: this.fishSp && !this.fishSp.treasure ? this.fishSp : null };
@@ -659,12 +902,13 @@ export class Tideline {
       this.afterCast();
     }
   }
-  // The tension tone sounds while the fish is inside the zone and its pitch follows the meter.
+  // The reel clicks while the fish is inside the zone, faster and higher as the meter fills.
+  // Each click is a short tone with its own envelope: nothing is left sounding when a catch ends.
   updateTension(c) {
-    if (inZone(c)) {
-      const step = Math.round(c.meter * 10);
-      if (!this.toneOn || step !== this.toneStep) { this.c.synth.startTone(160 + step * 38); this.toneOn = true; this.toneStep = step; }
-    } else this.stopTension();
+    if (!inZone(c)) { this.clickAt = 0; return; }
+    if (this.t < this.clickAt) return;
+    this.c.tone(220 + 520 * c.meter, 0.035, "triangle");
+    this.clickAt = this.t + 0.24 - 0.15 * c.meter;
   }
 
   // ---- lamps ---------------------------------------------------------------------------
@@ -745,7 +989,7 @@ export class Tideline {
       g.fillStyle = "#0c1511e8"; g.fillRect(150, 372, 660, 98);
       text(g, "LAMPS  LEFT = FISH BELOW   MIDDLE = ON IT   RIGHT = FISH ABOVE", 480, 392, 17, C.cyan, "center");
       text(g, "HOLD = CAST / LIFT ZONE    TAP = GEAR AND LOG", 480, 420, 17, C.muted, "center");
-      text(g, "LOG " + this.recorded() + " OF " + N + " RECORDED", 480, 450, 18, C.amber, "center");
+      text(g, "LOG " + this.recorded() + " OF " + N + " RECORDED    ANGLER RANK " + this.rank(), 480, 450, 18, C.amber, "center");
     } else if (ph === "shore") this.drawShore(g);
     else if (ph === "charge") this.drawCharge(g);
     else if (ph === "bite") {
@@ -843,6 +1087,30 @@ export class Tideline {
     text(g, "TAP FOR GEAR AND LOG", 480, 94, 20, C.muted, "center");
     if (this.affordable()) text(g, "GEAR AVAILABLE", 480, 126, 20, C.cyan, "center");
     text(g, "REACH " + this.castMax() + "   " + WATERS[this.waterAt(this.castMax())].name, 480, 498, 18, C.muted, "center");
+    this.drawRank(g, 480, 526);
+    if (this.boardOpen() && this.sv.b.length) {
+      g.fillStyle = "#0c1511c8"; g.fillRect(14, 140, 420, 26 + 24 * this.sv.b.length);
+      text(g, "NOTICES", 26, 158, 16, C.cyan);
+      this.sv.b.forEach((nt, i) => {
+        const y = 182 + i * 24;
+        text(g, (nt.d ? "DONE " : nt.p + "/" + nt.n + "  ") + this.noticeText(nt), 26, y, 15, nt.d ? C.muted : C.ink);
+      });
+    }
+  }
+  // Angler rank with a bar toward the next one, and the rests held.
+  drawRank(g, x, y) {
+    const r = this.rank(), w = 120, f = this.rankFrac();
+    const label = "ANGLER RANK " + r;
+    text(g, label, x - 20, y, 16, C.muted, "right");
+    g.strokeStyle = C.line; g.lineWidth = 1; g.strokeRect(x, y - 9, w, 10);
+    g.fillStyle = C.amber; g.fillRect(x + 1, y - 8, (w - 2) * f, 8);
+    if (this.restOpen()) text(g, "RESTS " + this.sv.r, x + w + 18, y, 16, C.muted);
+  }
+  // Stars as small diamonds: filled up to q, of 3.
+  drawStars(g, q, x, y, r, center = true) {
+    const gap = r * 2.6, x0 = center ? x - gap : x;
+    const col = q >= 3 ? C.amber : q === 2 ? C.ink : C.muted;
+    for (let i = 0; i < 3; i++) diamond(g, x0 + i * gap, y, r, i < q ? col : C.line, i < q);
   }
   drawCharge(g) {
     const x0 = 230, w = 500, y = 456, max = this.castMax(), p = this.power, d = p * max, wi = this.waterAt(d);
@@ -873,6 +1141,17 @@ export class Tideline {
     g.fillRect(GX - GW / 2 + 2, zt, GW - 4, zh);
     g.globalAlpha = 1;
     g.strokeStyle = inside ? C.ink : C.amber; g.lineWidth = 3; g.strokeRect(GX - GW / 2 + 2, zt, GW - 4, zh);
+    const k = c.chest;
+    if (k?.on && !k.got && !k.gone) {
+      // The chest rides at the left edge of the gauge with its own small fill bar.
+      const cy = yOf(k.y), cx = GX - GW / 2 - 22, warm = Math.abs(k.y - c.z) <= c.h;
+      const fade = clamp((CHEST_LIFE - (c.t - k.at)) / 2, 0.3, 1);
+      g.globalAlpha = fade;
+      g.strokeStyle = warm ? C.amber : C.muted; g.lineWidth = 2; g.strokeRect(cx - 11, cy - 8, 22, 16);
+      line(g, cx - 11, cy - 2, cx + 11, cy - 2, warm ? C.amber : C.muted, 2);
+      g.fillStyle = C.amber; g.fillRect(cx - 11, cy + 11, 22 * k.p, 4);
+      g.globalAlpha = 1;
+    }
     const fy = yOf(c.f);
     this.drawShape(g, this.fishSp.shape, GX, fy, 1 / Math.max(1, this.fishSp.shape.len, this.fishSp.shape.hgt), inside ? C.ink : C.red, 3);
     // Progress meter.
@@ -889,6 +1168,9 @@ export class Tideline {
     }
     text(g, c.meter < 0.22 ? "LINE FAILING" : inside ? "ON IT" : c.f > c.z ? "FISH ABOVE" : "FISH BELOW", 400, 60, 28, c.meter < 0.22 ? C.red : inside ? C.ink : C.amber, "center");
     text(g, "HOLD LIFTS THE ZONE", 400, 96, 20, C.muted, "center");
+    if (!this.beginner()) text(g, perfectCatch(c) ? "PERFECT SO FAR" : "SLIPPED", 400, 128, 18, perfectCatch(c) ? C.cyan : C.line, "center");
+    if (k?.got) text(g, "CHEST SALVAGED", 400, 156, 18, C.amber, "center");
+    else if (k?.on && !k.gone) text(g, "A CHEST: HOLD IT IN THE ZONE", 400, 156, 18, C.amber, "center");
   }
   cardScale(sh, s) { return clamp(s / Math.max(sh.len, sh.hgt, 0.9), 1.6, s); }
   drawCard(g) {
@@ -912,11 +1194,19 @@ export class Tideline {
     if (!k.treasure) {
       text(g, k.size.toFixed(1) + " CM", 600, 200, 34, C.amber, "center");
       text(g, RARITY[k.rar] + "  " + WATERS[k.sp.water].name, 600, 240, 18, C.muted, "center");
+      if (k.q) {
+        this.drawStars(g, k.q, 600, 270, 8);
+        const tag = (k.perfect ? "PERFECT" : "") + (k.q > 1 ? (k.perfect ? "  " : "") + QUALITY[k.q] + (k.better ? " - BEST YET" : "") : "");
+        if (tag) text(g, tag, 600, 298, 17, k.q === 3 ? C.amber : C.cyan, "center");
+      }
     } else text(g, "NOT A FISH", 600, 200, 26, C.amber, "center");
-    wrapText(k.note, 52).forEach((ln, i) => text(g, ln, 480, 330 + i * 28, 21, C.muted, "center"));
-    text(g, "+" + k.scrip + " SCRIP", 480, 396, 24, C.amber, "center");
-    if (k.tide) text(g, "TIDE COMPLETE  " + k.tide.landed + " LANDED  +" + k.tide.bonus, 480, 432, 20, C.cyan, "center");
-    if (this.phaseT > 0.9) text(g, "PRESS TO CAST AGAIN", 480, 472, 20, C.amber, "center");
+    wrapText(k.note, 52).slice(0, 2).forEach((ln, i) => text(g, ln, 480, 330 + i * 26, 20, C.muted, "center"));
+    text(g, "+" + k.scrip + " SCRIP" + (k.chest ? "    CHEST: " + k.chest.label + " +" + k.chest.scrip : ""), 480, 394, k.chest ? 20 : 24, C.amber, "center");
+    const extra = k.rankUp ? "ANGLER RANK " + k.rankUp + (RANK_UNLOCK[k.rankUp] ? ": " + RANK_UNLOCK[k.rankUp] : "")
+      : k.notices?.length ? "NOTICE DONE: " + this.noticeText(k.notices[0]) + "  +" + k.notices[0].$ : "";
+    if (extra) text(g, extra, 480, 422, 18, C.cyan, "center");
+    if (k.tide) text(g, "TIDE COMPLETE  " + k.tide.landed + " LANDED  +" + k.tide.bonus + (k.tide.rest ? "  +1 REST" : ""), 480, 448, 18, C.cyan, "center");
+    if (this.phaseT > 0.9) text(g, "PRESS TO CAST AGAIN", 480, 476, 20, C.amber, "center");
   }
 
   // Line-art silhouettes. A shape is { t, len, hgt, x }; they face right, centred on (x, y).
@@ -991,13 +1281,19 @@ export class Tideline {
     space(g, this.t, 0.3);
     const holdFrac = this.held && !m.done ? clamp(this.pressT / ((this.c.settings?.().holdMs || 650) / 1000), 0, 1) : 0;
     if (m.mode === "log") { this.drawLog(g, holdFrac); return; }
+    if (m.mode === "board") { this.drawBoard(g, holdFrac); return; }
     text(g, m.mode === "gear" ? "GEAR" : "TIDELINE", 480, 56, 34, C.ink, "center");
     text(g, "SCRIP " + this.sv.$ + "    LOG " + this.recorded() + "/" + N, 480, 96, 22, C.amber, "center");
     items.forEach((it, i) => {
       const y = 160 + i * 52, sel = i === m.at;
       if (sel) { g.strokeStyle = C.cyan; g.lineWidth = 2; g.strokeRect(150, y - 24, 660, 46); g.fillStyle = "#2f7a4655"; g.fillRect(152, y - 22, 656 * holdFrac, 42); }
       let label, right = "", col = sel ? C.ink : C.muted;
-      if (m.mode === "root") label = { close: "CLOSE  BACK TO THE WATER", gear: "GEAR", log: "FIELD LOG  " + this.recorded() + " OF " + N + " RECORDED" }[it];
+      if (m.mode === "root") {
+        const doneN = this.sv.b.filter((nt) => nt.d).length;
+        label = { close: "CLOSE  BACK TO THE WATER", board: "NOTICE BOARD", gear: "GEAR", log: "FIELD LOG  " + this.recorded() + " OF " + N + " RECORDED", rest: "REST UNTIL " + PERIODS[this.nextPeriod()] }[it];
+        if (it === "board") right = doneN + " OF " + this.sv.b.length + " DONE";
+        if (it === "rest") right = this.sv.r + " LEFT";
+      }
       else if (it === "BACK") label = "BACK";
       else if (it === "chum") { label = "CHUM"; right = this.sv.c ? this.sv.c + " CASTS LEFT  " + CHUM_COST + " MORE" : CHUM_COST + " SCRIP"; }
       else {
@@ -1016,6 +1312,24 @@ export class Tideline {
     if (m.lines) text(g, m.lines, 480, 484, 22, C.cyan, "center");
     text(g, "TAP STEPS    HOLD CHOOSES", 480, 516, 18, C.muted, "center");
   }
+  drawBoard(g, holdFrac) {
+    text(g, "NOTICE BOARD", 480, 56, 34, C.ink, "center");
+    text(g, "ANGLER RANK " + this.rank() + "    NOTICES DONE " + this.sv.bn, 480, 96, 20, C.amber, "center");
+    this.sv.b.forEach((nt, i) => {
+      const y = 150 + i * 84;
+      g.strokeStyle = nt.d ? C.line : C.muted; g.lineWidth = 2; g.strokeRect(120, y - 26, 720, 72);
+      text(g, this.noticeText(nt), 140, y, 22, nt.d ? C.muted : C.ink);
+      text(g, nt.d ? "DONE" : nt.p + " / " + nt.n, 820, y, 20, nt.d ? C.muted : C.cyan, "right");
+      const sp = nt.k === "sp" || nt.k === "sz" ? SPECIES[nt.s] : null;
+      const sub = sp ? this.hintFor(sp) : nt.k === "pf" ? "KEEP THE FISH IN THE ZONE THE WHOLE WAY" : nt.k === "ch" ? "FROM RANK 3 CHESTS DRIFT THROUGH SOME CATCHES" : "ANY SPECIES IN THAT WATER";
+      text(g, sub, 140, y + 28, 16, C.muted);
+      text(g, "+" + nt.$ + " SCRIP", 820, y + 28, 16, C.amber, "right");
+    });
+    text(g, "FINISHED NOTICES ARE REPLACED WHEN A TIDE ENDS", 480, 420, 18, C.muted, "center");
+    g.fillStyle = "#2f7a4655";
+    if (holdFrac) g.fillRect(150, 470, 660 * holdFrac, 6);
+    text(g, "HOLD FOR BACK", 480, 500, 18, C.muted, "center");
+  }
   hintFor(sp) {
     const w = WATERS[sp.water];
     const reach = CAST_MAX.findIndex((v) => v > w.from);
@@ -1033,7 +1347,11 @@ export class Tideline {
       if (sel) { g.strokeStyle = C.cyan; g.lineWidth = 2; g.strokeRect(cx - cw / 2 + 4, cy - ch / 2 + 4, cw - 8, ch - 8); }
       if (i < N) {
         const sp = SPECIES[i];
-        if (this.sv.n[i] > 0) this.drawShape(g, sp.shape, cx, cy, 0.62, sp.rar === 5 ? C.amber : C.ink, 2);
+        if (this.sv.n[i] > 0) {
+          this.drawShape(g, sp.shape, cx, cy - 6, 0.62, sp.rar === 5 ? C.amber : C.ink, 2);
+          // Silver and gold as small pips (cheap to draw thirty of): two or three of them.
+          if (this.sv.q[i] > 1) { g.fillStyle = this.sv.q[i] === 3 ? C.amber : C.ink; for (let k = 0; k < this.sv.q[i]; k++) g.fillRect(cx - 14 + k * 11, cy + 24, 6, 6); }
+        }
         else text(g, "?", cx, cy, 26, C.line, "center");
       } else if (i === N) text(g, "FINDS", cx, cy - 8, 18, C.amber, "center"), text(g, this.findCount() + "/" + TREASURE.length, cx, cy + 14, 20, C.amber, "center");
       else text(g, "CLOSE", cx, cy, 20, C.muted, "center");
@@ -1045,7 +1363,7 @@ export class Tideline {
       const sp = SPECIES[i], n = this.sv.n[i];
       if (n > 0) {
         text(g, sp.name + "   " + RARITY[sp.rar], 480, 440, 24, C.ink, "center");
-        text(g, "LARGEST " + (this.sv.m[i] / 10).toFixed(1) + " CM    LANDED " + n, 480, 470, 20, C.amber, "center");
+        text(g, "LARGEST " + (this.sv.m[i] / 10).toFixed(1) + " CM    LANDED " + n + "    BEST " + (QUALITY[this.sv.q[i]] || "ONE STAR"), 480, 470, 20, C.amber, "center");
         text(g, sp.note, 480, 500, 17, C.muted, "center");
       } else {
         text(g, "NOT YET RECORDED", 480, 440, 24, C.muted, "center");
@@ -1053,7 +1371,7 @@ export class Tideline {
       }
     } else if (i === N) {
       text(g, "FINDS THAT WERE NOT FISH: " + this.findCount() + " OF " + TREASURE.length, 480, 450, 22, C.amber, "center");
-      text(g, "CATALOGUE SCORE " + this.catScore(), 480, 484, 20, C.muted, "center");
+      text(g, "CATALOGUE SCORE " + this.catScore() + "    STARS " + this.starsTotal() + " OF " + N * 3 + "    PERFECT CATCHES " + this.sv.pf, 480, 484, 18, C.muted, "center");
     } else text(g, "HOLD TO CLOSE", 480, 460, 24, C.ink, "center");
     text(g, "TAP BROWSES  HOLD CLOSES", 480, 524, 16, C.muted, "center");
   }
@@ -1066,4 +1384,4 @@ export class Tideline {
 function m_note(app, message) { app.menu.lines = message; }
 
 // Pure model and data, for tests and tools.
-Tideline.model = { newCatch, stepCatch, stepZone, stepFish, inZone, normalizeSave, freshSave, SPECIES, WATERS, GEAR, TREASURE, CAST_MAX, ZONE_H, REEL_MULT, LURE_MULT, WEATHER, LEGEND_NEEDS, TIDE_CASTS };
+Tideline.model = { newCatch, stepCatch, stepZone, stepFish, stepChest, inZone, perfectCatch, qualityOf, rankOf, normalizeSave, freshSave, cleanNotice, SPECIES, WATERS, GEAR, TREASURE, CAST_MAX, ZONE_H, REEL_MULT, LURE_MULT, WEATHER, LEGEND_NEEDS, TIDE_CASTS, RANK_XP, RANK_BOARD, RANK_CHEST, RANK_REST, REST_MAX, SCHEMA };

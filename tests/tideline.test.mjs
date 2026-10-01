@@ -767,3 +767,218 @@ test("weather changes over casts and the pause/resume path is safe", () => {
   assert.ok(seen.size >= 3, [...seen].join());
   app.pause(); app.resume(); app.cancel(); app.dispose();
 });
+
+// ---- schema 3: stars, perfect catches, rank, notice board, chests, rests ---------------------
+// A save exactly as the schema 2 game (before stars and ranks) wrote it, after an evening of play.
+const SCHEMA2_SAVE = {
+  schema: 2, runs: 6, last: { recorded: 9, score: 15, landed: 41, tides: 9 }, milestone: 9,
+  n: [7, 5, 3, 2, 1, 0, 0, 0, 6, 4, 2, 0, 0, 0, 0, 3, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  m: [331, 254, 171, 498, 412, 0, 0, 0, 197, 441, 655, 0, 0, 0, 0, 133, 402, 701, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  $: 214, g: [1, 1, 1, 0], c: 2, f: 1, casts: 47, landed: 41, tides: 9,
+};
+const land = (app, sp, { perfect = true, chest = false } = {}) => {
+  app.go("shore"); app.phase = "bite"; app.phaseT = 0; app.biteFor = 1; app.fishSp = sp;
+  app.down();
+  const c = app.cur;
+  c.meter = 0.995; c.z = 0.5; c.f = 0.5; c.zv = 0; c.tgt = 0.5; c.timer = 9;
+  c.out = perfect ? 0 : 1;
+  if (chest) c.chest = { at: 0, y: 0.5, y0: 0.5, p: 1, on: true, got: true, gone: false, ph: 0, heard: true };
+  run(app, 0.2, null);
+  app.up();
+  assert.equal(app.phase, "card");
+  return app.card;
+};
+
+test("a schema 2 save migrates: catches, gear and scrip kept, one star each, rank from the past", () => {
+  const { ctx, app } = make({ seed: 40, progress: JSON.parse(JSON.stringify(SCHEMA2_SAVE)) });
+  const sv = app.sv;
+  assert.equal(sv.schema, 3);
+  assert.deepEqual(sv.n, SCHEMA2_SAVE.n);
+  assert.deepEqual(sv.m, SCHEMA2_SAVE.m);
+  assert.equal(sv.$, 214); assert.deepEqual(sv.g, [1, 1, 1, 0]); assert.equal(sv.c, 2); assert.equal(sv.f, 1);
+  assert.equal(sv.landed, 41); assert.equal(sv.tides, 9); assert.equal(sv.runs, 6);
+  assert.deepEqual(sv.q, SCHEMA2_SAVE.n.map((v) => (v > 0 ? 1 : 0)));
+  assert.ok(sv.xp > 0 && app.rank() >= 3, "an evening of play counts: xp " + sv.xp + " rank " + app.rank());
+  assert.equal(sv.b.length, 3, "the board is up for a migrated player");
+  assert.equal(app.catScore(), (() => { let s = 0; for (const sp of SP) if (sv.n[sp.id]) s += [0, 1, 2, 4, 7, 15][sp.rar]; return s + 2; })(), "the score is unchanged by migration");
+  // Round trip through the new format.
+  app.persist();
+  const saved = JSON.parse(JSON.stringify(ctx.calls.saved.at(-1)));
+  assert.equal(saved.schema, 3);
+  const again = new Tideline(appContext({ progress: saved }));
+  for (const k of ["n", "m", "q", "g", "b"]) assert.deepEqual(again.sv[k], sv[k], k);
+  for (const k of ["$", "xp", "r", "pf", "ch", "bn", "landed"]) assert.equal(again.sv[k], sv[k], k);
+  // Junk in the new fields is cleaned.
+  const odd = M.normalizeSave({ ...saved, q: [9, -1, "x"], xp: -4, r: 99, b: [{ k: "zz" }, { k: "sp", s: 7 }, { k: "sp", s: 20, n: 50, p: 70 }, 4, null], pf: NaN });
+  assert.ok(odd.q.every((v, i) => v >= 0 && v <= 3 && (sv.n[i] > 0) === (v > 0)));
+  assert.equal(odd.xp, 0); assert.equal(odd.r, M.REST_MAX); assert.equal(odd.pf, 0);
+  assert.equal(odd.b.length, 1, "the legend (species 7) and an unknown kind are dropped, a wild count is clamped: " + JSON.stringify(odd.b));
+  assert.ok(odd.b[0].p <= odd.b[0].n && odd.b[0].n <= 9);
+});
+
+test("perfect catches and stars: kept in the zone is perfect, gold needs perfect and size", () => {
+  assert.equal(M.qualityOf(true, 0.7), 3);
+  assert.equal(M.qualityOf(true, 0.3), 2);
+  assert.equal(M.qualityOf(false, 0.9), 2);
+  assert.equal(M.qualityOf(false, 0.5), 1);
+  // In the model: an idle zone with a still fish in it stays perfect; a fish left alone outside does not.
+  const rng = new Random(3);
+  const c = M.newCatch(SP[0], { zone: 0, reel: 0 }, rng, false);
+  c.f = c.z = 0.5; c.kind = "none";
+  assert.ok(M.perfectCatch(c));
+  for (let i = 0; i < 60; i++) M.stepCatch(c, false, rng, DT);
+  assert.ok(!M.perfectCatch(c) && c.out > 0.25, "drifted out for " + c.out);
+  // In the app: the card shows stars, the log keeps the best, perfect pays more.
+  const { app } = make({ seed: 41 });
+  app.sv.landed = 5;
+  const plain = land(app, SP[0], { perfect: false });
+  const clean = land(app, SP[0], { perfect: true });
+  assert.ok(!plain.perfect && clean.perfect && clean.q >= 2, JSON.stringify([plain.q, clean.q]));
+  assert.equal(app.sv.q[0], Math.max(plain.q, clean.q));
+  assert.equal(app.sv.pf, 1);
+  let golds = 0;
+  for (let i = 0; i < 40; i++) if (land(app, SP[1], { perfect: true }).q === 3) golds++;
+  assert.ok(golds > 5 && golds < 40, "gold also needs a good size: " + golds + "/40");
+  assert.equal(app.sv.q[1], 3);
+  app.draw(fakeCanvas());
+  app.openMenu(); app.menu.mode = "log"; app.draw(fakeCanvas());
+});
+
+test("angler rank: experience from landings, ranks open the board, chests and rests in turn", () => {
+  assert.equal(M.rankOf(0), 1);
+  assert.equal(M.rankOf(M.RANK_XP[1]), 2);
+  assert.equal(M.rankOf(1e9), 10);
+  const { app } = make({ seed: 42 });
+  assert.equal(app.rank(), 1);
+  assert.equal(app.sv.b.length, 0, "no board for a new player");
+  assert.deepEqual(app.menuItems(), ["close", "gear", "log"], "a new player sees the old menu");
+  assert.equal(app.chestChance(), 0);
+  let ups = [];
+  for (let i = 0; i < 80 && app.rank() < 4; i++) { const k = land(app, SP[i % 3], { perfect: i % 2 === 0 }); if (k.rankUp) ups.push(k.rankUp); app.draw(fakeCanvas()); }
+  assert.deepEqual(ups.slice(0, 3), [2, 3, 4], "ranks are announced on the card");
+  assert.ok(app.rank() >= 4);
+  assert.equal(app.sv.b.length, 3, "the board went up at rank 2");
+  assert.deepEqual(app.menuItems(), ["close", "board", "gear", "log", "rest"]);
+  app.sv.landed = 9;
+  assert.ok(app.chestChance() > 0.1);
+  const fill = (rank) => M.newCatch(SP[0], { zone: 0, reel: 0, rank }, new Random(1), false).fill;
+  assert.ok(fill(9) > fill(1) * 1.1, "rank strengthens the reel a little");
+});
+
+test("the notice board: notices in reach, progress on landings, paid when done, replaced at the tide", () => {
+  const { app } = make({ seed: 43 });
+  app.sv.xp = M.RANK_XP[1];
+  app.fillBoard();
+  const b = app.sv.b;
+  assert.equal(b.length, 3);
+  for (const nt of b) {
+    assert.ok(app.noticeText(nt).length > 6);
+    if (nt.k === "sp" || nt.k === "sz") { assert.ok(SP[nt.s].water <= app.reachWater() && SP[nt.s].rar <= 3, JSON.stringify(nt)); }
+    if (nt.k === "wt") assert.ok(nt.s <= app.reachWater());
+    assert.ok(nt.$ > 0 && nt.n >= 1);
+  }
+  // Many boards: every kind turns up, never a duplicate on one board.
+  const kinds = new Set();
+  app.sv.n.fill(1); // size notices are only for species already in the log
+  for (let i = 0; i < 60; i++) { app.sv.b = []; app.sv.xp = M.RANK_XP[3]; app.fillBoard(); for (const nt of app.sv.b) kinds.add(nt.k); assert.equal(new Set(app.sv.b.map((x) => x.k + x.s)).size, app.sv.b.length); }
+  assert.deepEqual([...kinds].sort(), ["ch", "pf", "sp", "sz", "wt"]);
+  // Complete a species notice.
+  app.sv.b = [{ k: "sp", s: 1, n: 2, p: 0, x: 0, $: 80, d: 0 }, { k: "wt", s: 0, n: 3, p: 1, x: 0, $: 60, d: 0 }, { k: "ch", s: 0, n: 1, p: 0, x: 0, $: 90, d: 0 }];
+  app.sv.landed = 9;
+  land(app, SP[1]);
+  assert.equal(app.sv.b[0].p, 1);
+  const money = app.sv.$;
+  const card = land(app, SP[1]);
+  assert.equal(card.notices.length, 2, "the species notice and the water notice finish together");
+  assert.ok(app.sv.$ >= money + 80 + 60);
+  assert.equal(app.sv.bn, 2);
+  const chestCard = land(app, SP[2], { chest: true });
+  assert.ok(chestCard.chest && chestCard.chest.scrip > 0 && app.sv.ch === 1);
+  assert.ok(chestCard.notices.some((nt) => nt.k === "ch"));
+  app.draw(fakeCanvas());
+  // The tide ends: done notices come down and new ones go up.
+  app.bag.tideCasts = 4; land(app, SP[0]);
+  assert.equal(app.sv.b.length, 3);
+  assert.ok(app.sv.b.every((nt) => !nt.d));
+  app.openMenu(); app.menu.at = app.menuItems().indexOf("board"); app.menuChoose();
+  assert.equal(app.menu.mode, "board");
+  app.draw(fakeCanvas());
+  app.menuChoose();
+  assert.equal(app.menu.mode, "root");
+});
+
+test("salvage chests: appear during the catch, fill only inside the zone, sink away if ignored", () => {
+  const rng = new Random(9);
+  const c = M.newCatch(SP[0], { zone: 0, reel: 0, chest: true }, rng, false);
+  assert.ok(c.chest && c.chest.at >= 1.2 && c.chest.at <= 3.5);
+  c.kind = "none";
+  // Hold the zone on the chest: it is salvaged within a few seconds of appearing.
+  let got = false;
+  for (let i = 0; i < 60 * 8 && !got; i++) { c.z = c.chest.on ? c.chest.y : 0.5; c.f = c.z; M.stepCatch(c, false, rng, DT); got = c.chest.got; c.meter = 0.5; }
+  assert.ok(got);
+  // Ignore it: it decays and sinks.
+  const d = M.newCatch(SP[0], { zone: 0, reel: 0, chest: true }, rng, false);
+  d.chest.y = 0.85;
+  for (let i = 0; i < 60 * 15; i++) { d.z = 0.2; d.zv = 0; d.f = 0.2; d.meter = 0.5; M.stepChest(d, DT); d.t += DT; }
+  assert.ok(d.chest.gone && !d.chest.got && d.chest.p === 0);
+  // In the app: no chest below rank 3; at rank 3, about one catch in seven or eight has one.
+  const { app } = make({ seed: 44 });
+  app.sv.landed = 9; app.sv.xp = M.RANK_XP[2];
+  let seen = 0;
+  for (let i = 0; i < 300; i++) { app.go("shore"); app.phase = "bite"; app.phaseT = 0; app.biteFor = 1; app.fishSp = SP[0]; app.down(); if (app.cur.chest) seen++; app.up(); app.cancel(); }
+  assert.ok(seen > 20 && seen < 70, "chests " + seen + "/300");
+  // A chest on screen draws; losing the fish loses the chest.
+  const fresh = make({ seed: 48 }).app;
+  fresh.sv.landed = 9; fresh.sv.xp = M.RANK_XP[2];
+  hookWith(fresh, SP[0]);
+  fresh.cur.chest = { at: 0, y: 0.5, y0: 0.5, p: 0.5, on: true, got: false, gone: false, ph: 0 };
+  fresh.draw(fakeCanvas());
+  fresh.cur.meter = 0.001; fresh.cur.f = 0.9; fresh.cur.z = 0.1; fresh.cur.grace = 0;
+  run(fresh, 0.2, null);
+  assert.ok(fresh.card.lost && !fresh.card.chest);
+});
+
+test("rests: earned one per tide from rank 4, at most three, each moves the sky on", () => {
+  const { app } = make({ seed: 45 }, 10);
+  app.sv.landed = 9;
+  app.sv.r = 0;
+  for (let i = 0; i < 5; i++) app.finishCast(false), app.afterCast();
+  assert.equal(app.sv.r, 0, "below rank 4 a tide earns no rest");
+  app.sv.xp = M.RANK_XP[3];
+  for (let t = 0; t < 4; t++) for (let i = 0; i < 5; i++) app.finishCast(false), app.afterCast();
+  assert.equal(app.sv.r, M.REST_MAX);
+  assert.equal(app.period(), "d");
+  app.openMenu(); app.menu.at = app.menuItems().indexOf("rest"); app.menuChoose();
+  assert.equal(app.period(), "u", "rested from day to dusk");
+  assert.equal(app.sv.r, M.REST_MAX - 1);
+  assert.ok(app.rest() && app.rest());
+  assert.equal(app.period(), "D", "dusk, night, then dawn");
+  assert.ok(!app.rest(), "no rests left");
+  app.draw(fakeCanvas());
+  // Night fish can now be hooked by a daytime player.
+  assert.ok(app.candidates(1, "n", "CLEAR").some((e) => e.sp.name === "KILN EEL"));
+});
+
+test("the reel clicks with short tones while the fish is in the zone; no sustained tone is used", () => {
+  const { ctx, app } = make({ seed: 46 });
+  let started = 0;
+  ctx.synth.startTone = () => { started++; };
+  app.sv.landed = 9;
+  toShore(app); castTo(app, 0.2); hookWith(app, SP[0]);
+  const c = app.cur; c.kind = "none";
+  const before = ctx.calls.tone.length;
+  for (let i = 0; i < 60; i++) { c.f = c.z; app.update(DT); }
+  const clicks = ctx.calls.tone.slice(before).filter((t) => t[1] < 0.05);
+  assert.ok(clicks.length >= 3 && clicks.length <= 9, "clicks in one second: " + clicks.length);
+  assert.equal(started, 0);
+});
+
+test("a competent bot's first hour: ranks climb, the board pays, perfect catches happen", () => {
+  // The bot lands a fish every 15 s or so, faster than a person; with mid gear it is sometimes perfect.
+  const { app } = play(47, 3600, { power: 0.3, setup: (a) => { a.sv.g = [2, 2, 0, 0]; } });
+  const sv = app.sv;
+  console.log(`one hour: rank ${app.rank()} (xp ${sv.xp}), landed ${sv.landed}, perfect ${sv.pf}, notices ${sv.bn}, chests ${sv.ch}, stars ${app.starsTotal()}, scrip ${sv.$}`);
+  assert.ok(app.rank() >= 5, "rank " + app.rank());
+  assert.ok(sv.pf > 5, "perfect " + sv.pf);
+  assert.ok(app.rank() < 10, "rank 10 is not reached in an hour");
+});

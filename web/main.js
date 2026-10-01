@@ -11,6 +11,12 @@ import { HostLamps, levelScale } from "./engine/ambient.js";
 import { microphoneStatus } from "./engine/status.js";
 
 const $ = (id) => document.getElementById(id);
+// Assigning identical text still replaces the text node and dirties layout, so
+// the once-a-second status refresh writes only what changed.
+const setText = (id, value) => {
+  const element = $(id);
+  if (element.textContent !== value) element.textContent = value;
+};
 const ICONS = [
   '<circle cx="24" cy="24" r="16"/><ellipse cx="24" cy="24" rx="23" ry="8" transform="rotate(-35 24 24)"/><circle cx="37" cy="11" r="3" fill="currentColor"/>',
   '<path d="M5 36L17 11l12 25M17 11l12 9 13 16M9 29h24M5 42h38"/><circle cx="37" cy="9" r="4"/>',
@@ -57,6 +63,7 @@ export class Vesper {
     this.hostLamps = new HostLamps();
     this.clickState = null;
     this.frameTimes = [];
+    this.ambientStep = -1;
     this.loaded = false;
     this.errors = [];
     this.g = $("game").getContext("2d", { alpha: false });
@@ -67,11 +74,11 @@ export class Vesper {
     bridge.connect();
     requestAnimationFrame((t) => this.frame(t));
     this.clockTask = setInterval(() => {
-      $("clock").textContent = new Date().toLocaleTimeString([], {
+      setText("clock", new Date().toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit",
         hour12: false,
-      });
+      }));
       this.status();
       this.lifecycle("tick");
     }, 1000);
@@ -363,6 +370,7 @@ export class Vesper {
     this.paused = false;
     this.lights.release().catch(() => {});
     this.hudValue = "";
+    this.hudLabels = "";
   }
   launch(id) {
     const meta = APPS.find((a) => a.id === id);
@@ -372,6 +380,7 @@ export class Vesper {
     this.meta = meta;
     const token = this.token;
     const alive = () => this.token === token;
+    let lastContent = null;
     const guarded = fn => (...args) => alive() ? fn(...args) : undefined;
     const command = (cmd, data) => {
       if (!alive()) return Promise.resolve({ ignored: true });
@@ -384,6 +393,7 @@ export class Vesper {
     $("app-title").textContent = meta.name;
     $("app-description").textContent = meta.description;
     $("hud").innerHTML = "";
+    this.hudLabels = "";
     $("utility-content").innerHTML = "";
     $("utility-actions").innerHTML = "";
     $("app-readout").textContent = "";
@@ -419,7 +429,11 @@ export class Vesper {
         if (this.token === token) $("app-readout").textContent = message;
       },
       content: (html) => {
-        if (this.token === token) $("utility-content").innerHTML = html;
+        // Panels re-render on every sensor/level event; skip identical markup.
+        if (this.token === token && html !== lastContent) {
+          lastContent = html;
+          $("utility-content").innerHTML = html;
+        }
       },
       actions: (items) => {
         if (this.token !== token) return;
@@ -485,7 +499,18 @@ export class Vesper {
     const key = JSON.stringify(items);
     if (key === this.hudValue) return;
     this.hudValue = key;
-    $("hud").innerHTML = items
+    // Same labels as before: update the changed values in place instead of
+    // rebuilding every readout (Moonrunner changes its distance ~12 times a second).
+    const box = $("hud"), labels = items.map(([label]) => label).join("\n");
+    if (labels === this.hudLabels && box.children.length === items.length) {
+      items.forEach(([, value], i) => {
+        const strong = box.children[i].lastElementChild, text = String(value);
+        if (strong.textContent !== text) strong.textContent = text;
+      });
+      return;
+    }
+    this.hudLabels = labels;
+    box.innerHTML = items
       .map(
         ([label, value]) =>
           `<div class="hud-item"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`,
@@ -813,41 +838,42 @@ export class Vesper {
     const s = this.state,
       connected = s.device.connected;
     $("link-dot").classList.toggle("live", connected);
-    $("link-text").textContent = connected
+    setText("link-text", connected
       ? s.simulated
         ? "SIMULATED NODE"
         : "NODE LINK ACTIVE"
-      : "NODE DISCONNECTED";
-    $("mode-tag").textContent =
+      : "NODE DISCONNECTED");
+    setText("mode-tag",
       s.controller === false
         ? "MONITOR"
         : s.simulated
           ? "SIMULATOR"
-          : "HARDWARE";
+          : "HARDWARE");
     const unit = (s.settings || DEFAULT).tempUnit;
-    $("temp-mini").textContent = s.sensor
+    setText("temp-mini", s.sensor
       ? formatTemp(s.sensor.temperature, unit)
-      : "— " + tempUnit(unit);
-    $("rh-mini").textContent = s.sensor
+      : "— " + tempUnit(unit));
+    setText("rh-mini", s.sensor
       ? s.sensor.humidity.toFixed(0) + " % RH"
-      : "— % RH";
+      : "— % RH");
     const stale = !connected || !s.sensor?.at || Date.now() / 1000 - s.sensor.at > 15;
     $("temp-mini").classList.toggle("stale", stale);
     $("rh-mini").classList.toggle("stale", stale);
-    $("temp-mini").title = stale ? "Last reading / stale or unavailable" : "Live reading";
+    const tempTitle = stale ? "Last reading / stale or unavailable" : "Live reading";
+    if ($("temp-mini").title !== tempTitle) $("temp-mini").title = tempTitle;
     const micStatus = microphoneStatus(s), active = micStatus.active;
     $("mic-button").classList.toggle("active", active);
-    $("mic-text").textContent = micStatus.label;
-    $("mic-dot").textContent = active ? "●" : "○";
-    if (!active) $("level-fill").style.width = "0%";
+    setText("mic-text", micStatus.label);
+    setText("mic-dot", active ? "●" : "○");
+    if (!active && $("level-fill").style.width !== "0%") $("level-fill").style.width = "0%";
     // The service counts on its own clock (same machine), so a running timer's remaining time
     // is derived from its deadline and keeps moving even when the link is down.
     const now = Date.now() / 1000;
     for (const t of s.timers) if (t.running && Number.isFinite(t.deadline)) t.remaining = Math.max(0, t.deadline - now);
     const running = s.timers.filter((t) => t.running);
-    $("timer-badge").textContent = running.length
+    setText("timer-badge", running.length
       ? `${running.length} TIMER${running.length > 1 ? "S" : ""} / ${formatTime(Math.min(...running.map((t) => t.remaining)))}${connected ? "" : " / STALE"}`
-      : "NO ACTIVE TIMERS";
+      : "NO ACTIVE TIMERS");
     $("timer-badge").classList.toggle("stale", !connected && running.length > 0);
     $("timer-badge").title = connected ? "" : "Service link is down; time is estimated locally";
   }
@@ -893,12 +919,15 @@ export class Vesper {
     this.lights.flush(this.state.device.connected && this.state.controller !== false);
     if (!document.hidden) {
       if (!this.app) {
-        ambient(
-          this.ag,
-          this.state.settings.reducedMotion ? 0 : now / 1000,
-          450,
-          300,
-        );
+        // The orrery's only motion is a dot drifting about 4 px/s, so a redraw
+        // every 100 ms looks identical and lets the browser idle in between
+        // (once per second when motion is reduced, since the picture is static).
+        const reduced = this.state.settings.reducedMotion;
+        const step = Math.floor(reduced ? now / 1000 : now / 100);
+        if (step !== this.ambientStep) {
+          this.ambientStep = step;
+          ambient(this.ag, reduced ? 0 : now / 1000, 450, 300);
+        }
       } else if (!this.app.navigation && !this.faulted) {
         if (!this.paused) {
           this.accumulator += dt;

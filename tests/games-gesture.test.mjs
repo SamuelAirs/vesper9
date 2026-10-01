@@ -18,10 +18,11 @@ const sameRun = (g, before, keys) => keys.every((k) => JSON.stringify(g[k]) === 
 const snap = (g, keys) => Object.fromEntries(keys.map((k) => [k, structuredClone(g[k])]));
 
 function killOrbit(c) { const g = new OrbitLock(c); g.down(); g.lives = 1; g.angle = 0; g.target = 3; g.down(); return g; }
-function killRunner(c) { const g = new Moonrunner(c); g.down(); g.up(); g.shield = 0; g.obstacles = [{ x: 198, w: 40, h: 70, passed: false }]; g.update(DT); return g; }
 function killUndertow(c) { const g = new Undertow(c); g.down(); g.up(); g.hull = 1; g.y = 10; g.update(DT); return g; }
 function killGlyph(c) { const g = new GlyphVault(c); g.down(); step(g, 4); g.lives = 1; g.sequence = [0, 0, 0]; g.focus = 3; g.down(); return g; }
-const killers = [["Orbit Lock", killOrbit], ["Moonrunner", killRunner], ["Undertow", killUndertow], ["Glyph Archive", killGlyph]];
+// Moonrunner, rebuilt as a downhill run, uses AppGuard (engine/input.js) like the newer games: its
+// gesture tolerance is checked with every field in tests/gesture-apps.test.mjs and below.
+const killers = [["Orbit Lock", killOrbit], ["Undertow", killUndertow], ["Glyph Archive", killGlyph]];
 
 const gestureCases = {
   "Orbit Lock": {
@@ -33,8 +34,8 @@ const gestureCases = {
     make: (c) => { const g = new GlyphVault(c); g.down(); step(g, 4); g.sequence = [4, 4, 4]; g.round = 6; g.points = 900; return g; },
   },
   Moonrunner: {
-    keys: ["phase", "points", "distance", "y", "obstacles"],
-    make: (c) => { const g = new Moonrunner(c); g.down(); g.up(); step(g, 1.0); g.obstacles = [{ x: 262, w: 40, h: 70, passed: false }]; return g; },
+    keys: ["phase", "r", "pts", "combo", "R", "rocks", "chasms"],
+    make: (c) => { const g = new Moonrunner(c); g.down(); g.up(); step(g, 1.0); g.forgiveTo = 0; g.rocks.push({ x: g.r.x + 140, r: 20, done: false, hit: false }); return g; },
   },
   Undertow: {
     keys: ["phase", "points", "y", "vy", "gates"],
@@ -58,14 +59,17 @@ for (const [name, { keys, make }] of Object.entries(gestureCases)) {
 }
 
 test("gesture: a death caused during the gesture is undone and never recorded", () => {
+  // Moonrunner: the gesture's taps jump and its hold turns the sled, so it lands upside down.
   const c = makeCtx(22), g = new Moonrunner(c), rig = makeRig(g, c);
-  g.down(); g.up(); step(g, 0.5);
-  g.obstacles = [{ x: 400, w: 60, h: 200, passed: false }];
-  gestureWithUpdates(g, rig);
+  g.down(); g.up(); step(g, 0.5); g.forgiveTo = 0;
+  const x = g.r.x;
+  let crashed = false;
+  gestureWithUpdates(g, rig, () => { if (g.phase === "over") crashed = true; });
   assert.equal(rig.menuOpen, 1);
+  assert.ok(crashed, "setup: the gesture crashed the sled");
   assert.equal(g.phase, "play", "the gesture's own taps ended the run");
   assert.equal(c.log.saves.length, 0);
-  assert.ok(g.obstacles.length >= 1);
+  assert.equal(g.r.x, x, "the sled is not back where it was before the first tap");
 });
 
 test("gesture: taps that are too slow to be a gesture are never rewound by a later cancel()", () => {
@@ -107,9 +111,9 @@ test("gesture: edges are immediate, a tap changes the game on the very next step
   g.down(); g.target = g.angle;
   g.down();
   assert.equal(g.points, 1, "the lock was not credited at once");
-  const m = new Moonrunner(makeCtx(25)); m.down(); m.up();
-  m.update(DT);
-  assert.ok(m.vy < 0, "the jump did not start on the next frame");
+  const m = new Moonrunner(makeCtx(25)); m.down(); m.up(); // the title screen starts a run on release
+  m.update(DT); m.down(); m.update(DT);
+  assert.ok(m.r.air && m.r.vy < 0, "the jump did not start on the next frame");
   const u = new Undertow(makeCtx(25)); u.down(); u.update(DT);
   assert.ok(u.vy < 0);
 });

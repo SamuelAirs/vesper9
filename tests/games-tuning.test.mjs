@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { OrbitLock, orbitWindow, orbitSpeed } from "../web/apps/orbit.js";
-import { Moonrunner, runnerObstacle, runnerSpeed } from "../web/apps/runner.js";
+import { Moonrunner } from "../web/apps/runner.js";
 import { Undertow, nextGate } from "../web/apps/undertow.js";
 import { EchoVault, echoHeard } from "../web/apps/echo.js";
 import { LightTrial, reactionGrade } from "../web/apps/reaction.js";
@@ -25,6 +25,12 @@ const dark = (v) => v.every((x) => x === 0);
 const sum = (v, lamp) => v[lamp * 3] + v[lamp * 3 + 1] + v[lamp * 3 + 2];
 const wholeNumbers = (writes) => writes.every((v) => v.length === 9 && v.every((x) => Number.isInteger(x) && x >= 0 && x <= 255));
 const distinct = (writes) => new Set(writes.map((v) => v.join())).size;
+// Moonrunner (the downhill run): past the forgiving first stretch, a boulder under the sled ends the run.
+function killRunner(c) {
+  const g = new Moonrunner(c); g.down(); g.up(); step(g, 0.2);
+  g.forgiveTo = 0; g.rocks.push({ x: g.r.x + 4, r: 20, done: false, hit: false }); g.update(DT);
+  return g;
+}
 
 test("LampBus: whole numbers in steps of 8, no repeat writes, flash overlays, clear/sleep/wake", () => {
   const c = lit(), bus = new LampBus(c);
@@ -131,7 +137,7 @@ for (const [name, make] of [["Orbit Lock", (c) => new OrbitLock(c)], ["Moonrunne
 }
 for (const [name, kill, over] of [
   ["Orbit Lock", (c) => { const g = new OrbitLock(c); g.down(); g.lives = 1; g.angle = 0; g.target = 3; g.down(); return g; }],
-  ["Moonrunner", (c) => { const g = new Moonrunner(c); g.down(); g.up(); g.shield = 0; g.obstacles = [{ x: 198, w: 40, h: 70, passed: false }]; g.update(DT); return g; }],
+  ["Moonrunner", killRunner],
   ["Undertow", (c) => { const g = new Undertow(c); g.down(); g.up(); g.hull = 1; g.y = 10; g.update(DT); return g; }],
   ["Echo Vault", (c) => { const g = new EchoVault(c); g.down(); step(g, 2.4); g.down(); g.up({ durationMs: 900 }); return g; }],
   ["Glyph Archive", (c) => { const g = new GlyphVault(c); g.down(); step(g, 4); g.lives = 1; g.sequence = [0, 0, 0]; g.focus = 3; g.down(); return g; }],
@@ -241,68 +247,7 @@ function textRecorder(painted) {
   return new Proxy({}, { get: (t, key) => key === "fillText" ? (s) => painted.push(String(s)) : (key in t ? t[key] : () => {}), set: (t, k, v) => { t[k] = v; return true; } });
 }
 
-// ------------------------------------------------------------------------------- Moonrunner mechanics
-test("Moonrunner: new things arrive on a schedule (stones, then ridges and spires, walls from the 6th relic, mesas from the 14th)", () => {
-  const rng = new Random(5), names = (p) => new Set(Array.from({ length: 200 }, () => runnerObstacle(rng, p).name));
-  assert.deepEqual([...names(0)], ["STONE"]);
-  assert.ok(names(4).has("SPIRE") && !names(4).has("WALL"));
-  assert.ok(names(8).has("WALL") && !names(8).has("MESA"));
-  assert.ok(names(20).has("MESA") && !names(20).has("STONE"));
-});
-test("Moonrunner: holding is needed, walls and mesas cannot be cleared with a tap and can with a hold", () => {
-  for (const name of ["WALL", "MESA"]) for (const mode of ["tap", "hold"]) {
-    let cleared = 0;
-    for (let launch = 0; launch < 90; launch++) {
-      const g = new Moonrunner(lit(1)); g.phase = "play"; g.next = 1e9; g.points = 20; g.shield = 0;
-      const o = { ...runnerObstacle(new Random(1), 20), x: 430, passed: false };
-      const shape = Object.assign(o, { ...o, ...(name === "WALL" ? { w: 36, h: 120, hold: true } : { w: 200, h: 42, hold: true }) });
-      g.obstacles = [shape];
-      for (let f = 0; f < 150 && g.phase === "play"; f++) {
-        if (f === launch) { g.down(); if (mode === "tap") g.up(); }
-        if (mode === "hold" && f === launch + 40) g.up();
-        g.update(DT);
-      }
-      if (g.phase === "play" && g.points === 21) cleared++;
-    }
-    if (mode === "tap") assert.equal(cleared, 0, `${name} was cleared by a tap`);
-    else assert.ok(cleared >= 8, `${name} could not be cleared by holding (${cleared} launch frames)`);
-  }
-});
-test("Moonrunner: obstacles get harder as relics are collected, and the run speeds up", () => {
-  const rng = new Random(2), spire = (p) => { for (;;) { const o = runnerObstacle(rng, p); if (o.name === "SPIRE") return o; } };
-  assert.ok(spire(80).h > spire(6).h);
-  assert.ok(runnerSpeed(30) > runnerSpeed(0));
-  assert.ok(runnerSpeed(100) === runnerSpeed(200));
-});
-test("Moonrunner: two shields absorb collisions, give a moment of grace, and are earned back", () => {
-  const c = lit(14), g = new Moonrunner(c); g.down(); g.up();
-  assert.equal(g.shield, 2);
-  const crash = () => { g.obstacles = [{ x: 198, w: 40, h: 70, passed: false }]; g.update(DT); };
-  crash(); assert.equal(g.phase, "play"); assert.equal(g.shield, 1); assert.ok(g.grace > 1);
-  g.obstacles = [{ x: 198, w: 40, h: 70, passed: false }]; g.update(DT);
-  assert.equal(g.shield, 1, "a second hit during the grace period cost another shield");
-  step(g, 1.5);
-  crash(); assert.equal(g.shield, 0);
-  step(g, 1.5);
-  crash(); assert.equal(g.phase, "over");
-  const d = new Moonrunner(lit(15)); d.down(); d.up(); d.shield = 0; d.points = 11;
-  d.obstacles = [{ x: 100, w: 10, h: 10, passed: false }]; d.update(DT);
-  assert.equal(d.shield, 1, "the twelfth relic did not earn a shield");
-});
-test("Moonrunner lamps: the lamps fill left to right as an obstacle closes, in the obstacle's colour", () => {
-  const c = lit(16), g = new Moonrunner(c); g.down(); g.up(); step(g, 0.3);
-  g.next = 1e9;
-  const seen = [];
-  for (const x of [900, 700, 560, 460, 380, 330]) {
-    g.obstacles = [{ x, w: 48, h: 62, name: "CRYSTAL", passed: false }];
-    g.update(DT); seen.push(c.ledsNow.slice());
-  }
-  const lampsLit = (v) => [0, 3, 6].filter((i) => v[i] + v[i + 1] + v[i + 2] > 60).length;
-  assert.ok(lampsLit(seen.at(-1)) === 3 && lampsLit(seen[0]) < 3, JSON.stringify(seen));
-  assert.ok(seen.at(-1)[0] > seen.at(-1)[1], "CRYSTAL is magenta (more red than green)");
-  g.obstacles = [{ x: 330, w: 36, h: 112, name: "WALL", hold: true, passed: false }]; g.update(DT);
-  assert.ok(c.ledsNow[1] > 100 && c.ledsNow[2] > 100, "a wall is white (the hold colour)");
-});
+// Moonrunner's mechanics (rebuilt as a downhill run) are tested in tests/runner.test.mjs.
 
 // -------------------------------------------------------------------------------- Undertow mechanics
 test("Undertow: the channel narrows continuously, the openings drift from the tenth passage, hull can be lost and earned", () => {
@@ -500,7 +445,8 @@ test("canvas text is at least 16 px everywhere in the games and Signal School", 
   const c = lit(40);
   const stages = [
     () => new OrbitLock(c), () => { const g = new OrbitLock(c); g.down(); g.points = 12; step(g, 1); return g; },
-    () => new Moonrunner(c), () => { const g = new Moonrunner(c); g.down(); g.up(); g.obstacles = [{ x: 400, w: 36, h: 112, name: "WALL", hold: true, passed: false }]; step(g, 0.5); return g; },
+    () => new Moonrunner(c), () => { const g = new Moonrunner(c); g.down(); g.up(); step(g, 3); return g; },
+    () => { const g = new Moonrunner(c); g.down(); step(g, 0.6); g.up(); return g; }, () => killRunner(c),
     () => new Undertow(c), () => { const g = new Undertow(c); g.down(); step(g, 1); return g; },
     () => new EchoVault(c), () => { const g = new EchoVault(c); g.down(); step(g, 3); g.down(); g.up({ durationMs: 500 }); return g; },
     () => new LightTrial(c), () => { const g = new LightTrial(c); g.down({}); return g; },
@@ -517,8 +463,8 @@ test("canvas text is at least 16 px everywhere in the games and Signal School", 
 const guarded = {
   "Orbit Lock": { keys: ["phase", "points", "lives", "target", "angle", "dir", "drift", "idle", "miss", "feedback"],
     make: (c) => { const g = new OrbitLock(c); g.down(); g.points = 21; g.dir = -1; g.drift = 0.2; g.idle = 4; g.target = 0; g.angle = 3; return g; } },
-  Moonrunner: { keys: ["phase", "points", "distance", "y", "vy", "obstacles", "shield", "grace", "next", "lastShape"],
-    make: (c) => { const g = new Moonrunner(c); g.down(); g.up(); step(g, 1); g.shield = 1; g.grace = 0.7; g.obstacles = [{ x: 500, w: 36, h: 112, name: "WALL", hold: true, passed: false }]; return g; } },
+  Moonrunner: { keys: ["phase", "r", "pts", "combo", "comboT", "R", "rocks", "chasms", "shards", "sv", "hovers", "inv"],
+    make: (c) => { const g = new Moonrunner(c); g.down(); g.up(); step(g, 1); g.combo = 4; g.comboT = 2; g.inv = 0.7; g.rocks.push({ x: g.r.x + 500, r: 20, done: false, hit: false }); return g; } },
   Undertow: { keys: ["phase", "points", "y", "vy", "gates", "hull", "grace", "trail", "lastCenter"],
     make: (c) => { const g = new Undertow(c); g.down(); g.up(); g.hull = 1; g.grace = 0.9; g.points = 14; g.y = 100; g.vy = -50; return g; } },
   "Glyph Archive": { keys: ["phase", "round", "points", "lives", "entered", "sequence", "focus", "order", "step", "scan", "wait"],

@@ -65,7 +65,7 @@ For automatic service startup and a full-screen kiosk at desktop login:
 | Game | What you do |
 | --- | --- |
 | **Orbit Lock** | Catch a satellite as it crosses an increasingly narrow amber gate. |
-| **Moonrunner** | Jump a survey robot across a crystal desert; hold briefly for a higher jump. |
+| **Moonrunner** | Ride a survey sled down the moon's slopes: tap to jump, hold in the air to flip, land flat; six zones, survey orders and unlocks. |
 | **Undertow** | Hold to rise, release to sink, and fly through submerged ruins. |
 | **Echo Vault** | Repeat growing sequences of short and long pulses, accompanied by the three lights. |
 | **Light Trial** | React to the middle physical light; the ESP32 timestamps the cue and button edge on the same clock. |

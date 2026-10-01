@@ -85,12 +85,20 @@
     {
       "id": "runner",
       "name": "MOONRUNNER",
-      "subtitle": "Leave footprints in the dark.",
-      "description": "Cross a crystal desert with a stubborn little survey robot. Tap to hop; hold for height, because tall walls and long mesas need a held jump. Two shields forgive early mistakes. The lamps fill as the next obstacle closes. Your best distance is saved.",
-      "controls": "TAP TO JUMP · HOLD FOR HEIGHT",
+      "subtitle": "Ride the long slopes down.",
+      "description": "Ride a survey sled down the long slopes of the moon. Tap to jump; hold in the air to flip backwards, and let go so you land flat. Flips, cable grinds, rilles and boulders build a combo that multiplies your points and speeds you up. Six zones, survey orders that unlock sleds and zen riding, a workshop and a daily run. In the air the lamps turn green when a landing would be clean; on the ground the right lamp warns of what is coming.",
+      "controls": "TAP TO JUMP · HOLD IN THE AIR TO FLIP",
       "category": "PLAY / RUNNER",
       "glyph": 1,
       "factory": "Moonrunner",
+      "record": {
+        "score": "Score",
+        "metres": "Distance / m",
+        "flips": "Flips",
+        "shards": "Shards",
+        "combo": "Best combo",
+        "zone": "Furthest zone"
+      },
       "voice": [
         "runner"
       ],

@@ -50,7 +50,6 @@ const HELD = ["held", "pressing", "pressT", "heldTime", "btn", "latched", "ignor
 // purpose. `resume`: keys the app resets when the menu closes. `skipResume`: resume() rebuilds the screen.
 const PER_APP = {
   orbit: { only: ["phase", "points", "lives", "target", "angle", "dir", "drift", "miss", "feedback"] },
-  runner: { only: ["phase", "points", "distance", "y", "vy", "obstacles", "shield", "grace", "next"] },
   drift: { only: ["phase", "points", "y", "vy", "gates", "hull", "grace", "lastCenter"] },
   glyphs: { only: ["phase", "round", "points", "lives", "entered", "sequence", "focus", "order", "step"] },
   // A fish on the line gets 1.5 s of grace after any menu, and a menu choice that was held is cancelled.

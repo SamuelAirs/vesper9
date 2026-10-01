@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { InputRouter } from "../web/engine/input.js";
 import { Random, overlaps, wrapAngle, formatTime, formatTemp, tempValue } from "../web/engine/math.js";
 import { OrbitLock } from "../web/apps/orbit.js";
-import { Moonrunner } from "../web/apps/runner.js";
 import { Undertow } from "../web/apps/undertow.js";
 import { EchoVault } from "../web/apps/echo.js";
 import { LightTrial } from "../web/apps/reaction.js";
@@ -149,37 +148,7 @@ test("orbit awards alignment and ends after three misses", () => {
   ticks(g, 2.1);
   assert.deepEqual(c.records, [1]);
 });
-test("holding runner jump yields a higher apex than tapping", () => {
-  const short = new Moonrunner(context()),
-    long = new Moonrunner(context());
-  short.down();
-  short.up();
-  long.down();
-  let a = 386,
-    b = 386;
-  for (let i = 0; i < 50; i++) {
-    short.update(1 / 60);
-    long.update(1 / 60);
-    a = Math.min(a, short.y);
-    b = Math.min(b, long.y);
-  }
-  assert.ok(b < a - 40);
-  assert.ok(Number.isFinite(long.y));
-});
-test("runner collision ends expedition once", () => {
-  const c = context(),
-    g = new Moonrunner(c);
-  g.down();
-  g.up();
-  g.y = 386;
-  g.vy = 0;
-  g.shield = 0; // the first collision is otherwise absorbed by the shield
-  g.obstacles = [{ x: 198, w: 40, h: 70, passed: false }];
-  g.update(1 / 60);
-  assert.equal(g.phase, "over");
-  ticks(g, 2.1);
-  assert.equal(c.records.length, 1);
-});
+// Moonrunner (rebuilt as a downhill run) has its own tests in tests/runner.test.mjs.
 test("flight thrust and release move in opposite directions", () => {
   const g = new Undertow(context());
   g.down();
@@ -252,7 +221,6 @@ test("all Morse symbols roundtrip and the learning app accepts E", () => {
 // 0.2 regressions: exercise state transitions, not implementation-shaped snapshots.
 import { LightDirector } from '../web/engine/lights.js';
 import { migrateLearning, reviewLetter } from '../web/apps/morse.js';
-import { runnerObstacle } from '../web/apps/runner.js';
 import { nextGate } from '../web/apps/undertow.js';
 import { reactionSummary } from '../web/apps/reaction.js';
 import { Timers, Transcription, sensorStatus } from '../web/apps/utilities.js';
@@ -365,19 +333,6 @@ test('adaptive review prioritizes a due weak character and completes bounded ses
   const g=new MorseSchool(c);g.start('review');assert.equal(g.target,'T');
   for(let i=0;i<10;i++){g.answer(g.target);ticks(g,1.3);}
   assert.equal(g.summary,true);assert.equal(g.sessionAttempts,10);
-});
-test('runner challenge shapes are clearable using the actual jump physics', () => {
-  const rng=new Random(3), seen=new Set();
-  for(let i=0;i<60;i++){
-    const obstacle=runnerObstacle(rng,10);seen.add(obstacle.name);let clearable=false;
-    for(let launch=0;launch<50&&!clearable;launch++){
-      const g=new Moonrunner(context());g.phase='play';g.next=100;g.obstacles=[{...obstacle,x:430}];
-      for(let t=0;t<100 && g.phase==='play';t++){if(t===launch)g.down();g.update(1/60);}
-      clearable=g.phase==='play'&&g.points===1;
-    }
-    assert.ok(clearable,obstacle.name);
-  }
-  assert.deepEqual([...seen].sort(),['CRYSTAL','RIDGE','SPIRE','STONE','WALL']);
 });
 test('flight gate changes are bounded and a fixed-step pilot can traverse seeded layouts', () => {
   const rng=new Random(91);let center=270;

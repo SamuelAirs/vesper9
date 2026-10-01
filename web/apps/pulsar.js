@@ -425,7 +425,7 @@ export class Pulsar {
       const x = LANE_X[i], f = this.flash[i];
       circle(g, x, STRIKE_Y, 34, C.muted, false, 3);
       if (f) circle(g, x, STRIKE_Y, 34 + 14 * ((this.t - f.t0) / f.dur), "rgb(" + f.rgb.join(",") + ")", false, 4);
-      text(g, LANE_NAME[i], x, STRIKE_Y + 54, 18, C.muted, "center");
+      text(g, LANE_NAME[i], x, STRIKE_Y + 54, 16, C.muted, "center");
       // A copy of what the physical lamp is doing, so the lamps can be learned by eye.
       const l = lampsNow[i];
       circle(g, x, STRIKE_Y + 86, 15, C.line, false, 2);
@@ -464,15 +464,9 @@ export class Pulsar {
     g.fillStyle = this.stab > 0.35 ? C.ink : C.red;
     g.fillRect(bx + 3, by + bh - 3 - (bh - 6) * this.stab, 24, (bh - 6) * this.stab);
     text(g, "STABILITY", bx + 15, by - 20, 16, C.muted, "center");
-    text(g, "COMBO", 850, 120, 16, C.muted, "center");
-    text(g, this.combo, 850, 172, 56, this.combo >= 10 ? C.amber : C.ink, "center");
-    text(g, "x" + this.multiplier, 850, 225, 28, C.amber, "center");
-    text(g, String(this.score).padStart(6, "0"), 850, 295, 28, C.ink, "center");
-    text(g, "SCORE", 850, 328, 16, C.muted, "center");
     // Phrase banner and the announcement of what is new.
     const p = this.curPhrase;
     if (p) {
-      text(g, "PHRASE " + String(p.index + 1).padStart(2, "0") + " / " + p.bpm + " BPM", 40, 36, 18, C.muted);
       const age = this.song - p.start;
       if (p.news && age < 3 && age >= 0) {
         g.globalAlpha = clamp(3 - age, 0, 1);
@@ -485,7 +479,7 @@ export class Pulsar {
     if (j && this.t - j.at < 0.6) {
       g.globalAlpha = clamp(1.6 - (this.t - j.at) * 2.5, 0, 1);
       text(g, j.text, 480, STRIKE_Y - 80, 30, j.color, "center");
-      if (j.tag) text(g, j.tag, 480, STRIKE_Y - 52, 18, C.muted, "center");
+      if (j.tag) text(g, j.tag, 480, STRIKE_Y - 52, 22, C.muted, "center");
       g.globalAlpha = 1;
     }
   }
@@ -501,8 +495,8 @@ export class Pulsar {
       text(g, label, 270, 210 + i * 40, 20, C.muted);
       text(g, value, 690, 210 + i * 40, 28, C.ink, "right");
     });
-    text(g, "RECORD " + this.ctx.best(), 480, 378, 18, C.amber, "center");
-    if (this.t - this.endedAt > 0.8) text(g, "PRESS TO PLAY AGAIN", 480, 406, 18, C.amber, "center");
+    text(g, "RECORD " + this.ctx.best(), 480, 378, 22, C.amber, "center");
+    if (this.t - this.endedAt > 0.8) text(g, "PRESS TO PLAY AGAIN", 480, 406, 22, C.amber, "center");
   }
 }
 

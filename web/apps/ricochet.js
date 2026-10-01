@@ -13,6 +13,8 @@
 // The world advances only in update(dt). Collision runs in sub-steps of at most
 // STEP pixels, smaller than the ball radius, so nothing tunnels at MAX_SPEED.
 //
+// Within a run: after each chamber from the second, a choice of two upgrades (tap switches, hold
+// takes; lamp I or III shows which is highlighted, so it can be chosen by the lamps alone).
 // Between runs: charge cells from chamber 4 (breaking one breaks its eight neighbours, and a
 // charge can set off another), seventeen feats (two hidden), a daily order with a streak, and a
 // rank from feats, in a versioned save (schema 2) that keeps the first release's fields.
@@ -49,6 +51,22 @@ const NEWS = {
   4: "NEW: CHARGE CELLS BREAK THEIR NEIGHBOURS",
 };
 export const CHARGE_FROM = 4;
+// Upgrades offered between chambers. `max` is how often one can be taken in a run.
+export const UPGRADES = [
+  { id: "wide", name: "WIDER PADDLE", text: "The paddle is 10 % wider.", max: 3 },
+  { id: "spare", name: "SPARE BALL", text: "One more ball.", max: 2 },
+  { id: "chain", name: "STEADY CHAIN", text: "The chain survives one paddle touch.", max: 1 },
+  { id: "serve", name: "CHARGED SERVE", text: "Each served ball's first cell goes off like a charge.", max: 1 },
+  { id: "quick", name: "QUICK PADDLE", text: "The paddle glides 10 % faster.", max: 2 },
+  { id: "slow", name: "HEAVY SIGNAL", text: "The ball travels 6 % slower.", max: 2 },
+  { id: "luck", name: "SALVAGE", text: "One more pair of bonus cells in each chamber.", max: 1 },
+];
+export const PICK_FROM = 2;  // the first choice follows chamber 2
+export const PICK_HOLD = 0.5; // a press held this long takes the highlighted upgrade
+export const PICK_TIME = 8;   // left alone, the highlighted upgrade is taken after this long
+// Each chamber has its own cell colours: [fill, alternate row, edge].
+const THEMES = [["#223b29", "#1d3323", "#d6efa4"], ["#1d3638", "#18302f", "#8fcbc5"], ["#2b2640", "#241f37", "#b7a6e8"],
+  ["#3a2a1e", "#32241a", "#e7b879"], ["#203327", "#1a2b21", "#a8e0b0"], ["#35202a", "#2d1b23", "#eb947a"]];
 
 // ---- feats, ranks and the daily order --------------------------------------------------------
 const life = (a, key) => (a.sv.st[key] || 0) + (a.R[key] || 0);
@@ -68,11 +86,12 @@ export const RICOCHET_FEATS = [
   { id: "cells", name: "WRECKER", text: "Break 1000 cells in all.", n: 1000, prog: (a) => life(a, "cells") },
   { id: "daily", name: "ON ORDERS", text: "Meet a daily order.", n: 1, prog: (a) => life(a, "daily") },
   { id: "streak", name: "ROUTINE", text: "Meet the daily order 3 days running.", n: 3, prog: (a) => a.sv.dl.streak },
+  { id: "fitted", name: "OUTFITTED", text: "Take 5 upgrades in one run.", n: 5, prog: (a) => a.R.picks },
   { id: "few", name: "FEW RETURNS", text: "Clear a chamber in 6 paddle touches or fewer.", hint: "Some chambers fall to a handful of returns.", n: 1, hidden: true, prog: (a) => a.R.few },
   { id: "lastball", name: "LAST LIGHT", text: "Clear a chamber on the last ball.", hint: "The last ball can still finish the job.", n: 1, hidden: true, prog: (a) => a.R.lastBall },
 ];
 const FEAT_IDS = RICOCHET_FEATS.map((f) => f.id);
-export const RICOCHET_RANKS = [[0, "APPRENTICE"], [2, "BREAKER"], [5, "MASON"], [8, "SAPPER"], [11, "DEMOLISHER"], [14, "ARCHITECT"], [17, "LATTICE LORD"]];
+export const RICOCHET_RANKS = [[0, "APPRENTICE"], [2, "BREAKER"], [5, "MASON"], [8, "SAPPER"], [11, "DEMOLISHER"], [14, "ARCHITECT"], [18, "LATTICE LORD"]];
 // Today's order, the same for everyone on the same date.
 export function ricochetOrder(key) {
   const h = hashText("ricochet" + key), kind = h % 5, v = (h >>> 8) % 3;
@@ -172,7 +191,12 @@ export class Ricochet {
     this.blasts = [];
     for (const p of this.parts) p.life = 0;
     // This run's tallies, for feats and the daily order.
-    this.R = { practice: 0, bonuses: 0, twin: 0, sweep: 0, blast: 0, relay: 0, few: 0, lastBall: 0, cells: 0, daily: 0, lostHere: 0, touchesHere: 0 };
+    this.mods = Object.fromEntries(UPGRADES.map((u) => [u.id, 0]));
+    this.offer = null;      // the two upgrades on offer: { ids, cur, t }
+    this.chainKept = false; // STEADY CHAIN: the chain has already survived a touch since the last break
+    this.servedCharge = false;
+    this.shake = 0;
+    this.R = { picks: 0, practice: 0, bonuses: 0, twin: 0, sweep: 0, blast: 0, relay: 0, few: 0, lastBall: 0, cells: 0, daily: 0, lostHere: 0, touchesHere: 0 };
     this.fresh = [];
     this.orderMet = false;
     this.news = null;
@@ -186,10 +210,13 @@ export class Ricochet {
     return this.pressing && this.heldTime >= FREEZE_AFTER;
   }
   speedNow() {
-    return Math.min(MAX_SPEED, (baseSpeed(this.chamber) + this.gain) * (this.pw.slow > 0 ? 0.72 : 1));
+    return Math.min(MAX_SPEED, (baseSpeed(this.chamber) + this.gain) * (this.pw.slow > 0 ? 0.72 : 1) * (1 - 0.06 * (this.mods?.slow || 0)));
   }
   padTarget() {
-    return padWidth(this.chamber) * (this.pw.wide > 0 ? 1.45 : 1);
+    return padWidth(this.chamber) * (this.pw.wide > 0 ? 1.45 : 1) * (1 + 0.1 * (this.mods?.wide || 0));
+  }
+  padSpeedNow() {
+    return padSpeed(this.chamber) * (1 + 0.1 * (this.mods?.quick || 0));
   }
 
   setHint(message) {
@@ -227,7 +254,7 @@ export class Ricochet {
       }
     }
     if (ch >= 2 && live.length) {
-      const pairs = ch < 4 ? 1 : 2;
+      const pairs = (ch < 4 ? 1 : 2) + (this.mods?.luck || 0);
       for (let i = 0; i < pairs; i++) {
         const [r, m] = live[rng.int(0, live.length - 1)];
         const type = rng.pick(["wide", "slow", "multi"]);
@@ -278,6 +305,7 @@ export class Ricochet {
     this.fixMin(b);
     this.sub = "live";
     this.quiet = 0;
+    this.servedCharge = this.mods.serve > 0;
     this.setHint("Tap reverses the paddle. Meet the amber bracket. A long hold freezes the game.");
   }
 
@@ -295,12 +323,17 @@ export class Ricochet {
     this.downs.push(this.clock);
     this.pressing = true;
     this.heldTime = 0;
+    if (this.sub === "pick") return; // decided on release
     this.dir = -this.dir;
     this.ctx.tone(520, 0.025, "square");
   }
 
   up() {
     this.guard.release();
+    if (this.phase === "play" && this.sub === "pick" && this.pressing) {
+      if (this.heldTime >= PICK_HOLD) this.take();
+      else { this.offer.cur = 1 - this.offer.cur; this.offer.t = 0; this.ctx.tone(this.offer.cur ? 660 : 523, 0.05, "sine"); }
+    }
     this.pressing = false;
     this.heldTime = 0;
   }
@@ -432,7 +465,10 @@ export class Ricochet {
   // DEMOLITION, a charge set off by another for CHAIN REACTION.
   damage(i) {
     const cell = this.cells[i];
-    if (!cell || !this.hit(i) || !cell.charge) return;
+    if (!cell) return;
+    // CHARGED SERVE: the served ball's first cell goes off like a charge.
+    if (this.servedCharge) { this.servedCharge = false; cell.charge = true; cell.hp = 1; }
+    if (!this.hit(i) || !cell.charge) return;
     const queue = this.neighbours(i);
     let broken = 0;
     while (queue.length) {
@@ -442,6 +478,7 @@ export class Ricochet {
       if (next.charge) { this.R.relay = 1; queue.push(...this.neighbours(j)); }
     }
     this.R.blast = Math.max(this.R.blast, broken);
+    this.shake = Math.max(this.shake, 0.22);
     this.blastAt = this.t;
     this.blastCol = Math.min(2, Math.floor((i % COLS) / 4));
     this.ctx.tone(110, 0.18, "sawtooth");
@@ -460,6 +497,7 @@ export class Ricochet {
     this.cells[i] = 0;
     this.remaining--;
     this.cellsBroken++;
+    this.chainKept = false;
     this.R.cells++;
     this.quiet = 0;
     const col = i % COLS, row = Math.floor(i / COLS);
@@ -480,7 +518,9 @@ export class Ricochet {
   }
 
   paddleHit(b) {
-    this.streak = 0;
+    // STEADY CHAIN keeps the chain through one touch between breaks.
+    if (this.mods.chain && this.streak > 0 && !this.chainKept) this.chainKept = true;
+    else this.streak = 0;
     this.touches++;
     this.R.touchesHere++;
     this.gain = Math.min(60, this.gain + 2);
@@ -492,7 +532,7 @@ export class Ricochet {
     // a chamber and a ball can never settle into a loop.
     const s = this.speedNow();
     const a0 = u * MAX_ANGLE;
-    const drag = this.dir * padSpeed(this.chamber) * 0.3;
+    const drag = this.dir * this.padSpeedNow() * 0.3;
     let a = Math.atan2(s * Math.sin(a0) + drag, s * Math.cos(a0));
     if (this.quiet > 4 && this.remaining > 0) {
       const target = this.lowestCell(b.x);
@@ -571,7 +611,7 @@ export class Ricochet {
   movePaddle(dt) {
     const target = this.padTarget();
     this.padW += clamp(target - this.padW, -140 * dt, 140 * dt);
-    this.px += this.dir * padSpeed(this.chamber) * dt;
+    this.px += this.dir * this.padSpeedNow() * dt;
     const lo = L + this.padW / 2, hi = R - this.padW / 2;
     if (this.px <= lo) { this.px = lo; this.dir = 1; }
     else if (this.px >= hi) { this.px = hi; this.dir = -1; }
@@ -581,7 +621,9 @@ export class Ricochet {
     // A long hold is never a tap: the world freezes until release, so the hold that
     // opens the system menu cannot cost a ball.
     if (this.pressing) this.heldTime += dt;
+    if (this.sub === "pick") return this.stepPick(dt);
     if (this.frozen) return;
+    this.shake = Math.max(0, this.shake - dt);
     this.clock += dt;
     this.movePaddle(dt);
     for (const p of this.parts) {
@@ -603,8 +645,42 @@ export class Ricochet {
       }
     } else if (this.sub === "clear") {
       this.timer -= dt;
-      if (this.timer <= 0) this.setupChamber(this.chamber + 1);
+      if (this.timer <= 0) {
+        if (this.chamber >= PICK_FROM && this.offerUpgrades()) return;
+        this.setupChamber(this.chamber + 1);
+      }
     }
+  }
+
+  // ---- upgrades between chambers ----------------------------------------
+
+  // Offer two different upgrades that can still be taken; false when none are left.
+  offerUpgrades() {
+    const open = UPGRADES.filter((u) => this.mods[u.id] < u.max).map((u) => u.id);
+    if (!open.length) return false;
+    const rng = this.ctx.rng, first = open.splice(rng.int(0, open.length - 1), 1)[0];
+    const ids = open.length ? [first, open[rng.int(0, open.length - 1)]] : [first];
+    this.offer = { ids, cur: 0, t: 0 };
+    this.sub = "pick";
+    this.setHint("Tap: switch upgrade. Hold: take it.");
+    this.ctx.tone(440, 0.08, "sine");
+    return true;
+  }
+  // While choosing, the world waits; the highlighted upgrade is taken after PICK_TIME.
+  stepPick(dt) {
+    this.offer.t += dt;
+    if (!this.pressing && this.offer.t >= PICK_TIME) this.take();
+  }
+  take() {
+    const id = this.offer.ids[this.offer.cur];
+    this.mods[id]++;
+    this.R.picks++;
+    if (id === "spare") this.lives++;
+    this.offer = null;
+    this.ctx.tone(660, 0.08, "triangle"); this.ctx.tone(990, 0.15, "triangle");
+    this.tell("UPGRADE: " + UPGRADES.find((u) => u.id === id).name);
+    this.setupChamber(this.chamber + 1);
+    this.checkGoals();
   }
 
   stepLive(dt) {
@@ -680,6 +756,7 @@ export class Ricochet {
     else this.lives--;
     this.lostAt = this.clock;
     this.R.lostHere++;
+    this.shake = 0.3;
     this.sub = "dying";
     this.timer = 1.2;
     this.streak = 0;
@@ -793,6 +870,11 @@ export class Ricochet {
       const c = dim(LAMP.red, k);
       return lamps(c, c, c);
     }
+    if (this.sub === "pick") {
+      // Lamp I for the left card, lamp III for the right: the choice can be read on the lamps alone.
+      const k = 0.35 + 0.2 * pulse(t, 1.2);
+      return this.offer.cur ? lamps(dim(LAMP.cyan, 0.06), null, dim(LAMP.cyan, k)) : lamps(dim(LAMP.cyan, k), null, dim(LAMP.cyan, 0.06));
+    }
     if (this.sub === "clear") {
       const age = t - this.clearedAt;
       const on = chase(age, 7, false);
@@ -833,7 +915,11 @@ export class Ricochet {
 
   draw(g) {
     space(g, this.t, 0.5);
+    const shake = this.phase === "play" && this.shake > 0 ? Math.sin(this.t * 80) * 5 * this.shake / 0.3 : 0;
+    g.save?.();
+    g.translate?.(shake, 0);
     this.drawChamber(g);
+    g.restore?.();
     if (this.phase === "title") {
       banner(g, "RICOCHET", "TAP TO REVERSE THE PADDLE / BREAK THE LATTICE");
       text(g, "THE LAMPS FOLLOW THE BALL: GREEN HIGH, RED LOW", 480, 392, 18, C.muted, "center");
@@ -846,10 +932,18 @@ export class Ricochet {
   }
 
   drawChamber(g) {
+    const theme = THEMES[(this.chamber - 1) % THEMES.length];
+    // A faint floor glow and depth bands behind the lattice.
+    g.fillStyle = "#0f1c15"; g.fillRect(L, TOP, R - L, PAD_Y + 50 - TOP);
+    g.globalAlpha = 0.5;
+    for (let i = 0; i < 6; i++) { g.fillStyle = i % 2 ? "#0c1511" : "#101e17"; g.fillRect(L, TOP + i * 90, R - L, 45); }
+    g.globalAlpha = 1;
     line(g, L - 2, TOP, L - 2, PAD_Y + 50, C.muted, 3);
     line(g, R + 2, TOP, R + 2, PAD_Y + 50, C.muted, 3);
     line(g, L - 2, TOP - 1, R + 2, TOP - 1, C.muted, 3);
     line(g, L, PAD_Y + 50, R, PAD_Y + 50, C.line, 2);
+    // Corner brackets in the chamber's colour.
+    for (const [cx, sx] of [[L - 2, 1], [R + 2, -1]]) { line(g, cx, TOP - 1, cx + sx * 26, TOP - 1, theme[2], 4); line(g, cx, TOP - 1, cx, TOP + 26, theme[2], 4); }
     const title = this.phase !== "play";
     if (title) g.globalAlpha = 0.45;
     const rows = this.phase === "over" ? 0 : this.rows; // the result panel stands alone
@@ -862,9 +956,12 @@ export class Ricochet {
           g.strokeStyle = C.amber; g.lineWidth = 2; g.strokeRect(x, y, w, h);
           g.strokeRect(x + 5, y + 5, w - 10, h - 10);
         } else {
-          g.fillStyle = r % 2 ? "#1d3323" : "#223b29";
+          g.fillStyle = r % 2 ? theme[1] : theme[0];
           g.fillRect(x, y, w, h);
-          g.strokeStyle = cell.hard ? C.amber : C.ink; g.lineWidth = 2; g.strokeRect(x, y, w, h);
+          // A lit top edge and a shadowed foot give each cell some body.
+          g.fillStyle = theme[2]; g.globalAlpha = (title ? 0.45 : 1) * 0.35; g.fillRect(x + 3, y + 3, w - 6, 3);
+          g.globalAlpha = title ? 0.45 : 1;
+          g.strokeStyle = cell.hard ? C.amber : theme[2]; g.lineWidth = 2; g.strokeRect(x, y, w, h);
           if (cell.hard) line(g, x + 4, y + h - 4, x + w - 4, y + 4, C.amber, 2);
         }
         if (cell.bonus) diamond(g, x + w / 2, y + h / 2, 6, C.cyan, false);
@@ -896,10 +993,12 @@ export class Ricochet {
         g.globalAlpha = 1;
       }
     }
-    // Paddle, with a chevron on its leading end showing which way it is gliding.
+    // Paddle, with a soft glow under it and a chevron on its leading end showing which way it is gliding.
     const x0 = this.px - this.padW / 2, x1 = this.px + this.padW / 2;
+    g.globalAlpha = 0.18; g.fillStyle = C.ink; g.fillRect(x0 - 6, PAD_Y - 4, this.padW + 12, PAD_H + 12); g.globalAlpha = 1;
     g.fillStyle = C.ink;
     g.fillRect(x0, PAD_Y, this.padW, PAD_H);
+    g.fillStyle = C.muted; g.fillRect(x0, PAD_Y + PAD_H - 3, this.padW, 3);
     if (this.t - this.padFlash < 0.12) line(g, x0, PAD_Y - 3, x1, PAD_Y - 3, C.cyan, 3);
     const lead = this.dir > 0 ? x1 + 6 : x0 - 6, back = lead + this.dir * 9, my = PAD_Y + PAD_H / 2;
     line(g, lead, my - 8, back, my, C.muted, 3);
@@ -911,7 +1010,8 @@ export class Ricochet {
         g.globalAlpha = 0.15; circle(g, b.tx[2], b.ty[2], BALL_R - 3, C.muted, true);
         g.globalAlpha = 1;
       }
-      circle(g, b.x, b.y, BALL_R, C.ink, true);
+      g.globalAlpha = 0.2; circle(g, b.x, b.y, BALL_R + 7, this.servedCharge ? C.red : C.ink, true); g.globalAlpha = 1;
+      circle(g, b.x, b.y, BALL_R, this.servedCharge ? C.red : C.ink, true);
     }
     // Falling bonuses.
     for (const d of this.drops) {
@@ -958,6 +1058,36 @@ export class Ricochet {
     if (this.sub === "clear") {
       text(g, "CHAMBER CLEARED", 480, 370, 34, C.amber, "center");
       text(g, "BONUS +" + this.lastBonus, 480, 410, 22, C.ink, "center");
+    }
+    if (this.sub === "pick") this.drawPick(g);
+    this.drawMods(g);
+  }
+  // Two upgrade cards; the highlighted one has a bright frame and a bar that runs down to the auto-pick.
+  drawPick(g) {
+    const o = this.offer;
+    g.fillStyle = "#0c1511ee"; g.fillRect(L + 10, 150, R - L - 20, 300);
+    text(g, "CHAMBER " + String(this.chamber).padStart(2, "0") + " CLEARED / CHOOSE AN UPGRADE", 480, 182, 22, C.amber, "center");
+    o.ids.forEach((id, i) => {
+      const u = UPGRADES.find((x) => x.id === id), on = i === o.cur, x = o.ids.length > 1 ? 160 + i * 330 : 325, y = 214, w = 310, h = 160;
+      g.fillStyle = on ? "#1a2e22" : "#111d17"; g.fillRect(x, y, w, h);
+      g.strokeStyle = on ? C.amber : C.line; g.lineWidth = on ? 4 : 2; g.strokeRect(x, y, w, h);
+      text(g, ["I", "III"][i] || "I", x + 22, y + 26, 18, on ? C.cyan : C.muted, "center");
+      text(g, u.name, x + w / 2, y + 48, 24, on ? C.ink : C.muted, "center");
+      const words = u.text.split(" "), lines = [""];
+      for (const word of words) { if ((lines.at(-1) + " " + word).length > 24) lines.push(word); else lines[lines.length - 1] = (lines.at(-1) + " " + word).trim(); }
+      lines.forEach((ln, k) => text(g, ln, x + w / 2, y + 88 + k * 24, 18, on ? C.ink : C.muted, "center"));
+      if (this.mods[id]) text(g, "TAKEN " + this.mods[id] + " / " + u.max, x + w / 2, y + h - 14, 16, C.muted, "center");
+      if (on) { g.fillStyle = C.amber; g.fillRect(x, y + h + 6, w * Math.max(0, 1 - o.t / PICK_TIME), 4); }
+    });
+    text(g, "TAP: SWITCH   HOLD: TAKE   LAMP I OR III SHOWS THE CHOICE", 480, 420, 18, C.cyan, "center");
+  }
+  // Upgrades taken this run, under the right-hand panel.
+  drawMods(g) {
+    let y = 380;
+    for (const u of UPGRADES) {
+      if (!this.mods[u.id]) continue;
+      text(g, u.name.split(" ")[0] + (this.mods[u.id] > 1 ? " x" + this.mods[u.id] : ""), 900, y, 16, C.cyan, "center");
+      y += 22;
     }
   }
 

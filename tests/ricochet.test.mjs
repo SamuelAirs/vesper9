@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Ricochet, RICOCHET_FEATS, CHARGE_FROM, migrateRicochet, ricochetOrder } from "../web/apps/ricochet.js";
+import { Ricochet, RICOCHET_FEATS, CHARGE_FROM, migrateRicochet, ricochetOrder, UPGRADES, PICK_TIME, PICK_HOLD } from "../web/apps/ricochet.js";
 import { appContext, fakeCanvas, run } from "./helpers/app-context.mjs";
+import { makeRig } from "./audit/harness.mjs";
+import { gestureWithUpdates } from "./audit/bots.mjs";
 
 const G = Ricochet.GEOM;
 const lampsOk = (ctx) => ctx.calls.leds.every((v) => v.length === 9 && v.every((x) => Number.isInteger(x) && x >= 0 && x <= 255));
@@ -722,4 +724,114 @@ test("title and result: rank, today's order, a feat at a time; all text at least
   painted = textOf(app);
   assert.ok(painted.some((x) => /TODAY: |DAILY ORDER MET/.test(x.s)));
   assert.ok(painted.every((x) => x.size >= 16));
+});
+
+// ---------------------------------------------------------------------------------------- upgrades
+// Clear the current chamber at once and let the clear banner run out.
+function clearChamber(app) {
+  app.cells.fill(0); app.remaining = 1; app.cells[0] = cell(); app.damage(0);
+  run(app, 0.1); assert.equal(app.sub, "clear");
+  run(app, 2.7);
+}
+
+test("upgrades: offered after chamber 2 (not after the practice chamber); tap switches, hold takes", () => {
+  const { ctx, app } = fresh(40);
+  app.down(); run(app, 1.4);
+  clearChamber(app);
+  assert.equal(app.chamber, 2, "chamber 1 offered an upgrade");
+  run(app, 1.4);
+  clearChamber(app);
+  assert.equal(app.sub, "pick");
+  assert.equal(app.offer.ids.length, 2);
+  assert.notEqual(app.offer.ids[0], app.offer.ids[1]);
+  const words = textOf(app).map((x) => x.s).join(" | ");
+  assert.match(words, /CHOOSE AN UPGRADE/);
+  // Lamp I lights for the left card, lamp III for the right.
+  app.lampOutput(); assert.ok(app.lampNow[1] > app.lampNow[7]);
+  const dir = app.dir;
+  app.down(); run(app, 0.1); app.up();
+  assert.equal(app.offer.cur, 1);
+  assert.equal(app.dir, dir, "a tap while choosing reversed the paddle");
+  app.lampOutput(); assert.ok(app.lampNow[7] > app.lampNow[1]);
+  const want = app.offer.ids[1];
+  app.down(); run(app, PICK_HOLD + 0.1); app.up();
+  assert.equal(app.mods[want], 1);
+  assert.equal(app.chamber, 3);
+  assert.equal(app.sub, "serve");
+  assert.match(app.news.text, /UPGRADE/);
+  void ctx;
+});
+
+test("upgrades: left alone, the highlighted one is taken; none is offered once all are full", () => {
+  const { app } = fresh(41);
+  app.down(); run(app, 1.4);
+  app.chamber = 2; clearChamber(app);
+  assert.equal(app.sub, "pick");
+  const first = app.offer.ids[0];
+  run(app, PICK_TIME + 0.2);
+  assert.equal(app.mods[first], 1);
+  for (const u of UPGRADES) app.mods[u.id] = u.max;
+  run(app, 1.4); clearChamber(app);
+  assert.equal(app.sub, "serve", "an upgrade was offered with none left");
+});
+
+test("upgrade effects: wider and quicker paddle, spare ball, heavy signal, salvage", () => {
+  const { app } = fresh(42);
+  app.down(); run(app, 1.4);
+  const w = app.padTarget(), sp = app.padSpeedNow(), v = app.speedNow(), lives = app.lives;
+  const take = (id) => { app.offer = { ids: [id], cur: 0, t: 0 }; app.sub = "pick"; app.take(); };
+  take("wide");
+  const wide = app.padTarget(); app.mods.wide = 0; const plain = app.padTarget(); app.mods.wide = 1;
+  assert.ok(Math.abs(wide / plain - 1.1) < 1e-9 && w > 0);
+  take("quick"); assert.ok(app.padSpeedNow() > sp);
+  take("spare"); assert.equal(app.lives, lives + 1);
+  app.chamber = 3; take("slow"); assert.ok(app.speedNow() < Ricochet.baseSpeed(app.chamber) + app.gain);
+  const bonusPairs = () => app.cells.filter((c) => c && c.bonus).length / 2;
+  app.setupChamber(5); const before = bonusPairs();
+  take("luck"); app.setupChamber(5);
+  assert.ok(bonusPairs() >= before, "salvage gave no more bonus cells");
+  assert.ok(app.R.picks >= 5 && app.sv.ft.includes("fitted"));
+  assert.ok(v > 0);
+});
+
+test("upgrade effects: steady chain survives one touch between breaks; charged serve detonates the first cell", () => {
+  const { app } = fresh(43);
+  app.down(); run(app, 1.4);
+  app.mods.chain = 1;
+  app.cells.fill(0);
+  for (let c = 0; c < 6; c++) app.cells[c] = cell();
+  app.remaining = 6;
+  app.damage(0); app.damage(1);
+  assert.equal(app.streak, 2);
+  app.paddleHit(app.balls[0]);
+  assert.equal(app.streak, 2, "the chain did not survive the first touch");
+  app.paddleHit(app.balls[0]);
+  assert.equal(app.streak, 0, "the chain survived two touches");
+  app.damage(2); app.paddleHit(app.balls[0]);
+  assert.equal(app.streak, 1, "a break did not renew the grace");
+  // Charged serve.
+  app.mods.serve = 1;
+  app.cells.fill(0);
+  for (let c = 0; c < 5; c++) for (const r of [0, 1]) app.cells[r * 12 + c] = cell({ hp: 2, hard: true });
+  app.remaining = 10;
+  app.serveBall(); run(app, 1.2);
+  assert.equal(app.sub, "live"); assert.equal(app.servedCharge, true);
+  app.damage(2);
+  assert.equal(app.servedCharge, false);
+  assert.ok(!app.cells[2], "the served charge did not break a hard cell at once");
+  assert.ok(app.cells.slice(0, 24).filter((c) => c && c.hp === 1).length >= 4, "the blast did not reach the neighbours");
+});
+
+test("tap, tap, hold on the upgrade screen opens the menu and changes nothing", () => {
+  const { ctx, app } = fresh(44);
+  app.down(); run(app, 1.4);
+  app.chamber = 2; clearChamber(app);
+  assert.equal(app.sub, "pick");
+  const rig = makeRig(app, ctx);
+  const before = JSON.stringify({ mods: app.mods, offer: app.offer, chamber: app.chamber });
+  gestureWithUpdates(app, rig);
+  assert.equal(rig.menuOpen, 1);
+  const after = JSON.stringify({ mods: app.mods, offer: { ...app.offer, t: JSON.parse(before).offer.t }, chamber: app.chamber });
+  assert.equal(after, before, "the gesture's taps or hold changed the choice");
+  assert.equal(app.sub, "pick");
 });

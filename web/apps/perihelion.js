@@ -39,7 +39,8 @@ const BACK = 400; // how far behind the furthest point reached the probe may go 
 const STALL_PHI = 1.75; // a swing that stops this far round from the bottom (above level) is a stall
 const MAX_LOOPS = 3; // loops that score on one tether (a loop can go on for ever otherwise)
 // Tricks: flat points (not multiplied by the chain, so style adds to a run without swamping distance).
-const TRICKS = { stall: ["STALL", 15], loop: ["LOOP", 25], skip: ["SKIP", 10], back: ["BACKTRACK", 10] };
+const TRICKS = { stall: ["STALL", 15], loop: ["LOOP", 25] };
+const SLACK = 0.6; // longest a landed tether waits, slack, for the probe's path to curve round its sun
 // Paced runs: the screen moves at a set speed, px/s, and its left edge ends the run.
 const PACES = [{ name: "OFF", v: 0 }, { name: "STEADY", v: 100 }, { name: "BRISK", v: 135 }];
 const REASONS = {
@@ -70,14 +71,13 @@ const INTRO = {
   pair: "Paired suns move. The tether follows.",
   current: "The streaks show which way the current pushes.",
   pulse: "Only a lit sun can be caught.",
-  chain: "Chain 2: score x2. Catch again within 1.2 s of letting go to keep it.",
-  lost: "Chain lost: more than 1.2 s without a sun.",
   plain: "",
 };
 // The hangar's GUIDE: one page per screen, tap for the next.
 const GUIDE = [
   ["CONTROLS",
     "HOLD: throw the tether to the sun marked by the diamond.",
+    "It locks where your path curves closest round that sun.",
     "The tether is a solid rod. Grab from below, beside or above.",
     "RELEASE: fly off the way the swing is carrying you.",
     "A quick tap barely bends your course.",
@@ -87,16 +87,13 @@ const GUIDE = [
     "Points for style, added on top of the distance score.",
     "STALL: swing up past level and hang there as it stops.",
     "LOOP: swing right round the sun. Up to 3 loops pay on one tether.",
-    "SKIP: pass over unused suns to catch one further on.",
-    "BACKTRACK: go back for an earlier sun.",
-    "Going back keeps the chain but only new suns add to it."],
-  ["CHAIN AND SCORE",
-    "Score is distance flown times the multiplier.",
-    "CHAIN: swings in a row. Hold each one 0.35 s or more.",
-    "Catch again within 1.2 s of letting go, or the chain ends.",
-    "Every 2 in the chain adds x1, up to x5.",
-    "The bar under the multiplier is the time left to catch.",
-    "Relics and close passes pay points times the multiplier."],
+    "Relics pay 25, a close pass by a dark body 8."],
+  ["SCORE AND CHAIN",
+    "Score is distance flown, in Mkm, plus tricks, relics,",
+    "close passes and 400 for reaching the perihelion.",
+    "CHAIN: swings in a row, each next sun caught within",
+    "1.2 s of letting go. It earns no points, only feats.",
+    "Going back for a sun you used keeps the chain going."],
   ["DAILY RUN AND STREAK",
     "One world and one goal for each date.",
     "STREAK: days in a row you have met the daily goal.",
@@ -297,7 +294,7 @@ export class Perihelion {
     this.regT = 0;
     this.regC = 0;
     this.R = { relics: 0, near: 0, slings: 0, pulses: 0, bottom: 0, thread: 0, longFlight: 0, ceil: 0, ceilMax: 0, fast1: 0, fast2: 0, arrived: 0, daily: 0, far: 0, tricks: 0, trickPts: 0, stalls: 0, loops: 0 };
-    this.topId = -1; // the furthest sun released cleanly: a catch beyond it skips the suns between
+    this.topId = -1; // the furthest sun released cleanly: only suns beyond it add to the chain
     this.trickText = "";
     this.trickT = 0;
     this.cross = [];
@@ -640,14 +637,7 @@ export class Perihelion {
     this.c.tone(520, 0.05, "sine");
     this.persist();
   }
-  // Suns passed over to reach `a`: unused ones between the furthest sun used and it.
-  skipped(a) {
-    if (a.id <= this.topId + 1) return 0;
-    let n = 0;
-    for (const s of this.anchors) if (s.id > this.topId && s.id < a.id && !s.dead && s.x < a.x - 20) n++;
-    return Math.min(3, n);
-  }
-  // A trick pays its points (times `mult`, e.g. suns skipped) and says so above the probe.
+  // A trick pays its points (times `mult`, e.g. how high a stall hangs) and says so above the probe.
   trick(id, mult = 1) {
     const [name, pts] = TRICKS[id], got = Math.round(pts * mult);
     this.scoreRaw += got;
@@ -684,15 +674,31 @@ export class Perihelion {
       return;
     }
     this.engage(p, a);
-    this.tether = { counted: false, flightAtCatch: this.flightT, pulse: a.kind === "pulse", spin: 0, loops: 0, stalls: 0, skip: this.skipped(a), back: a.id < this.topId && !a.backed && a.x < this.p.x };
+    this.tether = { counted: false, flightAtCatch: this.flightT, pulse: a.kind === "pulse", spin: 0, loops: 0, stalls: 0 };
     this.catchFlash = 0.14;
     this.burst(A.x, A.y, 5, 90);
     this.bottomT = 0;
     this.c.tone(300 + 35 * Math.min(this.chain, 8), 0.06, "triangle");
   }
+  // Does a landed tether lock now? It stays slack while the probe still closes on its sun and
+  // locks at the closest point, where the path is already square to the line: the flight runs
+  // on into the swing with no turn. It locks at once if the probe is already moving away, or is
+  // very near the sun, and after SLACK seconds in any case.
+  locks(p, a, t) {
+    if (t >= CATCH_LAG + SLACK) return true;
+    const A = place(a, p.clk || 0, PL);
+    const dx = p.x - A.x, dy = p.y - A.y;
+    if (Math.hypot(dx, dy) < MIN_CATCH) return true;
+    return dx * (p.vx - A.vx) + dy * (p.vy - A.vy) >= 0;
+  }
   // Throw a tether from a cloned probe the way the game does (a bot's planning step).
   settle(p, a) {
-    for (let i = 0; i < Math.round(CATCH_LAG * 60) - 1; i++) this.stepProbe(p, 1 / 60);
+    const dt = 1 / 60;
+    for (let t = dt; ; t += dt) {
+      if (t >= CATCH_LAG - 1e-9 && this.locks(p, a, t)) break;
+      this.stepProbe(p, dt);
+      if (this.fate(p)) break; // lost while slack: the planner sees it on the first step
+    }
     this.engage(p, a);
   }
   releaseTether() {
@@ -706,9 +712,6 @@ export class Perihelion {
       this.chain++;
       this.topId = a.id;
     }
-    if (tt && tt.skip) this.trick("skip", tt.skip);
-    if (tt && tt.back) { a.backed = true; this.trick("back"); } // once per sun
-    if (this.chain === 2) this.intro("chain");
     this.bestChain = Math.max(this.bestChain, this.chain);
     this.flightT = 0;
     if (a.kind === "decay") a.dead = true;
@@ -762,9 +765,6 @@ export class Perihelion {
   }
 
   // ---- simulation --------------------------------------------------------
-  multiplier() {
-    return 1 + Math.min(4, Math.floor(this.chain / 2));
-  }
   update(dt) {
     this.guard.tick(dt);
     this.t += dt;
@@ -799,7 +799,7 @@ export class Perihelion {
     this.trickFlash = Math.max(0, (this.trickFlash || 0) - dt);
     if (this.pending) {
       this.pendT += dt;
-      if (this.pendT >= CATCH_LAG - 1e-9) this.land();
+      if (this.pendT >= CATCH_LAG - 1e-9 && this.locks(p, this.pending, this.pendT)) this.land();
     } else if (this.held && !p.a && this.buffer > 0) {
       this.buffer -= dt;
       this.tryCatch();
@@ -827,7 +827,6 @@ export class Perihelion {
         this.held = false;
       }
     } else if (this.chain > 0 && this.flightT > CHAIN_GAP) {
-      if (this.chain >= 2) this.intro("lost");
       this.chain = 0;
     }
     if (p.y < 60) this.R.ceil = 0;
@@ -838,7 +837,7 @@ export class Perihelion {
     if (!why && p.x < this.front + 8) why = this.pace ? "edge" : "dark";
     if (why) { this.crash(why); return; }
     if (p.x > this.maxX) {
-      this.scoreRaw += ((p.x - this.maxX) * this.multiplier()) / PX_PER_MKM;
+      this.scoreRaw += (p.x - this.maxX) / PX_PER_MKM;
       this.maxX = p.x;
     }
     this.collect(p);
@@ -867,7 +866,7 @@ export class Perihelion {
     else this.setHint(this.pickTarget(p) ? "Hold to catch the marked sun." : "Coasting. No sun in reach.");
   }
   hudItems(score) {
-    const chain = this.chain > 0 ? this.chain + "  x" + this.multiplier() : "-";
+    const chain = this.chain > 0 ? this.chain : "-";
     const reg = this.sv.far > 0 || this.reg > 0;
     if (!reg) return [["DISTANCE", score + " Mkm"], ["CHAIN", chain], ["CAUGHT", this.catches], ["BEST", Math.max(this.best0, score)]];
     return [["DISTANCE", score + " Mkm"], ["CHAIN", chain], ["RELICS", this.R.relics], ["REGION", REGIONS[this.reg].roman + " " + REGIONS[this.reg].name.slice(4)]];
@@ -880,7 +879,7 @@ export class Perihelion {
         r.got = 1;
         this.R.relics++;
         this.relicFlash = 0.35;
-        this.scoreRaw += 25 * this.multiplier();
+        this.scoreRaw += 25;
         this.burst(r.x, r.y, 6, 110);
         this.queueNote(0, 880, 0.1, "sine");
         this.queueNote(0.09, 1175, 0.16, "sine");
@@ -898,7 +897,7 @@ export class Perihelion {
           this.R.near++;
           if (this.runT - this.nearT < 0.9) this.R.thread++;
           this.nearT = this.runT;
-          this.scoreRaw += 8 * this.multiplier();
+          this.scoreRaw += 8;
           this.queueNote(0, 988, 0.07, "triangle");
           this.intro("near");
           this.checkFeats();
@@ -1458,12 +1457,6 @@ export class Perihelion {
       g.globalAlpha = 0.5 + 0.5 * blink(this.t, 4);
       text(g, this.pace ? "EDGE CLOSING" : "DARK CLOSING", 30, 60, 22, C.red);
       g.globalAlpha = 1;
-    }
-    if (this.multiplier() > 1) text(g, "x" + this.multiplier(), 480, 44, 30, C.amber, "center");
-    if (this.chain > 0 && !p.a) { // the time left to catch before the chain ends
-      const f = clamp(1 - this.flightT / CHAIN_GAP, 0, 1);
-      line(g, 420, 62, 540, 62, C.line, 4);
-      if (f > 0) line(g, 420, 62, 420 + 120 * f, 62, f < 0.35 ? C.red : C.amber, 4);
     }
     if (this.recText > 0) text(g, "NEW DISTANCE RECORD", 480, 80, 22, C.cyan, "center");
     if (this.trickT > 0) {

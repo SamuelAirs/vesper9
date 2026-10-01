@@ -1,21 +1,22 @@
 /* Bounded integrated service/browser soak. No hardware or personal data. */
 const assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const {spawn}=require('node:child_process');const {chromium}=require(process.env.PLAYWRIGHT_PATH||'playwright');
+const port=require('./free-port.cjs')(),origin='http://127.0.0.1:'+port;
 const root=path.resolve(__dirname,'..'), seconds=Number(process.env.SOAK_SECONDS||1200);
 const output=process.env.TEST_OUTPUT||path.join(root,'test-output'), data=fs.mkdtempSync(path.join(os.tmpdir(),'vesper-soak-'));
 fs.mkdirSync(output,{recursive:true});
-const server=spawn(process.env.PYTHON||'python3',['-m','vesper.server','--simulate','--http-port','18981','--data',data],{cwd:root});
+const server=spawn(process.env.PYTHON||'python3',['-m','vesper.server','--simulate','--http-port',String(port),'--data',data],{cwd:root});
 let logs='',browser;server.stderr.on('data',d=>logs+=d);server.stdout.on('data',d=>logs+=d);
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 // Some development containers expose a /proc mount from a different PID namespace.
 // Never report a different process's RSS as the Python service's memory.
 const procMatches=(()=>{try{return Number(/^Pid:\s+(\d+)/m.exec(fs.readFileSync('/proc/self/status','utf8'))?.[1])===process.pid;}catch{return false;}})();
 (async()=>{
- for(let i=0;i<100;i++){try{if((await fetch('http://127.0.0.1:18981/api/state')).ok)break;}catch{}if(i===99)throw Error('Server did not start');await pause(100);}
- browser=await chromium.launch({headless:true,executablePath:process.env.TEST_BROWSER_BIN||undefined,args:['--no-sandbox','--disable-gpu','--autoplay-policy=no-user-gesture-required']});
+ for(let i=0;i<100;i++){try{if((await fetch(origin+'/api/state')).ok)break;}catch{}if(i===99)throw Error('Server did not start');await pause(100);}
+ browser=await chromium.launch({headless:true,executablePath:process.env.TEST_BROWSER_BIN||undefined,args:['--no-sandbox','--disable-gpu','--mute-audio','--autoplay-policy=no-user-gesture-required']});
  const page=await browser.newPage({viewport:{width:1280,height:720}}), errors=[],samples=[];
  page.on('pageerror',e=>errors.push(e.message));
- await page.goto('http://127.0.0.1:18981');await page.waitForFunction(()=>vesper.loaded);
+ await page.goto(origin);await page.waitForFunction(()=>vesper.loaded);
  await page.evaluate(async()=>{await vesper.bridge.command('settings',{key:'sound',value:false});await vesper.bridge.command('timer',{op:'create',seconds:15,label:'SOAK TIMER'});vesper.launch('runner');});
  let speech=null;
  if(process.env.SOAK_WAV){

@@ -150,7 +150,7 @@ static void status(uint8_t kind) {
   char data[400];
   int link = atomic_load(&active_link);
   int n = snprintf(data, sizeof(data),
-                   "{\"fw\":\"vesper-node-0.1.1\",\"link\":\"%s\",\"mic\":%s,\"button\":%s,\"audio_"
+                   "{\"fw\":\"vesper-node-0.1.2\",\"link\":\"%s\",\"mic\":%s,\"button\":%s,\"audio_"
                    "drops\":%u,\"rx_crc\":%lu,\"sensor\":{\"addr\":%d,\"ok\":%u,\"fail\":%u,\"err\":%d},\"leds\":[%"
                    "u,%u,%u,%u,%u,%u,%u,%u,%u]}",
                    link == LINK_USB ? "usb" : link == LINK_UART ? "uart" : "none",

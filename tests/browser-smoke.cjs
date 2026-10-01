@@ -6,6 +6,8 @@ const os = require("node:os");
 const { spawn, execFileSync } = require("node:child_process");
 const { chromium } = require(process.env.PLAYWRIGHT_PATH || "playwright");
 const root = path.resolve(__dirname, "..");
+const port = require("./free-port.cjs")();
+const origin = "http://127.0.0.1:" + port;
 const data = fs.mkdtempSync(path.join(os.tmpdir(), "vesper-browser-"));
 const output = process.env.TEST_OUTPUT || path.join(root, "test-output");
 fs.mkdirSync(output, { recursive: true });
@@ -22,7 +24,7 @@ store.close()
 `, data], {cwd:root});
 const server = spawn(
   process.env.PYTHON || "python3",
-  ["-m", "vesper.server", "--simulate", "--http-port", "18979", "--data", data],
+  ["-m", "vesper.server", "--simulate", "--http-port", String(port), "--data", data],
   { cwd: root },
 );
 let logs = "";
@@ -40,7 +42,7 @@ async function button(page, ms = 80) {
 (async () => {
   for (let i = 0; i < 80; i++) {
     try {
-      if ((await fetch("http://127.0.0.1:18979/api/state")).ok) break;
+      if ((await fetch(origin + "/api/state")).ok) break;
     } catch {}
     if (i === 79) throw Error("Service did not start: " + logs);
     await sleep(100);
@@ -50,6 +52,7 @@ async function button(page, ms = 80) {
     executablePath: process.env.TEST_BROWSER_BIN || undefined,
     args: [
       "--no-sandbox",
+      "--mute-audio",
       "--disable-gpu",
       "--autoplay-policy=no-user-gesture-required",
     ],
@@ -59,7 +62,7 @@ async function button(page, ms = 80) {
   });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  await page.goto("http://127.0.0.1:18979");
+  await page.goto(origin);
   await page.waitForFunction(() => window.vesper?.loaded);
   assert.equal(await page.locator(".app-card").count(), 6);
   await page.screenshot({

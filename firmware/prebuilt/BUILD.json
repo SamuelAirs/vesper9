@@ -1,5 +1,5 @@
 {
-  "version": "0.1.1",
+  "version": "0.1.2",
   "target": "esp32s3",
   "profile": "N16R8",
   "esp_idf": "v5.4.2",
@@ -9,11 +9,11 @@
   "flash_size": "16MB",
   "flash_frequency": "80m",
   "application_bytes": 268576,
-  "physically_tested": "Flashed on the actual node 2026-09-30 over COM: protocol link, SHT3x readings and microphone stream confirmed; lights, button and native-USB link not yet confirmed",
+  "physically_tested": "Flashed on the actual node 2026-09-30 over both COM and native USB. Confirmed by Sam: all nine light outputs in the correct lamp and colour, arcade button. Confirmed by measurement: protocol on both links, SHT3x readings, microphone stream without missing samples.",
   "sha256": {
     "bootloader.bin": "f8d9c5917d414a41d176bb7a0b669dd7ce20cd962eb9ef8ff09bee658293c400",
     "partition-table.bin": "fd8026bff850ca0dee41c41305160317fffe604dda30a9bd5a701ac82d96fa17",
-    "vesper_node.bin": "498d37665e692d3838975f172378a36de693cd93a7636102de41de98b0972c0e",
+    "vesper_node.bin": "44fa1915c511abb97424d14f4640fa5fead15c226769b206d3570a7313c5d042",
     "sdkconfig": "816e112176667e1253f223e5eb987993c9c1a75d9c6c97d93212df3c36786921"
   },
   "built_on": "Raspberry Pi 5, Debian 13 aarch64"

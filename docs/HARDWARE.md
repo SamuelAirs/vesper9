@@ -1,6 +1,6 @@
 # Hardware profile
 
-This profile reflects the node as actually wired, confirmed by Sam's wiring table and by live readings on 2026-09-30. The pin map originally supplied with 0.2.0 (button 7, sensor 8/9, lights 14/13/12, 11/10/18, 17/16/15) did not match the board and is superseded. No rewiring is part of the software design.
+This profile reflects the node as actually wired, confirmed by Sam's wiring table and by live readings on 2026-09-30. The colour order within each lamp was then established by lighting one output at a time while Sam watched (firmware 0.1.2): the wiring table gives the right pins per lamp but not the right colour per pin. The pin map originally supplied with 0.2.0 (button 7, sensor 8/9, lights 14/13/12, 11/10/18, 17/16/15) did not match the board and is superseded. No rewiring is part of the software design.
 
 ## Pin mapping
 
@@ -13,9 +13,9 @@ This profile reflects the node as actually wired, confirmed by Sam's wiring tabl
 | Arcade switch | Return tab, driven low by firmware as the switch ground | 46 |
 | SHT3x | SDA | 13 |
 | SHT3x | SCL | 14 |
-| Left LED | Red / green / blue | 7 / 15 / 16 |
-| Middle LED | Red / green / blue | 17 / 18 / 8 |
-| Right LED | Red / green / blue | 9 / 10 / 11 |
+| Left LED | Red / green / blue | 15 / 7 / 16 |
+| Middle LED | Red / green / blue | 18 / 17 / 8 |
+| Right LED | Red / green / blue | 11 / 9 / 10 |
 | COM UART0 | TX / RX (verified: protocol runs over the CH343 bridge) | 43 / 44 |
 | Native USB | USB Serial/JTAG, second protocol link | 19 / 20 (internal) |
 
@@ -25,7 +25,7 @@ The SHT3x answers at `0x44`; firmware also tries `0x45`. It addresses the sensor
 
 ## Nine independent light channels
 
-ESP32-S3 provides eight LEDC channels. This firmware assigns the first eight color legs to LEDC and the ninth (right blue, GPIO11) to an MCPWM generator. That preserves independent brightness for all nine existing legs without requiring another controller.
+ESP32-S3 provides eight LEDC channels. This firmware assigns the first eight color legs to LEDC and the ninth (right blue, GPIO10) to an MCPWM generator. That preserves independent brightness for all nine existing legs without requiring another controller.
 
 Both implementations target 4 kHz PWM. LEDC uses 10-bit duty; MCPWM uses a 1000-count period. The 0–255 protocol values pass through an approximate gamma-2.2 mapping. Common-cathode LEDs are driven active-high. These light values are perceptual brightness commands, not calibrated optical color measurements.
 

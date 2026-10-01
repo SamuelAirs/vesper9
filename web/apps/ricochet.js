@@ -940,7 +940,7 @@ export class Ricochet {
     }
     // Announcements.
     const a = this.announce;
-    if (a && this.clock - a.at < 3.2 && this.sub !== "clear") {
+    if (a && this.clock - a.at < 3.2 && this.sub !== "clear" && this.sub !== "dying") {
       g.globalAlpha = clamp(3.2 - (this.clock - a.at), 0, 1);
       text(g, a.text, 480, 380, 34, C.ink, "center");
       if (a.news) text(g, a.news, 480, 418, 22, C.amber, "center");

@@ -333,9 +333,9 @@ export class LightTrial {
       banner(
         g,
         "LIGHT TRIAL",
-        "An honest measure of the moment between seeing and acting. Five trials make a series.",
+        "An honest measure of the moment between seeing and acting.",
       );
-      this.drawGoals(g, 418);
+      this.drawGoals(g, 404);
     }
   }
   // Rank, best series, the day's practice and one feat at a time (title screen).

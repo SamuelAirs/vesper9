@@ -23,7 +23,9 @@ async function measure(dir, scenario) {
     if (scenario.endsWith("-nocrt")) await page.evaluate(() => vesper.bridge.command("settings", { key: "crt", value: false }));
     if (scenario.endsWith("-reduced")) await page.evaluate(() => vesper.bridge.command("settings", { key: "reducedMotion", value: true }));
     const id = scenario.split("-")[0];
-    if (id !== "dashboard") await L.launchApp(page, id, true);
+    if (id !== "dashboard" && id !== "diagnostics") await L.launchApp(page, id, true);
+    if (scenario.startsWith("diagnostics-level")) // 8 microphone level events/s, as with the mic on
+      await page.evaluate(() => { vesper.launch("diagnostics"); setInterval(() => vesper.event({ type: "level", value: 0.05, droppedChunks: 0 }), 125); });
     await L.sleep(2000);
     await page.evaluate(MUT);
     const get = async () => Object.fromEntries((await cdp.send("Performance.getMetrics")).metrics.map((x) => [x.name, x.value]));

@@ -358,6 +358,7 @@ export class Vesper {
     this.meta = meta;
     const token = this.token;
     const alive = () => this.token === token;
+    let lastContent = null;
     const guarded = fn => (...args) => alive() ? fn(...args) : undefined;
     const command = (cmd, data) => {
       if (!alive()) return Promise.resolve({ ignored: true });
@@ -406,7 +407,11 @@ export class Vesper {
         if (this.token === token) $("app-readout").textContent = message;
       },
       content: (html) => {
-        if (this.token === token) $("utility-content").innerHTML = html;
+        // Panels re-render on every sensor/level event; skip identical markup.
+        if (this.token === token && html !== lastContent) {
+          lastContent = html;
+          $("utility-content").innerHTML = html;
+        }
       },
       actions: (items) => {
         if (this.token !== token) return;

@@ -62,3 +62,12 @@ The long integrated run was started while final review continued. The final held
 - Browser workflow and extension tests pass on this Pi with Playwright 1.63 driving the system Chromium 151 (32 s). Tests now take a free port each and mute audio so several checkouts can run them at once.
 - Project placed under local git: `v0.2.0-as-delivered`, then bring-up commits. The generated simulator is no longer tracked.
 - Sam's feedback after playing: fun; the lamps are underused; dictation a little inaccurate; wants more games and instruments. Plan for the overnight agent fleet: `../fleet/PLAN.md`.
+
+## 2026-10-01 — two new button-and-lamp games: Meridian and Kiln (desktop, not verified on the device)
+
+- Sam asked for more games that need only the button and the lamps, like Light Trial. Pitched Meridian, Kiln and Relay (a rhythm-teaching game, not built).
+- MERIDIAN (`web/apps/meridian.js`): a pendulum of light across the lamps; tap as it crosses the middle lamp. Judged in time (45/90/140 ms), five stages (swing, red pass, drift, eclipse, feint) then faster cycles with narrowing windows; observatory with daily, sprint, eclipse, light colours, 15 feats, log. Save schema 1.
+- KILN (`web/apps/kiln.js`): hold to heat, release early because the heat coasts by rate times inertia; land in the band. Clean single hold doubles the score. Five clays (pyrometer, porcelain, raku wander, ash draughts) then open kilns; the yard with daily, trial, lamps-only, glaze shelf, 15 feats, log. Save schema 1.
+- New dashboard page LAMPS: Light Trial, Meridian, Kiln (PLAY III keeps Outpost, Echo Vault, Glyph Archive). Shared tests updated: game list in `gesture-apps.test.mjs`, sector layout in `test_catalog_sectors.py`.
+- Bots (seeded): Meridian with 40 ms timing error reaches stage V or beyond on three seeds; 140 ms error loses in under two minutes; idle ends in about 9 s. Kiln with 0.02 heat error reaches the open kilns; 0.12 cracks out early; idle ends in about 31 s.
+- Unverified: feel, pace and lamp legibility on the real lamps (the host sends at most ~17 lamp changes a second, so the swinging spot moves in steps); voice names "pendulum" and "pottery" against the Vosk vocabulary (the model is not on the desktop; `tests/test_commands.py` checks it on the Pi).

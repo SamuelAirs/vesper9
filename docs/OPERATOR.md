@@ -48,6 +48,22 @@ After a result the three lamps glow in a grade colour for a moment (under 200 ms
 
 Physical cue and switch timestamps come from the ESP32 clock. Screen simulation uses the simulator clock. Keyboard input in hardware mode uses approximate screen timing, so do not compare it directly with a physical-button trial. Saved points are `max(0, 1000 − milliseconds)` to fit the engine's higher-is-better score convention. This is an experiment/game, not a calibrated human-performance test. Pausing cancels an armed trial.
 
+### Meridian
+
+A light swings like a pendulum across the three lamps. Tap as it crosses the middle lamp (the meridian); every swing that crosses is a gate. Grades by timing error: PERFECT within 45 ms, GOOD within 90, CLOSE within 140. A tap nowhere near a crossing (WIDE), a crossing let by (LAPSE) or a tap on a red swing (BURNED) costs one of three shields; a late tap just after a lapse is not charged twice. The first four swings are practice. PERFECT and GOOD build the combo; every five raise the multiplier (up to x8); fifteen swings without a penalty restore a shield. Stages: I Swing, II Red Pass (red swings must pass untouched, which scores), III Drift (the swing wanders off centre and changes pace, so the crossing comes early or late), IV Eclipse (some swings go dark near the meridian; a soft tick marks each turn), V Feint (some swings turn back before they cross), then cycles with everything on, faster, the windows narrowing to six tenths.
+
+Controls beyond play: on the title and result screens a tap starts and a hold of half a second opens the OBSERVATORY (tap: next line, hold: choose). SWING is the plain run and the only one that writes the console score. DAILY: the same swings for everyone on a date, with a goal and a streak. SPRINT (3 feats): sixty seconds, a miss costs three of them. ECLIPSE (6 feats): every swing goes dark at the meridian. LIGHT: the colour of the swinging light (amber; green, violet and white at 2, 5 and 9 feats). FEATS: fifteen, two hidden. LOG: totals.
+
+Lamps: the swing is a spot of light moving across the lamps (red on a red swing, dark near the middle on an eclipse); the middle lamp keeps a faint cyan marker. A hit flashes the middle lamp white, green or amber by grade; a penalty flashes the outer lamps red; on the last shield the outer lamps breathe a faint red. Save: schema 1.
+
+### Kiln
+
+Hold to heat the kiln; the heat rises faster the longer you hold. On release it keeps climbing for a moment (rate times the kiln's inertia) and settles. Land the settled heat inside the pot's band (cyan on the gauge). A settled kiln waits a third of a second for another touch, so a pot can be feathered with several presses; one clean press scores double. Grades by distance from the band's centre: PERFECT, GOOD, FIRED; outside the band the pot is SOFT or SLUMPED (holding to the top slumps it), and a pot left alone for five seconds goes COLD. Each costs one of three shelves; the first two pots are practice; ten pots in a row mend a shelf. Clays: I Earthenware and II Stoneware show where the heat will land (LANDS), III Porcelain loses that marker and narrows the band, IV Raku moves the band slowly, V Ash Glaze adds draughts (the kiln flickers; a stronger draught coasts further), then open kilns with everything, hotter.
+
+Controls beyond play: on the title and result screens a tap starts and a hold opens THE YARD. FIRING is the plain run and the only one that writes the console score. DAILY: the same pots for everyone on a date, with a goal and a streak. TRIAL (3 feats): twelve pots, no shelves, best total. BY LAMP (6 feats): no gauge on screen. GLAZE SHELF: eight glazes earned by firings; later pots wear them. FEATS: fifteen, two hidden. LOG: totals.
+
+Lamps: the heat is a meter across the three lamps that warms from red through amber to white. A new pot first shows its band as a cyan spot at the same place on that meter, and again whenever the kiln rests, so the game is playable on the lamps alone. A fired pot flashes white, green or amber by grade; a cracked one flashes the outer lamps red. Save: schema 1.
+
 ### Glyph Archive
 
 Remember a short inscription of unfamiliar glyphs. Once it disappears, a cursor automatically scans six choices. Press when the required glyph is highlighted, then reconstruct the next glyph. A correct inscription advances the round, earns points, and increases its length (from three glyphs up to nine). Three mistakes end the run, and an attempt is restored every fourth inscription. The cursor quickens by 3% with every inscription, down to 60% of the chosen interval, the memorising time shrinks slowly, and from the sixth inscription the cursor visits the glyphs in a shuffled order. Points per inscription scale with the cursor speed (850 ms is the reference). Position and shape both distinguish the glyphs; color is not the sole cue. Calibration offers 600/850/1200/1600 ms scan intervals. Scores are classified by scan speed.
@@ -191,6 +207,7 @@ Apps, by the voice name in the catalog (any app, from anywhere):
 | computer open rhythm / swing / lander / breakout / snake / launcher | PULSAR, PERIHELION, DESCENT, RICOCHET, HELIX, BALLISTA |
 | computer open morse / timer / notes / environment / diagnostics / settings | SIGNAL SCHOOL, CHRONOMETER, FIELD NOTES, ATMOSPHERE, NODE SCOPE, CALIBRATION |
 | computer open lamp / metronome / sound / dice / system | LANTERN, CADENCE, RESONANCE, ORACLE, TELEMETRY (Ephemeris has no voice name: it is retired from the dashboard) |
+| computer open pendulum / pottery | MERIDIAN, KILN |
 
 Timers and notes:
 

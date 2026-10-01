@@ -71,6 +71,92 @@ Example:
 {"requestId":27,"command":"timer","op":"toggle","id":"f93bc72a60a1"}
 ```
 
-Supported command names: `leds`, `pattern`, `reaction`, `cancel`, `button` (simulation only), `mic`, `timer`, `score`, `progress`, `settings`, `focus`. There is no shell command or arbitrary file-write operation.
+Supported command names: `leds`, `pattern`, `reaction`, `cancel`, `button` (simulation only), `mic`, `timer`, `score`, `progress`, `settings`, `reset_settings`, `focus`, `keepalive`. There is no shell command or arbitrary file-write operation.
 
-`/api/state`, `/api/history`, `/api/sessions`, `/api/transcript/{session}`, and `/api/export/{session}` provide local reads. The first WebSocket tab is the controller; additional tabs monitor events. Cross-origin requests and unexpected Host headers are rejected.
+Every command is type-checked: a field of the wrong type (a boolean or a numeric string where an integer is required, a non-finite number, a list where text is required) is refused, never coerced. Any failure of a command, including a node write timeout or a database error, is answered with `ok: false` and an `error` text, and the WebSocket session stays open. A command from a tab that is not the controller is answered with `ok: false`.
+
+`/api/state`, `/api/system`, `/api/history`, `/api/sessions`, `/api/transcript/{session}`, and `/api/export/{session}` provide local reads. The first WebSocket tab is the controller; additional tabs monitor events. The controller slot is released as soon as the controlling tab leaves for any reason (close, reload, crash, a connection that stops accepting data, a failed handshake), and the next tab to connect takes it; that tab's first command waits (up to 5 s) for the previous controller's cleanup (microphone off, lamps off) to finish. Cross-origin requests and unexpected Host headers are rejected. Every response carries `Cache-Control: no-cache` so the browser revalidates the user interface after the console is updated in place.
+
+### Microphone modes
+
+`{"command":"mic","mode":M}` with `M` one of:
+
+| Mode | Effect |
+| --- | --- |
+| `off` | Capture stopped. Also the state at every start, after any failure, and after the controlling tab leaves. |
+| `commands` | Voice commands (needs the speech extra and model). |
+| `transcribe` | Dictation into a stored field-notes session (needs the speech extra and model). |
+| `analyze` | Level, spectrum and pitch only. No speech model is needed. Nothing is recognised, no session or text is stored, no audio is kept beyond a 64 ms working window and none leaves the service. |
+
+All modes follow the same rules. Only the controlling tab can request one, and any other mode name or type is refused (`ok: false`). The mode in `state.mic.mode` and in the `mic` event changes only once the node has confirmed capture (`state.device.capture`); a request that is not confirmed within 2.5 s fails, and capture is switched off again. Leaving a mode (a request for `off` or another mode) stops acquisition first. Any failure ends capture: a node disconnect or reset, a lost controlling tab, an error in the worker, and, in `analyze`, a computation error or three seconds without audio (reported as an `analysis_error` event and in `state.mic.error` until the next explicit request). A request for `off` while the console already says off still mutes a node that reports capture, and the service re-sends the mute by itself if the node reports capture while the console says off.
+
+`state.mic` carries `mode`, `level`, `session`, `unavailable` (the speech-extra problem, if any; irrelevant to `analyze`), `error`, `modes` (the accepted names) and `analysis`, the constants of the analyzer: `{"rate": 16000, "bands": 28, "edgesHz": [29 band edges, 60 … 7000], "intervalMs": 100}`. Band `i` spans `edgesHz[i]` to `edgesHz[i+1]` Hz; the edges are logarithmically spaced.
+
+In `--simulate` mode there is no node microphone. In `analyze` the service generates its own clearly synthetic signal (a tone sweeping slowly between 110 and 700 Hz and back, 24 s per round trip, at about -23 dBFS RMS over faint noise); `analysis` events then carry `"simulated": true`. Audio frames sent by the browser are ignored while in `analyze`, so a front end need not start the browser microphone for it.
+
+#### `analysis` event (mode `analyze` only, about ten per second)
+
+```json
+{"type":"analysis","at":1790830482.28,"seq":0,"rmsDb":-23.0,"peakDb":-20.0,
+ "bands":[-92.6,-100.2,…,-93.3],"pitch":{"hz":690.4,"confidence":0.97},"simulated":true}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `at` | Unix time the event was produced. |
+| `seq` | Counts frames since capture started (starts at 0). Gaps mean frames were skipped because analysis was running behind. |
+| `rmsDb`, `peakDb` | RMS and peak sample level of the audio since the previous frame, in dBFS (0 = full-scale 16-bit; a full-scale sine has RMS -3.0). Floor -120. `peakDb >= rmsDb`. |
+| `bands` | 28 numbers, one per band (lowest first), in dB: mean power per spectrum bin inside the band of a 64 ms Hann-windowed frame (1024 samples, 15.6 Hz per bin), where a full-scale sine centred on a bin reads 0 dB. Range -120 … 0. A flat noise floor therefore reads flat. |
+| `pitch` | `{"hz": fundamental in Hz (60 … 800), "confidence": 0 … 1}` from normalised autocorrelation, or `null` when there is no clear pitch (confidence below 0.6, or RMS below -60 dBFS). Accurate to about 1.5 %. |
+| `simulated` | `true` when the signal is the simulator's synthetic one. |
+
+The ordinary `level` event (`{"type":"level","value":rms 0…1,"droppedChunks":n}`) continues in every capture mode. `{"type":"analysis_error","error":text}` is broadcast when analysis fails; the mode then returns to `off`.
+
+#### `keepalive`
+
+`{"command":"keepalive"}` from the controlling tab is a no-op that answers `ok: true`. It is optional. Once a controlling tab has sent one, the service treats 20 s without any message from that tab, while a microphone mode is active, as a hung browser (a frozen renderer still answers network-level pings) and switches the microphone off, broadcasting `{"type":"error","error":…}`. A front end that wants this protection sends `keepalive` (without `requestId`) every 5 s. Tabs that never send it are not affected.
+
+### System health: `GET /api/system`
+
+Read-only JSON for instruments such as TELEMETRY. It is cheap enough to poll about once a second: host files are read off the event loop and `vcgencmd get_throttled` (if installed, with a 1 s timeout) at most every 5 s. Every field is present in every reply; a value the host cannot supply is `null`, and the reply is strict JSON (never `NaN`). The request must satisfy the same Host/Origin rules as every other route.
+
+```json
+{"schema":1,"at":1790830472.053,"simulated":true,
+ "host":{"model":"Raspberry Pi 5 Model B Rev 1.1","cpuTempC":82.6,"loadAvg":[14.28,15.47,14.02],"cpuCount":4,
+   "cpuPercent":81.0,"cpuPerCore":[85.3,57.4,94.2,87.0],"cpuWindowS":1.03,
+   "memory":{"totalBytes":8337108992,"availableBytes":6420631552},
+   "disk":{"totalBytes":4168556544,"freeBytes":4164759552},"uptimeS":3961.6,
+   "throttled":{"raw":"0xe0000","underVoltageNow":false,"freqCappedNow":false,"throttledNow":false,"softTempLimitNow":false,
+     "underVoltageOccurred":false,"freqCappedOccurred":true,"throttledOccurred":true,"softTempLimitOccurred":true}},
+ "service":{"version":"0.2.0","startedAt":1790830471.0,"uptimeS":1.1,"rssBytes":42000384,"pid":86938,"python":"3.13.5",
+   "tasks":{"device":true,"timers":true},"clients":0,"micMode":"off"},
+ "node":{"connected":true,"simulated":true,"port":"simulated","link":"simulated","firmware":"simulated","statusAgeS":1.1,
+   "capture":false,"generation":1,"crcErrors":0,"missingSamples":0,"audioBytes":0,"nodeRxCrc":null,"audioDrops":null,
+   "sensor":{"simulated":true,"ok":1,"fail":0,"err":null}}}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `schema` | Payload version, currently `1`. `at` is the Unix time of the reply. |
+| `simulated` | `true` when the service runs with `--simulate`. Host and service values are then still real; only the node block is simulated. |
+| `host.model` | Board model from the device tree. |
+| `host.cpuTempC` | SoC temperature in degrees C (`/sys/class/thermal`, else `vcgencmd`). |
+| `host.loadAvg` | 1, 5 and 15 minute load averages. |
+| `host.cpuCount` | Logical CPUs. |
+| `host.cpuPercent`, `cpuPerCore` | Utilisation (0 … 100) overall and per core, since the previous call. `cpuWindowS` is the length of that window in seconds. The first call after the service starts covers the time since it started. Calls less than 0.5 s apart return the same window. |
+| `host.memory` | `totalBytes` and `availableBytes` (`MemAvailable`). |
+| `host.disk` | `totalBytes` and `freeBytes` of the filesystem that holds the data directory. |
+| `host.uptimeS` | Host uptime in seconds. |
+| `host.throttled` | Raspberry Pi power and thermal flags from `vcgencmd get_throttled`: the hexadecimal word in `raw` and the booleans `underVoltage`, `freqCapped`, `throttled`, `softTempLimit`, each as `...Now` and `...Occurred` (since boot). `null` without `vcgencmd`. |
+| `service.version`, `startedAt`, `uptimeS`, `rssBytes`, `pid`, `python` | The service process: version, start time (Unix), seconds running, resident memory in bytes, process id and Python version. |
+| `service.tasks` | Whether the long-lived tasks (`device`, `timers`) are alive. They are restarted automatically if they fail; `false` is therefore brief or a bug. |
+| `service.clients`, `micMode` | Connected browser tabs and the current microphone mode. |
+| `node.connected`, `simulated` | Link state, and whether the node is the simulator. |
+| `node.port` | Serial device in use; `"simulated"` in the simulator. |
+| `node.link` | Link type from the node's last status: `uart`, `usb` or `none` (`"simulated"` in the simulator). |
+| `node.firmware` | Firmware string `fw` from the node's last status (`"simulated"` in the simulator). `null` until the node has sent one. |
+| `node.statusAgeS` | Seconds since that status arrived. |
+| `node.capture`, `generation` | Whether the node reports microphone capture, and the node boot generation. |
+| `node.crcErrors`, `missingSamples`, `audioBytes` | The service's own count of bad frames, missing audio samples and audio bytes received. |
+| `node.nodeRxCrc`, `audioDrops` | The node's own `rx_crc` and `audio_drops` counters. |
+| `node.sensor` | The node's sensor diagnostics (`addr`, `ok`, `fail`, last `err`); `{"simulated": true, …}` in the simulator. |

@@ -1,5 +1,6 @@
 """An explicit simulator and a reconnecting USB-serial transport."""
 import asyncio
+import contextlib
 import json
 import logging
 import math
@@ -10,6 +11,9 @@ import time
 from .protocol import Decoder, Kind, encode
 
 log = logging.getLogger(__name__)
+
+WRITE_FAILURES_LIMIT = 3   # consecutive failed writes before the link is torn down and reopened
+REPEAT_LOG_EVERY = 30      # a link that stays down is logged on the first failure, then every 30th
 
 
 class SimulatedDevice:
@@ -28,6 +32,9 @@ class SimulatedDevice:
         self.name = "SIMULATED NODE"
         self.pressed = False
         self.generation = 1
+        self.status = {"fw": "simulated", "link": "simulated", "mic": False, "button": False,
+                       "sensor": {"simulated": True, "ok": 0, "fail": 0, "err": None}}
+        self.status_at = time.monotonic()
 
     async def run(self):
         await self.emit({"type": "device", "connected": True, "simulated": True, "name": self.name})
@@ -35,6 +42,8 @@ class SimulatedDevice:
             t = time.monotonic()
             await self.emit({"type": "sensor", "temperature": round(22 + math.sin(t / 95) * .7, 2),
                              "humidity": round(43 + math.sin(t / 120) * 2, 2), "simulated": True})
+            self.status["sensor"]["ok"] += 1
+            self.status_at = time.monotonic()
             await asyncio.sleep(5)
 
     async def command(self, kind, payload=b""):
@@ -44,6 +53,7 @@ class SimulatedDevice:
             await self.emit({"type": "leds", "values": self.leds})
         elif kind == Kind.MIC:
             self.mic = bool(payload[0])
+            self.status["mic"] = self.mic
         elif kind == Kind.ARM:
             await self.command(Kind.CANCEL)
             trial, delay, index, r, g, b = struct.unpack("<IIBBBB", payload)
@@ -83,6 +93,10 @@ class SimulatedDevice:
             self.pressed = pressed
             await self.emit({"type": "button", "pressed": pressed, "at_us": time.monotonic_ns() // 1000, "source": "simulator", "generation": self.generation})
 
+    def status_age(self):
+        """Seconds since the last status record (None before the first)."""
+        return None if self.status_at is None else time.monotonic() - self.status_at
+
     async def close(self):
         await self.command(Kind.CANCEL)
 
@@ -112,10 +126,29 @@ class SerialDevice:
         self.audio_bytes = 0
         self.pressed = False
         self.generation = 0
+        self.status = None          # last HELLO/STATUS payload from the node
+        self.status_at = None       # monotonic time it arrived
+        self.write_failures = 0     # consecutive failed serial writes
+        self.attempt_failures = 0   # consecutive connection attempts that never heard the node
 
     @property
     def crc_errors(self):
         return self.decoder.errors
+
+    async def write(self, frame):
+        """Write one frame. Repeated failures close the port, so the read loop reconnects cleanly
+        instead of leaving a link that can read but not write."""
+        link = self.serial
+        try:
+            await asyncio.to_thread(link.write, frame)
+        except Exception as exc:
+            self.write_failures += 1
+            if self.write_failures >= WRITE_FAILURES_LIMIT and link is self.serial:
+                log.warning("Node link: %d writes failed in a row (%s); reconnecting", self.write_failures, exc)
+                with contextlib.suppress(Exception):
+                    link.close()
+            raise
+        self.write_failures = 0
 
     async def raw_send(self, kind, payload=b""):
         async with self.write_lock:
@@ -123,7 +156,7 @@ class SerialDevice:
                 raise ConnectionError("Node is disconnected")
             sequence = self.sequence
             self.sequence = (sequence + 1) & 65535
-            await asyncio.to_thread(self.serial.write, encode(kind, payload, sequence))
+            await self.write(encode(kind, payload, sequence))
             return sequence
 
     async def command(self, kind, payload=b""):
@@ -136,7 +169,7 @@ class SerialDevice:
             future = asyncio.get_running_loop().create_future()
             self.pending[sequence] = future
             try:
-                await asyncio.to_thread(self.serial.write, encode(kind, payload, sequence))
+                await self.write(encode(kind, payload, sequence))
             except Exception:
                 self.pending.pop(sequence, None)
                 raise
@@ -154,7 +187,10 @@ class SerialDevice:
             try:
                 # Opening either port may reset the board. Wait for a valid
                 # protocol packet, then explicitly renegotiate a muted session.
-                self.port = next((candidate for candidate in self.ports if os.path.exists(candidate)), self.ports[0])
+                # Each attempt that never hears the node moves on to the next
+                # candidate port, so a present but silent first port cannot block a working one.
+                present = [candidate for candidate in self.ports if os.path.exists(candidate)] or self.ports
+                self.port = present[self.attempt_failures % len(present)]
                 self.name = self.port
                 link = serial.Serial()
                 link.port, link.baudrate = self.port, self.baud
@@ -166,6 +202,7 @@ class SerialDevice:
                 self.decoder = Decoder()
                 self.last_seen = time.monotonic()
                 self.audio_expected = None
+                self.write_failures = 0
                 heartbeat = asyncio.create_task(self.heartbeat())
                 try:
                     while True:
@@ -178,6 +215,7 @@ class SerialDevice:
                         for packet in self.decoder.feed(data):
                             self.last_seen = time.monotonic()
                             if not self.connected:
+                                self.attempt_failures = 0
                                 self.connected = True
                                 self.generation += 1
                                 await self.raw_send(Kind.MIC, b"\x00")
@@ -185,6 +223,9 @@ class SerialDevice:
                                 await self.raw_send(Kind.LEDS, bytes(9))
                                 await self.emit({"type": "device", "connected": True, "simulated": False, "name": self.port})
                             await self.packet(packet)
+                        if heartbeat.done():
+                            heartbeat.result()  # re-raises the heartbeat's own error
+                            raise ConnectionError("Heartbeat stopped")
                         if time.monotonic() - self.last_seen > 4:
                             raise ConnectionError("Node heartbeat timed out")
                 finally:
@@ -193,8 +234,14 @@ class SerialDevice:
             except asyncio.CancelledError:
                 break
             except Exception as exc:
-                log.warning("Node link: %s", exc)
+                # An absent node fails every two seconds for as long as the cable is out:
+                # say so once, then now and then, not 43,000 times a day.
+                if self.connected or self.attempt_failures % REPEAT_LOG_EVERY == 0:
+                    log.warning("Node link: %s", exc)
             finally:
+                was_connected = self.connected
+                if not was_connected:
+                    self.attempt_failures += 1
                 self.connected = False
                 self.mic = False
                 for future in self.pending.values():
@@ -202,14 +249,26 @@ class SerialDevice:
                         future.set_exception(ConnectionError("Node disconnected"))
                 self.pending.clear()
                 if self.serial:
-                    self.serial.close()
+                    with contextlib.suppress(Exception):
+                        self.serial.close()
                 self.serial = None
-                await self.emit({"type": "device", "connected": False, "simulated": False, "name": self.port})
+                # Announce a loss only when there was a link to lose; the browser treats
+                # every such event as a fresh disconnect.
+                if was_connected:
+                    await self.emit({"type": "device", "connected": False, "simulated": False, "name": self.port})
             await asyncio.sleep(2)
 
     async def heartbeat(self):
+        failures = 0
         while True:
-            await self.raw_send(Kind.PING)
+            try:
+                await self.raw_send(Kind.PING)
+                failures = 0
+            except Exception as exc:
+                failures += 1
+                log.warning("Heartbeat write failed (%d): %s", failures, exc)
+                if failures >= WRITE_FAILURES_LIMIT:
+                    raise  # run() sees the finished task and reconnects
             await asyncio.sleep(1)
 
     async def packet(self, packet):
@@ -248,6 +307,9 @@ class SerialDevice:
                     self.generation += 1
                     await self.emit({"type": "node_reset", "generation": self.generation})
                 state = json.loads(p)
+                if not isinstance(state, dict):
+                    raise ValueError("status is not an object")
+                self.status, self.status_at = state, time.monotonic()
                 self.mic = bool(state.get("mic", False))
                 self.pressed = bool(state.get("button", False))
                 if "leds" in state:
@@ -256,6 +318,14 @@ class SerialDevice:
                                  "missingSamples": self.audio_missing, "audioBytes": self.audio_bytes, "generation": self.generation})
         except (ValueError, struct.error, UnicodeDecodeError) as exc:
             log.warning("Invalid node payload: %s", exc)
+        except Exception:
+            # A failure while handling one packet (storage, a listener) is that packet's failure,
+            # not a reason to drop the link.
+            log.exception("Node packet handling failed")
+
+    def status_age(self):
+        """Seconds since the last HELLO/STATUS from the node (None before the first)."""
+        return None if self.status_at is None else time.monotonic() - self.status_at
 
     async def close(self):
         if self.serial and self.connected:

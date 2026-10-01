@@ -55,7 +55,8 @@ def validate_setting(key, value):
         valid = value in ('C', 'F')
     elif key in ('volume', 'morseWpm', 'holdMs', 'scanMs'):
         low, high = {'volume': (0, 1), 'morseWpm': (5, 25), 'holdMs': (450, 1200), 'scanMs': (600, 1600)}[key]
-        valid = type(value) in (int, float) and math.isfinite(value) and low <= value <= high
+        # Range first: math.isfinite() overflows on a huge integer, and NaN already fails the range test.
+        valid = type(value) in (int, float) and low <= value <= high and math.isfinite(value)
     else:
         valid = False
     if not valid:

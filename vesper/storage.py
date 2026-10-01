@@ -21,17 +21,24 @@ class Store:
         CREATE TABLE IF NOT EXISTS lines(id INTEGER PRIMARY KEY, session TEXT, at REAL, text TEXT);
         CREATE TABLE IF NOT EXISTS sensors(at REAL PRIMARY KEY, temperature REAL, humidity REAL);
         """)
+        # A power cut or crash during dictation leaves its session open: close it at its last
+        # line (or its start), so notes never show as still recording.
+        self.db.execute("""UPDATE sessions SET ended=COALESCE((SELECT MAX(at) FROM lines WHERE session=sessions.id), started)
+                         WHERE ended IS NULL""")
+        self.db.commit()
 
     def get(self, key, default=None):
         row = self.db.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
         return json.loads(row[0]) if row else default
 
     def put(self, key, value):
-        self.db.execute("INSERT OR REPLACE INTO settings VALUES (?,?)", (key, json.dumps(value)))
+        # allow_nan=False: NaN and Infinity are not JSON, and would break every browser that reads the state.
+        self.db.execute("INSERT OR REPLACE INTO settings VALUES (?,?)", (key, json.dumps(value, allow_nan=False)))
         self.db.commit()
 
     def score(self, app, score):
-        if not isinstance(score, (int, float)) or not math.isfinite(score) or not 0 <= score <= 1e9:
+        # Plain numbers only (not True), range-checked before isfinite, which overflows on huge integers.
+        if type(score) not in (int, float) or not 0 <= score <= 1e9 or not math.isfinite(score):
             raise ValueError("invalid score")
         self.db.execute("""INSERT INTO scores VALUES (?,?,?) ON CONFLICT(app) DO UPDATE SET
             score=MAX(score,excluded.score), at=CASE WHEN excluded.score>score THEN excluded.at ELSE at END""",

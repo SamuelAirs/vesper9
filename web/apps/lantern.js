@@ -53,6 +53,8 @@ export const SUNRISE_MINUTES = [10, 20, 30];
 export const SLEEP_FADE = 60; // seconds of fade at the end of a sleep timer
 export const EMBER_SECONDS = 30 * 60; // an ember takes half an hour to burn down
 const USES_COLOUR = ["steady", "breathe", "tide"];
+// Scenes whose lamps change from frame to frame; the others are a fixed colour and need no loop.
+const ANIMATED = ["breathe", "aurora", "candle", "tide", "ember", "sunrise"];
 
 const byte = (v) => Math.round(clamp(Number.isFinite(v) ? v : 0, 0, 255));
 const smooth = (x) => x * x * (3 - 2 * x);
@@ -179,21 +181,30 @@ export class Lantern {
     this.lastHtml = "";
     this.lastFrameAt = -1e9;
     this.dead = false;
+    this.paused = false; // the system menu is open: it owns the lamps
+    this.chosen = null; // id of the action that was run last (see focusOn)
     this.clock = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
     this.render();
     this.buildActions();
-    this.startLoop();
   }
 
+  animating() {
+    return this.lit && !this.paused && ANIMATED.includes(this.s.scene);
+  }
+
+  // One frame loop, alive only while the lamps are lit with a scene that moves: a steady
+  // colour or a dark lamp costs nothing between ticks. light() and resume() start it; it ends
+  // by itself, and on dispose() or when ctx.alive() turns false.
   startLoop() {
-    if (typeof requestAnimationFrame !== "function") return;
+    if (this.raf || this.dead || !this.animating() || typeof requestAnimationFrame !== "function") return;
     const loop = () => {
-      if (this.dead || !this.ctx.alive()) return;
+      this.raf = 0;
+      if (this.dead || !this.ctx.alive() || !this.animating()) return;
       try {
         const now = this.clock();
         if (now - this.lastFrameAt >= 60) this.refresh(now);
       } catch {}
-      this.raf = requestAnimationFrame(loop);
+      if (this.animating()) this.raf = requestAnimationFrame(loop);
     };
     this.raf = requestAnimationFrame(loop);
   }
@@ -221,7 +232,7 @@ export class Lantern {
 
   show(values) {
     this.last = values;
-    this.ctx.leds(values);
+    if (!this.paused) this.ctx.leds(values);
     this.paint();
   }
 
@@ -296,6 +307,7 @@ export class Lantern {
     this.persist();
     this.refresh(now);
     this.render();
+    this.startLoop();
   }
 
   persist() {
@@ -310,16 +322,17 @@ export class Lantern {
     this.render();
   }
 
-  choose(change, restartScene = true) {
+  // `want` is the action the highlight should land on in the list that follows (see focusOn).
+  choose(change, restartScene = true, want = "scene") {
     Object.assign(this.s, change);
     this.menu = "main";
     this.light(restartScene);
-    this.buildActions();
+    this.buildActions(want);
   }
 
-  go(menu) {
+  go(menu, want = "first") {
     this.menu = menu;
-    this.buildActions();
+    this.buildActions(want);
   }
 
   setSleep(minutes) {
@@ -328,13 +341,26 @@ export class Lantern {
     this.asleep = false;
     this.menu = "main";
     this.render();
-    this.buildActions();
+    this.buildActions("sleep");
   }
 
-  buildActions() {
+  // The host keeps the highlight on the action with the same id, else on the same row number,
+  // which after a menu change is an arbitrary row (once it was RETURN TO DASHBOARD). So the
+  // action that should be highlighted next takes over the id of the one just chosen. `want` is
+  // an id or "first".
+  focusOn(items, want) {
+    const target = want === "first" ? items[0] : items.find((i) => i.id === want);
+    if (target && this.chosen && !items.some((i) => i.id === this.chosen)) target.id = this.chosen;
+    for (const item of items) {
+      const run = item.run;
+      item.run = () => { this.chosen = item.id; return run(); };
+    }
+  }
+
+  buildActions(want = null) {
     const mark = (on) => (on ? "● " : "");
-    const back = { id: "back", label: "BACK", run: () => this.go("main") };
-    const backToScenes = { id: "back-scene", label: "BACK", run: () => this.go("scene") };
+    const back = (from) => ({ id: "back", label: "BACK", run: () => this.go("main", from) });
+    const backToScenes = (from) => ({ id: "back-scene", label: "BACK", run: () => this.go("scene", from) });
     const scene = (id, name = SCENES.find((x) => x.id === id).name) =>
       ({ id: "scene-" + id, label: mark(this.s.scene === id) + name, run: () => this.choose({ scene: id }) });
     let items;
@@ -345,14 +371,14 @@ export class Lantern {
           { id: "sets", label: mark(this.s.scene === "set") + "THREE-LAMP SETS →", run: () => this.go("sets") },
           scene("breathe"), scene("aurora"), scene("candle"), scene("tide"),
           { id: "night", label: "EMBER AND SUNRISE →", run: () => this.go("night") },
-          back,
+          back("scene"),
         ];
         break;
       case "sets":
         items = [
           ...SETS.map((set, i) => ({ id: "set-" + set.id, label: mark(this.s.scene === "set" && this.s.set === i) + set.name,
             run: () => this.choose({ scene: "set", set: i }) })),
-          backToScenes,
+          backToScenes("sets"),
         ];
         break;
       case "night":
@@ -360,22 +386,22 @@ export class Lantern {
           scene("ember", "EMBER / SLOW BURN-DOWN"),
           ...SUNRISE_MINUTES.map((m) => ({ id: "sunrise-" + m, label: mark(this.s.scene === "sunrise" && this.s.sunrise === m) + "SUNRISE / " + m + " MIN",
             run: () => this.choose({ scene: "sunrise", sunrise: m }) })),
-          backToScenes,
+          backToScenes("night"),
         ];
         break;
       case "colour":
         items = [
           ...COLOURS.map((c, i) => ({ id: "colour-" + c.id, label: mark(this.s.colour === i && USES_COLOUR.includes(this.s.scene)) + c.name,
             // Steady, breathe and tide take a colour; any other scene becomes steady.
-            run: () => this.choose({ colour: i, scene: USES_COLOUR.includes(this.s.scene) ? this.s.scene : "steady" }, false) })),
-          back,
+            run: () => this.choose({ colour: i, scene: USES_COLOUR.includes(this.s.scene) ? this.s.scene : "steady" }, false, "colour") })),
+          back("colour"),
         ];
         break;
       case "bright":
         items = [
           ...LEVELS.map((l, i) => ({ id: "level-" + i, label: mark(this.s.level === i) + l.name,
-            run: () => this.choose({ level: i }, false) })),
-          back,
+            run: () => this.choose({ level: i }, false, "bright") })),
+          back("bright"),
         ];
         break;
       case "sleep":
@@ -383,22 +409,23 @@ export class Lantern {
           { id: "sleep-off", label: mark(!this.sleepMin) + "NO TIMER", run: () => this.setSleep(0) },
           ...SLEEP_MINUTES.map((m) => ({ id: "sleep-" + m, label: mark(this.sleepMin === m) + "OFF AFTER " + m + " MIN",
             run: () => this.setSleep(m) })),
-          back,
+          back("sleep"),
         ];
         break;
       default:
         items = [];
         if (!this.lit)
-          items.push({ id: "resume", label: (this.hasSaved || this.asleep ? "RESUME / " : "LIGHT / ") + this.summary() + " / " + LEVELS[this.s.level].name, run: () => { this.light(); this.buildActions(); } });
+          items.push({ id: "resume", label: (this.hasSaved || this.asleep ? "RESUME / " : "LIGHT / ") + this.summary() + " / " + LEVELS[this.s.level].name, run: () => { this.light(); this.buildActions("scene"); } });
         items.push(
           { id: "scene", label: "SCENE / " + (SCENES.find((x) => x.id === this.s.scene)?.name || ""), run: () => this.go("scene") },
           { id: "colour", label: "COLOUR →", run: () => this.go("colour") },
           { id: "bright", label: "BRIGHTNESS / " + LEVELS[this.s.level].name, run: () => this.go("bright") },
           { id: "sleep", label: "SLEEP TIMER / " + (this.sleepMin ? this.sleepMin + " MIN" : "OFF"), run: () => this.go("sleep") },
         );
-        if (this.lit) items.push({ id: "off", label: "LAMPS OFF", run: () => { this.off(); this.buildActions(); } });
+        if (this.lit) items.push({ id: "off", label: "LAMPS OFF", run: () => { this.off(); this.buildActions("home"); } });
         items.push({ id: "home", label: "RETURN TO DASHBOARD", run: this.ctx.home });
     }
+    this.focusOn(items, want);
     this.ctx.actions(items);
     this.ctx.hint("Tap to advance. Hold and release to choose. The lamps go dark when you leave.");
   }
@@ -408,6 +435,13 @@ export class Lantern {
     this.render();
   }
   cancel() {}
+  // While the system menu is open it owns the lamps; the timer and the scene clock go on, and
+  // the lamps return, in step, when it closes.
+  pause() { this.paused = true; }
+  resume() {
+    this.paused = false;
+    if (this.lit) { this.ctx.leds(this.last); this.refresh(); this.startLoop(); }
+  }
   dispose() {
     this.dead = true;
     try {

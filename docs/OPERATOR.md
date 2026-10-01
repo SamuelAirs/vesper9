@@ -66,11 +66,23 @@ S and H remain valid strings of short presses; they do not open the menu in Sign
 
 ### Chronometer
 
+(Cadence's TIMER tool now does the same job with far fewer presses and is the one to use; Chronometer stays installed and working and can be removed from the dashboard.)
+
 Choose a preset, then Create Timer. Presets are 30 seconds, 1 minute, 5 minutes, 15 minutes, 25 minutes, and 1 hour. Up to eight timers can exist at once. Pause, resume, or remove each using its labelled menu action. Custom Timer opens a six-digit HH:MM:SS wizard. Choose each digit, then a label such as TEA or FOCUS. Start it, or save one of six reusable custom presets. Back and Cancel remain available; supported duration is 5 seconds–24 hours.
 
 The screen leads with a large readout and progress bar for the nearest running timer; the other timers (up to three) are listed below it. While Chronometer is open the lamps show that timer as a bar that drains from the right across the three lamps, green turning amber; in the last ten seconds they show the same amber three, two, one countdown as the rest of the console. A finished or paused nearest timer leaves the lamps dark. The lamps are only taken once a timer is running, and they go dark again when you leave.
 
 Timers continue while another app is open. Completion shows a message and optionally plays a chime. On the dashboard, Chronometer, or Atmosphere, the physical lights also signal completion; games keep control of their lights. The footer shows the nearest active timer. Finished timers remain until removed and still count toward the eight-timer limit. Deadlines follow the Pi wall clock across restarts: moving the clock forward can finish one sooner, while moving it backward extends the displayed remaining time. No alarm can sound while powered off.
+
+### Cadence
+
+Four tools: METRONOME (with tap tempo), STOPWATCH (a tap takes a lap), INTERVALS (work and rest rounds) and TIMER. Cadence opens on the tool you used last.
+
+**Timer** is the console's everyday timer and replaces Chronometer's wizard. It is a front end for the same service timers (they keep running after you leave Cadence, survive a restart and finish with the usual message and chime). With no timer running the screen offers, in this order: START (the length used last, 5 minutes the first time), DIAL, START 5, 10, 15 and 25 MIN, MORE LENGTHS (30, 45, 20 and 60 minutes, 3 and 1 minute, 30 seconds) and BACK. One hold starts any ready-made length. DIAL is for any other length up to 99 minutes: on the tens screen each tap adds ten minutes and a hold moves on; on the minutes screen each tap adds one minute and a hold starts the timer (twelve minutes is one tap, a hold, two taps and a hold). Digits wrap after nine; leaving the minutes screen at 00 minutes (the single action reads BACK) returns to the start list. Labels are never asked for: the timer is named after its length. Saying “computer timer twelve minutes” starts one at any time, from any screen.
+
+With a timer running the screen shows it large (the one started last, or the nearest to finishing; NEXT TIMER steps through the others, up to eight) with a progress bar and the next two beneath it. Actions: PAUSE or RESUME, ADD 1 MIN (a minute on what is left; the service has no add operation, so a replacement timer for the time left plus a minute is started and the old one removed, keeping its label), CANCEL TIMER, NEW TIMER, NEXT TIMER (when more than one) and BACK. The highlight stays on the row you chose, so ADD 1 MIN twice is two holds. A finished timer reads DONE with DISMISS and RESTART. The lamps while the Timer tool is open are a bar draining from the right across the three lamps (green turning amber) for the nearest running timer, the same amber three, two, one in its last ten seconds that the rest of the console shows, three amber blinks when one finishes (the service plays its own blink only on the dashboard, Chronometer and Atmosphere), then one dim amber lamp until it is dismissed. While the dial is open the lamps are a cyan bar of the minutes so far.
+
+Cadence listens to raw button edges for tap tempo, laps and the dial. If the host takes quick taps followed by a hold as the system menu (or four quick taps in a game), the taps that arrived first as ordinary input (up to three, no more than a second apart, the last ending where the held press began) are taken back when Cadence is told to cancel: laps removed, the tempo restored, the dial minutes subtracted. A gesture never starts, pauses, adds to or removes a timer, because those are only done by choosing an action.
 
 ### Field Notes
 

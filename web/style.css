@@ -1278,3 +1278,9 @@ main {
 .atmo-derived { margin-bottom: 6px; padding: 6px 16px; }
 .atmo-history { padding: 6px 16px; }
 .atmo-status { margin: 0 0 2px; line-height: 1.3; }
+
+/* Cadence's timer tool: the running timer large, the dial. */
+.big-readout.cad-timer-big { font-size: 84px; line-height: 1.02; letter-spacing: 0; }
+.cad-timer-head { display: flex; justify-content: space-between; gap: 12px; }
+.cad-voice { margin: 6px 0 0; font-size: 12px; letter-spacing: 1px; color: var(--muted); }
+.cad-dial-on { color: var(--amber); border-bottom: 4px solid var(--amber); }

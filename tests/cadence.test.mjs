@@ -378,7 +378,7 @@ test("every action on every screen runs without throwing and lamps are always ni
       visit(depth + 1);
     }
   };
-  for (const tool of ["METRONOME", "STOPWATCH", "INTERVALS"]) {
+  for (const tool of ["METRONOME", "STOPWATCH", "INTERVALS", "TIMER"]) {
     // return to the tool list between tools
     if (!labels(ctx).includes(tool)) { for (const k of ["STOP", "FINISHED / CLEAR", "BACK"]) { const x = ctx.currentActions.find((a) => a.label === k); if (x) x.run(); } }
     choose(ctx, tool);
@@ -471,7 +471,7 @@ test("every tool opens with its main action highlighted, and leaving returns to 
   const { ctx, advance } = open();
   const hand = pad(ctx, 4); // opened from a dashboard card far down the list
   assert.equal(hand.label, "METRONOME");
-  assert.deepEqual(labels(ctx), ["METRONOME", "STOPWATCH", "INTERVALS", "RETURN TO DASHBOARD"]);
+  assert.deepEqual(labels(ctx), ["METRONOME", "STOPWATCH", "INTERVALS", "TIMER", "RETURN TO DASHBOARD"]);
   // the stopwatch is second in the list: it used to open on BACK
   hand.tap(1).hold();
   assert.equal(hand.label, "START");
@@ -482,7 +482,7 @@ test("every tool opens with its main action highlighted, and leaving returns to 
   assert.equal(hand.label, "RESUME");
   hand.tap(2).hold(); // BACK
   assert.equal(hand.label, "STOPWATCH", "back on the tool just used, in its usual place");
-  assert.deepEqual(labels(ctx), ["METRONOME", "STOPWATCH", "INTERVALS", "RETURN TO DASHBOARD"]);
+  assert.deepEqual(labels(ctx), ["METRONOME", "STOPWATCH", "INTERVALS", "TIMER", "RETURN TO DASHBOARD"]);
   // intervals: third in the list; it used to open on CUSTOM SETUP
   hand.tap(1).hold();
   assert.equal(hand.label, "START");
@@ -496,7 +496,7 @@ test("every tool opens with its main action highlighted, and leaving returns to 
   hand.tap(3).hold(); // BACK
   assert.equal(hand.label, "INTERVALS");
   // tap tempo ends on the metronome's main action
-  hand.tap(2).hold(); // METRONOME: INTERVALS, RETURN, METRONOME
+  hand.tap(3).hold(); // METRONOME: TIMER, RETURN, METRONOME
   assert.equal(hand.label, "START");
   hand.tap(1).hold(); // TAP TEMPO
   assert.equal(hand.label, "DONE");

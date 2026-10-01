@@ -1,4 +1,4 @@
-# depth-helix-undertow (cloud thread, branch claude/helix-undertow-ty5z3p)
+# depth-helix-undertow (Undertow deepened; Helix removed) (cloud thread, branch claude/helix-undertow-ty5z3p)
 
 Nothing here was verified on the device. Everything below comes from unit tests, seeded bots and
 simulator screenshots at 1024 x 600.
@@ -22,20 +22,15 @@ simulator screenshots at 1024 x 600.
 - Lamps unchanged in meaning (cyan depth spot, amber next opening, red at the edges) plus blue on the side a
   current pushes toward, white spot while shielded, a zone-coloured chase on entering a zone.
 
-## Helix (`web/apps/helix.js`)
-- TWIN turning (default): tap = right; a press longer than the console's tap (gesture pace tapMs + 30 ms,
-  180 ms on standard) = left, queued the moment it is recognised. The step that is due waits for an
-  undecided press, so no turn is late. SPIRAL keeps the old clockwise-only rule (x1.5 points).
-- Feel: start pace 0.24 s per step (was 0.30), fastest 0.10 (was 0.11); the head glides between cells;
-  its pointer shows a queued turn at once; a ring fills on the head while a press is being held.
-- Combo: a fragment taken within 4 steps of the shortest route when it appeared raises x1..x5.
-- Milestone 4 adds a pair of portals, moved at every later milestone.
-- Hangar (hold on title or result): PLAY, TURNS, FIELD (OPEN; TORUS wraps, 3 feats; LATTICE pillars x1.25,
-  6 feats), DAILY run (TWIN/OPEN, seeded by date, streak), FEATS (14, 2 hidden), LOG (best per mode/field).
-  Only non-daily OPEN runs set the console best.
-- Lamps: right = fragment to the right (tap), left = to the left (hold), middle = ahead; directly behind lights
-  both sides in TWIN.
-- Save schema 2 migrates the schema-1 save.
+## Helix: removed
+Sam's playtest (2026-10-01): "Helix is not good, let's ditch it." The two-way rebuild that was on this
+branch (commit 2da736b and part of b68e604) is dropped, and Helix is taken out of the console:
+`web/apps/helix.js`, `tests/helix.test.mjs`, its catalog entry (with the voice alias "snake") and its place
+in the PLAY II sector, its import in `web/apps/registry.js`, and the game lists in
+`tests/gesture-apps.test.mjs` and `tests/test_catalog_sectors.py`. Sam's Helix scores and save stay in the
+database untouched. To bring the first-release Helix back: `git checkout c741cca -- web/apps/helix.js
+tests/helix.test.mjs`, then restore the catalog entry, sector slot, registry import and the two test lists
+from that same commit and run `python3 scripts/build-catalog.py`.
 
 ## Shared files touched (minimal)
 - `vesper/catalog.json` + regenerated `web/apps/catalog.js`: both games' description/controls; Undertow's

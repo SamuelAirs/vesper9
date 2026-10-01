@@ -31,8 +31,7 @@
         "drift",
         "descent",
         "ballista",
-        "ricochet",
-        "helix"
+        "ricochet"
       ]
     },
     {
@@ -284,32 +283,6 @@
         "chamber": "Chamber reached",
         "cells": "Cells broken",
         "chain": "Best chain (x)"
-      }
-    },
-    {
-      "id": "helix",
-      "name": "HELIX",
-      "subtitle": "Grow without crossing yourself.",
-      "description": "A signal thread that turns both ways: tap for right, hold a moment for left. Gather fragments quickly for a combo, do not touch your own trail, and meet portals and obstacles at each milestone. Hold on the title screen for the hangar: the old one-way SPIRAL mode, new fields, a daily run and feats.",
-      "controls": "TAP: RIGHT · HOLD: LEFT",
-      "category": "PLAY / TRAIL",
-      "glyph": 2,
-      "factory": "Helix",
-      "voice": [
-        "snake"
-      ],
-      "capabilities": [
-        "button",
-        "lights",
-        "audio",
-        "progress"
-      ],
-      "icon": "<path d=\"M6 40V8h30v26H16V18h12v6\"/><circle cx=\"22\" cy=\"24\" r=\"2\" fill=\"currentColor\"/><path d=\"M40 40l3-3M40 37l3 3\"/>",
-      "record": {
-        "score": "Score",
-        "fragments": "Fragments",
-        "longest": "Longest thread",
-        "milestone": "Milestone"
       }
     },
     {

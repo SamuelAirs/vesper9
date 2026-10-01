@@ -1,6 +1,6 @@
 import { escapeHTML as esc, formatTime, formatTemp, tempValue, tempUnit, tempDelta, dewPoint, absoluteHumidity, feelsLike, comfortBand, extremes, trend } from "../engine/math.js";
 import { LAMP, dim, fill, meter, ramp, lamps, lightsOff } from "../engine/lightshow.js";
-import { microphoneStatus } from "../engine/status.js";
+import { microphoneStatus, recognizerLabel } from "../engine/status.js";
 const panel = (title, body) =>
   `<div class="utility-panel"><h2>${esc(title)}</h2>${body}</div>`;
 // The nearest running timer (smallest time left), or null when none is running.
@@ -104,6 +104,7 @@ export class Timers {
 export class Transcription {
   constructor(c) {
     this.c = c; this.navigation = true; this.lines = []; this.partial = '';
+    this.provisional = new Map(); this.done = new Set();   // Vosk's finished lines waiting for their refined text
     this.sessions = []; this.selected = null; this.offset = 0; this.linePage = 0; this.loading = 0;
     this.micMode = c.state().mic?.mode; this.micSession = c.state().mic?.session;
     this.render(); this.load();
@@ -120,10 +121,13 @@ export class Transcription {
         const lines = await this.c.get('transcript/' + this.selected);
         if (!this.c.alive() || generation !== this.loading) return;
         this.lines = lines.map(r => r.text);
+        // The saved lines now include every refined line announced so far: drop their provisional text.
+        for (const utt of this.done) this.provisional.delete(utt);
+        this.done.clear();
         if (follow) this.linePage = Math.max(0, Math.ceil(this.lines.length / 12) - 1);
       }
       this.render();
-    } catch (error) { this.c.error(error); }
+    } catch (error) { this.provisional.clear(); this.done.clear(); this.c.error(error); }
   }
   render() {
     const mic = this.c.state().mic || {}, active = mic.mode === 'transcribe';
@@ -133,9 +137,12 @@ export class Transcription {
     const live = active && this.selected === mic.session;
     let body = `<div class="recording-tag">${esc(microphoneStatus(this.c.state()).label)}</div>`;
     if (mic.error || mic.unavailable) body += `<p>${esc(mic.error || mic.unavailable)}</p>`;
+    else if (mic.recognizer) body += `<p>${esc(recognizerLabel(this.c.state()))}${mic.recognizer.detail ? ' · ' + esc(mic.recognizer.detail) : ''}</p>`;
     body += `<p>${selected ? new Date(selected.started * 1000).toLocaleString() : 'No saved note selected'} · ${live ? 'LIVE SESSION' : selected?.ended ? 'CLOSED SESSION' : 'SAVED NOTE'} · PAGE ${this.linePage + 1} / ${pages}</p>`;
     const shown = this.lines.slice(this.linePage * 12, (this.linePage + 1) * 12).join('\n');
-    body += `<div class="transcript">${esc(shown) || 'The room has a story. Begin a field note.'}${live && this.linePage === pages - 1 && this.partial ? '<span class="transcript-partial">\n' + esc(this.partial) + '</span>' : ''}</div><p>Dictation saves text locally. It never executes console commands.</p>`;
+    // Provisional lines (Vosk's text, replaced by the refined line) and the live partial follow the saved lines.
+    const tail = live && this.linePage === pages - 1 ? [...this.provisional.values(), this.partial].filter(Boolean).join('\n') : '';
+    body += `<div class="transcript">${esc(shown) || (tail ? '' : 'The room has a story. Begin a field note.')}${tail ? '<span class="transcript-partial">' + (shown ? '\n' : '') + esc(tail) + '</span>' : ''}</div><p>Dictation saves text locally. It never executes console commands.</p>`;
     this.c.content(panel('Field notes', body));
     const actions = [
       { id: 'capture', label: active ? 'STOP TRANSCRIPTION' : 'START TRANSCRIPTION', run: () => this.c.setMic(active ? 'off' : 'transcribe') },
@@ -155,17 +162,25 @@ export class Transcription {
   event(e) {
     if (e.type === 'speech' && (!e.session || e.session === this.selected)) {
       // A final line reloads the note, and the reload renders; only provisional text renders here.
-      if (e.final && e.text) { this.partial = ''; this.load(); }
+      // With a second pass a line is announced as provisional (utt) and replaced by its final line (same utt).
+      if (e.provisional) { this.provisional.set(e.utt, e.text); this.render(); }
+      else if (e.final && e.utt !== undefined) {
+        if (e.text) { this.done.add(e.utt); this.load(); }
+        else { this.provisional.delete(e.utt); this.render(); }
+      }
+      else if (e.final && e.text) { this.partial = ''; this.load(); }
       else { this.partial = e.text; this.render(); }
     } else if (e.type === 'mic') {
       if (e.mode === 'transcribe' && e.session !== this.selected) {
         this.selected = e.session; this.offset = 0; this.linePage = 0; this.lines = []; this.partial = '';
+        this.provisional.clear(); this.done.clear();
       }
+      if (e.mode !== 'transcribe') { this.partial = ''; this.provisional.clear(); this.done.clear(); }
       // The saved notes only change when the mode or session does, not on every status message.
       const changed = e.mode !== this.micMode || e.session !== this.micSession;
       this.micMode = e.mode; this.micSession = e.session;
       this.render(); if (changed) this.load();
-    } else if (e.type === 'speech_error') this.render();
+    } else if (e.type === 'speech_error' || e.type === 'recognizer') this.render();
   }
 }
 

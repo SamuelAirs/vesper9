@@ -25,6 +25,17 @@ bash scripts/install-pi.sh
 
 Installation needs internet access for Python packages and the official English Vosk model (approximately 40 MB compressed). Afterward, normal operation is local. The installer uses `.venv/` and does not replace the OS Python. Use `bash scripts/install-pi.sh --no-speech` for games and instruments without recognition.
 
+### More accurate dictation (optional second pass)
+
+Dictation is live text from Vosk; with the optional second pass, each finished utterance is re-transcribed by NVIDIA Parakeet TDT 110m (run through sherpa-onnx) and that text becomes the saved line. On public read speech this measured about 3 % word error instead of 12 % (clean) and 4 % instead of 26 % (quiet and noisy), for roughly half a second of extra delay and about 700 MB of memory. It was not measured with the owner's voice or microphone. Install it with:
+
+```bash
+.venv/bin/python -m pip install -e '.[speech,refine]'
+.venv/bin/python scripts/get-voice-model.py        # Vosk and the second-pass model; whatever is present is not downloaded again
+```
+
+`get-voice-model.py` checks the second-pass archive against a pinned SHA-256 (see `THIRD_PARTY.md` for the licence, CC-BY-4.0) and keeps only the four model files in `models/sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8/`. `--no-refine` fetches Vosk only. Without the package or the model directory, nothing breaks: dictation uses Vosk alone, and Field Notes says `RECOGNISER / VOSK ONLY`. The model loads in the background the first time transcription starts (a few seconds; the top bar shows `TRANSCRIBING / LOADING`), stays loaded while the console is used, and is released after 15 minutes without dictation.
+
 Find the node:
 
 ```bash
@@ -157,6 +168,7 @@ For a speech-enabled desktop simulator, install normally and run `.venv/bin/pyth
 | Node disconnected | COM port, firmware version, 921600 baud, another process holding serial, board reset. |
 | All hardware input works but no sound | OS output device; Calibration → Sound; enable Chromium autoplay via supplied kiosk launcher. A regular browser may need one mouse/keyboard interaction. |
 | Voice unavailable | Run the installer without `--no-speech`, or `.venv/bin/pip install -e '.[speech]'` followed by `.venv/bin/python scripts/get-voice-model.py`. |
+| Field Notes says VOSK ONLY | The second pass is not installed: `.venv/bin/pip install -e '.[refine]'` and `scripts/get-voice-model.py`, then start transcription again. The line under the status gives the exact reason (missing package, missing files or a load error). |
 | Commands recognized inconsistently | Say an exact phrase after “computer”; try nearer the microphone and reduce speaker volume. Command mode and dictation are separate. |
 | No mic level | Node Scope → Capture, INMP441 left slot, supplied pin map, actual I²S behavior. The mic is not a USB audio device over COM. |
 | CRC errors or missing samples increase | USB cable/link stability, another serial program, host load. Node button events have priority over audio; occasional audio loss is counted. |

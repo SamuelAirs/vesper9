@@ -92,6 +92,17 @@ All modes follow the same rules. Only the controlling tab can request one, and a
 
 `state.mic` carries `mode`, `level`, `session`, `unavailable` (the speech-extra problem, if any; irrelevant to `analyze`), `error`, `modes` (the accepted names) and `analysis`, the constants of the analyzer: `{"rate": 16000, "bands": 28, "edgesHz": [29 band edges, 60 … 7000], "intervalMs": 100}`. Band `i` spans `edgesHz[i]` to `edgesHz[i+1]` Hz; the edges are logarithmically spaced.
 
+`state.mic.recognizer` is `{"engine": "vosk" | "vosk+parakeet", "refine": "unavailable" | "idle" | "loading" | "ready" | "failed", "detail": text | null}`: which recognisers dictation uses. `unavailable` means the optional second pass is not installed (`detail` says what is missing), `idle` that it is installed and loads when transcription starts, `loading` that it is loading in the background (dictation already works with Vosk), `ready` that it is loaded, and `failed` that it could not load or failed repeatedly (`detail` has the reason; dictation continues with Vosk alone). Every change is also broadcast as `{"type":"recognizer","engine":…,"refine":…,"detail":…}`.
+
+#### `speech` event (modes `transcribe`)
+
+`{"type":"speech","text":T,"final":false,"mode":"transcribe"}` is Vosk's live partial text. A finished utterance depends on the recognisers:
+
+- With the second pass, Vosk's final text is announced as `{"type":"speech","text":T,"final":false,"provisional":true,"utt":N,"mode":"transcribe"}` and stays provisional (shown, not stored). The final line follows, usually within about half a second, as `{"type":"speech","text":T2,"final":true,"utt":N,"engine":"second-pass"|"vosk","mode":"transcribe","session":S}` with the same `utt`. `engine` is `vosk` when the second pass failed, timed out, returned nothing or was skipped because it was behind, and the text is then Vosk's own. A final with empty text clears the provisional line. Finals arrive in `utt` order, one per utterance.
+- Without it: only `{"type":"speech","text":T,"final":true,"engine":"vosk","mode":"transcribe","session":S}` (no `utt`, nothing provisional), as before.
+
+Only `final: true` events are saved to the notes database, once each, in the session that is open when the final is produced. Stopping dictation or switching mode first finishes every open utterance (a pending second pass is awaited for at most 15 s, then Vosk's text is used) and so saves the last words before the session ends. Utterance audio is held in memory only until its line is final, cut at a pause after about 20 s and never longer than 30 s; no audio is written to disk.
+
 In `--simulate` mode there is no node microphone. In `analyze` the service generates its own clearly synthetic signal (a tone sweeping slowly between 110 and 700 Hz and back, 24 s per round trip, at about -23 dBFS RMS over faint noise); `analysis` events then carry `"simulated": true`. Audio frames sent by the browser are ignored while in `analyze`, so a front end need not start the browser microphone for it.
 
 #### `analysis` event (mode `analyze` only, about ten per second)

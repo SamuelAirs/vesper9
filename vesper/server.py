@@ -81,7 +81,8 @@ class Console:
         self.keepalive_armed = False        # becomes true once the controller sends a keepalive
         self.background = set()
         self.device = SimulatedDevice(self.event) if args.simulate else SerialDevice(args.port, args.baud, self.event)
-        self.speech = Speech(args.model, self.speech_event, self.speech_failed)
+        self.speech = Speech(args.model, self.speech_event, self.speech_failed, on_status=self.recognizer_status,
+                             refine_path=getattr(args, "refine_model", None))
         self.mode_lock = asyncio.Lock()
         self.mode = "off"
         self.mode_since = 0
@@ -133,7 +134,7 @@ class Console:
                            "crcErrors": self.device.crc_errors, "missingSamples": self.device.audio_missing,
                            "audioBytes": self.device.audio_bytes, "button": self.device.pressed, "generation": self.device.generation},
                 "leds": self.device.leds, "mic": {"mode": self.mode, "level": self.level, "session": self.session,
-                           "unavailable": self.speech.availability(), "droppedChunks": self.speech.dropped, "error": self.mic_error(),
+                           "unavailable": self.speech.availability(), "recognizer": self.speech.status(), "droppedChunks": self.speech.dropped, "error": self.mic_error(),
                            "modes": list(MIC_MODES),
                            "analysis": {"rate": analysis.RATE, "bands": analysis.BANDS, "edgesHz": analysis.EDGES,
                                         "intervalMs": round(analysis.HOP * 1000 / analysis.RATE)}},
@@ -255,6 +256,9 @@ class Console:
             await self.set_mic("off")
         finally:
             await self.broadcast({"type": "speech_error", "error": error})
+
+    async def recognizer_status(self, status):
+        await self.broadcast({"type": "recognizer", **status})
 
     async def speech_event(self, event):
         if event["type"] == "speech" and event.get("final") and self.session:
@@ -810,6 +814,7 @@ def main():
     parser.add_argument("--http-port", type=int, default=8799)
     parser.add_argument("--data", default=None)
     parser.add_argument("--model", default=str(ROOT / "models" / "vosk-model-small-en-us-0.15"))
+    parser.add_argument("--refine-model", default=None, help="Second-pass dictation model directory (default: next to --model)")
     args = parser.parse_args()
     if args.data is None:
         args.data = str(ROOT / "data" / ("simulator" if args.simulate else "console"))

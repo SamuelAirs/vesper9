@@ -793,6 +793,10 @@ export class Vesper {
         this.lights.suspend(e.durationMs);
         this.hostLamps.quiet(performance.now(), e.durationMs);
         break;
+      case "recognizer":
+        this.state.mic = { ...this.state.mic, recognizer: { engine: e.engine, refine: e.refine, detail: e.detail } };
+        this.status();
+        break;
       case "speech_error":
         this.state.mic.error = e.error;
         this.status();

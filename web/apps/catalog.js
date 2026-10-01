@@ -219,13 +219,20 @@ export const CARTRIDGES = [
     "voice": [
       "snake"
     ],
-    "escape": "adaptive",
+    "escape": "hold",
     "capabilities": [
       "button",
       "lights",
       "audio",
       "progress"
-    ]
+    ],
+    "icon": "<path d=\"M6 40V8h30v26H16V18h12v6\"/><circle cx=\"22\" cy=\"24\" r=\"2\" fill=\"currentColor\"/><path d=\"M40 40l3-3M40 37l3 3\"/>",
+    "record": {
+      "score": "Score",
+      "fragments": "Fragments",
+      "longest": "Longest thread",
+      "milestone": "Milestone"
+    }
   },
   {
     "id": "ballista",

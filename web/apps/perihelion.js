@@ -1118,15 +1118,17 @@ export class Perihelion {
     g.fillStyle = reg.ink;
     g.globalAlpha = 0.22;
     g.lineWidth = 2;
+    g.beginPath(); // one path for the whole backdrop
     for (let i = i0; i < i0 + 12; i++) {
       const h = mixSeed(i * 7919 + ri);
       const x = i * cell - this.cam * par + (h % 60), y = 40 + ((h >>> 8) % 460);
-      if (ri === 1) { g.fillRect(x - 2, y - 2, 4, 4); g.fillRect(x + 22, y + 14, 3, 3); }
-      else if (ri === 2) { circle(g, x, y, 18 + (h % 9), reg.ink, false, 2); circle(g, x + 36, y, 5, reg.ink, true); }
-      else if (ri === 3) line(g, x, y, x + 60, y + ((h >>> 12) % 21) - 10, reg.ink, 2);
-      else if (ri === 4) { line(g, x - 8, y - 8, x + 8, y + 8, reg.ink, 2); line(g, x - 8, y + 8, x + 8, y - 8, reg.ink, 2); }
-      else circle(g, x, y, 10 + 12 * pulse(this.t + i, 0.5), reg.ink, false, 2);
+      if (ri === 1) { g.moveTo(x - 4, y); g.lineTo(x + 4, y); g.moveTo(x, y - 4); g.lineTo(x, y + 4); g.moveTo(x + 22, y + 14); g.lineTo(x + 25, y + 14); }
+      else if (ri === 2) { const r = 18 + (h % 9); g.moveTo(x + r, y); g.arc(x, y, r, 0, TAU); g.moveTo(x + 41, y); g.arc(x + 36, y, 5, 0, TAU); }
+      else if (ri === 3) { g.moveTo(x, y); g.lineTo(x + 60, y + ((h >>> 12) % 21) - 10); }
+      else if (ri === 4) { g.moveTo(x - 8, y - 8); g.lineTo(x + 8, y + 8); g.moveTo(x - 8, y + 8); g.lineTo(x + 8, y - 8); }
+      else { const r = 10 + 12 * pulse(this.t + i, 0.5); g.moveTo(x + r, y); g.arc(x, y, r, 0, TAU); }
     }
+    g.stroke();
     g.globalAlpha = 1;
   }
   drawField(g) {
@@ -1143,10 +1145,14 @@ export class Perihelion {
       const x = v.x - cam;
       if (x < -60 || x > 1020) continue;
       circle(g, x, v.y, v.r, "#050806", true);
-      circle(g, x, v.y, v.r, C.red, false, 2.5);
-      line(g, x - v.r * 0.6, v.y - v.r * 0.6, x + v.r * 0.6, v.y + v.r * 0.6, C.red, 2);
-      line(g, x - v.r * 0.6, v.y + v.r * 0.6, x + v.r * 0.6, v.y - v.r * 0.6, C.red, 2);
-      if (this.reg >= 1 && !v.s && Math.abs(x - CAM_LEAD) < 420) { // the near-pass zone
+      g.strokeStyle = C.red;
+      g.lineWidth = 2.5;
+      g.beginPath();
+      g.arc(x, v.y, v.r, 0, TAU);
+      const k = v.r * 0.6;
+      g.moveTo(x - k, v.y - k); g.lineTo(x + k, v.y + k); g.moveTo(x - k, v.y + k); g.lineTo(x + k, v.y - k);
+      g.stroke();
+      if (this.reg >= 1 && !v.s && x > CAM_LEAD - 40 && x < CAM_LEAD + 300) { // the near-pass zone
         g.globalAlpha = 0.4;
         g.setLineDash(DASH);
         circle(g, x, v.y, v.r + PROBE_R + NEAR_GAP, C.red, false, 1.5);

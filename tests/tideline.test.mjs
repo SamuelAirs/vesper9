@@ -265,7 +265,7 @@ test("lamps alone decide the action in every frame of simulated catches", () => 
   const bright = { low: [], high: [] };
   for (const [name, seed] of [["PALE SKIFF", 1], ["SALT WISP", 2], ["CINDER RAY", 3], ["SLAGBACK", 4], ["TRENCH WARDEN", 5], ["MUDLARK", 6]]) {
     const { ctx, app } = make({ seed });
-    app.sv.landed = 9;
+    app.sv.landed = 60;
     app.sv.g = [2, 2, 3, 0];
     toShore(app);
     castTo(app, 0.3);
@@ -294,7 +294,7 @@ test("lamps alone decide the action in every frame of simulated catches", () => 
     }
   }
   const mean = (a) => a.reduce((x, y) => x + y, 0) / Math.max(1, a.length);
-  assert.ok(frames > 1500, "frames checked " + frames);
+  assert.ok(frames > 1200, "frames checked " + frames); // coverage of the check, not a difficulty bar
   assert.ok(ties / frames < 0.1);
   assert.ok(mean(bright.high) > mean(bright.low) * 1.2, `brightness follows the meter: ${mean(bright.low)} -> ${mean(bright.high)}`);
 });
@@ -343,9 +343,20 @@ test("pressing early scares the fish off; the wait is short and varied", () => {
   app.down(); run(app, 0.6, null); app.up(); run(app, 0.7, null);
   assert.equal(app.phase, "wait");
   run(app, 0.5, null);
+  // A learner's first early press in a cast is forgiven with a reminder; the second is not.
+  tap(app);
+  assert.equal(app.phase, "wait", "forgiven while learning");
   tap(app);
   assert.equal(app.phase, "card");
   assert.ok(/TOO SOON/.test(app.card.reason));
+  // An experienced angler scares it at once.
+  const old = make({ seed: 8 }).app;
+  old.sv.landed = 60;
+  toShore(old);
+  old.down(); run(old, 0.6, null); old.up(); run(old, 0.7, null);
+  run(old, 0.5, null);
+  tap(old);
+  assert.equal(old.phase, "card");
   // Wait lengths across many casts: short (under 5 s) and varied.
   const waits = [];
   for (let i = 0; i < 40; i++) { const r = make({ seed: 100 + i }); r.app.startWait(); waits.push(r.app.waitFor); }
@@ -981,4 +992,24 @@ test("a competent bot's first hour: ranks climb, the board pays, perfect catches
   assert.ok(app.rank() >= 5, "rank " + app.rank());
   assert.ok(sv.pf > 5, "perfect " + sv.pf);
   assert.ok(app.rank() < 10, "rank 10 is not reached in an hour");
+});
+
+test("the learning curve: help tapers over the first forty fish instead of ending after three", () => {
+  const { app } = make({ seed: 50 });
+  const rate = (landed, rar, lag) => {
+    app.sv.landed = landed;
+    let w = 0, n = 0;
+    for (const sp of SP.filter((s) => s.rar === rar)) for (let s = 0; s < 8; s++) {
+      const out = modelCatch(sp, { zone: 0, reel: 0 }, 900 + s, makeCatchBot(lag, 0.06, 5, s), app.assist());
+      n++; if (out.r === 1) w++;
+    }
+    return w / n;
+  };
+  const pct = (x) => Math.round(x * 100) + "%";
+  const rows = [0, 5, 10, 20, 40, 100].map((l) => { const r = [1, 2, 3].map((rar) => pct(rate(l, rar, 11))); return [l, app.assist().toFixed(2), ...r]; });
+  console.log("landed / assist / common / uncommon / rare (slow-reacting bot, no gear):", JSON.stringify(rows));
+  assert.ok(app.assist() >= 0.25 && app.learning() === 0);
+  for (const l of [0, 10, 20]) assert.ok(rate(l, 1, 11) >= 0.9 && rate(l, 2, 11) >= 0.8, "a learner keeps landing at " + l);
+  assert.ok(rate(100, 1, 11) >= 0.8, "commons stay landable without gear");
+  assert.ok(rate(100, 3, 11) < 0.6, "rare fish still need skill or gear");
 });

@@ -52,7 +52,8 @@ const RANK_UNLOCK = { 2: "THE NOTICE BOARD", 3: "SALVAGE CHESTS IN THE CATCH", 4
 const QUALITY = ["", "", "SILVER", "GOLD"]; // stars 1..3; a plain landing is one star
 const QUALITY_PAY = [1, 1, 1.25, 1.6];
 const QUALITY_XP = [1, 1, 1.5, 2];
-const PERFECT_SLIP = 0.25; // seconds outside the zone a catch may spend and still be perfect
+const PERFECT_SLIP = 0.25;
+const ASSIST_LANDINGS = 40, ASSIST_FLOOR = 0.25; // see assist() // seconds outside the zone a catch may spend and still be perfect
 const REST_MAX = 3;
 const PERIOD_ORDER = ["D", "d", "u", "n"];
 const NOTICE_KINDS = ["sp", "wt", "sz", "pf", "ch"];
@@ -116,15 +117,18 @@ const CHEST_FILL = 0.5, CHEST_DECAY = 0.25, CHEST_LIFE = 9;
 
 // gear: { zone, reel, rank?, chest? }. A chest, when there is one, appears a little into the
 // catch at its own height and drifts; holding it inside the zone fills its own small meter.
-function newCatch(sp, gear, rng, beginner) {
-  const h = ZONE_H[gear.zone] + (beginner ? 0.03 : 0);
-  const d = sp.d * (beginner ? 0.5 : 1);
+// `assist` (0..1, or true for 1) is the learner's help: a larger zone, a calmer fish, a fuller
+// meter that drains more slowly. The game tapers it off over the first ASSIST_LANDINGS fish.
+function newCatch(sp, gear, rng, assist) {
+  const a = assist === true ? 1 : clamp(Number(assist) || 0, 0, 1);
+  const h = ZONE_H[gear.zone] + 0.04 * a;
+  const d = sp.d * (1 - 0.5 * a);
   const rank = gear.rank || 1;
   return {
     kind: sp.kind, d, h, z: 0.5, zv: 0, f: 0.55, fv: 0, tgt: 0.55, timer: 0.4, mode: 0, t: 0,
-    meter: beginner ? 0.42 : 0.32,
-    fill: 0.17 * REEL_MULT[gear.reel] * (beginner ? 1.25 : 1) * (1 + 0.02 * (rank - 1)),
-    drain: (0.06 + 0.24 * d * d) * (beginner ? 0.6 : 1),
+    meter: 0.32 + 0.1 * a,
+    fill: 0.17 * REEL_MULT[gear.reel] * (1 + 0.25 * a) * (1 + 0.02 * (rank - 1)),
+    drain: (0.06 + 0.24 * d * d) * (1 - 0.4 * a),
     grace: 0.8, seed: rng.next() * 6.28, out: 0,
     chest: gear.chest ? { at: rng.range(1.2, 3.5), y: rng.range(0.2, 0.85), y0: 0, p: 0, on: false, got: false, gone: false, ph: rng.next() * 6.28 } : null,
   };
@@ -366,7 +370,11 @@ export class Tideline {
     for (let i = 0; i < WATERS.length; i++) if (dist >= WATERS[i].from) w = i;
     return w;
   }
-  beginner() { return this.sv.landed < 3; }
+  beginner() { return this.sv.landed < 5; }
+  // The learner's help on the catch: full for the first fish, tapering over ASSIST_LANDINGS
+  // landings to a small lasting amount (ASSIST_FLOOR) that is simply the base difficulty.
+  learning() { return clamp(1 - this.sv.landed / ASSIST_LANDINGS, 0, 1); }
+  assist() { return ASSIST_FLOOR + (1 - ASSIST_FLOOR) * this.learning(); }
   starsTotal() { return this.sv.q.reduce((a, v) => a + v, 0); }
   timeOK(sp, period) { return !sp.times || sp.times.includes(period); }
   // Relative bite weights for a water now: [{ sp, w }]. Rarer fish rise with the lure and chum.
@@ -557,7 +565,9 @@ export class Tideline {
         this.toShore();
         break;
       case "wait":
-        if (this.phaseT > 0.35) this.scare();
+        // While still learning, a press before the bite is forgiven once a cast, with a reminder.
+        if (this.phaseT > 0.35 && this.learning() > 0.5 && !this.forgiven) { this.forgiven = true; this.setHint("Not yet. Wait for BITE, then press."); this.tone(300, 0.06, "triangle"); }
+        else if (this.phaseT > 0.35) this.scare();
         break;
       case "bite":
         this.hook();
@@ -640,6 +650,7 @@ export class Tideline {
     this.waitFor = rng.range(1.6, 4.8);
     this.nibbleAt = rng.next() < 0.5 ? rng.range(0.7, Math.max(0.8, this.waitFor - 0.7)) : -1;
     this.nibble = 0;
+    this.forgiven = false;
     this.fishSp = this.pickBite(this.water, this.period(), this.weather);
     this.setHint("Wait for the bite. Do not press yet.");
   }
@@ -653,7 +664,7 @@ export class Tideline {
   }
   startBite() {
     this.go("bite");
-    this.biteFor = (this.beginner() ? 1.6 : 1.0) + 0.04 * (this.rank() - 1);
+    this.biteFor = 1.0 + 0.6 * this.learning() + 0.04 * (this.rank() - 1);
     this.tone(880, 0.08, "square");
     this.tone(1175, 0.1, "square", 0.1);
     this.tone(880, 0.08, "square", 0.22);
@@ -666,7 +677,7 @@ export class Tideline {
   }
   hook() {
     const odds = this.chestChance(), chest = odds > 0 && this.c.rng.next() < odds;
-    this.cur = newCatch(this.fishSp, { zone: this.sv.g[0], reel: this.sv.g[1], rank: this.rank(), chest }, this.c.rng, this.beginner());
+    this.cur = newCatch(this.fishSp, { zone: this.sv.g[0], reel: this.sv.g[1], rank: this.rank(), chest }, this.c.rng, this.assist());
     this.clickAt = 0;
     this.go("catch");
     this.tone(330, 0.07, "square");

@@ -25,13 +25,17 @@ Outpost (schema 4; schema 3 saves migrate with everything kept, statistics not r
 - **Ready ratio.** "Relocation ready" asks for 2x the bearings held below 500, 1.6x below 5,000, 1.35x below 20,000, then 1.25x.
 - Bot after the change (seed 1, 25% active): 30, 20, 31, 36, 53, 31, 61, 50, 98, then about 240 min for runs 10-11. The wall moved out by about three runs and the late game has a reward per run; very late runs (L > 30,000) are still several hours of mostly idle time, which suits the offline credit.
 
+## Follow-up: Sam found Tideline hard (playtest 2026-10-01 evening)
+
+The learner's help used to switch off after the third fish, and a slow-reacting bot (0.18 s, no prediction) then dropped from landing everything to 53% of commons and 35% of uncommons at gear 0. Now the help tapers over the first 40 landings (larger zone, calmer fish, fuller and slower-draining meter, a longer bite window) and a quarter of it stays for good as the new base difficulty. A learner's first early press in a cast is forgiven with a reminder instead of scaring the fish. Same bot, no gear: 100% of commons, uncommons and rares up to 20 fish; after 40, 98% commons, 81% uncommons, 23% rares (rares and legends still need skill and gear). Easy fish only for the first five catches (was three).
+
 ## Shared code touched
 
 `web/engine/audio.js`: `Synth.tone(hz, seconds, type, gain = 1)`; one multiplication, default unchanged for every other app. `docs/ENGINE.md` row updated. `docs/WORKLOG.md` entry. Nothing else outside the two games, their tests, `tests/helpers/outpost-bot.mjs` and a new fixture.
 
 ## Verification (desktop)
 
-- `node --test tests/*.test.mjs`: 833 pass, 1 fail. The failure is `perihelion.test.mjs` "a planning bot crosses every region" on seed 3003, which fails identically on `main` without these changes.
+- `node --test tests/*.test.mjs`: 834 pass, 1 fail. The failure is `perihelion.test.mjs` "a planning bot crosses every region" on seed 3003, which fails identically on `main` without these changes.
 - Python suite 189 OK (1 skipped), `build-catalog.py --check` clean, `build-demo.py`, browser-smoke (26 apps), extension-smoke, host-browser, voice-host all pass (Playwright 1.56.1 with the container's Chromium).
 - Screenshots (1024 x 600) looked at: Tideline shore with notices and rank, a catch with a chest, a perfect silver card with chest, menu, notice board, log with stars; Outpost groove at x1.50 after 32 real taps through the simulator, a constellation entry in the tree, the update card.
 

@@ -43,7 +43,6 @@ export class Vesper {
     this.app = null;
     this.meta = null;
     this.page = 0;
-    this.homeIndex = 0;
     this.nav = { items: [], index: 0 };
     this.menu = null;
     this.paused = false;
@@ -122,9 +121,16 @@ export class Vesper {
     this.lifecycle("cancel");
     this.synth.stopTone();
   }
+  // tick and resume run while the player is looking at the app, so a throw there opens the
+  // recovery menu. cancel, pause and dispose run during teardown or while a menu is being
+  // built, so they stay contained to a toast.
   lifecycle(name) {
+    if (this.faulted && name === "tick") return; // the app already failed; do not repeat it each second
     try { this.app?.[name]?.(); }
-    catch (error) { this.errors.push(`${name}: ${error.message}`); this.toast(`${name}: ${error.message}`); }
+    catch (error) {
+      if (name === "tick" || name === "resume") this.fail(error);
+      else { this.errors.push(`${name}: ${error.message}`); this.toast(`${name}: ${error.message}`); }
+    }
   }
   softwareButton(pressed) {
     if (this.state.controller === false)
@@ -288,7 +294,7 @@ export class Vesper {
   get cartridges() {
     return APPS.length;
   }
-  buildHome() {
+  buildHome(index = 0) {
     const collection = APPS.slice(this.page * 6, this.page * 6 + 6);
     $("app-grid").innerHTML = collection
       .map(
@@ -318,15 +324,19 @@ export class Vesper {
       },
       { element: $("system-button"), run: () => this.systemMenu() },
     );
-    this.setNav(nav, 0);
+    this.setNav(nav, index);
   }
   home() {
+    // Come back to the card the player just left, on its own sector.
+    const left = this.meta ? APPS.findIndex((a) => a.id === this.meta.id) : -1;
     this.closeMenu(false);
     this.unmount();
+    if (left >= 0) this.page = Math.floor(left / 6);
     $("console").classList.remove("playing");
     $("dashboard").hidden = false;
     $("application").hidden = true;
-    this.buildHome();
+    this.buildHome(left >= 0 ? left % 6 : 0);
+    this.nav.items[this.nav.index]?.element.scrollIntoView({ block: "nearest", behavior: "instant" });
     this.hint("TAP TO ADVANCE · HOLD & RELEASE TO ENTER");
     this.bridge.command("focus", { app: "home" }, true);
     this.clickVisual(0);
@@ -524,9 +534,10 @@ export class Vesper {
     this.updateFocus();
     if (resume) this.lifecycle("resume");
     this.clickVisual(0);
-    if (menu.focus?.isConnected) menu.focus.focus({ preventScroll: true });
+    if (!this.faulted && menu.focus?.isConnected) menu.focus.focus({ preventScroll: true });
   }
   systemMenu() {
+    if (this.faulted) return this.faultMenu(); // RESUME is blocked while faulted, so never offer it
     const mic = this.state.mic.mode;
     this.openMenu("System channel", "Tap to move. Hold and release to choose. " + this.menuHint(), [
       {
@@ -615,12 +626,19 @@ export class Vesper {
     this.faulted = true;
     console.error(error);
     this.errors.push(error.message);
+    this.faultMessage = error.message;
     this.paused = true;
     this.synth.stopTone();
-    this.openMenu("Application stopped", error.message, [
-      { label: "RESTART APP", run: () => this.launch(this.meta.id) },
-      ...(this.app ? [{ label: "RESTART / " + this.meta.name, run: () => this.launch(this.meta.id) }, ...(this.app.menuActions?.() || []),
-        ...(this.state.progress?.[this.meta.id]?.runs ? [{ label: 'FIELD RECORD / ' + this.state.progress[this.meta.id].runs + ' ENTRIES', run: () => this.fieldRecord() }] : [])] : []),
+    this.faultMenu();
+  }
+  faultMenu() {
+    let extra = [];
+    try { extra = this.app?.menuActions?.() || []; } catch {}
+    const runs = this.state.progress?.[this.meta?.id]?.runs;
+    this.openMenu("Application stopped", this.faultMessage || "", [
+      // One restart entry: named for the app when it mounted, generic when it never did.
+      { label: this.app ? "RESTART / " + this.meta.name : "RESTART APP", run: () => this.launch(this.meta.id) },
+      ...(this.app ? [...extra, ...(runs ? [{ label: 'FIELD RECORD / ' + runs + ' ENTRIES', run: () => this.fieldRecord() }] : [])] : []),
       { label: "DASHBOARD", run: () => this.home() },
     ]);
   }
@@ -804,10 +822,16 @@ export class Vesper {
     $("mic-text").textContent = micStatus.label;
     $("mic-dot").textContent = active ? "●" : "○";
     if (!active) $("level-fill").style.width = "0%";
+    // The service counts on its own clock (same machine), so a running timer's remaining time
+    // is derived from its deadline and keeps moving even when the link is down.
+    const now = Date.now() / 1000;
+    for (const t of s.timers) if (t.running && Number.isFinite(t.deadline)) t.remaining = Math.max(0, t.deadline - now);
     const running = s.timers.filter((t) => t.running);
     $("timer-badge").textContent = running.length
-      ? `${running.length} TIMER${running.length > 1 ? "S" : ""} / ${formatTime(Math.min(...running.map((t) => t.remaining)))}`
+      ? `${running.length} TIMER${running.length > 1 ? "S" : ""} / ${formatTime(Math.min(...running.map((t) => t.remaining)))}${connected ? "" : " / STALE"}`
       : "NO ACTIVE TIMERS";
+    $("timer-badge").classList.toggle("stale", !connected && running.length > 0);
+    $("timer-badge").title = connected ? "" : "Service link is down; time is estimated locally";
   }
   frameStats() {
     const ordered = this.frameTimes.slice().sort((a,b) => a-b);

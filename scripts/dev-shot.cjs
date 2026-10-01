@@ -101,13 +101,17 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       } else if (name === "down") await down();
       else if (name === "up") await up();
       else if (name === "clicks") {
+        // Timed inside the page so a busy machine cannot stretch the gaps.
         const [count, gap] = value.split(":").map(Number);
-        for (let i = 0; i < count; i++) {
-          await down();
-          await page.waitForTimeout(55);
-          await up();
-          await page.waitForTimeout(gap || 60);
-        }
+        await page.evaluate(async ([count, gap]) => {
+          const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+          for (let i = 0; i < count; i++) {
+            document.dispatchEvent(new KeyboardEvent("keydown", { code: "Space", key: " ", bubbles: true }));
+            await pause(55);
+            document.dispatchEvent(new KeyboardEvent("keyup", { code: "Space", key: " ", bubbles: true }));
+            await pause(gap);
+          }
+        }, [count, gap || 60]);
       } else if (name === "shot") {
         const file = path.join(out, `${app || "dashboard"}-${value || "view"}.png`);
         await page.screenshot({ path: file });

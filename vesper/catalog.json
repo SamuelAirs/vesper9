@@ -188,6 +188,12 @@
       "category": "PLAY / LANDER",
       "glyph": 1,
       "factory": "Descent",
+      "icon": "<path d=\"M17 22l2-9h10l2 9zM17 22l-5 8M31 22l5 8M10 30h6M32 30h6M20 22h8\"/><path d=\"M24 26l-3 6h6z\"/><path d=\"M4 42h40M14 42v-2M34 42v-2\"/><circle cx=\"38\" cy=\"9\" r=\"2\" fill=\"currentColor\"/>",
+      "record": {
+        "score": "Score",
+        "sites": "Sites cleared",
+        "fuel": "Best fuel left %"
+      },
       "voice": [
         "lander"
       ],

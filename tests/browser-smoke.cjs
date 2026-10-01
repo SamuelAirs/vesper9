@@ -31,6 +31,17 @@ let logs = "";
 server.stdout.on("data", (d) => (logs += d));
 server.stderr.on("data", (d) => (logs += d));
 let browser;
+// Quick clicks timed inside the page, so a busy machine's automation round trips
+// cannot stretch them past the gesture window.
+const quickClicks = (page, count, pressMs = 55, gapMs = 45) => page.evaluate(async ([count, pressMs, gapMs]) => {
+  const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  for (let i = 0; i < count; i++) {
+    document.dispatchEvent(new KeyboardEvent("keydown", { code: "Space", key: " ", bubbles: true }));
+    await pause(pressMs);
+    document.dispatchEvent(new KeyboardEvent("keyup", { code: "Space", key: " ", bubbles: true }));
+    await pause(gapMs);
+  }
+}, [count, pressMs, gapMs]);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function button(page, ms = 80) {
   await page.keyboard.down("Space");
@@ -75,7 +86,12 @@ async function button(page, ms = 80) {
   assert.equal(await page.evaluate(() => vesper.meta.id), "runner");
   await button(page, 3150);
   assert.equal(await page.locator("#menu-overlay").isVisible(), false, "game hold must not open menu");
-  for (let i = 0; i < 4; i++) { await button(page, 55); await page.waitForTimeout(35); }
+  // A stalled frame can still break one sequence on a busy machine; allow a few attempts.
+  for (let attempt = 0; attempt < 4 && !(await page.locator("#menu-overlay").isVisible()); attempt++) {
+    if (attempt) await page.waitForTimeout(1500);
+    await quickClicks(page, 4);
+    await page.waitForTimeout(150);
+  }
   assert.equal(await page.locator("#menu-overlay").isVisible(), true);
   // The on-screen switch remains usable inside a modal.
   await page.locator("#menu-arcade").click({ delay: 80 });

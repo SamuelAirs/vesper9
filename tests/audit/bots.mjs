@@ -3,7 +3,11 @@
 // human could see on screen (positions, the highlighted glyph, the sequence the
 // player has just been shown).
 import { Random, wrapAngle, TAU } from "../../web/engine/math.js";
-import { OrbitLock, Moonrunner, Undertow, EchoVault, GlyphVault, orbitSpeed, RUNNER_SHAPES as SHAPES } from "../../web/apps/games.js";
+import { OrbitLock, orbitSpeed } from "../../web/apps/orbit.js";
+import { Moonrunner, RUNNER_SHAPES as SHAPES } from "../../web/apps/runner.js";
+import { Undertow } from "../../web/apps/undertow.js";
+import { EchoVault } from "../../web/apps/echo.js";
+import { GlyphVault } from "../../web/apps/glyphs.js";
 import { MorseSchool } from "../../web/apps/morse.js";
 import { makeCtx, makeRig, DT } from "./harness.mjs";
 

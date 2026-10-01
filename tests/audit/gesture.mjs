@@ -3,7 +3,8 @@
 // Paired design: the same seed is played twice with the same competent bot, once
 // undisturbed (control) and once with the gesture injected at a random moment.
 import { Random } from "../../web/engine/math.js";
-import { OrbitLock, GlyphVault } from "../../web/apps/games.js";
+import { OrbitLock } from "../../web/apps/orbit.js";
+import { GlyphVault } from "../../web/apps/glyphs.js";
 import { makeCtx, makeRig, DT } from "./harness.mjs";
 import { playRunner, playUndertow, gestureWithUpdates, mean } from "./bots.mjs";
 

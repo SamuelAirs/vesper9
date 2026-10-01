@@ -29,6 +29,7 @@ there. Every app tolerates "two taps and a hold, then cancel()": see
 `vesper/catalog.json` owns app metadata/defaults/voice aliases. Generate the
 browser copy with `python3 scripts/build-catalog.py`; don't hand-edit it.
 Factories are trusted JS code in `web/apps/registry.js`.
+The six original games each have their own file in `web/apps/` (`orbit.js`, `runner.js`, `undertow.js`, `echo.js`, `reaction.js`, `glyphs.js`); what they share (`GestureGuard`, `LampBus`, `announce`, `drawNote`, `LOCKOUT`, `SETTLE`, `recordRun`) is in `web/apps/game-kit.js`.
 
 Preserve immediate source-owned edges, consumed terminal releases, node
 connection generations, same-clock reaction differences, bounded audio,

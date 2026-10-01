@@ -71,3 +71,9 @@ The long integrated run was started while final review continued. The final held
 - New dashboard page LAMPS: Light Trial, Meridian, Kiln (PLAY III keeps Outpost, Echo Vault, Glyph Archive). Shared tests updated: game list in `gesture-apps.test.mjs`, sector layout in `test_catalog_sectors.py`.
 - Bots (seeded): Meridian with 40 ms timing error reaches stage V or beyond on three seeds; 140 ms error loses in under two minutes; idle ends in about 9 s. Kiln with 0.02 heat error reaches the open kilns; 0.12 cracks out early; idle ends in about 31 s.
 - Unverified: feel, pace and lamp legibility on the real lamps (the host sends at most ~17 lamp changes a second, so the swinging spot moves in steps); voice names "pendulum" and "pottery" against the Vosk vocabulary (the model is not on the desktop; `tests/test_commands.py` checks it on the Pi).
+
+## 2026-10-01 (night) — after Sam's playtest: Kiln shelved, Meridian moved onto the lamps
+
+- Sam: Kiln is not very good; Meridian has potential if it focuses only on the lights (the screen says left, middle or right and you tap as the light swings through). Kiln is removed from the catalog, registry and dashboard (its last version is commit 1d02a77 on this branch); the LAMPS page is gone and Meridian sits on PLAY III with Light Trial.
+- Meridian now: full swings end lamp to end lamp; the screen calls LEFT, MIDDLE or RIGHT and shows three still sockets, never the moving light. Each catch calls a new lamp (lead 0.55 s). Windows widened for the lamps' ~17 Hz updates (60/110/170 ms, end lamps x1.35). Stage III is now TEMPO (pace changes) instead of off-centre drift; feints turn back before the far lamp. Save schema unchanged (1).
+- Bot: 50 ms timing error reaches the cycles on three seeds; 80 ms reaches stages III to V; 150 ms loses in under 20 s; idle ends in about 12 s. Not verified on the device.

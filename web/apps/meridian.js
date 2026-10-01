@@ -1,13 +1,11 @@
-// MERIDIAN — a one-button timing game played on the three lamps. A light swings like a pendulum
-// across the lamps; tap as it crosses the middle lamp (the meridian). Each swing is one gate.
-// The run speeds up and moves through stages that change how the swing must be read: red swings
-// that must pass untouched, swings that wander off centre, swings that go dark near the meridian,
-// and feints that turn back before they cross. Three shields; a miss, a lapse or a burned red swing
-// costs one. Holding on the title or result screen opens the observatory: daily run, sprint and
-// eclipse modes (unlocked by feats), light colours, feats and a log. Save schema 1.
-//
-// The game is fully playable on the lamps alone: the swinging light is the play field and the middle
-// lamp keeps a faint meridian marker. The screen draws the same pendulum, larger.
+// MERIDIAN — a one-button game played on the three lamps. A light swings like a pendulum from one end
+// lamp to the other. The screen calls a lamp, LEFT, MIDDLE or RIGHT; tap as the swinging light reaches
+// it. Each hit calls the next lamp. The screen never shows the light itself: the lamps are the play
+// field. The run speeds up and moves through stages that change how the swing must be read: red
+// swings that must pass untouched, changes of tempo, swings that go dark near the called lamp, and
+// feints that turn back early. Three shields; a wide tap, a lapse or a burned red swing costs one.
+// Holding on the title or result screen opens the observatory: daily run, sprint and eclipse modes
+// (unlocked by feats), light colours, feats and a log. Save schema 1.
 import { C, space, text, line, circle, diamond, banner } from "../engine/draw.js";
 import { clamp, lerp, mixSeed, Random } from "../engine/math.js";
 import { LAMP, lamps, dim, spot, pulse, only } from "../engine/lightshow.js";
@@ -15,25 +13,29 @@ import { AppGuard } from "../engine/input.js";
 import { LampBus, lampMax } from "./game-kit.js";
 
 const HOLD_PICK = 0.5; // a press this long on a menu screen chooses instead of tapping
-// Timing windows in seconds either side of the crossing: PERFECT, GOOD, CLOSE. Judged in time, not
-// position, so a fast swing and a slow one are equally fair.
-export const WIN = [0.045, 0.09, 0.14];
+// Timing windows in seconds either side of the moment the light is on the called lamp: PERFECT, GOOD,
+// CLOSE. Judged in time, so fast and slow swings are equally fair. The host sends the lamps at most
+// about 17 changes a second, so the windows are wider than a screen game's. An end lamp is reached at
+// the turn, where the light lingers and the exact moment is harder to see: its windows are wider still.
+export const WIN = [0.06, 0.11, 0.17];
+export const END_WIN = 1.35;
+export const SIDE = ["LEFT", "MIDDLE", "RIGHT"];
 const GRADES = ["PERFECT", "GOOD", "CLOSE"];
 const BASE = [100, 60, 25];
 const SHIELDS = 3;
 export const PRACTICE = 4; // the first gates of a run cost nothing
 const REGEN = 15; // gates in a row without a penalty restore a shield
-const EDGE_L = -0.15, EDGE_R = 2.15; // a full swing passes a little beyond the end lamps
+const LEAD = 0.55; // a newly called lamp is not judged on a pass sooner than this
 const SPRINT_S = 60;
 // Stages: hits needed to clear (half as many in a sprint), half-swing duration at the start and end of the stage, and the
 // rules that switch on. From the sixth stage on the game cycles with everything on, faster each time,
 // and the timing windows narrow by a twentieth per cycle down to six tenths (`win`).
 const STAGES = [
-  { name: "SWING", hits: 12, d0: 1.25, d1: 0.92, note: "Tap as the light crosses the middle lamp." },
-  { name: "RED PASS", hits: 16, d0: 1.05, d1: 0.82, note: "Red swings must pass untouched." },
-  { name: "DRIFT", hits: 16, d0: 0.98, d1: 0.78, note: "The swing wanders. Watch it, do not count it." },
-  { name: "ECLIPSE", hits: 16, d0: 0.92, d1: 0.72, note: "Some swings go dark at the meridian." },
-  { name: "FEINT", hits: 16, d0: 0.86, d1: 0.68, note: "Some swings turn back before they cross." },
+  { name: "SWING", hits: 12, d0: 1.25, d1: 0.95, note: "Watch the lamps. Tap as the light reaches the called lamp." },
+  { name: "RED PASS", hits: 16, d0: 1.05, d1: 0.85, note: "A red swing must pass untouched. Catch the next one." },
+  { name: "TEMPO", hits: 16, d0: 0.98, d1: 0.8, note: "The swing changes pace. Watch it, do not count it." },
+  { name: "ECLIPSE", hits: 16, d0: 0.92, d1: 0.74, note: "Some swings go dark near the called lamp." },
+  { name: "FEINT", hits: 16, d0: 0.86, d1: 0.7, note: "Some swings turn back before the far lamp." },
 ];
 const ROMAN = ["I", "II", "III", "IV", "V"];
 export function stageSpec(i) {
@@ -41,14 +43,14 @@ export function stageSpec(i) {
     return { ...STAGES[i], label: ROMAN[i] + "  " + STAGES[i].name, win: 1, red: i >= 1 ? 0.22 : 0, drift: i >= 2, blind: i >= 3 ? 0.28 : 0, feint: i >= 4 ? 0.22 : 0 };
   }
   const n = i - STAGES.length + 1;
-  return { name: "CYCLE " + n, label: "CYCLE " + n, hits: 20, win: Math.max(0.6, 1 - 0.05 * n), d0: Math.max(0.5, 0.8 - 0.05 * n), d1: Math.max(0.44, 0.64 - 0.04 * n),
+  return { name: "CYCLE " + n, label: "CYCLE " + n, hits: 20, win: Math.max(0.6, 1 - 0.05 * n), d0: Math.max(0.52, 0.8 - 0.05 * n), d1: Math.max(0.46, 0.66 - 0.04 * n),
     note: "Everything at once, a little faster.", red: Math.min(0.3, 0.22 + 0.02 * n), drift: true, blind: Math.min(0.4, 0.28 + 0.03 * n), feint: Math.min(0.3, 0.22 + 0.02 * n) };
 }
 const MODES = {
   swing: { name: "SWING", text: "The plain run. Scores to the console." },
   daily: { name: "DAILY", text: "The same swings for everyone today, with a goal." },
   sprint: { name: "SPRINT", text: "Sixty seconds. A miss costs three of them.", need: 3 },
-  eclipse: { name: "ECLIPSE", text: "Every swing goes dark at the meridian.", need: 6 },
+  eclipse: { name: "ECLIPSE", text: "Every swing goes dark near the called lamp.", need: 6 },
 };
 const LIGHTS = [
   { name: "AMBER", rgb: LAMP.amber, css: C.amber, need: 0 },
@@ -62,19 +64,19 @@ const ROWS = ["SWING", "DAILY", "SPRINT", "ECLIPSE", "LIGHT", "FEATS", "LOG"];
 // ---- feats ------------------------------------------------------------------------------------
 const life = (a, key) => (a.sv.st[key] || 0) + (a.R[key] || 0);
 const FEATS = [
-  { id: "first", name: "FIRST LIGHT", text: "Strike a PERFECT.", n: 1, prog: (a) => life(a, "perfects") },
+  { id: "first", name: "FIRST LIGHT", text: "Catch a PERFECT.", n: 1, prog: (a) => life(a, "perfects") },
   { id: "combo10", name: "STEADY HAND", text: "Reach a combo of 10.", n: 10, prog: (a) => a.bestCombo },
   { id: "combo30", name: "CLOCKWORK", text: "Reach a combo of 30.", n: 30, prog: (a) => a.bestCombo },
   { id: "mult8", name: "FULL SWING", text: "Reach the x8 multiplier.", n: 8, prog: (a) => a.R.maxMult },
   { id: "held", name: "HOLD FIRE", text: "Let 8 red swings pass in one run.", n: 8, prog: (a) => a.R.held },
-  { id: "drift", name: "WANDERER", text: "Reach DRIFT.", n: 2, prog: (a) => Math.max(a.sv.far, a.R.far) },
+  { id: "drift", name: "OFF THE BEAT", text: "Reach TEMPO.", n: 2, prog: (a) => Math.max(a.sv.far, a.R.far) },
   { id: "feint", name: "NOT FOOLED", text: "Reach FEINT.", n: 4, prog: (a) => Math.max(a.sv.far, a.R.far) },
   { id: "cycle", name: "FULL CIRCLE", text: "Reach the first CYCLE.", n: 5, prog: (a) => Math.max(a.sv.far, a.R.far) },
-  { id: "blind", name: "NIGHT SIGHT", text: "Strike 5 dark swings in one run.", n: 5, prog: (a) => a.R.blind },
+  { id: "blind", name: "NIGHT SIGHT", text: "Catch 5 dark swings in one run.", n: 5, prog: (a) => a.R.blind },
   { id: "clean", name: "UNSHAKEN", text: "Clear a stage after the first without losing a shield.", n: 1, prog: (a) => a.R.clean },
   { id: "sprint", name: "SIXTY SECONDS", text: "Score 4000 in a sprint.", n: 4000, prog: (a) => Math.max(a.sv.best.sprint, a.mode === "sprint" ? a.score : 0) },
   { id: "daily", name: "ON THE DAY", text: "Meet a daily goal.", n: 1, prog: (a) => life(a, "daily") },
-  { id: "hits", name: "OBSERVER", text: "Strike 500 swings in all.", n: 500, prog: (a) => life(a, "hits") },
+  { id: "hits", name: "OBSERVER", text: "Catch 500 swings in all.", n: 500, prog: (a) => life(a, "hits") },
   { id: "centre", name: "DEAD CENTRE", text: "", hint: "Ten in a row, every one exact.", n: 10, hidden: true, prog: (a) => a.R.pRunMax },
   { id: "last", name: "LAST LIGHT", text: "", hint: "Some do their best work with nothing to spare.", n: 20, hidden: true, prog: (a) => a.R.lastHits },
 ];
@@ -119,19 +121,16 @@ export function swingX(sw, t) {
   const u = clamp((t - sw.t0) / sw.D, 0, 1), mid = (sw.x0 + sw.x1) / 2;
   return mid + (sw.x0 - mid) * Math.cos(Math.PI * u);
 }
-// When a half-swing crosses the meridian, or null if it does not.
-export function crossing(sw) {
-  if ((sw.x0 - 1) * (sw.x1 - 1) >= 0) return null;
-  const mid = (sw.x0 + sw.x1) / 2, k = (1 - mid) / (sw.x0 - mid);
+// When a half-swing is on lamp p (0, 1 or 2): as it passes through, or as it arrives and turns.
+// Null if it never gets there. (Its starting lamp belongs to the half-swing before.)
+export function gateTime(sw, p) {
+  if (Math.abs(p - sw.x1) < 1e-9) return sw.t0 + sw.D;
+  if ((sw.x0 - p) * (sw.x1 - p) >= 0) return null;
+  const mid = (sw.x0 + sw.x1) / 2, k = (p - mid) / (sw.x0 - mid);
   return sw.t0 + (sw.D * Math.acos(clamp(k, -1, 1))) / Math.PI;
 }
-// The pendulum on screen: the pivot, the rod length, and a bob position for a lamp-unit x.
-const PX = 480, PY = 58, ROD = 420, SPAN = 220;
-const bobX = (x) => PX + clamp(x - 1, -1.25, 1.25) * SPAN;
-const bobY = (x) => { const dx = bobX(x) - PX; return PY + Math.sqrt(ROD * ROD - dx * dx); };
-const ARC = Array.from({ length: 27 }, (_, i) => -0.3 + i * 0.1).map((x) => [bobX(x), bobY(x)]);
-// A lamp's colour at full strength, for the sockets that mirror the lamps (their level becomes alpha).
-const hue = (v, i) => { const m = Math.max(v[i], v[i + 1], v[i + 2], 1), k = 255 / m; return "rgb(" + Math.round(v[i] * k) + "," + Math.round(v[i + 1] * k) + "," + Math.round(v[i + 2] * k) + ")"; };
+// The lamp row on screen: three still lamps; the called one is marked. The light is not drawn.
+const LX = [330, 480, 630], LY = 372;
 
 export class Meridian {
   constructor(ctx) {
@@ -153,7 +152,7 @@ export class Meridian {
     this.lampOut = Array(9).fill(0);
     this.reset();
     this.phase = "title";
-    this.setHint("Tap as the light crosses the middle lamp. Hold for the observatory.");
+    this.setHint("Watch the lamps. Tap as the light reaches the called lamp. Hold for the observatory.");
     this.c.hud([["BEST", this.c.best?.() ?? 0]]);
   }
 
@@ -173,10 +172,12 @@ export class Meridian {
     this.lastRed = 0;
     this.lapseAt = -9;
     this.prev = null;
-    // The light waits at the right end for a moment before the first swing.
-    this.sw = { t0: 0.8, D: 1.25, x0: EDGE_R, x1: EDGE_L, feint: false, gate: null };
-    this.sw.gate = this.makeGate(this.sw, false);
-    this.trail = [];
+    this.target = 1; // the called lamp
+    this.from = 0; // passes before this run time are not judged for the called lamp
+    this.repeats = 0;
+    // The light waits at the right lamp for a moment before the first swing.
+    this.sw = { t0: 0.8, D: 1.25, x0: 2, x1: 0, feint: false, red: false, blind: false, gate: null };
+    this.sw.gate = this.makeGate(this.sw);
     this.fb = null; // the last judgement on screen: { word, pts, col, t }
     this.note = "";
     this.noteT = 0;
@@ -209,35 +210,45 @@ export class Meridian {
   unlocked(mode) { return this.sv.ft.length >= (MODES[mode].need || 0); }
   light() { const l = LIGHTS[this.sv.sel.light] || LIGHTS[0]; return this.sv.ft.length >= l.need ? l : LIGHTS[0]; }
 
-  makeGate(sw, live = true) {
-    const at = crossing(sw);
-    if (at === null) return null;
-    const sp = this.spec(), practice = this.gates < PRACTICE;
-    let kind = "normal";
-    if (live && !practice && this.lastRed < 2 && this.rand() < sp.red) kind = "red";
-    this.lastRed = kind === "red" ? this.lastRed + 1 : 0;
-    const blindP = this.mode === "eclipse" ? 1 : sp.blind;
-    const blind = kind === "normal" && !practice && (blindP >= 1 || (live && this.rand() < blindP));
+  // The pass of this half-swing that is judged for the called lamp, if it has one.
+  makeGate(sw) {
+    const at = gateTime(sw, this.target);
+    if (at === null || at < this.from) return null;
+    const practice = this.gates < PRACTICE;
     this.gates++;
-    return { t: at, kind, blind, done: false, practice };
+    return { t: at, p: this.target, kind: sw.red && !practice ? "red" : "normal", blind: sw.blind && !practice && !sw.red, done: false, practice, end: this.target !== 1 };
   }
-  // The next half-swing starts where the last one turned.
+  // Call a lamp. Mostly a different one; never the same three times running.
+  call() {
+    let p = this.target;
+    if (this.repeats >= 1 || this.rand() < 0.75) p = (p + 1 + Math.floor(this.rand() * 2)) % 3;
+    this.repeats = p === this.target ? this.repeats + 1 : 0;
+    this.target = p;
+    this.from = this.rt + LEAD;
+    if (this.sw.gate && !this.sw.gate.done) this.sw.gate.done = true; // an unjudged pass for the old call no longer counts
+    this.sw.gate = this.makeGate(this.sw);
+  }
+  // The next half-swing starts where the last one turned. Normally it swings to the other end lamp;
+  // a feint turns back before the middle, and the swing after it returns to the lamp it came from.
   nextSwing() {
     const old = this.sw, sp = this.spec();
     this.prev = old.gate;
-    const t0 = old.t0 + old.D, x0 = old.x1, right = x0 > 1;
+    const t0 = old.t0 + old.D, x0 = old.x1;
     const progress = clamp(this.stageHits / sp.hits, 0, 1);
     let D = lerp(sp.d0, sp.d1, progress);
     if (this.mode === "sprint") D *= 0.9;
-    if (sp.drift) D *= this.range(0.86, 1.16);
+    if (sp.drift) D *= this.range(0.82, 1.18);
     let x1, feint = false;
-    // A feint turns back on its own side before it reaches the meridian; never two in a row.
-    if (sp.feint && !old.feint && this.gates >= PRACTICE && Math.abs(x0 - 1) > 0.95 && this.rand() < sp.feint) {
+    const atEnd = x0 === 0 || x0 === 2;
+    if (!atEnd) x1 = x0 > 1 ? 2 : 0;
+    else if (sp.feint && !old.feint && this.gates >= PRACTICE && this.rand() < sp.feint) {
       feint = true;
-      x1 = 1 + (right ? 1 : -1) * this.range(0.38, 0.6);
-    } else if (sp.drift) x1 = right ? this.range(EDGE_L, 0.6) : this.range(1.4, EDGE_R);
-    else x1 = right ? EDGE_L : EDGE_R;
-    this.sw = { t0, D: clamp(D, 0.4, 1.6), x0, x1, feint, gate: null };
+      x1 = x0 === 2 ? 2 - this.range(0.45, 0.7) : this.range(0.45, 0.7);
+    } else x1 = x0 === 2 ? 0 : 2;
+    const red = this.gates >= PRACTICE && this.lastRed < 2 && this.rand() < sp.red;
+    this.lastRed = red ? this.lastRed + 1 : 0;
+    const blind = this.gates >= PRACTICE && (this.mode === "eclipse" || this.rand() < sp.blind);
+    this.sw = { t0, D: clamp(D, 0.4, 1.6), x0, x1, feint, red, blind, gate: null };
     this.sw.gate = this.makeGate(this.sw);
     if ((sp.blind > 0 || this.mode === "eclipse") && this.phase === "play") this.c.tone(330, 0.03, "sine"); // a quiet metronome when swings can go dark
   }
@@ -316,21 +327,23 @@ export class Meridian {
     if (mode === "daily") this.dseed = mixSeed(hashText("meridian-day" + this.dayKey())) || 1;
     this.best0 = this.bestRef();
     this.announce(mode === "swing" ? this.spec().note : MODES[mode].name + ": " + MODES[mode].text, 3.4);
-    this.setHint(mode === "eclipse" ? "Listen for the turns. Tap where the meridian would be." : "Tap as the light crosses the middle lamp. Let red swings pass.");
+    this.setHint(mode === "eclipse" ? "Listen for the turns. Tap where the called lamp would light." : "Watch the lamps. Tap as the light reaches the called lamp. Let red swings pass.");
     this.lamps.clear();
   }
 
   // A press in play: judged against the nearest gate still open.
   strike() {
-    const g = this.nearestGate(), k = this.spec().win;
+    const g = this.nearestGate(), k = this.spec().win * (g?.end ? END_WIN : 1);
     const err = g ? Math.abs(this.rt - g.t) : Infinity;
     if (!g || err > WIN[2] * k) {
       // Just after a swing that lapsed: the same miss, already paid for.
       if (this.rt - this.lapseAt < 0.35) { this.fb = { word: "LATE", pts: 0, col: C.red, t: 0.7 }; return; }
-      // Too far from any crossing. The coming gate is spent too, so one mistake costs one shield.
+      // Too far from any pass of the called lamp. The coming gate is spent too, so one mistake costs one shield.
       const next = this.sw.gate;
-      if (next && !next.done && next.t - this.rt < 0.45) next.done = true;
+      const spent = next && !next.done && next.t - this.rt < 0.45;
+      if (spent) next.done = true;
       this.penalty("WIDE", next?.practice ?? this.gates <= PRACTICE);
+      if (spent && this.phase === "play") this.call();
       return;
     }
     g.done = true;
@@ -359,9 +372,11 @@ export class Meridian {
     if (this.shields === 1 && this.mode !== "sprint") this.R.lastHits++;
     this.fb = { word: GRADES[grade], pts, col: grade === 0 ? C.cyan : grade === 1 ? C.ink : C.amber, t: 0.9 };
     this.c.tone(SCALE[this.combo % SCALE.length] * (grade === 2 ? 0.5 : 1), grade === 0 ? 0.12 : 0.08, grade === 0 ? "triangle" : "sine");
-    const mid = grade === 0 ? LAMP.white : grade === 1 ? LAMP.green : LAMP.amber;
-    this.lamps.flash(0.28, (e) => lamps(grade === 0 ? dim(LAMP.green, 0.35 * (1 - e / 0.28)) : null, dim(mid, 0.85 * (1 - e / 0.28) + 0.1), grade === 0 ? dim(LAMP.green, 0.35 * (1 - e / 0.28)) : null));
+    // The caught lamp flashes the grade colour.
+    const col = grade === 0 ? LAMP.white : grade === 1 ? LAMP.green : LAMP.amber, p = g.p;
+    this.lamps.flash(0.28, (e) => only(p, col, 0.85 * (1 - e / 0.28) + 0.1));
     this.cleared();
+    this.call();
     this.stageHits++;
     if (this.stageHits >= (this.mode === "sprint" ? Math.ceil(sp.hits / 2) : sp.hits)) this.advance();
     this.checkFeats();
@@ -498,7 +513,7 @@ export class Meridian {
     else {
       // The title and menus keep a slow swing going behind them.
       this.rt += dt * 0.6;
-      for (let i = 0; i < 4 && this.rt >= this.sw.t0 + this.sw.D; i++) this.sw = { t0: this.sw.t0 + this.sw.D, D: 1.4, x0: this.sw.x1, x1: this.sw.x1 > 1 ? EDGE_L : EDGE_R, feint: false, gate: null };
+      for (let i = 0; i < 4 && this.rt >= this.sw.t0 + this.sw.D; i++) this.sw = { t0: this.sw.t0 + this.sw.D, D: 1.4, x0: this.sw.x1, x1: this.sw.x1 > 1 ? 0 : 2, feint: false, red: false, blind: false, gate: null };
       if (this.phase === "over") this.deadT += dt;
     }
     this.lampOut = this.lampValues();
@@ -514,12 +529,9 @@ export class Meridian {
       if (!g || g.done || this.rt <= g.t + late) continue;
       g.done = true;
       if (g.kind === "red") this.held();
-      else { this.penalty("LAPSE", g.practice); this.lapseAt = this.rt; }
+      else { this.penalty("LAPSE", g.practice); this.lapseAt = this.rt; if (this.phase === "play") this.call(); }
       if (this.phase !== "play") return;
     }
-    const x = this.x();
-    this.trail.push(x);
-    if (this.trail.length > 10) this.trail.shift();
   }
   pushHud() {
     if (this.phase !== "play") return;
@@ -528,10 +540,10 @@ export class Meridian {
     const key = items.join("|");
     if (key !== this.hudKey) { this.hudKey = key; this.c.hud(items); }
   }
-  // Is the light hidden at x? Dark swings hide it near the meridian.
+  // Is the light hidden at x? A dark swing hides it near the called lamp.
   hidden(x) {
     const g = this.sw.gate;
-    return this.phase === "play" && !!g && g.blind && Math.abs(x - 1) < 0.62;
+    return this.phase === "play" && !!g && g.blind && !g.done && Math.abs(x - g.p) < 0.62;
   }
 
   // ---- lamps ----------------------------------------------------------------------------------
@@ -544,57 +556,34 @@ export class Meridian {
       if (this.newRecord) return lamps(null, dim(LAMP.amber, 0.08 + 0.12 * pulse(this.t, 0.5)), null);
       return spot(x / 2, dim(col, 0.06));
     }
-    const g = this.sw.gate, red = g && g.kind === "red";
-    const marker = only(1, red ? LAMP.red : LAMP.cyan, red ? 0.16 : 0.1);
-    let out = marker;
+    // A faint cyan mark on the called lamp; the swinging light is red on a red swing.
+    const red = this.sw.red && this.gates > PRACTICE;
+    let out = only(this.target, LAMP.cyan, 0.08);
     if (!this.hidden(x)) out = lampMax(out, spot(x / 2, dim(red ? LAMP.red : col, 0.55)));
-    // On the last shield the side lamps breathe a faint red.
-    if (this.shields === 1 && this.mode !== "sprint") out = lampMax(out, lamps(dim(LAMP.red, 0.06 * pulse(this.t, 0.8)), null, dim(LAMP.red, 0.06 * pulse(this.t, 0.8))));
     return out;
   }
 
   // ---- drawing --------------------------------------------------------------------------------
   draw(g) {
     space(g, this.t * 6, 0.25);
-    if (this.phase === "title" || this.phase === "play") this.drawPendulum(g);
+    if (this.phase === "play") this.drawLamps(g);
     if (this.phase === "play") this.drawPlay(g);
-    else if (this.phase === "title") banner(g, "MERIDIAN", "A light swings across the three lamps. Tap as it crosses the middle one.");
+    else if (this.phase === "title") banner(g, "MERIDIAN", "A light swings across the three lamps. The screen calls one: tap as the light reaches it.");
     else if (this.phase === "over") this.drawOver(g);
     else this.drawMenu(g);
   }
-  drawPendulum(g) {
-    const x = this.x(), play = this.phase === "play", gate = play ? this.sw.gate : null;
-    const red = gate && gate.kind === "red", lc = this.light();
-    // The meridian and the bob's path.
-    g.setLineDash?.([6, 8]);
-    line(g, PX, PY, PX, 520, C.line, 2);
-    g.setLineDash?.([]);
-    g.strokeStyle = C.line; g.lineWidth = 2; g.beginPath();
-    for (let i = 0; i < ARC.length; i++) (i ? g.lineTo : g.moveTo).call(g, ARC[i][0], ARC[i][1]);
-    g.stroke();
-    // Lamp sockets mirror the real lamps.
-    const out = this.lampOut;
+  // The call, large, and the three lamps as still sockets with the called one marked. The swinging
+  // light is deliberately not drawn: it is on the lamps.
+  drawLamps(g) {
+    const gate = this.sw.gate, red = gate && gate.kind === "red" && !gate.done;
+    const col = red ? C.red : C.cyan;
+    text(g, SIDE[this.target], 480, 236, 84, col, "center");
     for (let i = 0; i < 3; i++) {
-      const lx = i, sx = bobX(lx), sy = bobY(lx);
-      const level = Math.max(out[i * 3], out[i * 3 + 1], out[i * 3 + 2]);
-      if (level > 0) { g.globalAlpha = clamp(level / 150, 0.18, 0.9); circle(g, sx, sy, 22, hue(out, i * 3), true); g.globalAlpha = 1; }
-      circle(g, sx, sy, 28, i === 1 ? (red ? C.red : C.cyan) : C.line, false, i === 1 ? 3 : 2);
+      const on = i === this.target;
+      circle(g, LX[i], LY, 30, on ? col : C.line, false, on ? 4 : 2);
+      if (on) circle(g, LX[i], LY, 12, col, true);
+      text(g, ["I", "II", "III"][i], LX[i], LY + 52, 18, on ? col : C.muted, "center");
     }
-    circle(g, PX, PY, 7, C.muted, true);
-    if (this.hidden(x)) return;
-    const colour = red ? C.red : lc.css;
-    const bx = bobX(x), by = bobY(x);
-    line(g, PX, PY, bx, by, play ? C.muted : C.line, 2);
-    if (play) {
-      for (let i = 0; i < this.trail.length - 1; i++) {
-        const tx = this.trail[i];
-        if (this.hidden(tx)) continue;
-        g.globalAlpha = (i + 1) / this.trail.length * 0.35;
-        circle(g, bobX(tx), bobY(tx), 10, colour, true);
-      }
-      g.globalAlpha = 1;
-    }
-    circle(g, bx, by, play ? 15 : 11, colour, true);
   }
   drawPlay(g) {
     // Shields as diamonds, top right; the multiplier, top left.
@@ -602,16 +591,15 @@ export class Meridian {
     else for (let i = 0; i < SHIELDS; i++) diamond(g, 856 + i * 34, 44, 12, i < this.shields ? C.cyan : C.line, i < this.shields);
     text(g, "x" + this.mult(), 40, 48, 34, this.mult() > 1 ? C.amber : C.muted);
     if (this.gates <= PRACTICE) text(g, "PRACTICE SWINGS", 40, 88, 18, C.cyan);
-    if (this.noteT > 0) text(g, this.note, 480, 128, 22, C.amber, "center");
+    if (this.noteT > 0) text(g, this.note, 480, 120, 22, C.amber, "center");
+    const gate = this.sw.gate;
+    if (gate && gate.kind === "red" && !gate.done) text(g, "RED SWING / LET IT PASS", 480, 300, 24, C.red, "center");
+    else if (gate && gate.blind && !gate.done) text(g, "DARK SWING", 480, 300, 24, C.muted, "center");
     if (this.fb) {
       g.globalAlpha = clamp(this.fb.t / 0.3, 0, 1);
-      text(g, this.fb.word, 480, 214, 34, this.fb.col, "center");
-      if (this.fb.pts) text(g, "+" + this.fb.pts, 480, 254, 22, C.muted, "center");
+      text(g, this.fb.word + (this.fb.pts ? "  +" + this.fb.pts : ""), 480, 476, 28, this.fb.col, "center");
       g.globalAlpha = 1;
     }
-    const gate = this.sw.gate;
-    if (gate && gate.kind === "red" && !gate.done) text(g, "LET IT PASS", 480, 314, 24, C.red, "center");
-    else if (gate && gate.blind && !gate.done) text(g, "DARK SWING", 480, 314, 24, C.muted, "center");
   }
   drawOver(g) {
     const r = this.result || {};

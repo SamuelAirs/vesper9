@@ -39,16 +39,10 @@
       "name": "PLAY III",
       "apps": [
         "outpost",
-        "echo",
-        "glyphs"
-      ]
-    },
-    {
-      "name": "LAMPS",
-      "apps": [
         "reaction",
         "meridian",
-        "kiln"
+        "echo",
+        "glyphs"
       ]
     },
     {
@@ -168,9 +162,9 @@
     {
       "id": "meridian",
       "name": "MERIDIAN",
-      "subtitle": "Stop the swinging light.",
-      "description": "A light swings across the three lamps. Tap as it crosses the middle lamp. Let red swings pass, read swings that wander, go dark or turn back. Hold on the title for the observatory: daily run, sprint, eclipse, feats.",
-      "controls": "TAP AS THE LIGHT CROSSES LAMP II · HOLD ON TITLE: OBSERVATORY",
+      "subtitle": "Catch the light on the called lamp.",
+      "description": "A light swings across the three lamps. The screen calls LEFT, MIDDLE or RIGHT: watch the lamps and tap as the light reaches that lamp. Let red swings pass; read changes of tempo, dark swings and feints. Hold on the title for the observatory: daily run, sprint, eclipse, feats.",
+      "controls": "WATCH THE LAMPS · TAP ON THE CALLED LAMP · HOLD ON TITLE: OBSERVATORY",
       "category": "PLAY / TIMING",
       "glyph": 2,
       "factory": "Meridian",
@@ -187,33 +181,6 @@
       "record": {
         "score": "Score",
         "combo": "Best combo",
-        "stage": "Reached",
-        "mode": "Mode"
-      }
-    },
-    {
-      "id": "kiln",
-      "name": "KILN",
-      "subtitle": "Let go before the heat arrives.",
-      "description": "Hold to heat the kiln. Release and the heat coasts on before it settles. Land it inside the pot's band. One clean hold scores double. New clays take away the pyrometer, narrow and move the band and bring draughts. Hold on the title for the yard: daily firing, trial, lamps-only firing, glazes, feats.",
-      "controls": "HOLD TO HEAT · RELEASE EARLY · HOLD ON TITLE: THE YARD",
-      "category": "PLAY / TOUCH",
-      "glyph": 3,
-      "factory": "Kiln",
-      "voice": [
-        "pottery"
-      ],
-      "capabilities": [
-        "button",
-        "lights",
-        "audio",
-        "progress"
-      ],
-      "icon": "<path d=\"M8 42V22A16 16 0 0 1 40 22V42\"/><path d=\"M4 42H44\"/><path d=\"M20 24H28Q27 28 31 33Q33 38 29 40H19Q15 38 17 33Q21 28 20 24Z\"/><path d=\"M24 14v3M18 16l1.5 2.5M30 16l-1.5 2.5\"/>",
-      "record": {
-        "score": "Score",
-        "pots": "Pots fired",
-        "combo": "Longest run",
         "stage": "Reached",
         "mode": "Mode"
       }

@@ -1,7 +1,7 @@
-// MERIDIAN: the swing, the judging, the stages, the observatory, the save, the lamps.
+// MERIDIAN: the swing, the called lamp, the judging, the stages, the observatory, the save, the lamps.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Meridian, migrateSave, swingX, crossing, stageSpec, dailyGoal, WIN, PRACTICE } from "../web/apps/meridian.js";
+import { Meridian, migrateSave, swingX, gateTime, stageSpec, dailyGoal, WIN, PRACTICE, SIDE } from "../web/apps/meridian.js";
 import { appContext, fakeCanvas, run } from "./helpers/app-context.mjs";
 import { Random } from "../web/engine/math.js";
 
@@ -10,14 +10,16 @@ function mount(options = {}) {
   const ctx = appContext({ seed: 7, ...options });
   return { ctx, app: new Meridian(ctx) };
 }
-// A player who taps every plain swing at its crossing with a timing error of about `sd` seconds,
+// The pass of the called lamp still to be judged (an end lamp is reached as one half-swing ends).
+const open = (app) => [app.sw.gate, app.prev].find((g) => g && !g.done) || null;
+// A player who taps every plain pass of the called lamp with a timing error of about `sd` seconds,
 // and lets red swings pass. It reads the swing from the game, as a player reads the light.
 function bot(app, seed, sd, seconds, g) {
   const r = new Random(seed);
   let target = null, off = 0;
   for (let i = 0; i < seconds * 60 && app.phase === "play"; i++) {
-    const gate = app.sw.gate;
-    if (gate && !gate.done && gate.kind === "normal") {
+    const gate = open(app);
+    if (gate && gate.kind === "normal") {
       if (target !== gate) { target = gate; off = (r.next() + r.next() + r.next() - 1.5) * sd * 2; }
       if (app.rt + 1 / 120 >= gate.t + off) tap(app);
     }
@@ -32,15 +34,18 @@ const numbers = (o, path = "") => {
   }
 };
 
-test("a half-swing is half a cosine and crosses the meridian once, or not at all for a feint", () => {
-  const sw = { t0: 2, D: 1, x0: 2.15, x1: -0.15 };
-  assert.equal(swingX(sw, 2), 2.15);
-  assert.ok(Math.abs(swingX(sw, 3) + 0.15) < 1e-9);
-  assert.ok(Math.abs(crossing(sw) - 2.5) < 1e-9, "a symmetric swing crosses at its middle");
-  const off = { t0: 0, D: 1, x0: 2.0, x1: 0.4 };
-  const at = crossing(off);
-  assert.ok(at > 0 && at < 1 && Math.abs(swingX(off, at) - 1) < 1e-9, "an off-centre swing crosses where x = 1");
-  assert.equal(crossing({ t0: 0, D: 1, x0: 2.1, x1: 1.5 }), null, "a feint never crosses");
+test("a half-swing is half a cosine and reaches each lamp once: through it, or arriving at the turn", () => {
+  const sw = { t0: 2, D: 1, x0: 2, x1: 0 };
+  assert.equal(swingX(sw, 2), 2);
+  assert.ok(Math.abs(swingX(sw, 3)) < 1e-9);
+  assert.ok(Math.abs(gateTime(sw, 1) - 2.5) < 1e-9, "a full swing passes the middle at its midpoint");
+  assert.equal(gateTime(sw, 0), 3, "the far lamp is reached at the turn");
+  assert.equal(gateTime(sw, 2), null, "the lamp it leaves belongs to the swing before");
+  const feint = { t0: 0, D: 1, x0: 2, x1: 1.4 };
+  assert.equal(gateTime(feint, 1), null, "a feint never reaches the middle");
+  assert.equal(gateTime(feint, 0), null);
+  const back = { t0: 1, D: 0.5, x0: 1.4, x1: 2 };
+  assert.equal(gateTime(back, 2), 1.5, "after a feint the light returns to the lamp it came from");
 });
 
 test("stages get faster and add rules; cycles narrow the windows but never below six tenths", () => {
@@ -50,6 +55,7 @@ test("stages get faster and add rules; cycles narrow the windows but never below
   for (let i = 1; i < 30; i++) assert.ok(stageSpec(i).d1 <= stageSpec(i - 1).d1 + 1e-9 || i === 5, "stage " + i + " is not slower");
   assert.equal(stageSpec(4).win, 1);
   assert.ok(stageSpec(6).win < 1 && stageSpec(60).win === 0.6);
+  assert.deepEqual(SIDE, ["LEFT", "MIDDLE", "RIGHT"]);
 });
 
 test("a steady player goes far and outscores an idle one, a sloppy one loses early, and nothing is NaN", () => {
@@ -59,14 +65,14 @@ test("a steady player goes far and outscores an idle one, a sloppy one loses ear
     tap(app);
     assert.equal(app.phase, "play");
     bot(app, seed * 11, 0.04, 240, g);
-    numbers({ score: app.score, rt: app.rt, t: app.t, sw: app.sw, prev: app.prev, R: app.R, sv: app.sv, clock: app.clock, combo: app.combo, trail: app.trail });
-    assert.ok(app.trail.length <= 10 && app.sq.length <= 8);
+    numbers({ score: app.score, rt: app.rt, t: app.t, sw: app.sw, prev: app.prev, R: app.R, sv: app.sv, clock: app.clock, combo: app.combo });
+    assert.ok(app.sq.length <= 8);
     return { score: app.score, far: app.R.far, combo: app.bestCombo };
   });
   for (const r of results) assert.ok(r.far >= 4 && r.score > 20000, JSON.stringify(r));
   const sloppy = mount({ seed: 4 }).app;
   tap(sloppy);
-  bot(sloppy, 9, 0.14, 120);
+  bot(sloppy, 9, 0.2, 120);
   assert.equal(sloppy.phase, "over", "a sloppy player's run ends");
   const idle = mount({ seed: 5 }).app;
   tap(idle);
@@ -79,13 +85,12 @@ test("a steady player goes far and outscores an idle one, a sloppy one loses ear
 test("a newcomer's first swings are practice: lapses and wide taps cost nothing", () => {
   const { app } = mount();
   tap(app);
-  tap(app); // nowhere near a crossing
+  tap(app); // nowhere near a pass of the called lamp
   assert.equal(app.shields, 3);
   assert.match(app.fb.word, /WIDE \/ PRACTICE/);
-  run(app, 5.5);
-  assert.equal(app.shields, 3, "the practice swings lapsed for free");
-  run(app, 1);
+  for (let i = 0; i < 1800 && app.gates <= PRACTICE; i++) app.update(1 / 60);
   assert.ok(app.gates > PRACTICE);
+  assert.equal(app.shields, 3, "the practice swings lapsed for free");
   run(app, 6);
   assert.ok(app.shields < 3, "after practice a lapse costs a shield");
 });
@@ -101,11 +106,10 @@ test("a strike is graded by its timing error; a late tap after a lapse is not ch
   assert.equal(app.combo, 1);
   assert.ok(app.score > 0);
   // Let the next swing lapse, then tap a little late: one shield.
-  const next = () => app.sw.gate && !app.sw.gate.done ? app.sw.gate : null;
-  while (!next()) app.update(1 / 60);
-  const gate = next();
+  while (!open(app)) app.update(1 / 60);
+  const gate = open(app);
   gate.practice = false;
-  run(app, gate.t + WIN[2] - app.rt + 0.05);
+  run(app, gate.t + WIN[2] * 1.35 - app.rt + 0.05);
   assert.equal(app.shields, 2);
   tap(app);
   assert.equal(app.fb.word, "LATE");
@@ -115,7 +119,7 @@ test("a strike is graded by its timing error; a late tap after a lapse is not ch
 test("a red swing must pass: tapping it burns a shield, letting it go scores", () => {
   const { app } = mount();
   tap(app);
-  const until = () => { while (!(app.sw.gate && !app.sw.gate.done)) app.update(1 / 60); return app.sw.gate; };
+  const until = () => { while (!open(app)) app.update(1 / 60); return open(app); };
   let g = until();
   g.kind = "red"; g.practice = false;
   run(app, g.t - app.rt);
@@ -126,10 +130,32 @@ test("a red swing must pass: tapping it burns a shield, letting it go scores", (
   g = until();
   g.kind = "red"; g.practice = false;
   const before = app.score;
+  const called = app.target;
   run(app, g.t - app.rt + 0.3);
   assert.equal(app.R.held, 1);
+  assert.equal(app.target, called, "the call stands after a red swing: catch the next pass");
   assert.ok(app.score > before);
   assert.equal(app.shields, 2);
+});
+
+test("each catch calls a lamp: all three come up, never one three times running, and the screen shows the call", () => {
+  const { app } = mount({ seed: 12 });
+  tap(app);
+  const calls = [];
+  let last = -1;
+  const orig = app.call.bind(app);
+  app.call = () => { orig(); calls.push(app.target); };
+  bot(app, 4, 0.03, 90);
+  assert.ok(calls.length > 30);
+  assert.deepEqual([...new Set(calls)].sort(), [0, 1, 2]);
+  for (let i = 2; i < calls.length; i++) assert.ok(!(calls[i] === calls[i - 1] && calls[i] === calls[i - 2]), "three in a row at " + i);
+  const texts = [];
+  const g = fakeCanvas();
+  g.fillText = (t) => texts.push(String(t));
+  app.phase = "play"; app.target = 0; app.draw(g);
+  assert.ok(texts.includes("LEFT"));
+  last = texts.length;
+  assert.ok(last > 0);
 });
 
 test("the lamps carry the swing: nine whole numbers that change, dark after cancel() and dispose()", () => {

@@ -4,6 +4,11 @@ export const GESTURE_PACES = {
   standard: { tapMs: 150, gapMs: 220, totalMs: 900 },
   relaxed: { tapMs: 220, gapMs: 320, totalMs: 1350 },
 };
+// A raw-mode press that nothing has confirmed for this long lost its release. Games such as
+// Undertow are played with long holds, so this is far beyond any real one.
+export const RAW_STUCK_MS = 30000;
+// A node STATUS that says "up" this soon after a press may have been composed before it.
+const STATUS_GRACE_MS = 250;
 export class InputRouter {
   constructor(host, clock = () => performance.now()) {
     this.host = host; this.clock = clock; this.press = null;
@@ -66,6 +71,8 @@ export class InputRouter {
     const policy = this.policy(), pace = GESTURE_PACES[policy.pace] || GESTURE_PACES.standard;
     if (this.sequence && this.clock() - this.sequence.received > pace.gapMs + 100) this.resetSequence();
     if (!this.press) return;
+    const quiet = this.clock() - Math.max(this.press.at, this.press.confirmed ?? 0);
+    if (this.press.mode === 'raw' && quiet > RAW_STUCK_MS) { this.cancel(); return; }
     const elapsed = this.clock() - this.press.at, menu = this.press.mode === 'menu';
     this.host.holdVisual(menu ? Math.min(1, elapsed / this.host.holdMs()) : policy.clicks ? 0 : Math.min(1, elapsed / 3000), menu && elapsed >= this.host.holdMs());
     if (elapsed >= 3000 && (menu || !policy.clicks) && !this.press.consumed) {
@@ -73,6 +80,12 @@ export class InputRouter {
     }
   }
   reconcile(pressed, source = 'node') {
+    const press = this.press;
+    if (press && press.source === source) {
+      // The node's own report outranks our bookkeeping: up means a release frame was lost.
+      if (pressed === false && this.clock() - press.at > STATUS_GRACE_MS) this.cancel();
+      else if (pressed) press.confirmed = this.clock();
+    }
     if (!this.blocked || (this.blockSource && this.blockSource !== source)) return;
     if (pressed === false) { this.blocked = false; this.blockSource = null; this.resetSequence(); }
   }

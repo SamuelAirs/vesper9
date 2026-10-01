@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS } from "../apps/catalog.js";
+import { CARTRIDGES, DEFAULT_SETTINGS } from "../apps/catalog.js";
 // Standalone edition: the actual game engine with a browser-local simulated node.
 // It never claims to perform speech recognition or to read real sensor hardware.
 export class DemoBridge extends EventTarget {
@@ -10,6 +10,7 @@ export class DemoBridge extends EventTarget {
     this.pattern = [];
     this.pressed = false;
     this.history = [];
+    this.focus = "home";
     let saved = {};
     try {
       saved = JSON.parse(localStorage.getItem("vesper-demo") || "{}");
@@ -90,6 +91,7 @@ export class DemoBridge extends EventTarget {
           timer.finished = true;
           this.emit({ type: "timer_done", timer });
           this.save();
+          this.timerAlert();
         }
       }
     this.emit({
@@ -97,6 +99,28 @@ export class DemoBridge extends EventTarget {
       timers: this.state.timers.map((t) => ({ ...t })),
     });
     if (++this.next % 5 === 0) this.sensor();
+  }
+  // Same rule as the service: gameplay keeps its lamps, the other screens get an amber blink.
+  timerAlert() {
+    if (!this.connected || !["home", "timers", "environment"].includes(this.focus)) return;
+    this.emit({ type: "light_effect", durationMs: 1200 });
+    const amber = Array(3).fill([180, 100, 0]).flat(), off = Array(9).fill(0);
+    this.playPattern([{ ms: 180, values: amber }, { ms: 180, values: off }], 3);
+  }
+  setLeds(values) {
+    this.state.leds = values;
+    this.emit({ type: "leds", values });
+  }
+  playPattern(steps, repeat = 1) {
+    this.pattern.forEach(clearTimeout);
+    this.pattern = [];
+    let delay = 0;
+    for (let n = 0; n < repeat; n++)
+      for (const step of steps) {
+        this.pattern.push(setTimeout(() => this.setLeds(step.values), delay));
+        delay += step.ms;
+      }
+    this.pattern.push(setTimeout(() => this.setLeds(Array(9).fill(0)), delay));
   }
   async command(command, data = {}) {
     if (command === "button") {
@@ -113,43 +137,47 @@ export class DemoBridge extends EventTarget {
         });
       }
     } else if (command === "leds") {
-      this.state.leds = data.values;
-      this.emit({ type: "leds", values: data.values });
-    } else if (command === "reaction") {
+      const values = data.values;
+      if (!Array.isArray(values) || values.length !== 9 || values.some((x) => !Number.isInteger(x) || x < 0 || x > 255))
+        throw new Error("Nine integer light values from 0 to 255 required");
+      // As on the node, an explicit write stops any running pattern or armed cue.
       clearTimeout(this.reaction);
-      await this.command("leds", { values: [70, 18, 0, 0, 0, 0, 0, 0, 0] });
+      this.pattern.forEach(clearTimeout);
+      this.pattern = [];
+      this.setLeds(values.slice());
+    } else if (command === "reaction") {
+      const trial = Math.trunc(Number(data.trial)), delay = Math.trunc(Number(data.delay));
+      if (!(trial >= 0 && trial <= 0xFFFFFFFF) || !(delay >= 250 && delay <= 10000)) throw new Error("Invalid reaction round");
+      clearTimeout(this.reaction);
+      this.pattern.forEach(clearTimeout);
+      this.pattern = [];
+      this.setLeds([70, 18, 0, 0, 0, 0, 0, 0, 0]);
       this.reaction = setTimeout(() => {
-        this.command("leds", { values: [0, 0, 0, 30, 255, 90, 0, 0, 0] });
+        this.setLeds([0, 0, 0, 30, 255, 90, 0, 0, 0]);
         this.emit({
           type: "cue",
-          trial: data.trial,
+          trial,
           at_us: performance.now() * 1000,
           simulated: true,
           generation: 1,
         });
-      }, data.delay);
+      }, delay);
     } else if (command === "cancel") {
       clearTimeout(this.reaction);
       this.pattern.forEach(clearTimeout);
       this.pattern = [];
     } else if (command === "pattern") {
-      let delay = 0;
-      for (let n = 0; n < (data.repeat || 1); n++)
-        for (const step of data.steps) {
-          this.pattern.push(
-            setTimeout(
-              () => this.command("leds", { values: step.values }),
-              delay,
-            ),
-          );
-          delay += step.ms;
-        }
-      this.pattern.push(
-        setTimeout(
-          () => this.command("leds", { values: Array(9).fill(0) }),
-          delay,
-        ),
-      );
+      const steps = Array.isArray(data.steps) ? data.steps : [], repeat = Math.trunc(Number(data.repeat ?? 1));
+      if (!(steps.length >= 1 && steps.length <= 16) || !(repeat >= 1 && repeat <= 8))
+        throw new Error("Pattern must contain 1–16 steps and repeat 1–8 times");
+      for (const step of steps) {
+        const ms = Math.trunc(Number(step?.ms)), values = step?.values;
+        if (!(ms >= 10 && ms <= 10000) || !Array.isArray(values) || values.length !== 9 ||
+            values.some((v) => !Number.isInteger(v) || v < 0 || v > 255))
+          throw new Error("Invalid pattern step");
+      }
+      clearTimeout(this.reaction);
+      this.playPattern(steps, repeat);
     } else if (command === "score") {
       const key = data.metric && data.metric !== "default" ? data.app + ":" + data.metric : data.app;
       this.state.scores[key] = Math.max(
@@ -191,7 +219,7 @@ export class DemoBridge extends EventTarget {
         });
       } else {
         const timer = this.state.timers.find((t) => t.id === data.id);
-        if (!timer) return;
+        if (!timer) throw new Error("Timer not found");
         if (data.op === "remove")
           this.state.timers = this.state.timers.filter((t) => t !== timer);
         else if (data.op === "toggle") {
@@ -208,14 +236,17 @@ export class DemoBridge extends EventTarget {
           timer.running = false;
           timer.remaining = timer.duration;
           timer.finished = false;
-        }
+        } else throw new Error("Unknown timer action");
       }
       this.save();
       this.emit({
         type: "timers",
         timers: this.state.timers.map((t) => ({ ...t })),
       });
-    }
+    } else if (command === "focus") {
+      if (data.app !== "home" && !CARTRIDGES.some((a) => a.id === data.app)) throw new Error("Unknown app");
+      this.focus = data.app;
+    } else throw new Error("Unknown command");
     return { accepted: true };
   }
   async get(path) {

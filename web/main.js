@@ -2,7 +2,7 @@ import { Bridge } from "./engine/bridge.js";
 import { DemoBridge } from "./engine/demo.js";
 import { InputRouter } from "./engine/input.js";
 import { Synth, BrowserMicrophone } from "./engine/audio.js";
-import { Random, escapeHTML as esc, formatTime } from "./engine/math.js";
+import { Random, escapeHTML as esc, formatTime, formatTemp, tempUnit } from "./engine/math.js";
 import { ambient, glyph, C, text, space } from "./engine/draw.js";
 import { APPS } from "./apps/registry.js";
 import { DEFAULT_SETTINGS as DEFAULT } from "./apps/catalog.js";
@@ -740,6 +740,7 @@ export class Vesper {
       case "settings":
         this.state.settings = { ...DEFAULT, ...e.settings };
         this.settings();
+        this.status();
         this.input.resetSequence();
         this.clickVisual(0);
         break;
@@ -783,9 +784,10 @@ export class Vesper {
         : s.simulated
           ? "SIMULATOR"
           : "HARDWARE";
+    const unit = (s.settings || DEFAULT).tempUnit;
     $("temp-mini").textContent = s.sensor
-      ? s.sensor.temperature.toFixed(1) + " °C"
-      : "— °C";
+      ? formatTemp(s.sensor.temperature, unit)
+      : "— " + tempUnit(unit);
     $("rh-mini").textContent = s.sensor
       ? s.sensor.humidity.toFixed(0) + " % RH"
       : "— % RH";

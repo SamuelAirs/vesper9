@@ -4,7 +4,9 @@
 #include "driver/ledc.h"
 #include "driver/mcpwm_prelude.h"
 #include "driver/uart.h"
+#include "driver/usb_serial_jtag.h"
 #include "esp_err.h"
+#include "esp_rom_sys.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -26,11 +28,20 @@ typedef struct {
 static QueueHandle_t urgent_queue, audio_queue;
 static atomic_bool mic_wanted = false, mic_active = false;
 static atomic_uint audio_drops = 0;
+// Sensor diagnostics for STATUS: address in use (0 = none), counts, last esp_err_t.
+static atomic_int sensor_address = 0, sensor_error = 0;
+static atomic_uint sensor_good = 0, sensor_bad = 0;
 static i2s_chan_handle_t microphone;
 static mcpwm_cmpr_handle_t ninth_comparator;
 static mcpwm_gen_handle_t ninth_generator;
 static uint8_t leds[9] = {0};
-static v9_decoder decoder = {0};
+// Protocol v1 is served on both the COM bridge (UART0) and the native USB
+// port (USB Serial/JTAG). The node answers on whichever link last delivered a
+// valid host frame; with no live host it announces itself on both.
+enum { LINK_UART = 0, LINK_USB = 1, LINK_COUNT = 2, LINK_NONE = -1 };
+static v9_decoder decoders[LINK_COUNT] = {0};
+static int64_t last_byte[LINK_COUNT] = {0};
+static atomic_int active_link = LINK_NONE;
 static int64_t last_host = 0, last_status = 0;
 static bool link_alive = false;
 static bool button_raw = false, button_stable = false, button_inhibit = true;
@@ -137,20 +148,26 @@ static void setup_lights(void) {
 
 static void status(uint8_t kind) {
   char data[400];
+  int link = atomic_load(&active_link);
   int n = snprintf(data, sizeof(data),
-                   "{\"fw\":\"vesper-node-0.1.0\",\"mic\":%s,\"button\":%s,\"audio_drops\":%u,\"rx_"
-                   "crc\":%lu,\"leds\":[%u,%u,%u,%u,%u,%u,%u,%u,%u]}",
+                   "{\"fw\":\"vesper-node-0.1.1\",\"link\":\"%s\",\"mic\":%s,\"button\":%s,\"audio_"
+                   "drops\":%u,\"rx_crc\":%lu,\"sensor\":{\"addr\":%d,\"ok\":%u,\"fail\":%u,\"err\":%d},\"leds\":[%"
+                   "u,%u,%u,%u,%u,%u,%u,%u,%u]}",
+                   link == LINK_USB ? "usb" : link == LINK_UART ? "uart" : "none",
                    atomic_load(&mic_active) ? "true" : "false", button_stable ? "true" : "false",
-                   atomic_load(&audio_drops), (unsigned long)decoder.errors, leds[0], leds[1],
+                   atomic_load(&audio_drops),
+                   (unsigned long)(decoders[LINK_UART].errors + decoders[LINK_USB].errors),
+                   atomic_load(&sensor_address), atomic_load(&sensor_good), atomic_load(&sensor_bad),
+                   atomic_load(&sensor_error), leds[0], leds[1],
                    leds[2], leds[3], leds[4], leds[5], leds[6], leds[7], leds[8]);
   if (n > 0 && n < (int)sizeof(data))
     send_message(kind, data, (uint16_t)n, false);
 }
 
-static void command(uint8_t kind, uint16_t sequence, const uint8_t *p, uint16_t n, void *unused) {
-  (void)unused;
+static void command(uint8_t kind, uint16_t sequence, const uint8_t *p, uint16_t n, void *link) {
   last_host = esp_timer_get_time();
   link_alive = true;
+  atomic_store(&active_link, (int)(intptr_t)link);
   switch (kind) {
   case V9_PING:
     if (n) {
@@ -237,8 +254,14 @@ static void tx_task(void *unused) {
       have = xQueueReceive(audio_queue, &m, 0) == pdTRUE;
     if (have) {
       size_t n = v9_encode(frame, m.kind, sequence++, m.payload, m.length);
-      uart_write_bytes(UART_NUM_0, frame, n);
-      uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(50));
+      int link = atomic_load(&active_link);
+      if (link != LINK_USB) {
+        uart_write_bytes(UART_NUM_0, frame, n);
+        uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(50));
+      }
+      // Whole frame or nothing; never stall on a USB host that is not reading.
+      if (link != LINK_UART && usb_serial_jtag_is_connected())
+        usb_serial_jtag_write_bytes(frame, n, pdMS_TO_TICKS(20));
     } else
       vTaskDelay(pdMS_TO_TICKS(1));
   }
@@ -251,6 +274,12 @@ static void microphone_task(void *unused) {
   int32_t raw[NODE_AUDIO_SAMPLES * 2];
   uint8_t payload[4 + NODE_AUDIO_SAMPLES * 2];
   uint32_t index = 0;
+  // The INMP441 output starts with a large offset that decays over seconds.
+  // Discard the first 300 ms after enabling and remove DC with a one-pole
+  // high-pass (about 25 Hz at 16 kHz) on the 24-bit signal.
+  size_t settle = 0;
+  float previous_in = 0, previous_out = 0;
+  bool primed = false;
   for (;;) {
     if (!atomic_load(&mic_wanted)) {
       if (atomic_load(&mic_active)) {
@@ -267,6 +296,8 @@ static void microphone_task(void *unused) {
         continue;
       }
       atomic_store(&mic_active, true);
+      settle = NODE_RATE * 3 / 10;
+      primed = false;
     }
     size_t bytes = 0;
     if (i2s_channel_read(microphone, raw, sizeof(raw), &bytes, 100) != ESP_OK)
@@ -274,8 +305,25 @@ static void microphone_task(void *unused) {
     const size_t samples = bytes / (2 * sizeof(int32_t));
     v9_put32(payload, index);
     for (size_t i = 0; i < samples; i++) {
-      int32_t value = raw[i * 2] >> 16;
+      float in = (float)(raw[i * 2] >> 8);
+      if (!primed) {
+        previous_in = in;
+        previous_out = 0;
+        primed = true;
+      }
+      float out = in - previous_in + 0.99f * previous_out;
+      previous_in = in;
+      previous_out = out;
+      int32_t value = (int32_t)lroundf(out / 256.0f);
+      if (value > 32767)
+        value = 32767;
+      if (value < -32768)
+        value = -32768;
       v9_put16(payload + 4 + i * 2, (uint16_t)(int16_t)value);
+    }
+    if (settle) {
+      settle -= samples < settle ? samples : settle;
+      continue;
     }
     index += (uint32_t)samples;
     if (atomic_load(&mic_wanted) && samples)
@@ -301,19 +349,23 @@ static void sensor_task(void *unused) {
                                         .clk_source = I2C_CLK_SRC_DEFAULT,
                                         .glitch_ignore_cnt = 7,
                                         .flags.enable_internal_pullup = true};
-  if (i2c_new_master_bus(&bus_config, &bus) != ESP_OK)
+  esp_err_t bus_error = i2c_new_master_bus(&bus_config, &bus);
+  if (bus_error != ESP_OK) {
+    atomic_store(&sensor_error, bus_error);
     vTaskDelete(NULL);
+  }
+  // i2c_master_probe() reported phantom devices on undriven lines during
+  // bring-up, so it is not used. Address both candidates directly and accept
+  // a device only once it returns CRC-valid data.
   i2c_master_dev_handle_t sensor = NULL;
+  int address = 0x44;
   for (;;) {
     if (!sensor) {
-      for (int address = 0x44; address <= 0x45; address++)
-        if (i2c_master_probe(bus, address, 30) == ESP_OK) {
-          i2c_device_config_t cfg = {.dev_addr_length = I2C_ADDR_BIT_LEN_7,
-                                     .device_address = address,
-                                     .scl_speed_hz = 100000};
-          if (i2c_master_bus_add_device(bus, &cfg, &sensor) == ESP_OK)
-            break;
-        }
+      i2c_device_config_t cfg = {.dev_addr_length = I2C_ADDR_BIT_LEN_7,
+                                 .device_address = address,
+                                 .scl_speed_hz = NODE_I2C_HZ};
+      if (i2c_master_bus_add_device(bus, &cfg, &sensor) != ESP_OK)
+        sensor = NULL;
     }
     if (sensor) {
       uint8_t request[2] = {0x24, 0x00}, result[6];
@@ -329,9 +381,20 @@ static void sensor_task(void *unused) {
         memcpy(p + 8, &t, 4);
         memcpy(p + 12, &rh, 4);
         send_message(V9_SENSOR, p, 16, false);
-      } else if (err != ESP_OK) {
-        i2c_master_bus_rm_device(sensor);
-        sensor = NULL;
+        atomic_store(&sensor_address, address);
+        atomic_fetch_add(&sensor_good, 1);
+        atomic_store(&sensor_error, ESP_OK);
+      } else {
+        atomic_fetch_add(&sensor_bad, 1);
+        atomic_store(&sensor_error, err != ESP_OK ? err : ESP_ERR_INVALID_CRC);
+        if (err != ESP_OK) {
+          i2c_master_bus_rm_device(sensor);
+          sensor = NULL;
+          atomic_store(&sensor_address, 0);
+          address = address == 0x44 ? 0x45 : 0x44;
+          vTaskDelay(pdMS_TO_TICKS(500));
+          continue;
+        }
       }
     }
     vTaskDelay(pdMS_TO_TICKS(5000));
@@ -348,7 +411,15 @@ void app_main(void) {
                           .pull_up_en = GPIO_PULLUP_ENABLE,
                           .pull_down_en = GPIO_PULLDOWN_DISABLE,
                           .intr_type = GPIO_INTR_DISABLE};
+  gpio_config_t button_return = {.pin_bit_mask = 1ULL << NODE_BUTTON_RETURN,
+                                 .mode = GPIO_MODE_OUTPUT,
+                                 .pull_up_en = GPIO_PULLUP_DISABLE,
+                                 .pull_down_en = GPIO_PULLDOWN_DISABLE,
+                                 .intr_type = GPIO_INTR_DISABLE};
+  ESP_ERROR_CHECK(gpio_config(&button_return));
+  gpio_set_level(NODE_BUTTON_RETURN, 0);
   ESP_ERROR_CHECK(gpio_config(&button));
+  esp_rom_delay_us(200);
   button_raw = button_stable = gpio_get_level(NODE_BUTTON) == 0;
   button_inhibit = button_stable;
   button_edge = esp_timer_get_time();
@@ -363,6 +434,8 @@ void app_main(void) {
   ESP_ERROR_CHECK(
       uart_set_pin(UART_NUM_0, NODE_UART_TX, NODE_UART_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
   ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, 4096, 0, 0, NULL, 0));
+  usb_serial_jtag_driver_config_t usb = {.tx_buffer_size = 4096, .rx_buffer_size = 4096};
+  ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&usb));
   i2s_chan_config_t channel = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
   channel.dma_desc_num = 6;
   channel.dma_frame_num = NODE_AUDIO_SAMPLES;
@@ -383,17 +456,20 @@ void app_main(void) {
   xTaskCreate(sensor_task, "v9_sensor", 4096, NULL, 3, NULL);
   status(V9_HELLO);
   uint8_t incoming[256];
-  int64_t last_uart_byte = 0;
   for (;;) {
     int64_t now = esp_timer_get_time();
-    if (decoder.length && now - last_uart_byte > 200000) {
-      decoder.length = 0;
-      decoder.errors++;
-    }
-    int n = uart_read_bytes(UART_NUM_0, incoming, sizeof(incoming), 0);
-    if (n > 0) {
-      v9_feed(&decoder, incoming, n, command, NULL);
-      last_uart_byte = now;
+    for (int link = 0; link < LINK_COUNT; link++) {
+      v9_decoder *d = &decoders[link];
+      if (d->length && now - last_byte[link] > 200000) {
+        d->length = 0;
+        d->errors++;
+      }
+      int n = link == LINK_UART ? uart_read_bytes(UART_NUM_0, incoming, sizeof(incoming), 0)
+                                : usb_serial_jtag_read_bytes(incoming, sizeof(incoming), 0);
+      if (n > 0) {
+        v9_feed(d, incoming, n, command, (void *)(intptr_t)link);
+        last_byte[link] = now;
+      }
     }
     bool pressed = gpio_get_level(NODE_BUTTON) == 0;
     if (pressed != button_raw) {
@@ -413,6 +489,7 @@ void app_main(void) {
     }
     if (link_alive && now - last_host > 3000000) {
       link_alive = false;
+      atomic_store(&active_link, LINK_NONE);
       atomic_store(&mic_wanted, false);
       reaction_armed = false;
       pattern_count = 0;

@@ -1,4 +1,4 @@
-import { escapeHTML as esc, formatTime } from "../engine/math.js";
+import { escapeHTML as esc, formatTime, formatTemp, tempValue, tempUnit } from "../engine/math.js";
 import { microphoneStatus } from "../engine/status.js";
 const panel = (title, body) =>
   `<div class="utility-panel"><h2>${esc(title)}</h2>${body}</div>`;
@@ -151,10 +151,10 @@ export class Environment {
       this.c.error(error);
     }
   }
-  chart(key, color, label) {
+  chart(key, color, label, convert = (value) => value) {
     if (this.history.length < 2)
       return `<p>Collecting ${label.toLowerCase()} history. Samples are stored every 30 seconds.</p>`;
-    const values = this.history.map((r) => r[key]),
+    const values = this.history.map((r) => convert(r[key])),
       low = Math.min(...values) - 0.5,
       high = Math.max(...values) + 0.5,
       first = this.history[0].at,
@@ -162,22 +162,23 @@ export class Environment {
     const points = this.history
       .map(
         (r) =>
-          `${45 + ((r.at - first) / (last - first)) * 640},${140 - ((r[key] - low) / (high - low)) * 110}`,
+          `${45 + ((r.at - first) / (last - first)) * 640},${140 - ((convert(r[key]) - low) / (high - low)) * 110}`,
       )
       .join(" ");
     return `<svg class="history-chart" viewBox="0 0 710 175" role="img" aria-label="${label} over the recorded portion of the last 24 hours"><path d="M45 25V145H685" stroke="#657b5b" fill="none"/><polyline points="${points}" stroke="${color}" stroke-width="2" fill="none"/><g fill="#a9ba9c" font-family="monospace" font-size="13"><text x="3" y="35">${high.toFixed(1)}</text><text x="3" y="143">${low.toFixed(1)}</text><text x="45" y="170">${esc(new Date(first * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }))}</text><text x="610" y="170">${esc(new Date(last * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }))}</text></g></svg>`;
   }
   render() {
-    const sensor = this.c.state().sensor;
+    const sensor = this.c.state().sensor, unit = this.c.settings().tempUnit;
     this.c.content(
-      `<div class="readout-grid"><div class="utility-panel"><div class="data-label">TEMPERATURE</div><div class="big-readout">${sensor ? sensor.temperature.toFixed(1) : "—"}<small> °C</small></div></div><div class="utility-panel"><div class="data-label">HUMIDITY</div><div class="big-readout">${sensor ? sensor.humidity.toFixed(1) : "—"}<small> %</small></div></div></div>` +
+      `<div class="readout-grid"><div class="utility-panel"><div class="data-label">TEMPERATURE</div><div class="big-readout">${sensor ? tempValue(sensor.temperature, unit).toFixed(1) : "—"}<small> ${tempUnit(unit)}</small></div></div><div class="utility-panel"><div class="data-label">HUMIDITY</div><div class="big-readout">${sensor ? sensor.humidity.toFixed(1) : "—"}<small> %</small></div></div></div>` +
         panel(
           "The atmosphere around you",
           `<p class="recording-tag">${sensorStatus(this.c.state())}</p><p>${this.c.simulated() ? "SIMULATED SENSOR READINGS" : "SHT3x / local measurements"} · 24-hour history · 30-day retention.</p>` +
             this.chart(
               "temperature",
               "#d6efa4",
-              "Temperature in degrees Celsius",
+              "Temperature in degrees " + (unit === "F" ? "Fahrenheit" : "Celsius"),
+              (value) => tempValue(value, unit),
             ) +
             this.chart("humidity", "#8fcbc5", "Relative humidity in percent"),
         ),
@@ -189,7 +190,7 @@ export class Environment {
     this.c.hint("Tap to advance. Hold and release to choose.");
   }
   event(e) {
-    if (["sensor", "device"].includes(e.type)) this.render();
+    if (["sensor", "device", "settings"].includes(e.type)) this.render();
   }
   tick() { this.render(); }
 }
@@ -232,7 +233,7 @@ export class Diagnostics {
       [
         "SENSOR",
         sensor
-          ? `${sensor.temperature.toFixed(1)} °C / ${sensor.humidity.toFixed(1)}%`
+          ? `${formatTemp(sensor.temperature, this.c.settings().tempUnit)} / ${sensor.humidity.toFixed(1)}%`
           : "NO READING",
       ],
     ];
@@ -350,6 +351,8 @@ export class Settings {
         run: () =>
           this.setting("holdMs", s.holdMs >= 1000 ? 450 : s.holdMs + 100),
       },
+      { id: 'temp-unit', label: 'TEMPERATURE / ' + (s.tempUnit === 'F' ? 'FAHRENHEIT' : 'CELSIUS'),
+        run: () => this.setting('tempUnit', s.tempUnit === 'F' ? 'C' : 'F') },
       { id: 'menu-clicks', label: 'GAME MENU / ' + (s.menuClicks ? s.menuClicks + ' QUICK CLICKS' : 'HOLD 3s'),
         run: () => this.setting('menuClicks', s.menuClicks === 4 ? 3 : s.menuClicks === 3 ? 0 : 4) },
       { id: 'gesture-pace', label: 'CLICK TIMING / ' + s.gesturePace.toUpperCase(),

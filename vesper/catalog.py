@@ -39,6 +39,8 @@ def validate_setting(key, value):
         valid = type(value) is int and value in (600, 850, 1200, 1600)
     elif key == 'gesturePace':
         valid = value in ('quick', 'standard', 'relaxed')
+    elif key == 'tempUnit':
+        valid = value in ('C', 'F')
     elif key in ('volume', 'morseWpm', 'holdMs', 'scanMs'):
         low, high = {'volume': (0, 1), 'morseWpm': (5, 25), 'holdMs': (450, 1200), 'scanMs': (600, 1600)}[key]
         valid = type(value) in (int, float) and math.isfinite(value) and low <= value <= high

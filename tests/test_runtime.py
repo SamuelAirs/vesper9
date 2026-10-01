@@ -348,6 +348,9 @@ class CatalogTests(unittest.TestCase):
             for alias in app['voice']:
                 self.assertEqual(COMMANDS['computer open ' + alias]['app'], app['id'])
         with self.assertRaises(ValueError): validate_setting('menuClicks', True)
+        self.assertIn(catalog['settings']['tempUnit'], ('C', 'F'))
+        self.assertEqual(validate_setting('tempUnit', 'C'), 'C')
+        with self.assertRaises(ValueError): validate_setting('tempUnit', 'K')
 
 
 

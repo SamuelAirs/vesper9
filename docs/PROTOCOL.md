@@ -1,6 +1,6 @@
 # VESPER node protocol v1
 
-Transport: CH343 COM UART, **921600 baud, 8N1, no hardware flow control**. Firmware uses UART0 with board-profile TX43/RX44. The native USB port is not used. UART boot noise is tolerated; application text logging on the binary UART is disabled.
+Transport: CH343 COM UART, **921600 baud, 8N1, no hardware flow control** (UART0, TX43/RX44), and from node firmware 0.1.1 also the native USB port (USB Serial/JTAG, baud setting irrelevant). Frames are identical on both. The node replies on whichever link last delivered a valid host frame; with no live host it sends HELLO/STATUS on both. UART boot noise is tolerated; application text logging on the binary UART is disabled.
 
 ## Frame
 
@@ -32,7 +32,7 @@ Decoders retain partial frames, reject invalid versions/lengths/CRC, and resynch
 | STATUS | 6 | UTF-8 JSON status, about once/s and in response to PING |
 | ACK | 7 | `u16 command_sequence, u8 result, u8 command_type` |
 
-Status fields: `fw`, `mic` (actual capture active), `button`, `audio_drops`, `rx_crc`, and `leds` (nine current brightness values). The Pi enriches browser diagnostics with its own CRC errors, observed missing audio samples, and audio byte totals.
+Status fields: `fw`, `link` (`uart`, `usb` or `none`), `mic` (actual capture active), `button`, `audio_drops`, `rx_crc`, `sensor` (`addr`, `ok`, `fail`, last `err`), and `leds` (nine current brightness values). The Pi enriches browser diagnostics with its own CRC errors, observed missing audio samples, and audio byte totals.
 
 BUTTON uses an 8 ms debounce window and timestamps the initial edge that became stable. A button held at boot is inhibited until released. CUE is timestamped immediately after the light-update call. Both timestamps use the same ESP32 monotonic clock; no USB transit-time subtraction is required for physical button reaction trials. Debounce, GPIO polling, PWM phase, and real LED response still contribute measurement uncertainty.
 

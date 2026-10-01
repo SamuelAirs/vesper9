@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import math
+import os
 import struct
 import time
 
@@ -90,7 +91,10 @@ class SerialDevice:
     simulated = False
 
     def __init__(self, port, baud, emit):
-        self.port = port
+        # Several comma-separated candidates may be given (the node's COM bridge
+        # and its native USB port); the first one present is used on each attempt.
+        self.ports = [candidate.strip() for candidate in port.split(",") if candidate.strip()] or [port]
+        self.port = self.ports[0]
         self.baud = baud
         self.emit = emit
         self.serial = None
@@ -148,8 +152,10 @@ class SerialDevice:
         import serial
         while True:
             try:
-                # Opening CH343 may reset some development boards. Wait for a valid
+                # Opening either port may reset the board. Wait for a valid
                 # protocol packet, then explicitly renegotiate a muted session.
+                self.port = next((candidate for candidate in self.ports if os.path.exists(candidate)), self.ports[0])
+                self.name = self.port
                 link = serial.Serial()
                 link.port, link.baudrate = self.port, self.baud
                 link.timeout, link.write_timeout = .1, .5

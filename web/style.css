@@ -1169,3 +1169,28 @@ main {
   .console.playing .control-deck .arcade-cap { width: 40px; height: 40px; }
   .console.playing .case-label { padding: 5px 22px; }
 }
+
+/* Short panels such as the Pi's 1024 × 600 display: both card rows and the
+   sector/system actions stay visible without scrolling the dashboard. */
+@media (min-width: 900px) and (max-height: 640px) {
+  body { padding: 6px; }
+  .console { height: calc(100dvh - 12px); }
+  .masthead { padding: 5px 22px; }
+  .masthead a { font-size: 27px; }
+  .brand-symbol { font-size: 28px; }
+  .manufacture { font-size: 8px; }
+  .instrument-bar { padding: 4px 22px; }
+  main { padding-bottom: 6px; }
+  .hero { height: 146px; padding: 10px 0; }
+  .hero h1 { font-size: 34px; margin: 5px 0; }
+  .hero-bottom { margin-top: 6px; }
+  .orrery, .orrery canvas { height: 126px; }
+  .section-line { padding: 6px 0; }
+  .app-card { min-height: 80px; padding: 10px 14px; }
+  .dashboard-actions { margin-top: 7px; }
+  .control-deck { padding: 6px 22px; }
+  .control-deck .arcade { gap: 5px; }
+  .control-deck .arcade-cap { width: 40px; height: 40px; }
+  .case-label { display: none; }
+  .system-menu { max-height: calc(100dvh - 16px); }
+}

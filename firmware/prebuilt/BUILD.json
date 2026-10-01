@@ -1,19 +1,20 @@
 {
-  "version": "0.1.0",
+  "version": "0.1.1",
   "target": "esp32s3",
   "profile": "N16R8",
   "esp_idf": "v5.4.2",
   "esp_idf_commit": "f5c3654a1c2d2a01f7f67def7a0dc48e691f63c0",
-  "toolchain": "xtensa-esp-elf GCC 14.2.0_20241119",
+  "toolchain": "xtensa-esp-elf (ESP-IDF v5.4.2 default install)",
   "flash_mode": "dio",
   "flash_size": "16MB",
   "flash_frequency": "80m",
-  "application_bytes": 269632,
-  "physically_tested": false,
+  "application_bytes": 268576,
+  "physically_tested": "Flashed on the actual node 2026-09-30 over COM: protocol link, SHT3x readings and microphone stream confirmed; lights, button and native-USB link not yet confirmed",
   "sha256": {
-    "bootloader.bin": "1f5cbeed390ff8e55e569f70119422cd16cf4ec34060844ca031679ad1352b3c",
+    "bootloader.bin": "f8d9c5917d414a41d176bb7a0b669dd7ce20cd962eb9ef8ff09bee658293c400",
     "partition-table.bin": "fd8026bff850ca0dee41c41305160317fffe604dda30a9bd5a701ac82d96fa17",
-    "vesper_node.bin": "26d56020c039a5e8a4f993172ffd31677898b2680d21b5cc8f455469f39913ea",
-    "sdkconfig": "5515c1ba6936101893cfdb06e2ea69ab909073cbc5a522cb74b570ea2faa81a3"
-  }
+    "vesper_node.bin": "498d37665e692d3838975f172378a36de693cd93a7636102de41de98b0972c0e",
+    "sdkconfig": "816e112176667e1253f223e5eb987993c9c1a75d9c6c97d93212df3c36786921"
+  },
+  "built_on": "Raspberry Pi 5, Debian 13 aarch64"
 }

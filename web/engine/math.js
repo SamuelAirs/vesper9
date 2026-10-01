@@ -35,6 +35,12 @@ export const formatTime = (seconds) => {
     String(s % 60).padStart(2, "0")
   );
 };
+// Readings are transported and stored in Celsius; only the display converts.
+export const tempValue = (celsius, unit) =>
+  unit === "F" ? (celsius * 9) / 5 + 32 : celsius;
+export const tempUnit = (unit) => (unit === "F" ? "°F" : "°C");
+export const formatTemp = (celsius, unit, digits = 1) =>
+  tempValue(celsius, unit).toFixed(digits) + " " + tempUnit(unit);
 export const escapeHTML = (value) =>
   String(value).replace(
     /[&<>"']/g,

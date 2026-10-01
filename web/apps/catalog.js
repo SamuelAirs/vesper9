@@ -240,5 +240,6 @@ export const DEFAULT_SETTINGS = {
   "holdMs": 650,
   "menuClicks": 4,
   "gesturePace": "standard",
-  "scanMs": 850
+  "scanMs": 850,
+  "tempUnit": "F"
 };

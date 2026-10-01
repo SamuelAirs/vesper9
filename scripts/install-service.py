@@ -39,7 +39,7 @@ def main():
     unit.parent.mkdir(parents=True, exist_ok=True)
     unit.write_text("\n".join([
         "[Unit]", "Description=VESPER-9 field console", "",
-        "[Service]", "Type=simple", "WorkingDirectory=" + systemd_quote(root),
+        "[Service]", "Type=simple", "WorkingDirectory=" + str(root).replace("%", "%%"),
         "ExecStart=" + " ".join(systemd_quote(x) for x in command), "Restart=on-failure", "RestartSec=3",
         "Environment=PYTHONUNBUFFERED=1", "NoNewPrivileges=true", "UMask=0077", "",
         "[Install]", "WantedBy=default.target", ""

@@ -422,7 +422,7 @@ def main():
     parser = argparse.ArgumentParser(description="VESPER-9 single-button console")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--simulate", action="store_true", help="Use the clearly labelled desktop simulator")
-    mode.add_argument("--port", help="ESP32 COM serial device, preferably /dev/serial/by-id/…")
+    mode.add_argument("--port", help="Node serial device, preferably /dev/serial/by-id/…; several comma-separated candidates (COM and native USB) may be given")
     parser.add_argument("--baud", type=int, default=921600)
     parser.add_argument("--http-port", type=int, default=8799)
     parser.add_argument("--data", default=None)

@@ -22,7 +22,7 @@ select. Do not add a universal hold that silently interrupts Undertow.
 ## Architecture and contracts
 
 `web/` is the JS engine and apps; `vesper/` owns local services/persistence;
-`firmware/` is ESP-IDF C. Pins and protocol remain unchanged in 0.2.0.
+`firmware/` is ESP-IDF C. Protocol v1 is unchanged. Node firmware 0.1.1 (2026-09-30) corrects the pin map to the board as wired (see `docs/HARDWARE.md`; the map in `../CLAUDE-START-PROMPT.txt` is wrong), adds the native-USB link and microphone DC filtering.
 `vesper/catalog.json` owns app metadata/defaults/voice aliases. Generate the
 browser copy with `python3 scripts/build-catalog.py`; don't hand-edit it.
 Factories are trusted JS code in `web/apps/registry.js`.

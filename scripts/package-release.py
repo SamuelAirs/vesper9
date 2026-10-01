@@ -33,13 +33,13 @@ def main():
             entries['vesper9/' + relative.as_posix()] = file.read_bytes()
     entries['vesper9/data/.gitkeep'] = b''
     project_hashes = {name.removeprefix('vesper9/'): hashlib.sha256(data).hexdigest() for name, data in sorted(entries.items())}
-    entries['vesper9/RELEASE-MANIFEST.json'] = (json.dumps({'release': VERSION, 'node_firmware': '0.1.0', 'protocol': 1, 'sha256': project_hashes}, indent=2) + '\n').encode()
+    entries['vesper9/RELEASE-MANIFEST.json'] = (json.dumps({'release': VERSION, 'node_firmware': '0.1.1', 'protocol': 1, 'sha256': project_hashes}, indent=2) + '\n').encode()
     for name in ['START-HERE.txt', 'CLAUDE.md', 'CLAUDE-START-PROMPT.txt', 'CODEX-START-PROMPT.txt', 'handoff']:
         entry = ROOT.parent / name
         for file in ([entry] if entry.is_file() else entry.rglob('*')):
             if file.is_file() and not file.is_symlink():
                 entries[file.relative_to(ROOT.parent).as_posix()] = file.read_bytes()
-    manifest = {'format': 1, 'application_version': VERSION, 'node_firmware': '0.1.0', 'protocol': 1,
+    manifest = {'format': 1, 'application_version': VERSION, 'node_firmware': '0.1.1', 'protocol': 1,
                 'note': 'Source implementation release; physical Pi/node qualification remains required.',
                 'sha256': {name: hashlib.sha256(data).hexdigest() for name, data in sorted(entries.items())}}
     entries['HANDOFF-MANIFEST.json'] = (json.dumps(manifest, indent=2) + '\n').encode()

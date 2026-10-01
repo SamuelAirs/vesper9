@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { InputRouter } from "../web/engine/input.js";
-import { Random, overlaps, wrapAngle, formatTime } from "../web/engine/math.js";
+import { Random, overlaps, wrapAngle, formatTime, formatTemp, tempValue } from "../web/engine/math.js";
 import {
   OrbitLock,
   Moonrunner,
@@ -130,6 +130,9 @@ test("deterministic random and bounded geometry", () => {
   );
   assert.ok(Math.abs(wrapAngle(Math.PI * 4 + 0.2) - 0.2) < 1e-9);
   assert.equal(formatTime(3661), "1:01:01");
+  assert.equal(formatTemp(22, "F"), "71.6 °F");
+  assert.equal(formatTemp(22, "C"), "22.0 °C");
+  assert.equal(tempValue(-40, "F"), -40);
 });
 test("orbit awards alignment and ends after three misses", () => {
   const c = context(),

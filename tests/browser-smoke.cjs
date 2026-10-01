@@ -134,6 +134,30 @@ async function button(page, ms = 80) {
     assert.equal(await page.locator("#utility-stage").isVisible(), true, app);
     assert.ok((await page.locator(".utility-button").count()) >= 2, app);
   }
+  // Every other registered cartridge: mount it, press, hold, wait and leave, with no errors,
+  // the right stage visible, and the lamps dark again a moment after returning home.
+  const exercised = new Set([...games, "timers", "transcribe", "environment", "diagnostics", "settings"]);
+  const others = (await page.evaluate(async () => {
+    const { CARTRIDGES } = await import("/apps/catalog.js");
+    return CARTRIDGES.map((c) => c.id);
+  })).filter((id) => !exercised.has(id));
+  for (const app of others) {
+    await page.evaluate((id) => vesper.launch(id), app);
+    await page.waitForTimeout(250);
+    assert.equal(await page.evaluate(() => vesper.meta?.id), app, app);
+    const instrument = await page.evaluate(() => !!vesper.app.navigation);
+    assert.equal(await page.locator(instrument ? "#utility-stage" : "#game-stage").isVisible(), true, app);
+    if (instrument) assert.ok((await page.locator(".utility-button").count()) >= 1, app);
+    await button(page);
+    await page.waitForTimeout(300);
+    await button(page, instrument ? 760 : 400);
+    await page.waitForTimeout(600);
+    assert.deepEqual(await page.evaluate(() => vesper.errors), [], app);
+    await page.evaluate(() => vesper.home());
+    await page.waitForFunction(() => !vesper.app);
+    assert.equal(await page.evaluate(() => vesper.state.mic.mode), "off", app + " left the microphone on");
+    exercised.add(app);
+  }
   await page.evaluate(() => vesper.launch("timers"));
   await page
     .getByRole("button", { name: "CREATE TIMER / 00:30", exact: true })
@@ -262,7 +286,7 @@ async function button(page, ms = 80) {
   assert.deepEqual(errors, []);
   const result = {
     passed: true,
-    appsExercised: 12,
+    appsExercised: exercised.size,
     checks: [
       "single-button navigation",
       "four-click escape and uninterrupted game hold",

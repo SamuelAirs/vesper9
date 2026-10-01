@@ -3,7 +3,7 @@
 // It plays through the real button edges: a tap on the title, an aim at `angle`, a hold to near
 // full power, then in flight a press late in each skip window (a perfect skip, with some jitter)
 // and thrusters when rolling slowly or about to roll into a sinkhole. Between runs it shops.
-import { Ballista, SKIP_WIN, UPGRADES } from "../../web/apps/ballista.js";
+import { Ballista, SKIP_WIN, MODULES, upCost } from "../../web/apps/ballista.js";
 import { Random } from "../../web/engine/math.js";
 import { appContext } from "./app-context.mjs";
 
@@ -43,12 +43,28 @@ export function shop(app) {
   for (let guard = 0; guard < 40; guard++) {
     let pick = -1, cost = 1e9;
     app.sv.up.forEach((L, i) => {
-      const c = L < 5 ? UPGRADES[i].cost[L] : 1e9;
+      const c = L < 5 ? upCost(i, L, app.sv.mark) : 1e9;
       if (c < cost) { cost = c; pick = i; }
     });
     if (pick < 0 || cost > app.sv.salvage) break;
     while (app.cur !== pick + 1) { tap(app); app.update(F); }
     hold(app, 0.6);
+  }
+  // once the systems are full, build the cheapest module (built ones are fitted while slots are free)
+  // with every module built too, overhaul (two holds) for the next mark
+  if (app.sv.up.every((L) => L >= 5) && app.sv.mods.length === MODULES.length && app.sv.mark < 9) {
+    while (app.cur !== 8) { tap(app); app.update(F); }
+    hold(app, 0.6); hold(app, 0.6);
+  }
+  if (app.sv.up.every((L) => L >= 5)) {
+    const next = MODULES.findIndex((m) => !app.sv.mods.includes(m.id));
+    if (next >= 0 && MODULES[next].cost <= app.sv.salvage) {
+      while (app.cur !== 6) { tap(app); app.update(F); }
+      hold(app, 0.6);
+      while (app.mcur !== next) { tap(app); app.update(F); }
+      hold(app, 0.6);
+      app.mcur = MODULES.length; hold(app, 0.6);
+    }
   }
   while (app.cur !== 0) { tap(app); app.update(F); }
   hold(app, 0.6); // LAUNCH
@@ -60,7 +76,7 @@ export function campaign(runs, seed = 3, opts = {}) {
   const jitter = new Random(seed * 17 + 1);
   for (let r = 0; r < runs; r++) {
     const res = playRun(app, { ...opts, jitter });
-    out.push({ run: r + 1, m: res.metres, salvage: app.sv.salvage, up: app.sv.up.join(""), zone: app.sv.far, feats: app.sv.ft.length });
+    out.push({ run: r + 1, m: res.metres, earned: res.salvage, chain: res.chain, salvage: app.sv.salvage, up: app.sv.up.join(""), mods: app.sv.mods.length, mark: app.sv.mark, contracts: app.sv.cdone, zone: app.sv.far, feats: app.sv.ft.length });
     if (opts.shop !== false) shop(app);
   }
   return { app, ctx, out };

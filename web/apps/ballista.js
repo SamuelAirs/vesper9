@@ -9,7 +9,7 @@
 // fins, magnet), six zones farther out bring new things, pods are earned with feats, and a daily
 // run gives everyone the same field and loadout for the date. Versioned save (schema 2) that takes
 // over the first Ballista's record. The lamps are the pod's instruments.
-import { C, space, text, line, circle, diamond, banner } from "../engine/draw.js";
+import { C, text, line, circle, diamond, banner } from "../engine/draw.js";
 import { TAU, clamp, mixSeed, Random } from "../engine/math.js";
 import { LAMP, lamps, dim, blend, ramp, spot, pulse, blink, fill, meter, lightsOff } from "../engine/lightshow.js";
 import { AppGuard } from "../engine/input.js";
@@ -36,7 +36,7 @@ const BOUNCE_VY = 90; // touching down slower than this, the pod rolls
 const STOP_VX = 10;
 const VX_CAP = 1500, VY_CAP = 1100;
 const RUN_CAP = 180; // seconds: a run that has not ended by then ends
-const MAX_FEATURES = 60, MAX_PARTS = 24, TRAIL = 36;
+const MAX_FEATURES = 60, MAX_PARTS = 40, TRAIL = 36;
 const KICK_X = 120, KICK_Y = 300;
 const PAD_V = 540, MINE_V = 700, BOOST_X = 280;
 const FRICTION = { ground: 260, drift: 1150, ice: 22 };
@@ -50,6 +50,7 @@ export const ZONES = [
   { name: "THE SPIRES", roman: "IV", from: 650, col: LAMP.violet, ink: "#b48cf0", gap: [160, 340], kinds: { pad: 2, drift: 2, scrap: 2, boost: 2, beacon: 2, pit: 2, mine: 2, updraft: 2, net: 2 } },
   { name: "THE GLASS", roman: "V", from: 1000, col: LAMP.cyan, ink: "#8fcbc5", gap: [160, 340], kinds: { pad: 2, drift: 1, scrap: 2, boost: 2, beacon: 2, pit: 3, mine: 2, updraft: 1, net: 2, ice: 3 } },
   { name: "THE STORM", roman: "VI", from: 1500, col: LAMP.white, ink: "#ece4d0", gap: [160, 330], kinds: { pad: 2, drift: 1, scrap: 2, boost: 2, beacon: 2, pit: 3, mine: 2, updraft: 1, net: 2, ice: 2, gust: 3 } },
+  { name: "THE BEYOND", roman: "VII", from: 2600, col: [255, 0, 110], ink: "#e0507a", gap: [150, 300], kinds: { pad: 2, drift: 1, scrap: 2, boost: 2, beacon: 2, pit: 4, mine: 2, updraft: 1, net: 2, ice: 2, gust: 2 } },
 ];
 export const zoneAt = (metres) => { for (let i = ZONES.length - 1; i > 0; i--) if (metres >= ZONES[i].from) return i; return 0; };
 // What a newcomer is told the first time each thing comes into view (once per save).
@@ -66,7 +67,7 @@ const INTRO = {
   gust: "GUST: WIND ALONG THE GROUND. ARROWS SHOW WHICH WAY.",
 };
 const GROUND_KINDS = ["pad", "boost", "mine", "drift", "ice", "pit"];
-const MOTIFS = [[392, 494, 587], [440, 554, 659], [330, 392, 494], [294, 370, 440], [523, 659, 784], [262, 330, 392]];
+const MOTIFS = [[392, 494, 587], [440, 554, 659], [330, 392, 494], [294, 370, 440], [523, 659, 784], [262, 330, 392], [311, 370, 466]];
 
 // ---- the workshop -------------------------------------------------------------------------
 // Five systems, five levels each, paid for with salvage.
@@ -78,34 +79,113 @@ export const UPGRADES = [
   { id: "magnet", name: "MAGNET", text: "Draws scrap from farther away.", cost: [10, 40, 100, 200, 380] },
 ];
 const UP_MAX = 5;
+// An overhaul (every system at V) strips the five systems back to nothing and raises the pod's
+// mark: each mark launches faster and earns more salvage for good, and the systems cost more.
+export const MARK_MAX = 9, MARK_SPEED = 0.06, MARK_SALVAGE = 0.15, MARK_COST = 0.4;
+export const upCost = (i, level, mark) => Math.round(UPGRADES[i].cost[level] * (1 + MARK_COST * mark) / 5) * 5;
 export const PODS = [
   { name: "STANDARD", need: 0, e: 0, drag: 1, kick: 1, perfect: 1, text: "The survey pod as issued." },
   { name: "SKIPPER", need: 4, e: 0.07, drag: 1.15, kick: 0.9, perfect: 1.35, text: "Bouncy; easier perfect skips; more drag." },
   { name: "DART", need: 8, e: -0.08, drag: 0.72, kick: 1.15, perfect: 0.85, text: "Slips through the air; lands hard." },
+  { name: "GLIDER", need: 14, e: -0.02, drag: 1.1, kick: 0.9, perfect: 1.1, g: 0.86, text: "Light; long hang time; weaker thrusters." },
 ];
+// Modules: one-time purchases for the late game, of which only a few fit in a run (SLOTS, one more
+// at SLOT3_FEATS feats). Choosing which to fit is part of the plan for a run.
+export const MODULES = [
+  { id: "spring", name: "SPRING TUNING", cost: 400, text: "Pads throw a fifth higher." },
+  { id: "scanner", name: "SCRAP SCANNER", cost: 350, text: "Each scrap is worth 4 salvage, not 2." },
+  { id: "relay", name: "BEACON RELAY", cost: 500, text: "Beacons refill two thrusters." },
+  { id: "cutter", name: "NET CUTTER", cost: 600, text: "Nets part without slowing you." },
+  { id: "skids", name: "DRIFT SKIDS", cost: 700, text: "Drifts barely slow you." },
+  { id: "sail", name: "STORM SAIL", cost: 800, text: "Every gust pushes you on." },
+  { id: "shell", name: "ABLATIVE SHELL", cost: 900, text: "Bounce out of the first sinkhole." },
+  { id: "gyro", name: "GYRO", cost: 1000, text: "Perfect skips are easier to time." },
+  { id: "burner", name: "AFTERBURNER", cost: 1200, text: "Thrusters push a quarter harder." },
+  { id: "rig", name: "SALVAGE RIG", cost: 1500, text: "A quarter more salvage from every run." },
+];
+const MOD_IDS = MODULES.map((m) => m.id);
+export const SLOTS = 2, SLOT3_FEATS = 12;
 const DAILY_UP = [2, 2, 2, 2, 2];
 // A pod's numbers from the upgrade levels and the pod chosen.
-export function loadout(up, podIx) {
+export function loadout(up, podIx, mods = [], mark = 0) {
   const pod = PODS[podIx] || PODS[0], L = (i) => clamp(Math.floor(up[i] || 0), 0, UP_MAX);
+  const has = (id) => mods.includes(id);
   return {
-    vmax: (560 + 90 * L(0)) * (podIx === 2 ? 1.04 : 1),
+    g: G * (pod.g || 1),
+    vmax: (560 + 90 * L(0)) * (podIx === 2 ? 1.04 : 1) * (1 + MARK_SPEED * mark),
     kicks: 1 + L(1),
     e: 0.4 + 0.05 * L(2) + pod.e,
     keep: 0.82 + 0.025 * L(2),
     roll: 1 - 0.08 * L(2),
     drag: 0.0003 * (1 - 0.13 * L(3)) * pod.drag,
     magnet: 24 + 16 * L(4),
-    kick: pod.kick,
-    perfect: SKIP_PERFECT * pod.perfect,
+    kick: pod.kick * (has("burner") ? 1.25 : 1),
+    perfect: SKIP_PERFECT * pod.perfect * (has("gyro") ? 1.4 : 1),
+    pad: has("spring") ? 1.2 : 1,
+    scrap: has("scanner") ? 4 : 2,
+    relay: has("relay") ? 2 : 1,
+    cutter: has("cutter"),
+    skids: has("skids"),
+    sail: has("sail"),
+    shell: has("shell") ? 1 : 0,
+    rig: (has("rig") ? 1.25 : 1) * (1 + MARK_SALVAGE * mark),
   };
 }
-// Salvage a run earns: five for going out, one per 8 m, two per scrap; bounties come on top.
-export const salvageFor = (metres, scrap) => 5 + Math.floor(metres / 8) + scrap * 2;
+// Salvage a run earns: five for going out, one per 8 m, two per scrap (four with the scanner), times
+// the chain multiplier and the salvage rig; bounties and contracts come on top.
+export const salvageFor = (metres, scrap, perScrap = 2, mult = 1) => Math.floor((5 + Math.floor(metres / 8) + scrap * perScrap) * mult);
+// The best chain of a run (pads, boosters, mines, beacons and perfect skips with no plain landing
+// between them) multiplies its salvage: x1.1 per link, up to x2.
+export const chainMult = (chain) => 1 + 0.1 * clamp(Math.floor(chain), 0, 10);
+
+// ---- contracts: three standing jobs, replaced as they are done ------------------------------
+// Each kind makes a job from the save (what the player has reached) and a random draw; `tier`
+// (contracts done so far) makes them slowly harder and better paid.
+const round50 = (v) => Math.max(50, Math.round(v / 50) * 50);
+const CONTRACTS = {
+  metres: { text: (n) => "Fly " + n + " m in one run.", make: (sv, u) => { const n = round50(Math.max(100, sv.best * (0.75 + 0.3 * u))); return [n, 20 + Math.floor(n / 20)]; } },
+  zone: { text: (n) => "Reach " + ZONES[n].name + ".", ok: (sv) => sv.far < ZONES.length - 1, make: (sv) => [sv.far + 1, 40 + 40 * (sv.far + 1)] },
+  perfect: { text: (n) => "Make " + n + " perfect skips in one run.", make: (sv, u, t) => { const n = Math.min(8, 2 + Math.floor(t / 3) + (u > 0.6 ? 1 : 0)); return [n, 15 + 12 * n]; } },
+  lifts: { text: (n) => "Hit " + n + " pads, boosters or mines in one run.", make: (sv, u, t) => { const n = Math.min(8, 2 + Math.floor(t / 3)); return [n, 20 + 12 * n]; } },
+  scrap: { text: (n) => "Collect " + n + " scrap in one run.", make: (sv, u, t) => { const n = Math.min(40, 8 + 4 * Math.floor(t / 2)); return [n, 10 + 2 * n]; } },
+  chain: { text: (n) => "Make a chain of " + n + ".", make: (sv, u, t) => { const n = Math.min(10, 3 + Math.floor(t / 3)); return [n, 20 + 15 * n]; } },
+  pitskip: { text: () => "Skip off a sinkhole.", ok: (sv) => sv.far >= 2, make: () => [1, 80] },
+  beacons: { text: (n) => "Touch " + n + " beacons in one run.", ok: (sv) => sv.far >= 1, make: (sv, u, t) => { const n = Math.min(6, 2 + Math.floor(t / 4)); return [n, 20 + 15 * n]; } },
+  unaided: { text: (n) => "Fly " + n + " m without a thruster.", make: (sv, u) => { const n = round50(Math.max(100, sv.best * (0.4 + 0.2 * u))); return [n, 40 + Math.floor(n / 12)]; } },
+};
+const CONTRACT_KINDS = Object.keys(CONTRACTS);
+export const contractText = (c) => (CONTRACTS[c.k] ? CONTRACTS[c.k].text(c.n) : "");
+// How far a run went toward a contract.
+export function contractProgress(c, R) {
+  if (c.k === "metres") return R.m;
+  if (c.k === "zone") return zoneAt(R.m) >= c.n ? c.n : zoneAt(R.m);
+  if (c.k === "unaided") return R.thrusts ? 0 : R.m;
+  if (c.k === "beacons") return R.beacons;
+  return R[c.k] || 0;
+}
+const CONTRACT_RUNS = 10; // a job not met in this many runs is withdrawn and another posted
+const CRNG = new Random(1); // the contracts' generator; its state is saved as sv.cseed
+// A new contract of a kind not already standing.
+export function drawContract(sv) {
+  CRNG.state = sv.cseed >>> 0 || 0x2545f491;
+  const taken = sv.ct.map((c) => c.k);
+  const kinds = CONTRACT_KINDS.filter((k) => !taken.includes(k) && (!CONTRACTS[k].ok || CONTRACTS[k].ok(sv)));
+  const k = kinds[Math.floor(CRNG.next() * kinds.length)] || "metres";
+  const [n, pay] = CONTRACTS[k].make(sv, CRNG.next(), sv.cdone);
+  sv.cseed = CRNG.state;
+  return { k, n, pay, left: CONTRACT_RUNS };
+}
 
 // ---- feats: named goals in the console's dry voice ----------------------------------------
 // prog(app) is the current progress toward n. Hidden feats show only a hint until done.
 const life = (a, key) => (a.sv.st[key] || 0) + (a.R[key] || 0);
 export const FEATS = [
+  { id: "chain6", name: "KEEP IT UP", text: "Make a chain of 6.", n: 6, prog: (a) => a.R.chain },
+  { id: "contract5", name: "CONTRACTOR", text: "Complete 5 contracts.", n: 5, prog: (a) => a.sv.cdone },
+  { id: "mods3", name: "TINKERER", text: "Own 3 modules.", n: 3, prog: (a) => a.sv.mods.length },
+  { id: "storm", name: "EYE OF THE STORM", text: "Reach the Storm.", n: 5, prog: (a) => a.sv.far },
+  { id: "mark2", name: "MARK II", text: "Overhaul the pod.", n: 1, prog: (a) => a.sv.mark },
+  { id: "beyond", name: "PAST THE MAPS", text: "Reach the Beyond.", hint: "The storm is not the end.", n: 6, hidden: true, prog: (a) => a.sv.far },
   { id: "m100", name: "SURVEYOR", text: "Fly 100 m in one run.", n: 100, prog: (a) => a.R.m },
   { id: "m400", name: "LONG RANGE", text: "Fly 400 m in one run.", n: 400, prog: (a) => a.R.m },
   { id: "m1000", name: "OVER THE HORIZON", text: "Fly 1000 m in one run.", n: 1000, prog: (a) => a.R.m },
@@ -132,7 +212,7 @@ const num = (v, d = 0) => (Number.isFinite(v) ? v : d);
 const FRNG = new Random(1); // the field's generator; its state lives on the app as plain data
 const hashText = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return h >>> 0; };
 const dateKey = (d = new Date()) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
-const roman = (n) => ["", "I", "II", "III", "IV", "V"][n] || String(n);
+const roman = (n) => ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"][n] || String(n);
 export const sweepAngle = (t) => A_LO + (A_HI - A_LO) * (0.5 - 0.5 * Math.cos((TAU * t) / SWEEP));
 // Power after holding for `hold` seconds: up to the peak at RISE, then back down, repeating.
 export function powerAt(hold) {
@@ -140,7 +220,7 @@ export function powerAt(hold) {
   return u < 0.5 ? 2 * u : 2 - 2 * u;
 }
 // Time until a falling pod at height y (px) with vertical speed vy reaches the ground, without drag.
-export const timeToGround = (y, vy) => (vy + Math.sqrt(Math.max(0, vy * vy + 2 * G * Math.max(0, y)))) / G;
+export const timeToGround = (y, vy, g = G) => (vy + Math.sqrt(Math.max(0, vy * vy + 2 * g * Math.max(0, y)))) / g;
 // Today's goal, the same for everyone on the same date. Every goal is within reach of the daily loadout.
 export function dailyGoal(key) {
   const h = hashText("goal" + key), kind = h % 4, v = (h >>> 8) % 5;
@@ -150,18 +230,20 @@ export function dailyGoal(key) {
   const n = 5 + 2 * v; return { kind: "scrap", n, text: "Collect " + n + " scrap." };
 }
 
-// Bring any stored shape to schema 2: nothing (a first launch), schema 1 (the first Ballista, an
-// artillery game, whose record was written by recordRun: runs, last, milestone), or schema 2.
+// Bring any stored shape to schema 3: nothing (a first launch), schema 1 (the first Ballista, an
+// artillery game, whose record was written by recordRun: runs, last, milestone), schema 2 (the
+// launcher before modules and contracts) or schema 3. Schema 2 gains empty module and contract
+// fields, and three contracts are drawn.
 // The first Ballista's runs carry over, its last record is kept as `legacy`, and each of its runs
 // is worth a little salvage (at most 300) so a returning player starts with something to spend.
 export function migrateSave(raw) {
   const r = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
-  const v1 = r.schema !== 2 && (num(r.runs) > 0 || (r.last && typeof r.last === "object"));
+  const v1 = r.schema !== 2 && r.schema !== 3 && (num(r.runs) > 0 || (r.last && typeof r.last === "object"));
   const st = r.st && typeof r.st === "object" ? r.st : {};
   const dl = r.dl && typeof r.dl === "object" ? r.dl : {};
   const int = (v) => Math.max(0, Math.floor(num(v)));
   const out = {
-    schema: 2,
+    schema: 3,
     runs: int(r.runs),
     last: !v1 && r.last && typeof r.last === "object" ? r.last : {},
     milestone: v1 ? 0 : int(r.milestone),
@@ -174,8 +256,20 @@ export function migrateSave(raw) {
     ft: Array.isArray(r.ft) ? r.ft.filter((id, i) => FEAT_IDS.includes(id) && r.ft.indexOf(id) === i) : [],
     st: { metres: int(st.metres), pads: int(st.pads), perfect: int(st.perfect), mines: int(st.mines), scrap: int(st.scrap), daily: int(st.daily) },
     dl: { d: typeof dl.d === "string" ? dl.d.slice(0, 10) : "", best: int(dl.best), done: dl.done ? 1 : 0, streak: int(dl.streak), last: typeof dl.last === "string" ? dl.last.slice(0, 10) : "" },
-    seen: r.seen && typeof r.seen === "object" ? Object.fromEntries(Object.keys(INTRO).concat("skip").filter((k) => r.seen[k]).map((k) => [k, 1])) : {},
+    seen: r.seen && typeof r.seen === "object" ? Object.fromEntries(Object.keys(INTRO).concat("skip", "chain").filter((k) => r.seen[k]).map((k) => [k, 1])) : {},
+    mods: Array.isArray(r.mods) ? r.mods.filter((id, i) => MOD_IDS.includes(id) && r.mods.indexOf(id) === i) : [],
+    eq: [],
+    ct: [],
+    cseed: Math.floor(num(r.cseed)) >>> 0 || 0x2545f491,
+    cdone: int(r.cdone),
+    chain: int(r.chain),
+    mark: clamp(int(r.mark), 0, MARK_MAX),
   };
+  out.eq = Array.isArray(r.eq) ? r.eq.filter((id, i) => out.mods.includes(id) && r.eq.indexOf(id) === i).slice(0, SLOTS + 1) : [];
+  if (Array.isArray(r.ct)) for (const c of r.ct.slice(0, 3)) {
+    if (c && CONTRACTS[c.k] && !out.ct.some((x) => x.k === c.k)) out.ct.push({ k: c.k, n: Math.max(1, int(c.n)), pay: int(c.pay), left: clamp(int(c.left ?? CONTRACT_RUNS), 1, CONTRACT_RUNS) });
+  }
+  while (out.ct.length < 3) out.ct.push(drawContract(out));
   if (v1) {
     const l = r.last && typeof r.last === "object" ? r.last : {};
     out.legacy = { runs: int(r.runs), score: int(l.score), stations: int(l.stations ?? r.milestone) };
@@ -185,7 +279,28 @@ export function migrateSave(raw) {
   return out;
 }
 
-const WORKSHOP = ["LAUNCH", "BARREL", "THRUSTERS", "HULL", "FINS", "MAGNET", "POD", "DAILY", "FEATS", "LOG"];
+// Drawing tables: each zone's sky (top, horizon), its moon (x, y, radius, ring), the silhouette
+// layers (parallax, cell width, line alpha, fill alpha, height), the stars and particle colours.
+const SKIES = [["#060c09", "#13281b"], ["#0b0a06", "#2c2313"], ["#0c0706", "#2e1714"], ["#09060f", "#221735"], ["#050c0d", "#103032"], ["#08090b", "#262a31"], ["#0a0408", "#2a0f1e"]];
+const MOONS = [[760, 110, 26, 0], [680, 90, 40, 1], [820, 130, 20, 0], [720, 80, 34, 1], [600, 120, 46, 0], [820, 70, 18, 0], [640, 110, 60, 1]];
+const LAYERS = [[0.15, 150, 0.16, 0.6, 70], [0.45, 110, 0.28, 0.85, 34]];
+const STARS = (() => { const r = new Random(1979), out = []; for (let i = 0; i < 70; i++) out.push(r.range(0, 960), r.range(0, 360), r.range(0.2, 1)); return out; })();
+const PART_COLOURS = [C.red, C.amber, C.cyan, C.muted];
+const CONTRACT_SHORT = { metres: "FLY", zone: "REACH", perfect: "PERFECT", lifts: "LIFTS", scrap: "SCRAP", chain: "CHAIN", pitskip: "SINKHOLE SKIP", beacons: "BEACONS", unaided: "NO THRUST" };
+const SKY_CACHE = new WeakMap(); // one gradient per canvas and zone, made once
+function sky(g, z) {
+  let list = SKY_CACHE.get(g);
+  if (!list) { list = []; SKY_CACHE.set(g, list); }
+  if (!list[z]) {
+    const gr = g.createLinearGradient(0, 0, 0, 540);
+    gr.addColorStop(0, SKIES[z][0]);
+    gr.addColorStop(1, SKIES[z][1]);
+    list[z] = gr;
+  }
+  return list[z];
+}
+
+const WORKSHOP = ["LAUNCH", "BARREL", "THRUSTERS", "HULL", "FINS", "MAGNET", "MODULES", "CONTRACTS", "OVERHAUL", "POD", "DAILY", "FEATS", "LOG"];
 
 export class Ballista {
   constructor(ctx) {
@@ -207,7 +322,8 @@ export class Ballista {
     this.peaked = false;
     this.toneK = -1;
     this.sq = []; // a short queue of notes: [time, hz, seconds, wave]
-    this.parts = new Float32Array(MAX_PARTS * 5); // x, y, vx, vy, life (world px)
+    this.parts = new Float32Array(MAX_PARTS * 6); // x, y, vx, vy, life, colour (world px)
+    this.mcur = 0;
     this.partNext = 0;
     this.trail = new Float32Array(TRAIL * 2);
     this.trailN = 0;
@@ -216,6 +332,7 @@ export class Ballista {
     this.notice = "";
     this.noticeT = 0;
     this.need = ""; // why a workshop purchase failed
+    this.confirm = false; // an overhaul waiting for its second hold
     this.resetRun();
     this.phase = "title";
     this.setHint("TITLE", "TAP TO LAUNCH. HOLD FOR THE WORKSHOP.");
@@ -228,7 +345,8 @@ export class Ballista {
     let podIx = this.daily ? 0 : this.sv.pod;
     if (!this.unlockedPod(podIx)) podIx = 0;
     this.podIx = podIx;
-    this.L = loadout(up, podIx);
+    this.mods = this.daily ? [] : this.sv.eq.slice(0, this.slots());
+    this.L = loadout(up, podIx, this.mods, this.daily ? 0 : this.sv.mark);
     this.fstate = this.daily ? (mixSeed(hashText("field" + this.dayKey())) || 1) : (Math.floor(this.c.rng.next() * 4294967296) || 1);
     this.p = { x: 0, y: PIVOT_Y, vx: 0, vy: 0, mode: "cannon", spin: 0 };
     this.sweepT = 0;
@@ -255,11 +373,34 @@ export class Ballista {
     this.newRecord = false;
     this.trailN = 0;
     this.trailTick = 0;
-    this.R = { m: 0, pads: 0, lifts: 0, perfect: 0, good: 0, mines: 0, pitskip: 0, scrap: 0, thrusts: 0, alt: 0, iceRoll: 0, kite: 0, beacons: 0, bounces: 0, daily: 0 };
+    this.R = { m: 0, pads: 0, lifts: 0, perfect: 0, good: 0, mines: 0, pitskip: 0, scrap: 0, thrusts: 0, alt: 0, iceRoll: 0, kite: 0, beacons: 0, bounces: 0, daily: 0, chain: 0 };
     this.kiteRun = 0;
     this.iceAcc = 0;
     this.zoneBonus = 0;
+    this.chain = 0; // links since the last plain landing
+    this.chainT = 0;
+    this.shell = this.L.shell;
+    this.shake = 0;
+    this.kickT = 0;
+    this.rings = []; // shock rings: { x, y, t, c } in world px
     this.best0 = this.bestRef();
+  }
+  slots() { return SLOTS + (this.sv.ft.length >= SLOT3_FEATS ? 1 : 0); }
+  // Pads, boosters, mines, beacons and perfect skips add a link; a plain landing ends the chain.
+  link() {
+    this.chain++;
+    this.chainT = 1.6;
+    this.R.chain = Math.max(this.R.chain, this.chain);
+    if (this.chain >= 2) this.note(0.08, 523 * Math.pow(2, Math.min(this.chain, 12) / 12), 0.06, "sine");
+    if (this.chain === 2 && !this.sv.seen.chain) { this.sv.seen.chain = 1; this.notice = "A CHAIN: KEEP OFF THE PLAIN GROUND FOR MORE SALVAGE."; this.noticeT = 3; }
+  }
+  unlink() {
+    if (this.chain >= 3) this.c.tone(220, 0.08, "triangle");
+    this.chain = 0;
+  }
+  ring(x, y, c) {
+    if (this.rings.length >= 6) this.rings.shift();
+    this.rings.push({ x, y, t: 0, c });
   }
   dayKey() { return dateKey(); }
   unlockedPod(i) { return i === 0 || this.sv.ft.length >= (PODS[i]?.need ?? 99); }
@@ -431,7 +572,8 @@ export class Ballista {
     p.vx = Math.min(VX_CAP, p.vx + KICK_X * this.L.kick);
     p.vy = Math.max(p.vy, 0) + KICK_Y * this.L.kick;
     p.mode = "air";
-    this.burst(p.x - 6, p.y + R, 6, 120);
+    this.kickT = 0.3;
+    this.burst(p.x - 6, p.y + R, 6, 120, 1);
     this.flash = 0.12;
     this.flashCol = "amber";
     this.c.tone(196, 0.12, "sawtooth");
@@ -441,7 +583,7 @@ export class Ballista {
   skipWindow() {
     const p = this.p;
     if (p.mode !== "air" || p.vy > -BOUNCE_VY * 1.3) return -1;
-    const tti = timeToGround(p.y, p.vy);
+    const tti = timeToGround(p.y, p.vy, this.L.g);
     return tti <= SKIP_WIN ? tti : -1;
   }
   startRun(daily) {
@@ -460,12 +602,17 @@ export class Ballista {
       else this.startRun(false);
       return;
     }
+    if (this.view === "mods") {
+      if (!long) { this.mcur = (this.mcur + 1) % (MODULES.length + 1); this.need = ""; this.c.tone(420, 0.02, "sine"); }
+      else this.modChoose();
+      return;
+    }
     if (this.view !== "menu") {
-      if (long || this.view === "log") { this.view = "menu"; this.page = 0; }
+      if (long || this.view === "log" || this.view === "contracts") { this.view = "menu"; this.page = 0; }
       else this.page = (this.page + 1) % Math.ceil(FEATS.length / 6);
       return;
     }
-    if (!long) { this.cur = (this.cur + 1) % WORKSHOP.length; this.need = ""; this.c.tone(420, 0.02, "sine"); return; }
+    if (!long) { this.cur = (this.cur + 1) % WORKSHOP.length; this.need = ""; this.confirm = false; this.c.tone(420, 0.02, "sine"); return; }
     this.shopChoose();
   }
   openShop() {
@@ -481,7 +628,7 @@ export class Ballista {
   affordable() {
     for (let i = 0; i < UPGRADES.length; i++) {
       const L = this.sv.up[i];
-      if (L < UP_MAX && UPGRADES[i].cost[L] <= this.sv.salvage) return i;
+      if (L < UP_MAX && upCost(i, L, this.sv.mark) <= this.sv.salvage) return i;
     }
     return -1;
   }
@@ -491,6 +638,9 @@ export class Ballista {
     if (row === "DAILY") { this.startRun(true); return; }
     if (row === "FEATS") { this.view = "feats"; this.page = 0; return; }
     if (row === "LOG") { this.view = "log"; return; }
+    if (row === "CONTRACTS") { this.view = "contracts"; return; }
+    if (row === "MODULES") { this.view = "mods"; this.mcur = 0; this.need = ""; return; }
+    if (row === "OVERHAUL") { this.overhaul(); return; }
     if (row === "POD") {
       let i = sv.pod;
       do i = (i + 1) % PODS.length; while (!this.unlockedPod(i));
@@ -501,7 +651,7 @@ export class Ballista {
     }
     const ui = this.cur - 1, L = sv.up[ui];
     if (L >= UP_MAX) { this.need = "FULLY FITTED."; this.c.tone(300, 0.05, "triangle"); return; }
-    const cost = UPGRADES[ui].cost[L];
+    const cost = upCost(ui, L, sv.mark);
     if (sv.salvage < cost) { this.need = "NEED " + (cost - sv.salvage) + " MORE SALVAGE."; this.c.tone(150, 0.08, "square"); return; }
     sv.salvage -= cost;
     sv.up[ui] = L + 1;
@@ -509,6 +659,50 @@ export class Ballista {
     this.note(0, 523, 0.08, "triangle");
     this.note(0.08, 784, 0.14, "triangle");
     this.checkFeats();
+    this.persist();
+    this.hudNow();
+  }
+
+  // Every system at V: the first hold asks, a second one strips them and raises the mark.
+  overhaul() {
+    const sv = this.sv;
+    if (sv.mark >= MARK_MAX) { this.need = "THE POD IS AT ITS LAST MARK."; return; }
+    if (sv.up.some((L) => L < UP_MAX)) { this.need = "EVERY SYSTEM MUST BE AT V FIRST."; this.c.tone(150, 0.08, "square"); return; }
+    if (!this.confirm) { this.confirm = true; this.need = "HOLD AGAIN: SYSTEMS BACK TO NOTHING, MARK " + roman(sv.mark + 2) + " FOR GOOD."; this.c.tone(440, 0.06, "triangle"); return; }
+    this.confirm = false;
+    sv.mark++;
+    sv.up = sv.up.map(() => 0);
+    this.need = "MARK " + roman(sv.mark + 1) + ". LAUNCH +" + Math.round(100 * MARK_SPEED * sv.mark) + "%, SALVAGE +" + Math.round(100 * MARK_SALVAGE * sv.mark) + "%.";
+    [392, 523, 659, 784].forEach((hz, i) => this.note(0.1 * i, hz, 0.18, "triangle"));
+    this.checkFeats();
+    this.persist();
+    this.hudNow();
+  }
+  // A module: buy it if it is not owned, otherwise fit or remove it. The last line goes back.
+  modChoose() {
+    const sv = this.sv, m = MODULES[this.mcur];
+    if (!m) { this.view = "menu"; this.need = ""; return; }
+    if (!sv.mods.includes(m.id)) {
+      if (sv.salvage < m.cost) { this.need = "NEED " + (m.cost - sv.salvage) + " MORE SALVAGE."; this.c.tone(150, 0.08, "square"); return; }
+      sv.salvage -= m.cost;
+      sv.mods.push(m.id);
+      if (sv.eq.length < this.slots()) sv.eq.push(m.id);
+      this.need = m.name + " BUILT" + (sv.eq.includes(m.id) ? " AND FITTED." : ". SLOTS FULL.");
+      this.note(0, 523, 0.08, "triangle"); this.note(0.08, 659, 0.08, "triangle"); this.note(0.16, 784, 0.14, "triangle");
+      this.checkFeats();
+    } else if (sv.eq.includes(m.id)) {
+      sv.eq = sv.eq.filter((id) => id !== m.id);
+      this.need = m.name + " REMOVED.";
+      this.c.tone(330, 0.05, "triangle");
+    } else if (sv.eq.length >= this.slots()) {
+      this.need = "ALL " + this.slots() + " SLOTS ARE FULL. REMOVE ONE FIRST.";
+      this.c.tone(150, 0.08, "square");
+      return;
+    } else {
+      sv.eq.push(m.id);
+      this.need = m.name + " FITTED.";
+      this.c.tone(660, 0.05, "triangle");
+    }
     this.persist();
     this.hudNow();
   }
@@ -546,14 +740,16 @@ export class Ballista {
   fly(step) {
     const p = this.p, L = this.L;
     this.runT += step;
+    if (this.kickT > 0) this.kickT -= step;
+    if (this.chainT > 0) this.chainT -= step;
     if (this.skip) { this.skip.t += step; if (this.skip.t > 0.5) this.skip = null; }
     if (p.mode === "air") {
       const v = Math.hypot(p.vx, p.vy), k = L.drag * v;
-      let ax = -k * p.vx, ay = -G - k * p.vy;
+      let ax = -k * p.vx, ay = -L.g - k * p.vy;
       for (const f of this.features) {
         if (f.x > p.x) break;
         if (f.k === "updraft" && p.x <= f.x + f.w && p.y < 900) ay += 1000;
-        else if (f.k === "gust" && p.x <= f.x + f.w) ax += f.a;
+        else if (f.k === "gust" && p.x <= f.x + f.w) ax += L.sail ? Math.abs(f.a) : f.a;
       }
       p.vx = clamp(p.vx + ax * step, 0, VX_CAP);
       p.vy = clamp(p.vy + ay * step, -VY_CAP, VY_CAP);
@@ -588,22 +784,27 @@ export class Ballista {
       if (f.k === "net") {
         if (px <= f.x && p.x > f.x && p.y < f.h) {
           f.used = 1;
+          if (this.L.cutter) { this.c.tone(1600, 0.04, "square"); this.burst(f.x, p.y, 6, 120, 0); continue; }
           p.vx *= 0.35;
           p.vy *= 0.4;
+          this.unlink();
           this.flash = 0.25; this.flashCol = "red";
+          this.shake = 0.15;
           this.c.tone(200, 0.12, "square");
         }
       } else if (f.k === "beacon") {
         if (Math.hypot(p.x - f.x, cy - f.y) < f.h + R + 4) {
           f.used = 1;
           p.vy = Math.max(p.vy, 380);
-          this.kicks = Math.min(this.L.kicks, this.kicks + 1);
+          this.kicks = Math.min(this.L.kicks, this.kicks + this.L.relay);
           this.R.beacons++;
+          this.link();
+          this.ring(f.x, f.y, 2);
           this.kiteRun++;
           this.R.kite = Math.max(this.R.kite, this.kiteRun);
           this.flash = 0.2; this.flashCol = "amber";
           this.c.tone(988, 0.1, "sine");
-          this.burst(f.x, f.y, 6, 90);
+          this.burst(f.x, f.y, 6, 90, 1);
         }
       } else if (f.k === "scrap") {
         if (Math.hypot(p.x - f.x, cy - f.y) < this.L.magnet + 6) {
@@ -623,20 +824,32 @@ export class Ballista {
     const impact = -p.vy;
     if (f && f.k === "pit") {
       if (skip) { this.R.pitskip++; this.bounce(impact, Math.min(SKIP_E_CAP, L.e + 0.2), 0.95, skip.grade); return; }
+      if (this.shell > 0) {
+        this.shell--;
+        this.notice = "THE SHELL TAKES IT. NEXT TIME IT WON'T.";
+        this.noticeT = 2;
+        this.shake = 0.25;
+        this.burst(p.x, 0, 10, 160, 2);
+        this.bounce(Math.max(impact, 300), 0.6, 0.85, "good");
+        return;
+      }
       this.finish("pit");
       return;
     }
     if (f && this.lift(f, impact)) return;
-    if (impact < BOUNCE_VY && !skip) { p.vy = 0; p.mode = "roll"; return; }
+    if (impact < BOUNCE_VY && !skip) { p.vy = 0; p.mode = "roll"; this.unlink(); return; }
     let e = L.e, keep = L.keep;
-    if (f && f.k === "drift") { e *= 0.35; keep *= 0.6; }
+    const drift = f && f.k === "drift" && !L.skids;
+    if (drift) { e *= 0.35; keep *= 0.6; }
     if (f && f.k === "ice") { e *= 1.08; keep = 1; }
     if (skip) { // a skip keeps more of both: a perfect one nearly all the speed
       e = Math.min(SKIP_E_CAP, L.e + (skip.grade === "perfect" ? 0.22 : 0.1));
       keep = Math.max(keep, skip.grade === "perfect" ? 0.98 : 0.92);
     }
     this.bounce(impact, e, keep, skip ? skip.grade : "");
-    if (f && f.k === "drift" && !skip) { this.flash = 0.2; this.flashCol = "red"; this.c.tone(150, 0.1, "triangle"); }
+    if (!skip) this.unlink();
+    this.burst(p.x, 0, impact > 300 ? 6 : 3, 60 + impact * 0.15, drift ? 1 : 3);
+    if (drift && !skip) { this.flash = 0.2; this.flashCol = "red"; this.c.tone(150, 0.1, "triangle"); }
   }
   bounce(impact, e, keep, grade) {
     const p = this.p;
@@ -647,7 +860,9 @@ export class Ballista {
       this.R.perfect++;
       this.flash = 0.22; this.flashCol = "cyan";
       this.note(0, 880, 0.07, "triangle"); this.note(0.06, 1175, 0.1, "triangle");
-      this.burst(p.x, 0, 6, 110);
+      this.burst(p.x, 0, 6, 110, 2);
+      this.ring(p.x, 0, 2);
+      this.link();
       this.notice = "PERFECT SKIP";
       this.noticeT = 1.2;
     } else if (grade === "good") {
@@ -662,7 +877,7 @@ export class Ballista {
   lift(f, impact) {
     const p = this.p;
     if (f.k === "pad") {
-      p.vy = clamp(Math.max(impact * 0.95, PAD_V), 0, 900);
+      p.vy = clamp(Math.max(impact * 0.95, PAD_V) * this.L.pad, 0, 1000);
       p.vx = Math.min(VX_CAP, p.vx * 1.05 + 20);
       this.R.pads++;
       this.note(0, 523, 0.06, "triangle"); this.note(0.06, 784, 0.1, "triangle");
@@ -677,9 +892,14 @@ export class Ballista {
       this.R.mines++;
       this.c.tone(70, 0.3, "sawtooth");
       this.note(0.05, 140, 0.2, "square");
-      this.burst(p.x, 0, 14, 220);
+      this.burst(p.x, 0, 14, 220, 0);
+      this.ring(p.x, 0, 0);
+      this.shake = 0.35;
     } else return false;
+    f.hit = this.t;
     this.R.lifts++;
+    this.link();
+    if (f.k !== "mine") this.shake = Math.max(this.shake, 0.1);
     this.flash = 0.2;
     this.flashCol = f.k === "mine" ? "red" : "white";
     p.y = 0.5;
@@ -692,12 +912,12 @@ export class Ballista {
     p.vy = 0;
     if (f && f.k === "pit") { this.finish("pit"); return; }
     if (f && this.lift(f, 0)) return;
-    const kind = f && (f.k === "drift" || f.k === "ice") ? f.k : "ground";
+    const kind = f && ((f.k === "drift" && !this.L.skids) || f.k === "ice") ? f.k : "ground";
     let ax = -FRICTION[kind] * (kind === "ice" ? 1 : this.L.roll);
     for (const g of this.features) {
       if (g.x > p.x) break;
       if (g.k === "updraft" && p.x <= g.x + g.w) { p.mode = "air"; p.vy = 160; return; }
-      if (g.k === "gust" && p.x <= g.x + g.w) ax += g.a * 0.5;
+      if (g.k === "gust" && p.x <= g.x + g.w) ax += (this.L.sail ? Math.abs(g.a) : g.a) * 0.5;
     }
     const px = p.x;
     p.vx = clamp(p.vx + ax * step, 0, VX_CAP);
@@ -724,7 +944,7 @@ export class Ballista {
     if (hundred > this.lastMilestone) { this.lastMilestone = hundred; this.c.tone(523, 0.05, "sine"); }
   }
   introduce() {
-    if (this.noticeT > 0.4) return;
+    if (this.noticeT > 0.4 || this.sy(0) > 500) return; // only while the ground is in view
     for (const f of this.features) {
       if (this.sx(f.x) > 900) break; // on screen, ahead of the pod
       if (f.x < this.p.x || this.sv.seen[f.k] || !INTRO[f.k]) continue;
@@ -781,14 +1001,31 @@ export class Ballista {
       sv.best = Math.max(sv.best, metres);
       sv.pb[this.podIx] = Math.max(sv.pb[this.podIx] || 0, metres);
     }
+    sv.chain = Math.max(sv.chain, this.R.chain);
+    // contracts: every one this run met is paid and replaced (daily runs take none)
+    const done = [];
+    let pay = 0;
+    if (!this.daily) for (let i = 0; i < sv.ct.length; i++) {
+      const c = sv.ct[i];
+      if (contractProgress(c, this.R) < c.n) {
+        if (--c.left <= 0) { sv.ct.splice(i, 1); sv.ct.splice(i, 0, drawContract(sv)); } // withdrawn
+        continue;
+      }
+      done.push(contractText(c));
+      pay += c.pay;
+      sv.cdone++;
+      sv.ct.splice(i, 1);
+      sv.ct.splice(i, 0, drawContract(sv));
+    }
     const before = sv.ft.length;
     this.checkFeats();
-    const bounty = (sv.ft.length - before) * FEAT_BOUNTY + this.zoneBonus + (this.R.daily ? 60 : 0);
+    const bounty = (sv.ft.length - before) * FEAT_BOUNTY + this.zoneBonus + (this.R.daily ? 60 : 0) + pay;
     this.zoneBonus = 0;
-    const earned = salvageFor(metres, this.R.scrap) + bounty;
+    const mult = chainMult(this.R.chain) * this.L.rig;
+    const earned = salvageFor(metres, this.R.scrap, this.L.scrap, mult) + bounty;
     sv.salvage += earned;
     sv.milestone = Math.max(sv.milestone, Math.floor(sv.best / 100));
-    this.result = { metres, salvage: earned, bounty, pads: this.R.lifts, skips: this.R.perfect, scrap: this.R.scrap, reason: why === "pit" ? "SWALLOWED BY A SINKHOLE" : why === "cap" ? "SIGNAL LOST" : "CAME TO REST", zone: ZONES[zoneAt(metres)].name };
+    this.result = { metres, salvage: earned, bounty, contracts: done, chain: this.R.chain, mult, pads: this.R.lifts, skips: this.R.perfect, scrap: this.R.scrap, reason: why === "pit" ? "SWALLOWED BY A SINKHOLE" : why === "cap" ? "SIGNAL LOST" : "CAME TO REST", zone: ZONES[zoneAt(metres)].name };
     sv.last = { metres, salvage: earned, lifts: this.R.lifts, skips: this.R.perfect, reason: this.result.reason };
     this.persist();
     this.result.next = this.nextGoal();
@@ -824,9 +1061,10 @@ export class Ballista {
   nextGoal() {
     const sv = this.sv, lines = [];
     let cheap = -1;
-    for (let i = 0; i < UPGRADES.length; i++) if (sv.up[i] < UP_MAX && (cheap < 0 || UPGRADES[i].cost[sv.up[i]] < UPGRADES[cheap].cost[sv.up[cheap]])) cheap = i;
+    for (let i = 0; i < UPGRADES.length; i++) if (sv.up[i] < UP_MAX && (cheap < 0 || upCost(i, sv.up[i], sv.mark) < upCost(cheap, sv.up[cheap], sv.mark))) cheap = i;
+    if (cheap < 0 && sv.mark < MARK_MAX) lines.push("WORKSHOP: EVERY SYSTEM AT V. AN OVERHAUL IS READY.");
     if (cheap >= 0) {
-      const cost = UPGRADES[cheap].cost[sv.up[cheap]];
+      const cost = upCost(cheap, sv.up[cheap], sv.mark);
       lines.push(cost <= sv.salvage ? "WORKSHOP: " + UPGRADES[cheap].name + " " + roman(sv.up[cheap] + 1) + " IS READY (" + cost + ")" : "NEXT: " + UPGRADES[cheap].name + " " + roman(sv.up[cheap] + 1) + " AT " + cost + " SALVAGE");
     }
     let best = null, bestF = 0;
@@ -851,25 +1089,30 @@ export class Ballista {
     }
     this.sq.length = keep;
   }
-  burst(x, y, n, speed) {
+  // colour: 0 red, 1 amber, 2 cyan, 3 dust
+  burst(x, y, n, speed, colour = 1) {
     for (let i = 0; i < n; i++) {
-      const k = this.partNext++ % MAX_PARTS, o = k * 5, a = (i / n) * Math.PI + 0.1;
+      const k = this.partNext++ % MAX_PARTS, o = k * 6, a = (i / n) * Math.PI + 0.1;
       this.parts[o] = x; this.parts[o + 1] = y;
       this.parts[o + 2] = Math.cos(a) * speed * (0.5 + (i % 3) * 0.25);
       this.parts[o + 3] = Math.sin(a) * speed * (0.5 + (i % 3) * 0.25);
       this.parts[o + 4] = 0.6;
+      this.parts[o + 5] = colour;
     }
     this.partNext %= MAX_PARTS;
   }
   stepParts(dt) {
     for (let k = 0; k < MAX_PARTS; k++) {
-      const o = k * 5;
+      const o = k * 6;
       if (this.parts[o + 4] <= 0) continue;
       this.parts[o] += this.parts[o + 2] * dt;
       this.parts[o + 1] = Math.max(0, this.parts[o + 1] + this.parts[o + 3] * dt);
       this.parts[o + 3] -= G * 0.6 * dt;
       this.parts[o + 4] -= dt;
     }
+    for (const r of this.rings) r.t += dt;
+    while (this.rings.length && this.rings[0].t > 0.6) this.rings.shift();
+    if (this.shake > 0) this.shake = Math.max(0, this.shake - dt);
   }
   pushTrail(x, y) {
     this.trail.copyWithin(0, 2);
@@ -897,7 +1140,7 @@ export class Ballista {
   // Aiming: a spot that follows the barrel (left low, right high). Charging: a meter that fills
   // green, amber, red. Flight: left = height, middle = speed in the zone's colour, right = thrusters
   // left. A coming touchdown turns all three cyan, brightest at the perfect moment. A sinkhole close
-  // ahead of a low pod blinks the middle lamp red. Pads, skips and blasts flash.
+  // ahead of a low pod blinks the middle lamp red; a growing chain whitens it. Pads, skips and blasts flash.
   lampValues() {
     const ph = this.phase;
     if (ph === "title" || ph === "shop") return spot(0.5 + 0.5 * Math.sin(this.t * 0.8), dim(ZONES[this.sv.far].col, 0.12));
@@ -924,7 +1167,7 @@ export class Ballista {
     }
     const height = clamp(p.y / 400, 0, 1), speed = clamp(Math.hypot(p.vx, p.vy) / 900, 0, 1);
     const left = dim(LAMP.blue, 0.04 + 0.36 * height);
-    let mid = dim(ZONES[this.zone].col, 0.06 + 0.32 * speed);
+    let mid = dim(blend(ZONES[this.zone].col, LAMP.white, Math.min(this.chain, 10) / 12), 0.06 + 0.32 * speed); // whiter as a chain grows
     if (this.pitAhead()) mid = blink(this.runT, 6) ? dim(LAMP.red, 0.45) : [0, 0, 0];
     const right = this.kicks > 0 ? dim(LAMP.amber, 0.06 + 0.3 * (this.kicks / this.L.kicks)) : null;
     return lamps(left, mid, right);
@@ -940,17 +1183,33 @@ export class Ballista {
   }
 
   // ---- drawing ------------------------------------------------------------------------------------
+  // Layers from the back: the zone's sky (a cached gradient), stars and a moon, far silhouettes, near
+  // props, the ground, the field, the pod and its effects, the weather, then the screens on top.
   sx(x) { return SX0 + x - this.camX; }
   sy(y) { return GY - (y - this.camY); }
+  // The zone the camera looks at, and how far it has faded into the next one (the last 60 m).
+  viewZone() {
+    if (this.phase === "title" || this.phase === "shop") return [this.sv.far, 0];
+    const m = (this.camX + 360) / M, z = zoneAt(m), next = ZONES[z + 1];
+    return [z, next ? clamp((m - next.from + 60) / 60, 0, 1) : 0];
+  }
   draw(g) {
-    space(g, this.camX * 0.2, 0.5);
-    this.drawBackdrop(g);
+    const [z, fade] = this.viewZone();
+    g.save();
+    if (this.shake > 0) g.translate(Math.sin(this.t * 91) * this.shake * 22, Math.cos(this.t * 77) * this.shake * 14);
+    g.fillStyle = sky(g, z);
+    g.fillRect(-30, -30, 1020, 600);
+    if (fade > 0) { g.globalAlpha = fade; g.fillStyle = sky(g, z + 1); g.fillRect(-30, -30, 1020, 600); g.globalAlpha = 1; }
+    this.drawSky(g, z);
+    this.drawFar(g, fade > 0.5 ? z + 1 : z);
     this.drawGround(g);
     this.drawFeatures(g);
     this.drawMarks(g);
     this.drawCannon(g);
     this.drawPod(g);
     this.drawParts(g);
+    this.drawWeather(g, fade > 0.5 ? z + 1 : z);
+    g.restore();
     if (this.phase === "title") this.drawTitle(g);
     else if (this.phase === "over") this.drawResult(g);
     else if (this.phase === "shop") this.drawShop(g);
@@ -967,23 +1226,89 @@ export class Ballista {
     g.lineWidth = 4;
     g.stroke();
   }
-  // Faint ridgelines far behind, in the colour of the zone the camera is in.
-  drawBackdrop(g) {
-    const z = this.phase === "title" || this.phase === "shop" ? this.sv.far : zoneAt((this.camX + 480) / M);
-    const ink = ZONES[z].ink, par = 0.35, cell = 120;
-    const i0 = Math.floor((this.camX * par) / cell), base = this.sy(0) - 30 + this.camY * 0.6;
-    if (base < 0) return;
-    g.strokeStyle = ink;
-    g.globalAlpha = 0.18;
+  // Stars that drift slowly, and each zone's moon.
+  drawSky(g, z) {
+    const shift = this.camX * 0.03, lift = this.camY * 0.05;
+    g.fillStyle = C.muted;
+    for (let i = 0; i < STARS.length; i += 3) {
+      g.globalAlpha = STARS[i + 2] * (z === 5 ? 0.3 : 0.7);
+      g.fillRect((STARS[i] - shift + 9600) % 960, STARS[i + 1] + lift, 2, 2);
+    }
+    g.globalAlpha = 1;
+    const moon = MOONS[z], mx = moon[0] - this.camX * 0.01, my = moon[1] + lift;
+    g.globalAlpha = 0.5;
+    circle(g, mx, my, moon[2], ZONES[z].ink, false, 2);
+    g.beginPath(); g.arc(mx + moon[2] * 0.3, my - moon[2] * 0.2, moon[2] * 0.85, 0, TAU); g.fillStyle = sky(g, z); g.fill();
+    if (moon[3]) { g.beginPath(); g.ellipse(mx, my, moon[2] * 1.8, moon[2] * 0.35, -0.3, 0, TAU); g.strokeStyle = ZONES[z].ink; g.lineWidth = 1.5; g.stroke(); }
+    g.globalAlpha = 1;
+  }
+  // Two silhouette layers in the zone's own shapes: far (slow) and near (faster).
+  drawFar(g, z) {
+    const base = this.sy(0) + this.camY * 0.7;
+    if (base < -60) return;
+    const ink = ZONES[z].ink;
+    for (const [par, cell, alpha, fillA, h0] of LAYERS) {
+      const i0 = Math.floor((this.camX * par) / cell) - 1, off = this.camX * par;
+      g.beginPath();
+      g.moveTo(-40, base);
+      for (let i = i0; i < i0 + Math.ceil(1040 / cell) + 2; i++) {
+        const h = mixSeed(i * 7919 + z * 131 + cell), x = i * cell - off, top = base - h0 - ((h >>> 5) % h0);
+        if (z === 0) { g.lineTo(x + cell * 0.5, top * 0.4 + base * 0.6); g.lineTo(x + cell, base - 10); } // low hills
+        else if (z === 1) g.quadraticCurveTo(x + cell * 0.5, top, x + cell, base - 6); // dunes
+        else if (z === 2) { g.lineTo(x + cell * 0.25, top); g.quadraticCurveTo(x + cell * 0.5, top + 30, x + cell * 0.75, top); g.lineTo(x + cell, base - 6); } // crater rims
+        else if (z === 3) { g.lineTo(x + cell * 0.42, base - 10); g.lineTo(x + cell * 0.5, top - h0 * 1.2); g.lineTo(x + cell * 0.58, base - 10); g.lineTo(x + cell, base - 8); } // spires
+        else if (z === 4) { g.lineTo(x + cell * 0.3, top); g.lineTo(x + cell * 0.45, base - 20); g.lineTo(x + cell * 0.6, top - 30); g.lineTo(x + cell, base - 8); } // shards
+        else if (z === 5) { g.lineTo(x + cell * 0.5, top + 20); g.lineTo(x + cell, base - 12); } // storm-worn
+        else { g.lineTo(x + cell * 0.2, top); g.lineTo(x + cell * 0.35, top + 25); g.lineTo(x + cell * 0.5, top - 40); g.lineTo(x + cell * 0.7, top + 10); g.lineTo(x + cell, base - 14); } // broken teeth
+      }
+      g.lineTo(1000, base + 40);
+      g.lineTo(-40, base + 40);
+      g.closePath();
+      g.globalAlpha = fillA;
+      g.fillStyle = "#050a07";
+      g.fill();
+      g.globalAlpha = alpha;
+      g.strokeStyle = ink;
+      g.lineWidth = 2;
+      g.stroke();
+    }
+    g.globalAlpha = 1;
+    if (z === 4) { // glints on the glass
+      g.fillStyle = C.cyan;
+      for (let i = 0; i < 6; i++) {
+        const k = (i * 157 + Math.floor(this.t * 2)) % 960;
+        g.globalAlpha = 0.5 * pulse(this.t + i, 0.7);
+        g.fillRect((k - this.camX * 0.45 % 960 + 960) % 960, base - 30 - (i * 23) % 70, 3, 3);
+      }
+      g.globalAlpha = 1;
+    }
+  }
+  // Rain in the storm, and streaks when the pod is fast.
+  drawWeather(g, z) {
+    if (z === 5 && this.phase !== "shop") {
+      g.strokeStyle = C.muted;
+      g.globalAlpha = 0.35;
+      g.lineWidth = 1.5;
+      g.beginPath();
+      for (let i = 0; i < 40; i++) {
+        const x = (i * 97 + this.t * 700 - this.camX * 0.8) % 1100, y = (i * 53 + this.t * 900) % 600;
+        const xx = ((x % 1100) + 1100) % 1100 - 70;
+        g.moveTo(xx, y - 20); g.lineTo(xx - 10, y + 6);
+      }
+      g.stroke();
+      if (blink(this.t, 0.13) && pulse(this.t, 3.1) > 0.97) { g.globalAlpha = 0.12; g.fillStyle = C.ink; g.fillRect(-30, -30, 1020, 600); } // lightning
+      g.globalAlpha = 1;
+    }
+    if (this.phase !== "fly") return;
+    const v = Math.hypot(this.p.vx, this.p.vy);
+    if (v < 650) return;
+    g.strokeStyle = C.ink;
+    g.globalAlpha = clamp((v - 650) / 600, 0, 0.4);
     g.lineWidth = 2;
     g.beginPath();
-    for (let i = i0; i < i0 + 10; i++) {
-      const h = mixSeed(i * 7919 + z), x = i * cell - this.camX * par, top = base - 30 - ((h >>> 4) % 90);
-      if (i === i0) g.moveTo(x, base - 20);
-      if (z === 3) { g.lineTo(x + 50, base - 10); g.lineTo(x + 58, top - 60); g.lineTo(x + 66, base - 10); }
-      else if (z === 5) { g.lineTo(x + 40, top); g.lineTo(x + 52, top + 30); g.lineTo(x + 70, top - 10); }
-      else g.lineTo(x + 60, top);
-      g.lineTo(x + cell, base - 20);
+    for (let i = 0; i < 7; i++) {
+      const y = 60 + ((i * 71 + Math.floor(this.runT * 3)) % 400), x = 960 - ((this.runT * 1400 + i * 173) % 1100);
+      g.moveTo(x, y); g.lineTo(x + 50, y);
     }
     g.stroke();
     g.globalAlpha = 1;
@@ -996,7 +1321,16 @@ export class Ballista {
       text(g, "GROUND " + alt + " m BELOW", 60, 500, 18, C.muted);
       return;
     }
-    line(g, 0, y, 960, y, C.line, 2);
+    g.fillStyle = "#0a120d";
+    g.fillRect(-30, y, 1020, 600 - y);
+    // pebbles that move with the ground
+    g.fillStyle = C.line;
+    const step = 37, o = this.camX % step;
+    for (let i = -1; i < 28; i++) {
+      const h = (Math.floor((this.camX + i * step) / step) * 2654435761) >>> 0;
+      g.fillRect(i * step - o + (h % 20), y + 8 + (h >>> 8) % 40, 3, 2);
+    }
+    line(g, -30, y, 990, y, ZONES[this.viewZone()[0]].ink + "99", 2);
     // a tick every 10 m, a label every 50 m
     const m0 = Math.floor((this.camX - SX0) / M / 10) * 10;
     for (let m = Math.max(0, m0); m < m0 + 120; m += 10) {
@@ -1015,47 +1349,70 @@ export class Ballista {
       if (x + (f.w || 0) < -40) continue;
       const w = f.w;
       if (f.k === "pad") {
-        line(g, x, gy - 10, x + w, gy - 10, C.cyan, 3);
-        for (let i = 0; i < 3; i++) { const zx = x + 6 + i * 14; line(g, zx, gy, zx + 7, gy - 10, C.cyan, 2); line(g, zx + 7, gy - 10, zx + 14, gy, C.cyan, 2); }
+        const sq = f.hit !== undefined && this.t - f.hit < 0.35 ? Math.sin(((this.t - f.hit) / 0.35) * Math.PI) : 0;
+        const top = gy - 12 + 8 * sq;
+        g.fillStyle = "#123a35"; g.fillRect(x, top - 3, w, 4);
+        line(g, x, top - 3, x + w, top - 3, C.cyan, 3);
+        g.strokeStyle = C.cyan; g.lineWidth = 2; g.beginPath();
+        for (let i = 0; i <= 8; i++) { const zx = x + 4 + i * ((w - 8) / 8); if (i) g.lineTo(zx, i % 2 ? gy : top); else g.moveTo(zx, top); }
+        g.stroke();
       } else if (f.k === "boost") {
-        line(g, x, gy - 3, x + w, gy - 3, C.ink, 3);
-        for (let i = 0; i < 3; i++) { const cx = x + 14 + i * 24; line(g, cx, gy - 16, cx + 10, gy - 8, C.ink, 2); line(g, cx + 10, gy - 8, cx, gy - 0, C.ink, 2); }
+        g.fillStyle = "#1f2a14"; g.fillRect(x, gy - 4, w, 4);
+        line(g, x, gy - 4, x + w, gy - 4, C.ink, 2);
+        const phase = (this.t * 3) % 1;
+        for (let i = 0; i < 3; i++) {
+          const cx = x + 12 + i * 26, on = Math.floor(phase * 3) === i;
+          line(g, cx, gy - 18, cx + 10, gy - 10, on ? C.ink : C.muted, on ? 3 : 2); line(g, cx + 10, gy - 10, cx, gy - 2, on ? C.ink : C.muted, on ? 3 : 2);
+        }
       } else if (f.k === "mine") {
-        if (f.used) { line(g, x, gy - 2, x + w, gy - 2, C.muted, 2); continue; }
-        g.beginPath(); g.arc(x + w / 2, gy, 12, Math.PI, 0); g.strokeStyle = C.red; g.lineWidth = 2; g.stroke();
-        circle(g, x + w / 2, gy - 6, 3, blink(this.t, 2) ? C.red : C.dark, true);
+        if (f.used) { g.fillStyle = "#050806"; g.beginPath(); g.ellipse(x + w / 2, gy + 2, 22, 6, 0, 0, TAU); g.fill(); continue; }
+        g.beginPath(); g.arc(x + w / 2, gy, 12, Math.PI, 0); g.fillStyle = "#2a1210"; g.fill(); g.strokeStyle = C.red; g.lineWidth = 2; g.stroke();
+        line(g, x + w / 2, gy - 12, x + w / 2, gy - 18, C.red, 2);
+        circle(g, x + w / 2, gy - 20, 3, blink(this.t, 2) ? C.red : C.dark, true);
       } else if (f.k === "drift") {
-        g.fillStyle = "#3a2f1f"; g.fillRect(x, gy - 6, w, 8);
-        for (let i = 8; i < w; i += 22) line(g, x + i, gy - 6, x + i + 10, gy - 10, C.amber, 1.5);
+        g.fillStyle = "#3a2f1f";
+        g.beginPath(); g.moveTo(x, gy); g.quadraticCurveTo(x + w / 2, gy - 14, x + w, gy); g.closePath(); g.fill();
+        for (let i = 10; i < w - 10; i += 20) line(g, x + i, gy - 4 - 6 * Math.sin((i / w) * Math.PI), x + i + 8, gy - 7 - 6 * Math.sin((i / w) * Math.PI), C.amber, 1.5);
       } else if (f.k === "ice") {
-        line(g, x, gy - 1, x + w, gy - 1, C.cyan, 4);
-        for (let i = 20; i < w; i += 60) line(g, x + i, gy - 1, x + i + 14, gy - 12, "#8fcbc580", 2);
+        g.fillStyle = "#14302f"; g.fillRect(x, gy - 3, w, 5);
+        line(g, x, gy - 3, x + w, gy - 3, C.cyan, 3);
+        const glint = ((this.t * 160) % (w + 80)) - 40;
+        if (glint > 0 && glint < w) line(g, x + glint, gy - 3, x + glint + 18, gy - 3, C.ink, 4);
       } else if (f.k === "pit") {
-        g.fillStyle = C.bg; g.fillRect(x, gy - 2, w, 24);
-        line(g, x, gy, x + 6, gy + 18, C.red, 2); line(g, x + w, gy, x + w - 6, gy + 18, C.red, 2);
-        line(g, x + 6, gy + 18, x + w - 6, gy + 18, C.red, 2);
+        g.fillStyle = "#000"; g.beginPath(); g.moveTo(x, gy); g.lineTo(x + 10, gy + 40); g.lineTo(x + w - 10, gy + 40); g.lineTo(x + w, gy); g.closePath(); g.fill();
+        line(g, x, gy, x + 10, gy + 30, C.red, 2); line(g, x + w, gy, x + w - 10, gy + 30, C.red, 2);
+        for (let i = 6; i < w; i += 14) line(g, x + i, gy, x + i + 4, gy - 6, C.red, 1.5); // a warning fringe
       } else if (f.k === "net") {
         const top = this.sy(f.h);
-        line(g, x, gy, x, top, f.used ? C.line : C.amber, 3);
-        if (!f.used) for (let yy = top + 12; yy < gy; yy += 16) line(g, x - 8, yy, x + 8, yy - 8, C.muted, 1.5);
+        if (f.used) { line(g, x, gy, x, gy - 10, C.line, 3); continue; }
+        line(g, x - 4, gy, x - 4, top, C.amber, 3);
+        line(g, x + 4, gy, x + 4, top, C.amber, 3);
+        circle(g, x, top - 4, 3, blink(this.t, 1.5) ? C.amber : C.dark, true);
+        for (let yy = top + 10; yy < gy; yy += 14) { line(g, x - 4, yy, x + 4, yy + 7, C.muted, 1.5); line(g, x + 4, yy, x - 4, yy + 7, C.muted, 1.5); }
       } else if (f.k === "beacon") {
         if (f.used) continue;
-        const by = this.sy(f.y);
-        diamond(g, x, by, f.h, C.amber, false);
+        const by = this.sy(f.y), a = this.t * 1.5;
+        g.globalAlpha = 0.3 + 0.3 * pulse(this.t, 1);
+        circle(g, x, by, f.h + 8 + 4 * pulse(this.t, 1), C.amber, false, 2);
+        g.globalAlpha = 1;
+        g.save(); g.translate(x, by); g.rotate(a);
+        diamond(g, 0, 0, f.h, C.amber, false);
+        g.restore();
         circle(g, x, by, 4, C.amber, true);
       } else if (f.k === "updraft") {
         g.globalAlpha = 0.35;
         for (let i = 10; i < w; i += 30) {
-          const off = ((this.t * 120 + i * 7) % 120);
+          const off = (this.t * 120 + i * 7) % 120;
           line(g, x + i, gy - off, x + i, gy - off - 30, C.cyan, 2);
           line(g, x + i, gy - off - 120, x + i, gy - off - 150, C.cyan, 2);
         }
         g.globalAlpha = 1;
+        line(g, x, gy, x + w, gy, C.cyan, 2);
       } else if (f.k === "gust") {
         g.globalAlpha = 0.4;
-        const dir = f.a > 0 ? 1 : -1;
+        const dir = f.a > 0 || this.L.sail ? 1 : -1, slide = ((this.t * 90 * dir) % 90 + 90) % 90;
         for (let i = 40; i < w; i += 90) {
-          const yy = gy - 40 - (i % 3) * 40, cx = x + i;
+          const yy = gy - 40 - (i % 3) * 40, cx = x + i + slide - 45;
           line(g, cx - 18, yy, cx + 18, yy, C.ink, 2);
           line(g, cx + 18 * dir, yy, cx + 8 * dir, yy - 7, C.ink, 2);
           line(g, cx + 18 * dir, yy, cx + 8 * dir, yy + 7, C.ink, 2);
@@ -1063,41 +1420,60 @@ export class Ballista {
         g.globalAlpha = 1;
       } else if (f.k === "scrap") {
         if (f.used) continue;
-        const by = this.sy(f.y);
-        g.strokeStyle = C.ink; g.lineWidth = 2;
-        g.strokeRect(x - 5, by - 5, 10, 10);
+        const by = this.sy(f.y) + 3 * Math.sin(this.t * 3 + f.x);
+        g.save(); g.translate(x, by); g.rotate(this.t * 2 + f.x);
+        g.strokeStyle = C.ink; g.lineWidth = 2; g.strokeRect(-5, -5, 10, 10);
+        g.restore();
       }
     }
+    // shock rings
+    for (const r of this.rings) {
+      g.globalAlpha = clamp(1 - r.t / 0.6, 0, 1);
+      circle(g, this.sx(r.x), this.sy(r.y), 10 + r.t * 140, [C.red, C.amber, C.cyan][r.c] || C.ink, false, 3);
+    }
+    g.globalAlpha = 1;
   }
-  // The best distance and the daily best as flags on the ground.
+  // The best distance (or today's) and the last run as flags on the ground.
   drawMarks(g) {
-    const gy = this.sy(0), best = this.bestRef();
-    if (best > 0 && gy < 560) {
-      const x = this.sx(best * M);
-      if (x > -20 && x < 980) {
-        line(g, x, gy, x, gy - 60, C.amber, 2);
-        line(g, x, gy - 60, x + 22, gy - 52, C.amber, 2);
-        line(g, x + 22, gy - 52, x, gy - 44, C.amber, 2);
-        text(g, this.daily ? "TODAY" : "BEST", x + 4, gy - 74, 16, C.amber, "center");
-      }
-    }
+    const gy = this.sy(0);
+    if (gy > 560) return;
+    const flag = (m, label, col) => {
+      const x = this.sx(m * M);
+      if (x < -20 || x > 980) return;
+      line(g, x, gy, x, gy - 60, col, 2);
+      g.fillStyle = col; g.beginPath(); g.moveTo(x, gy - 60); g.lineTo(x + 22 + 3 * Math.sin(this.t * 4), gy - 52); g.lineTo(x, gy - 44); g.fill();
+      text(g, label, x + 4, gy - 74, 16, col, "center");
+    };
+    const best = this.bestRef(), last = this.daily ? 0 : num(this.sv.last.metres);
+    if (last > 0 && Math.abs(last - best) > 8 && this.phase !== "over") flag(last, "LAST", C.muted);
+    if (best > 0) flag(best, this.daily ? "TODAY" : "BEST", C.amber);
   }
   drawCannon(g) {
-    const px = this.sx(0), py = this.sy(PIVOT_Y);
+    const px = this.sx(0), py = this.sy(PIVOT_Y), gy = this.sy(0);
     if (px < -80) return;
     const a = (this.angle * Math.PI) / 180;
-    g.strokeStyle = C.ink; g.lineWidth = 2;
-    g.beginPath(); g.moveTo(px - 26, this.sy(0)); g.lineTo(px - 14, py); g.lineTo(px + 14, py); g.lineTo(px + 26, this.sy(0)); g.stroke();
-    line(g, px, py, px + Math.cos(a) * BARREL, py - Math.sin(a) * BARREL, this.phase === "aim" ? C.amber : C.ink, 7);
-    circle(g, px, py, 7, C.ink, false, 2);
+    g.fillStyle = "#16241a";
+    g.beginPath(); g.moveTo(px - 30, gy); g.lineTo(px - 16, py); g.lineTo(px + 16, py); g.lineTo(px + 30, gy); g.closePath(); g.fill();
+    g.strokeStyle = C.ink; g.lineWidth = 2; g.stroke();
+    // the barrel, a little recoil after firing
+    const back = this.phase === "fly" && this.runT < 0.25 ? 10 * (1 - this.runT / 0.25) : 0;
+    const bx = px - Math.cos(a) * back, by = py + Math.sin(a) * back;
+    line(g, bx, by, bx + Math.cos(a) * BARREL, by - Math.sin(a) * BARREL, "#2b3c2e", 12);
+    line(g, bx, by, bx + Math.cos(a) * BARREL, by - Math.sin(a) * BARREL, this.phase === "aim" ? C.amber : C.ink, 3);
+    circle(g, px, py, 8, C.ink, false, 2);
     if (this.phase === "aim") {
-      // the power meter: an arc beside the barrel, and a short guide along the aim
       for (let i = 1; i <= 3; i++) {
         const d = BARREL + 14 + i * 16;
         circle(g, px + Math.cos(a) * d, py - Math.sin(a) * d, 2, C.muted, true);
       }
-      const h = 120, x0 = px + 70, y0 = this.sy(0) - 10;
+      if (this.charging) { // the barrel glows as it charges
+        g.globalAlpha = 0.3 + 0.5 * this.power;
+        circle(g, bx + Math.cos(a) * BARREL, by - Math.sin(a) * BARREL, 6 + 8 * this.power, this.power > 0.85 ? C.red : C.amber, true);
+        g.globalAlpha = 1;
+      }
+      const h = 120, x0 = px + 70, y0 = gy - 10;
       g.strokeStyle = C.line; g.lineWidth = 2; g.strokeRect(x0, y0 - h, 16, h);
+      line(g, x0 - 4, y0 - h + 3, x0 + 20, y0 - h + 3, C.muted, 2);
       if (this.charging) {
         const col = this.power > 0.85 ? C.red : this.power > 0.55 ? C.amber : C.ink;
         g.fillStyle = col; g.fillRect(x0 + 3, y0 - 3 - (h - 6) * this.power, 10, (h - 6) * this.power);
@@ -1107,38 +1483,59 @@ export class Ballista {
   drawPod(g) {
     if (this.phase === "aim" || this.phase === "title" || this.phase === "shop") return;
     const p = this.p, x = this.sx(p.x), y = this.sy(p.y + R);
-    // trail
-    if (this.trailN > 1) {
-      g.strokeStyle = C.amber; g.lineWidth = 2; g.globalAlpha = 0.5;
-      g.beginPath();
-      for (let i = TRAIL - this.trailN; i < TRAIL; i++) {
-        const tx = this.sx(this.trail[i * 2]), ty = this.sy(this.trail[i * 2 + 1] + R);
-        if (i === TRAIL - this.trailN) g.moveTo(tx, ty); else g.lineTo(tx, ty);
+    if (this.trailN > 1) { // the trail, fading toward its tail
+      g.strokeStyle = this.chain >= 2 ? C.cyan : C.amber; g.lineWidth = 2;
+      for (let part = 0; part < 3; part++) {
+        const from = TRAIL - this.trailN + Math.floor((this.trailN * part) / 3), to = TRAIL - this.trailN + Math.floor((this.trailN * (part + 1)) / 3);
+        g.globalAlpha = 0.15 + 0.2 * part;
+        g.beginPath();
+        for (let i = from; i < to; i++) {
+          const tx = this.sx(this.trail[i * 2]), ty = this.sy(this.trail[i * 2 + 1] + R);
+          if (i === from) g.moveTo(tx, ty); else g.lineTo(tx, ty);
+        }
+        if (part === 2) g.lineTo(x, y);
+        g.stroke();
       }
-      g.lineTo(x, y);
-      g.stroke();
       g.globalAlpha = 1;
     }
-    // the skip cue: a ring that closes on the landing point as touchdown nears
     const tti = this.phase === "fly" ? this.skipWindow() : -1;
-    if (tti >= 0 && !this.skip) {
+    if (tti >= 0 && !this.skip) { // the skip cue: a ring that closes on the landing point
       const lx = this.sx(p.x + p.vx * tti), perfect = tti <= this.L.perfect;
       g.beginPath(); g.ellipse(lx, this.sy(0), 10 + 90 * tti, 4 + 20 * tti, 0, 0, TAU);
       g.strokeStyle = perfect ? C.ink : C.cyan; g.lineWidth = perfect ? 4 : 2; g.stroke();
     }
     if (this.phase === "over" && this.reason === "pit") return;
-    circle(g, x, y, R, this.skip ? C.cyan : C.ink, false, 3);
-    line(g, x, y, x + Math.cos(p.spin) * R, y + Math.sin(p.spin) * R, C.ink, 2);
+    if (p.mode === "air" && y > -20 && y < 560) { // its shadow on the ground
+      const gy = this.sy(0), k = clamp(1 - p.y / 500, 0.15, 1);
+      if (gy < 560) { g.globalAlpha = 0.35 * k; g.fillStyle = "#000"; g.beginPath(); g.ellipse(x, gy + 2, 12 * k, 3, 0, 0, TAU); g.fill(); g.globalAlpha = 1; }
+    }
+    const ang = p.mode === "air" ? Math.atan2(p.vy, Math.max(1, p.vx)) : 0;
+    g.save();
+    g.translate(x, y);
+    if (this.skip || this.chainT > 0) { g.globalAlpha = 0.25; circle(g, 0, 0, R + 7, this.skip ? C.cyan : C.ink, true); g.globalAlpha = 1; }
+    g.rotate(-ang);
+    if (this.kickT > 0) { // thruster flame
+      const L = 10 + 26 * (this.kickT / 0.3) * (0.7 + 0.3 * Math.sin(this.t * 60));
+      g.fillStyle = C.amber; g.beginPath(); g.moveTo(-R, -4); g.lineTo(-R - L, 0); g.lineTo(-R, 4); g.fill();
+    }
+    g.fillStyle = "#1d3022";
+    g.beginPath(); g.moveTo(-R - 2, -6); g.lineTo(R - 2, -6); g.arc(R - 2, 0, 6, -Math.PI / 2, Math.PI / 2); g.lineTo(-R - 2, 6); g.closePath(); g.fill();
+    g.strokeStyle = this.skip ? C.cyan : C.ink; g.lineWidth = 2.5; g.stroke();
+    line(g, -R + 1, -6, -R - 5, -11, C.ink, 2); // fins
+    line(g, -R + 1, 6, -R - 5, 11, C.ink, 2);
+    circle(g, R - 3, 0, 2.5, this.shell > 0 ? C.amber : C.cyan, true); // its window: amber while the shell is whole
+    if (p.mode !== "air") line(g, -4 + 3 * Math.sin(p.spin), 7, 4 + 3 * Math.sin(p.spin), 7, C.muted, 2);
+    g.restore();
     if (y < 10) { // above the screen: a pointer with the height
       diamond(g, x, 22, 8, C.amber, true);
       text(g, Math.floor(p.y / M) + " m UP", x + 16, 22, 16, C.amber);
     }
   }
   drawParts(g) {
-    g.fillStyle = C.amber;
     for (let k = 0; k < MAX_PARTS; k++) {
-      const o = k * 5;
+      const o = k * 6;
       if (this.parts[o + 4] <= 0) continue;
+      g.fillStyle = PART_COLOURS[this.parts[o + 5]] || C.amber;
       g.globalAlpha = clamp(this.parts[o + 4] / 0.6, 0, 1);
       g.fillRect(this.sx(this.parts[o]) - 2, this.sy(this.parts[o + 1]) - 2, 4, 4);
     }
@@ -1146,22 +1543,37 @@ export class Ballista {
   }
   drawOverlay(g) {
     text(g, this.metres + " m", 480, 50, 34, C.ink, "center");
-    // thrusters left, as pips under the distance
-    for (let i = 0; i < this.L.kicks; i++) {
+    for (let i = 0; i < this.L.kicks; i++) { // thrusters left, as pips under the distance
       const x = 480 - (this.L.kicks - 1) * 12 + i * 24;
       diamond(g, x, 86, 7, i < this.kicks ? C.amber : C.line, i < this.kicks);
     }
+    if (this.chain >= 2) {
+      const pop = this.chainT > 1.3 ? 1 + (this.chainT - 1.3) : 1;
+      text(g, "CHAIN " + this.chain, 880, 48, Math.round(24 * pop), C.cyan, "right");
+      text(g, "SALVAGE x" + chainMult(this.chain).toFixed(1), 880, 76, 16, C.cyan, "right");
+    } else if (this.R.chain >= 2) text(g, "BEST CHAIN " + this.R.chain, 880, 48, 16, C.muted, "right");
     if (this.daily) text(g, "DAILY: " + dailyGoal(this.dayKey()).text.toUpperCase(), 480, 118, 18, C.cyan, "center");
+    else if (this.phase === "fly") { // the contracts, top left, as they progress
+      let y = 40;
+      for (const c of this.sv.ct) {
+        const have = Math.min(c.n, Math.floor(num(contractProgress(c, this.R)))), done = have >= c.n;
+        text(g, (done ? "[X] " : "") + CONTRACT_SHORT[c.k] + " " + (c.k === "zone" ? ZONES[c.n].roman : have + "/" + c.n), 60, y, 16, done ? C.cyan : C.muted);
+        y += 22;
+      }
+    }
     if (this.noticeT > 0 && this.notice) {
       g.globalAlpha = clamp(this.noticeT / 0.4, 0, 1);
       text(g, this.notice, 480, 150, 22, this.notice.startsWith("PERFECT") ? C.cyan : C.amber, "center");
       g.globalAlpha = 1;
     }
-    if (this.phase === "aim" && this.sv.runs < 2 && !this.charging) {
-      g.fillStyle = "#0c1511e8";
-      g.fillRect(250, 190, 460, 100);
-      text(g, "HOLD TO CHARGE", 480, 222, 28, C.amber, "center");
-      text(g, "RELEASE TO FIRE", 480, 260, 22, C.muted, "center");
+    if (this.phase === "aim") {
+      if (this.mods.length) text(g, "FITTED: " + this.mods.map((id) => MODULES.find((m) => m.id === id).name).join(" / "), 480, 118, 16, C.muted, "center");
+      if (this.sv.runs < 2 && !this.charging) {
+        g.fillStyle = "#0c1511e8";
+        g.fillRect(250, 190, 460, 100);
+        text(g, "HOLD TO CHARGE", 480, 222, 28, C.amber, "center");
+        text(g, "RELEASE TO FIRE", 480, 260, 22, C.muted, "center");
+      }
     }
   }
   drawTitle(g) {
@@ -1169,91 +1581,126 @@ export class Ballista {
     let y = 392;
     text(g, "HOLD = CHARGE     RELEASE = FIRE     PRESS IN FLIGHT = THRUST OR SKIP", 480, y, 16, C.muted, "center");
     y += 30;
-    if (this.sv.best > 0) { text(g, "BEST " + this.sv.best + " m     SALVAGE " + this.sv.salvage, 480, y, 18, C.amber, "center"); y += 30; }
+    if (this.sv.best > 0) { text(g, "BEST " + this.sv.best + " m     SALVAGE " + this.sv.salvage + (this.sv.mark ? "     MARK " + roman(this.sv.mark + 1) : ""), 480, y, 18, C.amber, "center"); y += 30; }
     else if (this.sv.legacy) { text(g, "THE RANGE HAS BEEN REBUILT. " + this.sv.salvage + " SALVAGE TO START.", 480, y, 18, C.amber, "center"); y += 30; }
     text(g, "HOLD = WORKSHOP", 480, y, 18, C.cyan, "center");
   }
   drawResult(g) {
     if (this.deadT < 0.5 || !this.result) return;
     const r = this.result;
-    g.fillStyle = "#0c1511e8";
-    g.fillRect(170, 60, 620, 440);
-    line(g, 220, 70, 740, 70, C.line);
-    text(g, r.reason, 480, 100, 22, this.reason === "pit" ? C.red : C.muted, "center");
-    text(g, r.metres + " m", 480, 152, 52, C.ink, "center");
-    text(g, this.newRecord ? (this.daily ? "BEST TODAY" : "NEW RECORD") : "BEST " + this.bestRef() + " m", 480, 196, 20, this.newRecord ? C.cyan : C.amber, "center");
-    let y = 238;
-    const row = (label, value, col = C.ink) => { text(g, label, 240, y, 18, C.muted); text(g, value, 720, y, 22, col, "right"); y += 32; };
-    row("SALVAGE", "+" + r.salvage + (r.bounty ? "  (BOUNTY " + r.bounty + ")" : ""), C.amber);
+    g.fillStyle = "#0c1511ee";
+    g.fillRect(170, 40, 620, 470);
+    line(g, 220, 50, 740, 50, C.line);
+    text(g, r.reason, 480, 78, 22, this.reason === "pit" ? C.red : C.muted, "center");
+    // the distance counts up
+    const shown = Math.floor(r.metres * clamp((this.deadT - 0.5) / 0.6, 0, 1));
+    text(g, shown + " m", 480, 128, 52, C.ink, "center");
+    text(g, this.newRecord ? (this.daily ? "BEST TODAY" : "NEW RECORD") : "BEST " + this.bestRef() + " m", 480, 172, 20, this.newRecord ? C.cyan : C.amber, "center");
+    let y = 210;
+    const row = (label, value, col = C.ink) => { text(g, label, 240, y, 18, C.muted); text(g, value, 720, y, 22, col, "right"); y += 30; };
+    row("SALVAGE", "+" + r.salvage, C.amber);
+    if (r.chain >= 2 || r.mult > 1) row("BEST CHAIN", r.chain + "   x" + r.mult.toFixed(2).replace(/0$/, ""), C.cyan);
     row("LIFTS  /  PERFECT SKIPS", r.pads + "  /  " + r.skips);
     if (r.scrap || this.sv.st.scrap) row("SCRAP", r.scrap);
-    if (this.daily) { text(g, this.goalDone ? "DAILY GOAL MET" : "DAILY: " + dailyGoal(this.dayKey()).text.toUpperCase(), 480, y, 18, this.goalDone ? C.cyan : C.muted, "center"); y += 28; }
+    if (this.daily) { text(g, this.goalDone ? "DAILY GOAL MET" : "DAILY: " + dailyGoal(this.dayKey()).text.toUpperCase(), 480, y, 18, this.goalDone ? C.cyan : C.muted, "center"); y += 26; }
+    for (const t of (r.contracts || []).slice(0, 2)) { text(g, "CONTRACT DONE  " + t.toUpperCase(), 480, y, 18, C.cyan, "center"); y += 26; }
     for (const id of this.newFeats.slice(0, 2)) {
       const f = FEATS.find((x) => x.id === id);
-      if (f) { text(g, "FEAT  " + f.name, 480, y, 20, C.cyan, "center"); y += 28; }
+      if (f) { text(g, "FEAT  " + f.name, 480, y, 20, C.cyan, "center"); y += 26; }
     }
-    for (const l of (r.next || []).slice(0, 2)) { if (y > 440) break; text(g, l, 480, y, 16, C.muted, "center"); y += 24; }
-    if (this.deadT > 0.7) text(g, "TAP = AGAIN     HOLD = WORKSHOP", 480, 474, 18, C.amber, "center");
+    for (const l of (r.next || []).slice(0, 2)) { if (y > 450) break; text(g, l, 480, y, 16, C.muted, "center"); y += 22; }
+    if (this.deadT > 0.7) text(g, "TAP = AGAIN     HOLD = WORKSHOP", 480, 486, 18, C.amber, "center");
   }
   drawShop(g) {
     g.fillStyle = "#0c1511f2";
-    g.fillRect(110, 30, 740, 486);
-    line(g, 160, 40, 800, 40, C.line);
-    text(g, "WORKSHOP", 300, 72, 32, C.amber, "center");
-    text(g, "SALVAGE " + this.sv.salvage, 790, 72, 22, C.ink, "right");
+    g.fillRect(110, 22, 740, 500);
+    line(g, 160, 32, 800, 32, C.line);
+    text(g, this.view === "mods" ? "MODULES" : this.view === "contracts" ? "CONTRACTS" : "WORKSHOP", 300, 62, 30, C.amber, "center");
+    text(g, "SALVAGE " + this.sv.salvage, 790, 62, 22, C.ink, "right");
     const sv = this.sv, n = sv.ft.length;
     if (this.view === "menu") {
       WORKSHOP.forEach((id, i) => {
-        const y = 118 + i * 31, on = i === this.cur;
+        const y = 100 + i * 26, on = i === this.cur;
         let label = id, value = "";
         if (i >= 1 && i <= UPGRADES.length) {
           const L = sv.up[i - 1], u = UPGRADES[i - 1];
           label = u.name;
           for (let k = 0; k < UP_MAX; k++) diamond(g, 410 + k * 22, y, 6, k < L ? (on ? C.amber : C.ink) : C.line, k < L);
-          value = L >= UP_MAX ? "FULL" : u.cost[L] + (u.cost[L] <= sv.salvage ? "  BUY" : "");
+          const cost = upCost(i - 1, L, sv.mark);
+          value = L >= UP_MAX ? "FULL" : cost + (cost <= sv.salvage ? "  BUY" : "");
         } else if (id === "LAUNCH") value = "BEST " + sv.best + " m";
+        else if (id === "MODULES") value = sv.mods.length + " / " + MODULES.length + "   FITTED " + sv.eq.length + "/" + this.slots();
+        else if (id === "CONTRACTS") value = sv.ct.filter((c) => c.pay).length + " STANDING   DONE " + sv.cdone;
+        else if (id === "OVERHAUL") value = "MARK " + roman(sv.mark + 1) + (sv.up.every((L) => L >= UP_MAX) && sv.mark < MARK_MAX ? "  READY" : "");
         else if (id === "POD") value = PODS[sv.pod].name;
         else if (id === "DAILY") value = this.dailyDone() ? "DONE TODAY" : "BEST " + (sv.dl.d === this.dayKey() ? sv.dl.best : 0) + " m";
         else if (id === "FEATS") value = n + " / " + FEATS.length;
-        else if (id === "LOG") value = "ZONE " + ZONES[sv.far].roman + " / VI";
+        else if (id === "LOG") value = "ZONE " + ZONES[sv.far].roman + " / " + ZONES[ZONES.length - 1].roman;
         if (on) diamond(g, 150, y, 8, C.amber, true);
-        text(g, label, 176, y, 22, on ? C.amber : C.ink);
-        text(g, value, 810, y, 20, on ? C.amber : C.muted, "right");
+        text(g, label, 176, y, 20, on ? C.amber : C.ink);
+        text(g, value, 810, y, 18, on ? C.amber : id === "OVERHAUL" && value.endsWith("READY") ? C.cyan : C.muted, "right");
       });
       const id = WORKSHOP[this.cur];
       let info = "";
       if (this.need) info = this.need;
       else if (id === "LAUNCH") info = "Fire a pod with this loadout.";
       else if (this.cur <= UPGRADES.length) info = UPGRADES[this.cur - 1].text + (sv.up[this.cur - 1] < UP_MAX ? "  HOLD TO BUY." : "");
+      else if (id === "MODULES") info = "One-time builds. " + this.slots() + " fit in a run" + (this.slots() < SLOTS + 1 ? "; a third slot at " + SLOT3_FEATS + " feats." : ".");
+      else if (id === "CONTRACTS") info = "Standing jobs. Each pays when a run meets it.";
+      else if (id === "OVERHAUL") info = "With every system at V: strip them for a new mark. Launch +" + Math.round(MARK_SPEED * 100) + "%, salvage +" + Math.round(MARK_SALVAGE * 100) + "% a mark.";
       else if (id === "POD") { const next = PODS.find((x, i) => i > 0 && !this.unlockedPod(i)); info = PODS[sv.pod].text + (next ? "  NEXT: " + next.name + " AT " + next.need + " FEATS" : ""); }
       else if (id === "DAILY") info = "Same field and kit for everyone today. " + dailyGoal(this.dayKey()).text + (sv.dl.streak > 1 ? "  STREAK " + sv.dl.streak : "");
       else if (id === "FEATS") info = "Named goals, " + FEAT_BOUNTY + " salvage each. Some are not listed.";
       else info = "Zones reached and lifetime totals.";
-      text(g, info, 480, 444, 16, this.need ? C.cyan : C.muted, "center");
-      text(g, "TAP = NEXT LINE     HOLD = CHOOSE", 480, 484, 18, C.cyan, "center");
+      text(g, info, 480, 456, 16, this.need ? C.cyan : C.muted, "center");
+      text(g, "TAP = NEXT LINE     HOLD = CHOOSE", 480, 492, 18, C.cyan, "center");
+    } else if (this.view === "mods") {
+      MODULES.forEach((m, i) => {
+        const y = 102 + i * 30, on = i === this.mcur, own = sv.mods.includes(m.id), fit = sv.eq.includes(m.id);
+        if (on) diamond(g, 150, y, 8, C.amber, true);
+        text(g, m.name, 176, y, 20, on ? C.amber : own ? C.ink : C.muted);
+        text(g, fit ? "FITTED" : own ? "OWNED" : m.cost + (m.cost <= sv.salvage ? "  BUILD" : ""), 810, y, 18, fit ? C.cyan : on ? C.amber : C.muted, "right");
+      });
+      const back = this.mcur === MODULES.length, y = 102 + MODULES.length * 30;
+      if (back) diamond(g, 150, y, 8, C.amber, true);
+      text(g, "BACK", 176, y, 20, back ? C.amber : C.ink);
+      const m = MODULES[this.mcur];
+      const info = this.need || (m ? m.text + (sv.mods.includes(m.id) ? (sv.eq.includes(m.id) ? "  HOLD TO REMOVE." : "  HOLD TO FIT.") : "  HOLD TO BUILD.") : "Back to the workshop.");
+      text(g, info, 480, 450, 16, this.need ? C.cyan : C.muted, "center");
+      text(g, "TAP = NEXT     HOLD = CHOOSE     SLOTS " + sv.eq.length + "/" + this.slots(), 480, 490, 18, C.cyan, "center");
+    } else if (this.view === "contracts") {
+      sv.ct.forEach((c, i) => {
+        const y = 130 + i * 76;
+        text(g, contractText(c).toUpperCase(), 160, y, 22, C.ink);
+        text(g, "PAYS " + c.pay + " SALVAGE", 160, y + 30, 18, C.amber);
+        text(g, c.left + (c.left === 1 ? " RUN LEFT" : " RUNS LEFT"), 800, y + 30, 18, c.left <= 2 ? C.red : C.muted, "right");
+      });
+      text(g, "COMPLETED " + sv.cdone + "     A NEW JOB REPLACES EACH ONE DONE OR WITHDRAWN", 480, 400, 16, C.muted, "center");
+      text(g, "PRESS = BACK", 480, 490, 18, C.cyan, "center");
     } else if (this.view === "feats") {
       const per = 6, pages = Math.ceil(FEATS.length / per);
-      text(g, "FEATS  " + n + " / " + FEATS.length + "     PAGE " + (this.page + 1) + " / " + pages, 480, 112, 20, C.cyan, "center");
+      text(g, "FEATS  " + n + " / " + FEATS.length + "     PAGE " + (this.page + 1) + " / " + pages, 480, 104, 20, C.cyan, "center");
       FEATS.slice(this.page * per, this.page * per + per).forEach((f, i) => {
-        const y = 150 + i * 52, done = sv.ft.includes(f.id);
+        const y = 144 + i * 52, done = sv.ft.includes(f.id);
         text(g, (done ? "[X] " : "[ ] ") + (f.hidden && !done ? "????" : f.name), 150, y, 22, done ? C.cyan : C.ink);
         const prog = num(f.prog(this));
         text(g, done ? "DONE" : f.hidden ? "" : Math.floor(Math.min(prog, f.n)) + " / " + f.n, 810, y, 20, done ? C.cyan : C.amber, "right");
         text(g, f.hidden && !done ? f.hint : f.text, 150, y + 24, 16, C.muted);
       });
-      text(g, "TAP = NEXT PAGE     HOLD = BACK", 480, 484, 18, C.cyan, "center");
+      text(g, "TAP = NEXT PAGE     HOLD = BACK", 480, 490, 18, C.cyan, "center");
     } else {
-      text(g, "LOG   RUNS " + sv.runs + "   " + sv.st.metres + " m IN ALL", 480, 112, 20, C.cyan, "center");
+      text(g, "LOG   RUNS " + sv.runs + "   " + sv.st.metres + " m IN ALL", 480, 104, 20, C.cyan, "center");
       ZONES.forEach((z, i) => {
-        const y = 150 + i * 34, got = i <= sv.far;
+        const y = 136 + i * 28, got = i <= sv.far;
         text(g, z.roman + "  " + z.name, 160, y, 20, got ? z.ink : C.line);
         text(g, got ? "FROM " + z.from + " m" : "NOT REACHED", 800, y, 18, got ? C.amber : C.line, "right");
       });
-      const y = 150 + ZONES.length * 34 + 10;
+      const y = 136 + ZONES.length * 28 + 6;
       text(g, "PADS " + sv.st.pads + "   PERFECT SKIPS " + sv.st.perfect + "   MINES " + sv.st.mines + "   SCRAP " + sv.st.scrap, 480, y, 16, C.muted, "center");
-      text(g, PODS.map((p, i) => p.name + " " + sv.pb[i] + " m").join("   "), 480, y + 28, 16, C.muted, "center");
-      if (sv.legacy) text(g, "FIRST RANGE: " + sv.legacy.runs + " SURVEYS, LAST SCORE " + sv.legacy.score, 480, y + 56, 16, C.line, "center");
-      text(g, "TAP = BACK", 480, 484, 18, C.cyan, "center");
+      text(g, "BEST CHAIN " + sv.chain + "   CONTRACTS " + sv.cdone + "   MODULES " + sv.mods.length + " / " + MODULES.length + "   MARK " + roman(sv.mark + 1), 480, y + 26, 16, C.muted, "center");
+      text(g, PODS.map((p, i) => p.name + " " + sv.pb[i] + " m").join("   "), 480, y + 52, 16, C.muted, "center");
+      if (sv.legacy) text(g, "FIRST RANGE: " + sv.legacy.runs + " SURVEYS, LAST SCORE " + sv.legacy.score, 480, y + 78, 16, C.line, "center");
+      text(g, "TAP = BACK", 480, 490, 18, C.cyan, "center");
     }
   }
   dailyDone() { return this.sv.dl.d === this.dayKey() && this.sv.dl.done === 1; }

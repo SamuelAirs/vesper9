@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   Ballista, migrateSave, dailyGoal, loadout, zoneAt, sweepAngle, powerAt, timeToGround,
-  ZONES, UPGRADES, PODS, FEATS, M, RISE, MIN_HOLD, SKIP_WIN,
+  ZONES, UPGRADES, PODS, FEATS, MODULES, SLOTS, SLOT3_FEATS, M, RISE, MIN_HOLD, SKIP_WIN,
+  contractText, contractProgress, chainMult, salvageFor, upCost, MARK_SPEED,
 } from "../web/apps/ballista.js";
 import { Random } from "../web/engine/math.js";
 import { appContext, fakeCanvas, run } from "./helpers/app-context.mjs";
@@ -44,7 +45,7 @@ test("zones start where they say, and every upgrade level makes the pod better",
   const a = loadout([0, 0, 0, 0, 0], 0), b = loadout([5, 5, 5, 5, 5], 0);
   assert.ok(b.vmax > a.vmax && b.kicks > a.kicks && b.e > a.e && b.drag < a.drag && b.magnet > a.magnet);
   for (const u of UPGRADES) { assert.equal(u.cost.length, 5); u.cost.forEach((c, i) => i && assert.ok(c > u.cost[i - 1])); }
-  assert.deepEqual(PODS.map((p) => p.need), [0, 4, 8]);
+  assert.deepEqual(PODS.map((p) => p.need), [0, 4, 8, 14]);
 });
 
 test("time to the ground is right for a falling body", () => {
@@ -168,7 +169,7 @@ test("a run rests and ends, scores its metres and saves, and the result screen o
   assert.ok(r.metres > 40, "metres " + r.metres);
   assert.equal(ctx.calls.score.at(-1)[0], r.metres);
   const saved = ctx.calls.saved.at(-1);
-  assert.equal(saved.schema, 2);
+  assert.equal(saved.schema, 3);
   assert.equal(saved.runs, 1);
   assert.equal(saved.best, r.metres);
   assert.equal(saved.last.metres, r.metres);
@@ -266,8 +267,13 @@ test("draw() runs in every phase and view, with the pod high above the screen", 
   app.draw(g);
   hold(app, 0.6);
   for (let i = 0; i < 10; i++) { app.draw(g); tap(app); }
-  app.cur = 8; hold(app, 0.6); app.draw(g); tap(app); app.draw(g); hold(app, 0.6);
-  app.cur = 9; hold(app, 0.6); app.draw(g);
+  app.cur = 11; hold(app, 0.6); app.draw(g); tap(app); app.draw(g); hold(app, 0.6);
+  app.cur = 12; hold(app, 0.6); app.draw(g); tap(app);
+  app.cur = 7; hold(app, 0.6); app.draw(g); tap(app);
+  app.cur = 6; hold(app, 0.6); for (let i = 0; i < 12; i++) { app.draw(g); tap(app); }
+  hold(app, 0.6); app.draw(g);
+  for (let z = 0; z < ZONES.length; z++) { app.sv.far = z; app.draw(g); }
+  app.phase = "fly"; for (let z = 0; z < ZONES.length; z++) { app.camX = ZONES[z].from * M - 300; app.draw(g); } // every zone's sky and silhouettes
   assert.ok(g.count.fillText > 50);
 });
 
@@ -286,7 +292,7 @@ test("the workshop buys a level with salvage, refuses without it, and saves", ()
   assert.equal(app.sv.up[0], 1, "bought without the salvage");
   assert.match(app.need, /NEED/);
   // pods are locked until enough feats
-  app.cur = 6; hold(app, 0.6);
+  app.cur = 9; hold(app, 0.6);
   assert.equal(app.sv.pod, 0);
   app.sv.ft = FEATS.slice(0, 4).map((f) => f.id);
   hold(app, 0.6);
@@ -317,7 +323,7 @@ test("the daily run has the same field and loadout for everyone on a date, and d
     const { ctx, app } = mount({ seed, progress: { schema: 2, up, pod: 0 } });
     app.dayKey = () => "2026-10-01";
     hold(app, 0.6);
-    app.cur = 7;
+    app.cur = 10;
     hold(app, 0.6);
     assert.equal(app.phase, "aim");
     assert.ok(app.daily);
@@ -371,7 +377,9 @@ const V1 = { schema: 1, runs: 7, last: { score: 1840, stations: 4, shots: 19, ac
 
 test("a save from the first Ballista migrates: runs carry over, its record is kept, and it brings salvage", () => {
   const s = migrateSave(V1);
-  assert.equal(s.schema, 2);
+  assert.equal(s.schema, 3);
+  assert.equal(s.ct.length, 3);
+  assert.deepEqual(s.mods, []);
   assert.equal(s.runs, 7);
   assert.equal(s.salvage, 140);
   assert.equal(s.best, 0);
@@ -384,13 +392,13 @@ test("a save from the first Ballista migrates: runs carry over, its record is ke
   assert.equal(migrateSave({ schema: 1, runs: 400 }).salvage, 300, "the grant is capped");
 });
 
-test("the app loads a first-Ballista save, plays, and writes schema 2 that keeps the old record", () => {
+test("the app loads a first-Ballista save, plays, and writes schema 3 that keeps the old record", () => {
   const { ctx, app } = mount({ progress: V1 });
   assert.equal(app.sv.salvage, 140);
   app.draw(fakeCanvas());
   playRun(app, { skill: 0.7, jitter: new Random(4) });
   const saved = ctx.calls.saved.at(-1);
-  assert.equal(saved.schema, 2);
+  assert.equal(saved.schema, 3);
   assert.equal(saved.runs, 8);
   assert.equal(saved.legacy.score, 1840);
   assert.ok(saved.salvage > 140);
@@ -399,7 +407,8 @@ test("the app loads a first-Ballista save, plays, and writes schema 2 that keeps
 test("migrateSave tolerates nothing, garbage and out-of-range values", () => {
   for (const raw of [undefined, null, 5, "x", [], {}, { schema: 2, up: "no", ft: ["nope", "pad", "pad"], pod: 9, far: -3, salvage: NaN, dl: 7, seen: { pad: 1, evil: 1 } }]) {
     const s = migrateSave(raw);
-    assert.equal(s.schema, 2);
+    assert.equal(s.schema, 3);
+    assert.equal(s.ct.length, 3);
     assert.equal(s.up.length, UPGRADES.length);
     assert.ok(s.pod >= 0 && s.pod < PODS.length && s.far >= 0 && s.far < ZONES.length);
     finite(s);
@@ -421,4 +430,159 @@ test("shopping from the result screen spends salvage on the cheapest system", ()
   shop(app);
   assert.ok(app.sv.up.reduce((a, b) => a + b) >= 3);
   assert.equal(app.phase, "aim");
+});
+
+// ---- schema 3: contracts, modules, chains ------------------------------------------------------
+
+// What the launcher wrote before modules and contracts (the first version of this PR): schema 2.
+const V2 = {
+  schema: 2, runs: 12, last: { metres: 640, salvage: 85, lifts: 2, skips: 3, reason: "CAME TO REST" }, milestone: 6, best: 640, salvage: 85,
+  up: [2, 2, 1, 2, 1], pod: 1, pb: [640, 300, 0], far: 3, ft: ["m100", "m400", "pad", "skip1"],
+  st: { metres: 4200, pads: 9, perfect: 14, mines: 1, scrap: 60, daily: 1 },
+  dl: { d: "2026-10-01", best: 410, done: 1, streak: 1, last: "2026-10-01" }, seen: { pad: 1, drift: 1, skip: 1 },
+};
+
+test("a schema 2 save migrates to schema 3 and keeps everything it had", () => {
+  const s = migrateSave(V2);
+  assert.equal(s.schema, 3);
+  for (const k of ["runs", "milestone", "best", "salvage", "pod", "far"]) assert.equal(s[k], V2[k], k);
+  assert.deepEqual(s.up, V2.up);
+  assert.deepEqual(s.ft, V2.ft);
+  assert.deepEqual(s.st, V2.st);
+  assert.deepEqual(s.dl, V2.dl);
+  assert.deepEqual(s.last, V2.last);
+  assert.deepEqual(s.pb, [640, 300, 0, 0]);
+  assert.deepEqual(s.seen, V2.seen);
+  assert.deepEqual([s.mods, s.eq, s.cdone, s.chain], [[], [], 0, 0]);
+  assert.equal(s.ct.length, 3);
+  assert.equal(new Set(s.ct.map((c) => c.k)).size, 3, "three different contracts");
+  assert.ok(s.ct.every((c) => c.n > 0 && c.pay > 0 && contractText(c)));
+  assert.deepEqual(migrateSave(JSON.parse(JSON.stringify(s))), s, "idempotent");
+  assert.deepEqual(migrateSave(V2).ct, s.ct, "the same contracts every time");
+});
+
+test("a contract met by a run pays, counts and is replaced; a daily run takes none", () => {
+  const { app } = mount({ progress: { schema: 3, best: 200 } });
+  app.sv.ct = [{ k: "scrap", n: 2, pay: 77, left: 10 }, { k: "chain", n: 9, pay: 50, left: 10 }, { k: "lifts", n: 9, pay: 50, left: 10 }];
+  app.startRun(false);
+  app.R.scrap = 3;
+  app.finish("rest");
+  assert.equal(app.sv.cdone, 1);
+  assert.ok(app.result.bounty >= 77);
+  assert.deepEqual(app.result.contracts, ["Collect 2 scrap in one run."]);
+  assert.notEqual(app.sv.ct[0].k, "scrap");
+  assert.equal(app.sv.ct.length, 3);
+  assert.equal(new Set(app.sv.ct.map((c) => c.k)).size, 3);
+  const before = JSON.stringify(app.sv.ct);
+  app.dayKey = () => "2026-10-02";
+  app.startRun(true);
+  app.R.scrap = 99; app.R.chain = 99; app.R.lifts = 99;
+  app.finish("rest");
+  assert.equal(JSON.stringify(app.sv.ct), before);
+  assert.equal(app.sv.cdone, 1);
+  assert.equal(contractProgress({ k: "unaided", n: 100 }, { m: 300, thrusts: 1 }), 0);
+  // a job not met in ten runs is withdrawn and another posted
+  app.sv.ct = [{ k: "chain", n: 10, pay: 50, left: 1 }, { k: "lifts", n: 9, pay: 50, left: 5 }, { k: "scrap", n: 99, pay: 50, left: 5 }];
+  app.startRun(false);
+  app.finish("rest");
+  assert.notEqual(app.sv.ct[0].k, "chain");
+  assert.equal(app.sv.ct[0].left, 10);
+  assert.equal(app.sv.ct[1].left, 4);
+  assert.equal(contractProgress({ k: "zone", n: 2 }, { m: 400 }), 2);
+});
+
+test("a chain grows with pads and perfect skips, ends on a plain landing, and multiplies salvage", () => {
+  const { app } = mount();
+  fire(app, 30);
+  app.features = [{ k: "pad", x: 300, w: 60, y: 0, h: 0, a: 0, used: 0 }, { k: "pad", x: 900, w: 2000, y: 0, h: 0, a: 0, used: 0 }]; app.nextX = 1e9;
+  Object.assign(app.p, { x: 320, y: 20, vx: 300, vy: -200, mode: "air" });
+  for (let i = 0; i < 400 && app.R.lifts < 2; i++) app.update(F);
+  assert.ok(app.chain >= 2, "chain " + app.chain);
+  assert.ok(app.R.chain >= 2);
+  app.features = []; // open ground: the next landing is plain
+  for (let i = 0; i < 400 && app.chain; i++) app.update(F);
+  assert.equal(app.chain, 0);
+  assert.equal(chainMult(0), 1);
+  assert.equal(chainMult(4), 1.4);
+  assert.equal(chainMult(40), 2);
+  assert.equal(salvageFor(80, 5, 2, 2), 2 * (5 + 10 + 10));
+});
+
+test("modules are built, fitted and removed in the workshop, within the slots", () => {
+  const { ctx, app } = mount({ progress: { schema: 3, salvage: 5000 } });
+  hold(app, 0.6);
+  app.cur = 6; hold(app, 0.6);
+  assert.equal(app.view, "mods");
+  hold(app, 0.6); // build SPRING TUNING: fitted at once
+  tap(app); hold(app, 0.6); // SCRAP SCANNER
+  tap(app); hold(app, 0.6); // BEACON RELAY: built, slots full
+  assert.deepEqual(app.sv.mods, ["spring", "scanner", "relay"]);
+  assert.deepEqual(app.sv.eq, ["spring", "scanner"]);
+  assert.equal(app.sv.salvage, 5000 - 400 - 350 - 500);
+  hold(app, 0.6); // relay again: slots full
+  assert.match(app.need, /SLOTS ARE FULL/);
+  app.mcur = 0; hold(app, 0.6); // remove spring
+  app.mcur = 2; hold(app, 0.6); // fit relay
+  assert.deepEqual(app.sv.eq, ["scanner", "relay"]);
+  assert.deepEqual(ctx.calls.saved.at(-1).eq, ["scanner", "relay"]);
+  app.mcur = MODULES.length; hold(app, 0.6);
+  assert.equal(app.view, "menu");
+  app.cur = 0; hold(app, 0.6);
+  assert.deepEqual(app.mods, ["scanner", "relay"]);
+  assert.equal(app.L.scrap, 4);
+  assert.equal(app.L.relay, 2);
+  // a third slot at SLOT3_FEATS feats
+  app.sv.ft = FEATS.slice(0, SLOT3_FEATS).map((f) => f.id);
+  assert.equal(app.slots(), SLOTS + 1);
+});
+
+test("module effects: the shell saves one sinkhole, the cutter parts nets, spring tuning throws higher", () => {
+  const drop = (eq, k, extra = {}) => {
+    const { app } = mount({ progress: { schema: 3, mods: eq, eq } });
+    fire(app, 30);
+    app.features = [{ k, x: 380, w: 120, y: 0, h: 0, a: 0, used: 0, ...extra }]; app.nextX = 1e9;
+    Object.assign(app.p, { x: 360, y: 30, vx: 300, vy: -250, mode: "air" });
+    for (let i = 0; i < 20 && app.phase === "fly"; i++) app.update(F);
+    return app;
+  };
+  assert.equal(drop([], "pit").phase, "over");
+  const shelled = drop(["shell"], "pit");
+  assert.equal(shelled.phase, "fly");
+  assert.equal(shelled.shell, 0);
+  assert.ok(drop(["cutter"], "net", { x: 400, h: 200 }).p.vx > 200);
+  assert.ok(drop([], "net", { x: 400, h: 200 }).p.vx < 120);
+  assert.ok(drop(["spring"], "pad").p.vy > drop([], "pad").p.vy);
+});
+
+test("the daily run fits no modules", () => {
+  const { app } = mount({ progress: { schema: 3, mods: ["burner", "rig"], eq: ["burner", "rig"] } });
+  app.startRun(true);
+  assert.deepEqual(app.mods, []);
+  assert.equal(app.L.rig, 1);
+  app.startRun(false);
+  assert.deepEqual(app.mods, ["burner", "rig"]);
+  assert.equal(app.L.rig, 1.25);
+});
+
+test("an overhaul needs every system at V and a second hold, then strips them for a faster mark", () => {
+  const { ctx, app } = mount({ progress: { schema: 3, up: [5, 5, 5, 5, 4], salvage: 0 } });
+  hold(app, 0.6);
+  app.cur = 8;
+  hold(app, 0.6);
+  assert.match(app.need, /EVERY SYSTEM/);
+  app.sv.up[4] = 5;
+  const v0 = loadout(app.sv.up, 0, [], 0).vmax;
+  hold(app, 0.6);
+  assert.equal(app.sv.mark, 0, "one hold overhauled");
+  hold(app, 0.6);
+  assert.equal(app.sv.mark, 1);
+  assert.deepEqual(app.sv.up, [0, 0, 0, 0, 0]);
+  assert.equal(ctx.calls.saved.at(-1).mark, 1);
+  assert.ok(app.sv.ft.includes("mark2"));
+  assert.ok(upCost(0, 0, 1) > UPGRADES[0].cost[0]);
+  assert.ok(Math.abs(loadout([5, 5, 5, 5, 5], 0, [], 1).vmax - v0 * (1 + MARK_SPEED)) < 1e-6);
+  // stepping away cancels a pending overhaul
+  const b = mount({ progress: { schema: 3, up: [5, 5, 5, 5, 5] } }).app;
+  hold(b, 0.6); b.cur = 8; hold(b, 0.6); tap(b); b.cur = 8; hold(b, 0.6);
+  assert.equal(b.sv.mark, 0);
 });

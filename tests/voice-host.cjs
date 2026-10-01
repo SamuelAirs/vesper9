@@ -43,13 +43,13 @@ let browser;
   await say("sector");
   const sector = await page.evaluate(() => ({ page: vesper.page, label: document.getElementById("sector-label").textContent }));
   check("next sector changes the dashboard sector", sector.page === 1 && /SECTOR 02/.test(sector.label) && /SECTOR 02/.test(await toast()), JSON.stringify(sector) + " | " + (await toast()));
-  const sectors = await page.evaluate(async () => Math.ceil((await import("/apps/catalog.js")).CARTRIDGES.length / 6));
+  const sectors = await page.evaluate(async () => (await import("/apps/catalog.js")).SECTORS.length);
   for (let i = 1; i < sectors; i++) await say("sector");
   check("next sector wraps round to the first sector", (await page.evaluate(() => vesper.page)) === 0, `${sectors} sectors, page ${await page.evaluate(() => vesper.page)}`);
   await page.evaluate(() => vesper.home());
   await say("select");
   const selected = await page.evaluate(() => ({ app: vesper.meta?.id, nav: vesper.app?.navigation }));
-  check("select chooses the highlighted app", selected.app === "orbit", JSON.stringify(selected));
+  check("select chooses the highlighted app", selected.app === "perihelion", JSON.stringify(selected));
 
   // Inside a game: navigation says so and does nothing.
   const before = await page.evaluate(() => ({ app: vesper.meta.id, index: vesper.nav.index, menu: !!vesper.menu }));

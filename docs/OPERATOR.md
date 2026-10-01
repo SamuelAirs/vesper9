@@ -2,11 +2,17 @@
 
 ## One switch, one convention
 
-Tap to move the highlighted menu item forward. Hold until the display says **RELEASE TO SELECT**, then release. The default selection threshold is 0.65 seconds and can be adjusted in Calibration. In menus, continue holding for three seconds to open the system menu. Games normally use four quick clicks; Signal School and Echo Vault retain a three-second hold to protect valid pulse patterns. The control deck shows the active rule. The menu contains resume/restart, dashboard, microphone modes, app-specific actions, field records, instructions, and settings.
+Tap to move the highlighted menu item forward. Hold until the display says **RELEASE TO SELECT**, then release. The default selection threshold is 0.65 seconds and can be adjusted in Calibration.
 
-Games use immediate button edges, so a tap can jump or catch a target without waiting for a menu threshold. Ordinary long game holds remain ordinary inputs in the default click profile. Calibration offers three-click and legacy-hold profiles plus quick/standard/relaxed timing presets. Earlier clicks can affect the game before the final click opens the menu. Voice is an optional navigation shortcut. Every important action is reachable using the button alone.
+**One gesture opens the system menu from anywhere: tap, tap, hold.** Two quick taps, then press the button a third time and keep it down for about a second. It is the same in every game, in every instrument and on the dashboard, and it never depends on the app. The control deck's hint line counts it (`MENU: ● ○ TAP AGAIN`, `MENU: ●● NOW HOLD`), the hold bar fills during the third press, and where the host owns the lamps one lamp lights per tap and the third fills white during the hold. The menu opens as the bar reaches the end; release the button after that (the release is swallowed). The system menu contains resume/restart, dashboard, microphone modes, app-specific actions, field records, instructions, settings, and SYSTEM TOOLS (Calibration, Node Scope and Telemetry).
 
-The dashboard has **Play** and **Instruments** sectors. Each contains six cards, followed by Next Sector and System. Space reproduces the physical switch. The on-screen circular switch supports holding, including inside the system menu. Cards and instrument actions also accept direct clicks. Right/down arrows advance; Escape pauses or closes the menu.
+Timing, by the *Menu gesture timing* setting in Calibration: **standard** needs taps of at most 150 ms, pauses of at most 220 ms between the three presses and a hold of 1.0 s; **quick** 120 ms, 180 ms, 0.9 s; **relaxed** 220 ms, 320 ms, 1.1 s. The two taps must be exactly two: three quick taps then a hold is just a hold, so a game that is played with rapid taps keeps its long holds. Games get no plain-hold escape at all.
+
+In the dashboard, instruments and menus a tap moves the highlight and a hold-and-release chooses, so the gesture's two taps move the highlight twice. When the hold reaches the gesture's threshold the menu opens, the highlight goes back where it was before the first tap and nothing is chosen. The gesture's hold must run at least 0.35 s past the selection threshold (1.0 s with the default 0.65 s selection; 1.35 s if you set the selection hold to 1.0 s), so tapping twice quickly and then holding to choose (release at 0.65 s up to just under 1 s) still chooses. A plain three-second hold also opens the system menu in these contexts, silently.
+
+Games use immediate button edges, so a tap can jump or catch a target without waiting for a menu threshold, and the two taps and the start of the hold reach the game before the menu opens. When the host then cancels the game, it puts back everything that gesture changed: score, lives, position, a hooked fish, a lesson answer, a purchase. Only the best score already raised stays (it is a high-water mark), and Outpost keeps the signal its two taps gathered, since gathering is its whole point (a purchase needs a release, which the menu swallows). Voice is an optional navigation shortcut. Every important action is reachable using the button alone.
+
+The dashboard is a list of sectors named in `vesper/catalog.json`, one page each with at most six cards, followed by Next Sector and System. The first three sectors hold the fourteen games (Perihelion first), then two sectors of instruments, with Chronometer and Cadence side by side. **Calibration, Node Scope and Telemetry are not on the dashboard**: open the system menu and choose SYSTEM TOOLS (Calibration is also its own entry), or say "computer open settings / diagnostics / system". **Ephemeris is retired from the dashboard**: it has no card and no voice name, but its code and tests remain and it is still registered, so it opens by id (for a developer, `vesper.launch("ephemeris")`) and can be put back by listing it in a sector. Space reproduces the physical switch. The on-screen circular switch supports holding, including inside the system menu. Cards and instrument actions also accept direct clicks. Right/down arrows advance; Escape or the PAUSE button opens or closes the menu, and so does the voice command "computer menu". All of these open the same menu with the same guarantees: held input is cancelled and its release swallowed, the app is told to cancel and pause, and the lamps go back to the host. (A knock on the case is planned to open it the same way.)
 
 ## Six games
 
@@ -54,9 +60,9 @@ Lamps: while the inscription is shown the lamps fade out over the memorising tim
 
 The target letter and its Morse pattern appear above your transmitted signal. Tap for a dot, hold for a dash, and pause between letters. Default speed is 10 WPM: dot 120 ms, dash 360 ms, with a 240 ms dot/dash threshold. Beginner gaps are intentionally forgiving: the letter completes after at least 600 ms without another press. This is practice timing, not a strict timing examination.
 
-Letters progress through E, T, A, N, I, M and onward through the alphabet. In guided and listen modes a letter moves on only after it has been answered correctly twice in a row (two pips beside the letter show this), so the whole alphabet takes about five sessions at 10 WPM. The app reports decoded mistakes and saves totals, lesson position and per-character outcomes after each answer. Ten answers produce a session summary. WPM is adjustable from 5 to 25 in Calibration. The underlying decoder also includes digits, although this release's guided lesson sequence covers the alphabet. Lights and an optional 550 Hz sidetone follow your key: while you hold, lamp I lights amber at once and all three turn cyan at the dash threshold (twice the dot length), so you see the moment a hold becomes a dash; after you release, the lamps dim over the letter gap. A right answer sweeps green across the lamps; a wrong one sweeps red and then replays the correct signal on the middle lamp, one amber blink per dot and one cyan blink per dash.
+Letters progress through E, T, A, N, I, M and onward through the alphabet. In guided and listen modes a letter moves on only after it has been answered correctly twice in a row (two pips beside the letter show this), so the whole alphabet takes about five sessions at 10 WPM. The app reports decoded mistakes and saves totals, lesson position and per-character outcomes after each answer. Ten answers produce a session summary. WPM is adjustable from 5 to 25 in Calibration. The underlying decoder also includes digits, although this release's guided lesson sequence covers the alphabet. Lights and an optional 550 Hz sidetone follow your key (the tone stops once a press is clearly longer than a dash, five dot lengths, so a menu gesture is two short beeps and at most one tone of that length; at 10 WPM that is 600 ms. The screen then says MENU GESTURE / KEEP HOLDING while it is being counted): while you hold, lamp I lights amber at once and all three turn cyan at the dash threshold (twice the dot length), so you see the moment a hold becomes a dash; after you release, the lamps dim over the letter gap. A right answer sweeps green across the lamps; a wrong one sweeps red and then replays the correct signal on the middle lamp, one amber blink per dot and one cyan blink per dash.
 
-Hold three seconds and select a learning mode:
+Open the menu (tap, tap, hold) and select a learning mode:
 
 - **Guided keying:** see the target pattern, transmit it, and repeat mistakes.
 - **Listen & identify:** receive tones or visible/light pulses without seeing the answer (a dot is the middle lamp in amber, a dash all three lamps in cyan), then press and release the highlighted choice; a white lamp spot follows the highlighted choice. REPLAY repeats the signal. Choice scanning uses Calibration's scan interval.
@@ -100,7 +106,7 @@ Inspect button down/up, capture status, mic level, incoming audio bytes, CRC err
 
 ### Calibration
 
-Adjust optional sound, volume, phosphor scan-line texture, decorative motion, Morse speed, and selection hold time. Reduced Motion freezes the decorative dashboard orrery; it does not remove movement essential to gameplay. All settings persist locally. Settings Reset restores controls/appearance without deleting notes, timers or learning progress. Click timing presets are experimental until tried on your physical button.
+Adjust optional sound, volume, phosphor scan-line texture, decorative motion, Morse speed, selection hold time and menu-gesture timing. Reduced Motion freezes the decorative dashboard orrery; it does not remove movement essential to gameplay. All settings persist locally. Settings Reset restores controls/appearance without deleting notes, timers or learning progress. The gesture timing presets are a best guess until tried on your physical button.
 
 ## The three lamps
 
@@ -109,9 +115,9 @@ The lamps are part of using the console, not only of the games. Whenever no app 
 | When | What you see |
 | --- | --- |
 | Moving through a list | A soft green spot of light; its position across the three lamps follows the focused item's position in the list, and glides when you tap to the next one. |
-| Holding the button in a menu | The lamps fill left to right in amber as the hold approaches the selection threshold. At the threshold they are fully amber (release now to select); a white fill then counts toward the three-second hold that opens the system menu. A tap shows nothing. |
+| Holding the button in a menu | The lamps fill left to right in amber as the hold approaches the selection threshold. At the threshold they are fully amber (release now to select); a white fill then counts toward the silent three-second fallback hold that opens the system menu. A tap shows nothing. |
 | Selecting | A short amber flash on all three lamps. Opening the system menu is a short white flash. |
-| Quick-click menu gesture, in a game that has not lit the lamps | Each click lights one more lamp (cyan); the last click opens the menu. |
+| Menu gesture (tap, tap, hold), wherever the host owns the lamps | Each tap lights one lamp (cyan), left to right; during the third press the two stay lit and the right lamp fills white until the menu opens. |
 | A voice command was recognised | A short cyan sweep from left to right. |
 | An error toast | Two quick red blinks on all three lamps. |
 | Idle on the dashboard | A very dim green breath, slowly drifting from lamp to lamp (steady if Reduced Motion is on). After four minutes without a press or release the glow and the focus spot fade over 30 seconds to fully dark and stay dark until the next press. |
@@ -146,7 +152,7 @@ Apps, by the voice name in the catalog (any app, from anywhere):
 | computer open orbit / runner / drift / echo / lights / glyphs | ORBIT LOCK, MOONRUNNER, UNDERTOW, ECHO VAULT, LIGHT TRIAL, GLYPH ARCHIVE |
 | computer open rhythm / swing / lander / breakout / snake / launcher | PULSAR, PERIHELION, DESCENT, RICOCHET, HELIX, BALLISTA |
 | computer open morse / timer / notes / environment / diagnostics / settings | SIGNAL SCHOOL, CHRONOMETER, FIELD NOTES, ATMOSPHERE, NODE SCOPE, CALIBRATION |
-| computer open lamp / metronome / moon / sound / dice / system | LANTERN, CADENCE, EPHEMERIS, RESONANCE, ORACLE, TELEMETRY |
+| computer open lamp / metronome / sound / dice / system | LANTERN, CADENCE, RESONANCE, ORACLE, TELEMETRY (Ephemeris has no voice name: it is retired from the dashboard) |
 
 Timers and notes:
 

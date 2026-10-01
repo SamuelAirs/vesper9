@@ -308,3 +308,17 @@ test("F9 decision recorded: steady quick clicking is not a gesture (a run of thr
   router.up({ source: "node", generation: 1, at_us: now * 1000 });
   assert.equal(opened, 0);
 });
+
+// The standalone simulator keeps its settings in the browser. A saved menuClicks (the retired per-console
+// gesture choice) is dropped, as the service drops it, and every other saved setting survives.
+test("the simulator drops a saved menuClicks and keeps the other saved settings", () => {
+  const real = globalThis.localStorage;
+  globalThis.localStorage = { getItem: () => JSON.stringify({ settings: { menuClicks: 3, volume: 0.75, gesturePace: "relaxed" } }), setItem() {} };
+  try {
+    const d = new DemoBridge();
+    assert.ok(!("menuClicks" in d.state.settings));
+    assert.equal(d.state.settings.volume, 0.75);
+    assert.equal(d.state.settings.gesturePace, "relaxed");
+    assert.equal(d.state.settings.holdMs, 650);
+  } finally { globalThis.localStorage = real; }
+});

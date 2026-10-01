@@ -31,17 +31,16 @@ let logs = "";
 server.stdout.on("data", (d) => (logs += d));
 server.stderr.on("data", (d) => (logs += d));
 let browser;
-// Quick clicks timed inside the page, so a busy machine's automation round trips
-// cannot stretch them past the gesture window.
-const quickClicks = (page, count, pressMs = 55, gapMs = 45) => page.evaluate(async ([count, pressMs, gapMs]) => {
+// The menu gesture, tap, tap, hold, timed inside the page so a busy machine's automation round trips
+// cannot stretch the taps past the gesture window. The hold lasts until the menu is open (or 3 s).
+const menuGesture = (page, pressMs = 55, gapMs = 60) => page.evaluate(async ([pressMs, gapMs]) => {
   const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  for (let i = 0; i < count; i++) {
-    document.dispatchEvent(new KeyboardEvent("keydown", { code: "Space", key: " ", bubbles: true }));
-    await pause(pressMs);
-    document.dispatchEvent(new KeyboardEvent("keyup", { code: "Space", key: " ", bubbles: true }));
-    await pause(gapMs);
-  }
-}, [count, pressMs, gapMs]);
+  const key = (type) => document.dispatchEvent(new KeyboardEvent(type, { code: "Space", key: " ", bubbles: true }));
+  for (let i = 0; i < 2; i++) { key("keydown"); await pause(pressMs); key("keyup"); await pause(gapMs); }
+  key("keydown");
+  for (let waited = 0; waited < 3000 && !vesper.menu; waited += 25) await pause(25);
+  key("keyup");
+}, [pressMs, gapMs]);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function button(page, ms = 80) {
   await page.keyboard.down("Space");
@@ -75,7 +74,7 @@ async function button(page, ms = 80) {
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(origin);
   await page.waitForFunction(() => window.vesper?.loaded);
-  assert.equal(await page.locator(".app-card").count(), 6);
+  assert.equal(await page.locator(".app-card").count(), 5, "the first sector holds five games");
   await page.screenshot({
     path: path.join(output, "VESPER-9-Dashboard.png"),
     fullPage: true,
@@ -83,13 +82,13 @@ async function button(page, ms = 80) {
   await button(page);
   assert.equal(await page.evaluate(() => vesper.nav.index), 1);
   await button(page, 800);
-  assert.equal(await page.evaluate(() => vesper.meta.id), "runner");
+  assert.equal(await page.evaluate(() => vesper.meta.id), "orbit");
   await button(page, 3150);
-  assert.equal(await page.locator("#menu-overlay").isVisible(), false, "game hold must not open menu");
+  assert.equal(await page.locator("#menu-overlay").isVisible(), false, "a plain game hold must not open the menu");
   // A stalled frame can still break one sequence on a busy machine; allow a few attempts.
   for (let attempt = 0; attempt < 4 && !(await page.locator("#menu-overlay").isVisible()); attempt++) {
     if (attempt) await page.waitForTimeout(1500);
-    await quickClicks(page, 4);
+    await menuGesture(page);
     await page.waitForTimeout(150);
   }
   assert.equal(await page.locator("#menu-overlay").isVisible(), true);
@@ -193,7 +192,7 @@ async function button(page, ms = 80) {
   assert.ok(download.suggestedFilename().includes(older.slice(0,8)));
   // Mode changes are available in the physical-button menu, not hidden settings.
   await page.evaluate(()=>vesper.launch('morse'));
-  await button(page,3100);
+  await menuGesture(page);
   await page.getByRole('button',{name:'SIGNAL SCHOOL / LISTEN & IDENTIFY',exact:true}).click();
   await page.waitForFunction(()=>vesper.app.mode==='listen'&&vesper.app.phase==='choose');
   assert.match(await page.locator('#control-hint').textContent(), /HIGHLIGHTED ANSWER/);
@@ -283,7 +282,7 @@ async function button(page, ms = 80) {
   );
   assert.equal(await page.evaluate(() => vesper.state.simulated), true);
   await button(page, 800);
-  assert.equal(await page.evaluate(() => vesper.meta.id), "orbit");
+  assert.equal(await page.evaluate(() => vesper.meta.id), "perihelion");
   await button(page);
   assert.deepEqual(errors, []);
   const result = {
@@ -291,7 +290,7 @@ async function button(page, ms = 80) {
     appsExercised: exercised.size,
     checks: [
       "single-button navigation",
-      "four-click escape and uninterrupted game hold",
+      "tap, tap, hold menu gesture and uninterrupted game hold",
       "modal switch",
       "every app mounts and updates",
       "timer create/pause/resume and custom duration/label",

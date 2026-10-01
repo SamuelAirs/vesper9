@@ -46,7 +46,7 @@ directory, default `test-output/`. The tests use isolated temporary databases
 and localhost ports 18979/18983. They never open the real serial node.
 
 The main workflow checks every app, physical-switch-equivalent navigation,
-new escape/hold behavior, custom timer entry, note/text paging and export,
+the tap, tap, hold menu gesture, custom timer entry, note/text paging and export,
 Morse listening, retired callbacks, simulated recovery, pattern cleanup,
 persistence, 720p whole-console fit, narrow-screen width and generated HTML.
 The extension test installs Pulse Garden into a temporary copy and proves

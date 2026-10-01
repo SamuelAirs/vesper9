@@ -38,8 +38,11 @@ class Grammar(unittest.TestCase):
         self.assertEqual(COMMANDS['computer timer one minute'], {'action': 'timer', 'seconds': 60})
 
     def test_every_catalog_alias_opens_its_app(self):
+        on_dashboard = {i for sector in CATALOG['sectors'] for i in sector['apps']}
         for app in CATALOG['apps']:
-            self.assertTrue(app['voice'], app['id'])
+            # An app that is not on the dashboard (Ephemeris, retired from it) may have no voice name.
+            if app['id'] in on_dashboard:
+                self.assertTrue(app['voice'], app['id'])
             for word in app['voice']:
                 self.assertEqual(COMMANDS['computer open ' + word], {'action': 'launch', 'app': app['id']})
 

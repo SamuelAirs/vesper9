@@ -186,11 +186,14 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_new_settings_validate_and_reset_without_erasing_progress(self):
         await self.command('progress', app='morse', value={'correct': 7})
-        self.assertTrue((await self.command('settings', key='menuClicks', value=3))['ok'])
-        self.assertFalse((await self.command('settings', key='menuClicks', value=2))['ok'])
+        # The menu gesture is the same everywhere now: the old per-console choice of clicks is retired.
+        self.assertFalse((await self.command('settings', key='menuClicks', value=3))['ok'])
+        self.assertFalse((await self.command('settings', key='menuClicks', value=4))['ok'])
+        self.assertTrue((await self.command('settings', key='gesturePace', value='relaxed'))['ok'])
         self.assertFalse((await self.command('settings', key='scanMs', value=851))['ok'])
         self.assertTrue((await self.command('reset_settings'))['ok'])
-        self.assertEqual(self.console.settings['menuClicks'], 4)
+        self.assertNotIn('menuClicks', self.console.settings)
+        self.assertEqual(self.console.settings['gesturePace'], 'standard')
         self.assertEqual(self.console.store.get('progress')['morse']['correct'], 7)
 
     async def test_reaction_score_classes_preserve_ambiguous_legacy_record(self):
@@ -347,7 +350,7 @@ class CatalogTests(unittest.TestCase):
         for app in catalog['apps']:
             for alias in app['voice']:
                 self.assertEqual(COMMANDS['computer open ' + alias]['app'], app['id'])
-        with self.assertRaises(ValueError): validate_setting('menuClicks', True)
+        with self.assertRaises(ValueError): validate_setting('menuClicks', 4)  # retired with the per-app menu policy
         self.assertIn(catalog['settings']['tempUnit'], ('C', 'F'))
         self.assertEqual(validate_setting('tempUnit', 'C'), 'C')
         with self.assertRaises(ValueError): validate_setting('tempUnit', 'K')

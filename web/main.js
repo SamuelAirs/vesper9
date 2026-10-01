@@ -634,7 +634,7 @@ export class Vesper {
     if (this.faulted) return this.faultMenu(); // RESUME is blocked while faulted, so never offer it
     this.hostLamps.note("menu", performance.now());
     const mic = this.state.mic.mode;
-    this.openMenu("System channel", "Tap to move. Hold and release to choose. To open this menu from anywhere: tap, tap, hold.", [
+    this.openMenu("System channel", "Tap to move. Hold and release to choose. Open it: tap, tap, hold.", [
       {
         label: this.app ? "RESUME / " + this.meta.name : "RETURN TO DASHBOARD",
         run: () => this.closeMenu(),

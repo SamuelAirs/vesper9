@@ -30,7 +30,10 @@ test("recordRun counts runs and keeps the best milestone", async () => {
   assert.deepEqual(ctx.progress(), { schema: 1, runs: 3, last: { milestone: 4, metres: 120 }, milestone: 9 });
 });
 test("every registered cartridge mounts, runs and disposes under the test context", () => {
-  assert.ok(SECTORS.length >= Math.ceil(APPS.length / 6), "every dashboard sector has a name");
+  const ids = APPS.map((a) => a.id), listed = SECTORS.flatMap((s) => s.apps);
+  assert.ok(SECTORS.every((s) => s.name && s.apps.length >= 1 && s.apps.length <= 6), "every dashboard sector has a name and 1 to 6 cards");
+  assert.ok(listed.every((id) => ids.includes(id)) && new Set(listed).size === listed.length, "sectors list known apps once");
+  assert.ok(ids.includes("ephemeris") && !listed.includes("ephemeris"), "Ephemeris is registered but off the dashboard");
   for (const meta of APPS) {
     const ctx = appContext();
     const app = meta.create(ctx);

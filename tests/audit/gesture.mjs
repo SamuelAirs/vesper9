@@ -1,4 +1,4 @@
-// What the 4-click system-menu gesture costs a player in each game.
+// What the menu gesture (tap, tap, hold) costs a player in each game. The original games take it back, so all of these should be zero.
 // Run: node tests/audit/gesture.mjs
 // Paired design: the same seed is played twice with the same competent bot, once
 // undisturbed (control) and once with the gesture injected at a random moment.

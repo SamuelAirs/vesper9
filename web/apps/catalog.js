@@ -427,7 +427,8 @@ export const CARTRIDGES = [
       "lights",
       "audio",
       "progress"
-    ]
+    ],
+    "icon": "<path d=\"M16 42h16l5-30H11z\"/><path d=\"M24 36L33 8\"/><circle cx=\"30\" cy=\"19\" r=\"2.5\" fill=\"currentColor\"/><path d=\"M19 42v-5M29 42v-5\"/><path d=\"M40 20q4 4 0 8M43 17q7 7 0 14\"/>"
   },
   {
     "id": "ephemeris",

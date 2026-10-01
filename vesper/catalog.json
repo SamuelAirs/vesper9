@@ -144,20 +144,27 @@
       "name": "PULSAR",
       "subtitle": "Keep time with a dying star.",
       "description": "Beats fall down three lanes toward the strike line. Tap on the beat; hold through the long signals.",
-      "controls": "TAP ON THE BEAT · HOLD LONG SIGNALS",
+      "controls": "TAP ON THE BEAT · HOLD LONG SIGNALS · LAMPS SWELL FIRST",
       "category": "PLAY / RHYTHM",
       "glyph": 3,
       "factory": "Pulsar",
       "voice": [
         "rhythm"
       ],
-      "escape": "adaptive",
+      "escape": "hold",
       "capabilities": [
         "button",
         "lights",
         "audio",
         "progress"
-      ]
+      ],
+      "icon": "<path d=\"M4 24h9l4-12 6 24 5-18 3 6h13\"/><circle cx=\"24\" cy=\"24\" r=\"21\" stroke-dasharray=\"2 5\"/><circle cx=\"43\" cy=\"24\" r=\"2\" fill=\"currentColor\"/>",
+      "record": {
+        "score": "Score",
+        "combo": "Best combo",
+        "accuracy": "Accuracy %",
+        "phrases": "Phrases reached"
+      }
     },
     {
       "id": "perihelion",

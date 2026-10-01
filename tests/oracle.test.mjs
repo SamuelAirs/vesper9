@@ -78,6 +78,7 @@ test("results are uniform over many seeded rolls (chi-square)", () => {
 test("the result is decided at the press, from ctx.rng, before any animation", () => {
   withFrames((env) => {
     const probe = new Random(77), expect = [];
+    for (let i = 0; i < 8; i++) probe.next(); // opening discards eight draws (see the constructor)
     const ctx = appContext({ seed: 77 });
     const app = new Oracle(ctx);
     clocked(app);
@@ -373,4 +374,48 @@ test("tumble faces stay in range and the record text is safe", () => {
   app.setConfig({ mode: "dice", die: 100, count: 6 });
   choose(ctx, "roll");
   assert.ok(!ctx.calls.content.some((h) => /NaN|undefined/.test(h)));
+});
+
+// What the host does with the highlight when a list is published (web/main.js setNav): it stays
+// on the action with the same id, otherwise on the same row number. `card` is the row the
+// dashboard had highlighted when the instrument opened: the first list starts at that row
+// (the dashboard's items have no ids to match).
+function pad(ctx, card = 0) {
+  let items = null, index = card, seen = 0;
+  const idOf = (i) => i.id || i.label;
+  const sync = () => {
+    for (; seen < ctx.calls.actions.length; seen++) {
+      const next = ctx.calls.actions[seen], match = items ? next.findIndex((i) => idOf(i) === idOf(items[index])) : -1;
+      index = Math.min(match >= 0 ? match : index, next.length - 1);
+      items = next;
+    }
+  };
+  return {
+    tap(n = 1) { sync(); index = (index + n) % items.length; return this; },
+    hold() { sync(); items[index].run(); sync(); return this; },
+    get label() { sync(); return items[index].label; },
+  };
+}
+
+test("opened from any dashboard card ROLL is highlighted, not RETURN TO DASHBOARD", () => {
+  for (let card = 0; card < 8; card++) {
+    const ctx = appContext();
+    new Oracle(ctx).dispose();
+    assert.match(pad(ctx, card).label, /^ROLL/, "card " + card);
+  }
+});
+
+test("the first roll after opening is fair even when launches are a millisecond apart", () => {
+  // The host seeds its xorshift generator with Date.now(); without the discarded draws the
+  // first D6 over 8000 consecutive-millisecond seeds gives chi-square near 50 (fair: about 5).
+  const base = 1790000000000, counts = new Array(6).fill(0), launches = 8000;
+  for (let i = 0; i < launches; i++) {
+    const ctx = appContext({ seed: base + i, progress: { schema: 1, mode: "dice", die: 6, count: 1 } });
+    const app = new Oracle(ctx);
+    app.roll();
+    counts[app.result.total - 1]++;
+    app.dispose();
+  }
+  const expected = launches / 6, chi = counts.reduce((sum, n) => sum + (n - expected) ** 2 / expected, 0);
+  assert.ok(chi < 20.5, `chi-square ${chi.toFixed(1)} for ${counts}`); // 0.1 % critical value, 5 degrees of freedom
 });

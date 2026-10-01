@@ -221,6 +221,11 @@ export class Oracle {
     this.c = ctx;
     this.navigation = true;
     this.cfg = cleanConfig(ctx.progress?.());
+    // The host seeds its generator (xorshift32) with the launch time in milliseconds, and the
+    // first outputs of nearby seeds are strongly alike: over 60000 launches a millisecond apart
+    // the first D6 gave chi-square 403 (a fair die gives about 5), the 1 coming up 11 % too
+    // rarely. Eight draws thrown away mix it fully (chi-square 0.0).
+    for (let i = 0; i < 8; i++) ctx.rng.next();
     this.view = "main";
     this.result = null;
     this.history = [];
@@ -234,6 +239,9 @@ export class Oracle {
     this.active = false;
     this.disposed = false;
     this.numberScale = 10;
+    // The first list is parked on ROLL too: the host would otherwise start the highlight on the
+    // row numbered like the dashboard card that opened ORACLE (RETURN TO DASHBOARD, 5th card).
+    this.refocus = true;
     this.onFrame = () => this.frame();
     this.render();
   }

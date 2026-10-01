@@ -1,22 +1,22 @@
-// MOONRUNNER, the downhill run: physics, tricks, zones, orders, save migration, depot, lamps, and
-// seeded bots (tests/helpers/runner-bot.mjs) that play through the real down()/up()/update().
+// MOONRUNNER, the hill-flyer: physics, perfect slides, fever, daylight, obstacles, zones, orders,
+// save migration, depot, lamps, and seeded bots (tests/helpers/runner-bot.mjs) that play through
+// the real down()/up()/update().
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Moonrunner, migrateSave, ordersFor, orderText, ORDER_KINDS, ZONES, RIDES, WORKSHOP, dailyGoal, zoneAt, PX_M, SEG, CLEAN, STUMBLE, MIN_V } from "../web/apps/runner.js";
+import { Moonrunner, migrateSave, ordersFor, orderText, ORDER_KINDS, ZONES, RIDES, WORKSHOP, dailyGoal, zoneAt, PX_M, PERFECT, THUD, RILLE_V, MIN_V } from "../web/apps/runner.js";
 import { appContext, fakeCanvas } from "./helpers/app-context.mjs";
 import { runnerBot } from "./helpers/runner-bot.mjs";
 
 const DT = 1 / 60;
-const TAU = Math.PI * 2;
 const step = (g, seconds, each) => { for (let i = 0, n = Math.round(seconds * 60); i < n; i++) { each?.(); g.update(DT); } };
 function started(options = {}) {
   const ctx = appContext(options), g = new Moonrunner(ctx);
   g.down(); g.up(); // the title screen starts a run on release
   return { ctx, g };
 }
-// Past the forgiving first stretch, a boulder under the sled ends the run.
-function kill(g) { g.forgiveTo = 0; g.rocks.push({ x: g.r.x + 4, r: 20, done: false, hit: false }); g.update(DT); }
-function play(seed, opts = {}, seconds = 300) {
+// Night has fallen and the sled has all but stopped: the run ends.
+function kill(g) { g.T = 0; g.night = true; Object.assign(g.r, { air: false, v: 20, y: g.gy(g.r.x) }); g.update(DT); }
+function play(seed, opts = {}, seconds = 400) {
   const { ctx, g } = started({ seed });
   const bot = opts.idle ? null : runnerBot(g, opts);
   let t = 0;
@@ -34,210 +34,248 @@ function numbers(value, out = [], seen = new Set()) {
   return out;
 }
 const plainState = (g) => Object.fromEntries(Object.entries(g).filter(([k, v]) => k !== "c" && k !== "guard" && k !== "lamps" && typeof v !== "function"));
+// The middle of the first downslope (or climb) well ahead of the sled.
+function slopeAhead(g, fromValley) {
+  const i = g.kp.findIndex((p, k) => !!p.valley === fromValley && k + 1 < g.kp.length && p.x > g.r.x + 200);
+  return (g.kp[i].x + g.kp[i + 1].x) / 2;
+}
+const onDownslope = (g) => slopeAhead(g, false), onUpslope = (g) => slopeAhead(g, true);
+const clearAll = (g) => { g.chasms = []; g.pits = []; g.pads = []; g.vents = []; };
+const finite = (g) => numbers(plainState(g)).filter((n) => n !== Infinity).every(Number.isFinite);
+// Bring the sled down onto the hill at x, `diff` radians shallower than the slope there (it starts
+// a hair below the ground, so it lands on the next step whatever the angle).
+function landAt(g, x, diff, v = 600) {
+  const a = g.slopeAt(x) - diff;
+  Object.assign(g.r, { x, y: g.gy(x) + 3, air: true, airT: 0.6, vx: v * Math.cos(a), vy: v * Math.sin(a), tx: x - 200, hi: 40 });
+  for (let i = 0; i < 5 && g.r.air; i++) g.update(DT);
+}
 
 // ---- bots ------------------------------------------------------------------------------------
-test("a competent bot rides far and outscores a rider who never presses, on several seeds", () => {
+test("a good player rides far and outscores a rider who never presses, on several seeds", () => {
   for (const seed of [1, 2, 3]) {
-    const idle = play(seed, { idle: true }), good = play(seed, {}, 240);
-    assert.equal(idle.g.phase, "over", "the idle rider survived");
-    assert.ok(idle.t > 20, `a newcomer who does nothing dies in the first 20 s (${idle.t.toFixed(1)} s)`);
-    assert.ok(idle.g.R.m < ZONES[2].from, "the idle rider got past the boulders");
-    assert.ok(good.t > 120, `seed ${seed}: the bot died after ${good.t.toFixed(0)} s (${good.g.reason})`);
+    const idle = play(seed, { idle: true }), good = play(seed);
+    assert.equal(idle.g.phase, "over", "the idle rider never stopped");
+    assert.equal(idle.g.reason, "night");
+    assert.ok(idle.g.R.zone <= 1, "the idle rider got past the dunes");
+    assert.ok(good.t > 120, `seed ${seed}: the bot's run ended after ${good.t.toFixed(0)} s`);
     assert.ok(good.g.scoreNow() > 6 * idle.g.scoreNow(), `seed ${seed}: ${good.g.scoreNow()} vs idle ${idle.g.scoreNow()}`);
-    assert.ok(good.g.R.flips >= 3 && good.g.R.zone >= 3, JSON.stringify(good.g.R));
+    assert.ok(good.g.R.perfects >= 10 && good.g.R.zone >= 3 && good.g.R.fevers >= 1, JSON.stringify(good.g.R));
   }
 });
-test("flipping is worth it: the same bot scores more when it flips", () => {
-  let flip = 0, plain = 0;
-  for (const seed of [4, 5]) { flip += play(seed, {}, 150).g.scoreNow(); plain += play(seed, { flips: false }, 150).g.scoreNow(); }
-  assert.ok(flip > plain * 1.15, `${flip} vs ${plain}`);
-});
-test("a sloppy rider (jumps 0.15 s late) dies much sooner than a careful one", () => {
-  let sloppy = 0, careful = 0;
-  for (const seed of [6, 7, 8]) { sloppy += play(seed, { lag: 0.15, flips: false }).t; careful += play(seed, { flips: false }).t; }
-  assert.ok(sloppy < careful / 2, `sloppy ${sloppy.toFixed(0)} s, careful ${careful.toFixed(0)} s`);
+test("skill shows: timing the dive beats playing by eye, which beats a sloppy player, which beats not pressing", () => {
+  const total = (opts) => [4, 5, 6].reduce((n, seed) => n + play(seed, opts).g.scoreNow(), 0);
+  const plan = total({}), eye = total({ plan: false }), idle = total({ idle: true }), sloppy = total({ lag: 0.15 });
+  assert.ok(plan > eye * 1.5, `planned ${plan} vs eye ${eye}`);
+  assert.ok(eye > idle * 3, `eye ${eye} vs idle ${idle}`);
+  assert.ok(sloppy < plan * 0.75, `sloppy ${sloppy} vs planned ${plan}`);
 });
 test("a long run has no NaN anywhere and every list stays bounded", () => {
   const { ctx, g } = started({ seed: 9 });
   const bot = runnerBot(g);
-  let worst = { ty: 0, rocks: 0, shards: 0, chasms: 0, rails: 0, vents: 0 };
-  for (let i = 0; i < 60 * 200 && g.phase === "play"; i++) {
+  const worst = { kp: 0, shards: 0, chasms: 0, pits: 0, pads: 0, vents: 0 };
+  for (let i = 0; i < 60 * 240 && g.phase === "play"; i++) {
     bot(); g.update(DT);
     for (const k of Object.keys(worst)) worst[k] = Math.max(worst[k], g[k].length);
-    if (i % 600 === 0) assert.ok(numbers(plainState(g)).every(Number.isFinite), "a number is not finite at frame " + i);
+    if (i % 600 === 0) assert.ok(finite(g), "a number is not finite at frame " + i);
   }
-  assert.ok(worst.ty < 60 && worst.rocks <= 24 && worst.shards <= 64 && worst.chasms <= 8 && worst.rails <= 8 && worst.vents <= 8, JSON.stringify(worst));
-  assert.ok(numbers(plainState(g)).every(Number.isFinite));
+  assert.ok(worst.kp <= 48 && worst.shards <= 64 && worst.chasms <= 8 && worst.pits <= 8 && worst.pads <= 8 && worst.vents <= 8, JSON.stringify(worst));
+  assert.ok(finite(g));
   assert.ok(JSON.stringify(ctx.calls.saved.at(-1) || g.sv).length < 4096, "the save is small");
 });
 
-// ---- physics and tricks -------------------------------------------------------------------------
-test("a tap jumps without turning the sled; holding in the air turns it backwards", () => {
-  const a = started({ seed: 10 }).g, b = started({ seed: 10 }).g;
-  step(a, 0.5); step(b, 0.5);
-  a.down(); a.update(DT); a.up();
-  b.down();
-  let top = Infinity;
-  for (let i = 0; i < 30; i++) { a.update(DT); b.update(DT); top = Math.min(top, a.r.y - a.gy(a.r.x)); }
-  assert.ok(top < -40, "the jump did not leave the ground");
-  assert.equal(a.r.spin, 0, "a tap turned the sled");
-  assert.ok(b.r.spin < -2, "holding did not turn the sled backwards: " + b.r.spin);
+// ---- physics -----------------------------------------------------------------------------------
+test("holding dives: on a downslope it gains speed much faster, on a climb it loses speed faster", () => {
+  const ride = (hold, where) => {
+    const { g } = started({ seed: 10 });
+    clearAll(g);
+    const x = where(g);
+    Object.assign(g.r, { x, y: g.gy(x), v: 400, air: false });
+    if (hold) g.down();
+    step(g, 0.25);
+    return g.r.v;
+  };
+  const downHeld = ride(true, onDownslope), down = ride(false, onDownslope);
+  assert.ok(downHeld - 400 > 1.8 * (down - 400), `held ${downHeld.toFixed(0)}, light ${down.toFixed(0)}`);
+  const upHeld = ride(true, onUpslope), up = ride(false, onUpslope);
+  assert.ok(upHeld < up - 20, `held ${upHeld.toFixed(0)}, light ${up.toFixed(0)}`);
 });
-test("a clean landing of a full turn is a flip: points, combo, speed; landing upside down ends the run", () => {
-  const { g } = started({ seed: 11 });
-  step(g, 1);
-  const r = g.r, pts = g.pts, v = r.v;
-  // Set up a landing: one full turn done, board along the slope below.
-  r.air = true; r.y = g.gy(r.x) - 2; r.vy = 400; r.vx = v; r.spin = -TAU; r.a = g.slopeAt(r.x + 8) - TAU; r.w = 0;
-  for (let i = 0; i < 10 && r.air; i++) g.update(DT);
-  assert.equal(g.R.flips, 1);
-  assert.equal(g.combo, 1);
-  assert.ok(g.pts >= pts + 100, "a flip is worth 100 at x1");
-  const after = started({ seed: 11 }).g;
-  step(after, 1);
-  after.forgiveTo = 0;
-  Object.assign(after.r, { air: true, y: after.gy(after.r.x) - 2, vy: 400, a: after.slopeAt(after.r.x) + Math.PI, spin: -Math.PI, w: 0 });
-  for (let i = 0; i < 10 && after.phase === "play"; i++) after.update(DT);
-  assert.equal(after.phase, "over");
-  assert.equal(after.reason, "land");
+test("a fast sled flies off a crest; a slow one rolls over it", () => {
+  const over = (v) => {
+    const { g } = started({ seed: 11 });
+    clearAll(g);
+    const crest = g.kp.find((p) => !p.valley && p.x > g.r.x + 300);
+    const x = crest.x - 60;
+    Object.assign(g.r, { x, y: g.gy(x), v, air: false });
+    let flew = false;
+    for (let i = 0; i < 40; i++) { g.update(DT); if (g.r.air && g.gy(g.r.x) - g.r.y > 6) flew = true; }
+    return flew;
+  };
+  assert.ok(over(900), "a fast sled stayed on the ground");
+  assert.ok(!over(MIN_V), "a crawling sled took off");
 });
-test("a landing between clean and crash is a stumble: speed and combo are lost, the run goes on", () => {
+test("a perfect slide: speed, points, daylight and the chain; a thud breaks the chain", () => {
   const { g } = started({ seed: 12 });
-  step(g, 1);
-  g.forgiveTo = 0; g.combo = 5; g.comboT = 2;
-  const v = g.r.v = 500;
-  Object.assign(g.r, { air: true, y: g.gy(g.r.x) - 2, vx: 500, vy: 400, a: g.slopeAt(g.r.x + 8) - (CLEAN + STUMBLE) / 2 - 0.05, spin: -0.7, w: 0 });
-  for (let i = 0; i < 10 && g.r.air; i++) g.update(DT);
-  assert.equal(g.phase, "play");
-  assert.equal(g.combo, 0);
-  assert.ok(g.r.v < v * 0.8);
-  assert.equal(g.R.stumbles, 1);
+  clearAll(g);
+  const x = onDownslope(g);
+  const pts = g.pts, T = g.T;
+  landAt(g, x, 0.1);
+  assert.equal(g.R.perfects, 1);
+  assert.equal(g.chain, 1);
+  assert.ok(g.r.v > 600 * 1.05, "no burst of speed: " + g.r.v);
+  assert.ok(g.pts >= pts + 50);
+  assert.ok(g.T > T - 0.2, "no daylight");
+  landAt(g, x, -PERFECT + 0.05); // steeper than the slope, but inside the window
+  assert.equal(g.chain, 2);
+  landAt(g, x, -(THUD + 0.2)); // nose first into the hillside
+  assert.equal(g.chain, 0);
+  assert.equal(g.R.perfects, 2);
+  assert.equal(g.R.chain, 2);
+  assert.equal(g.phase, "play", "a thud ended the run");
 });
-test("the first 250 m forgive a crash; after that a boulder ends the run and it is recorded once", () => {
-  const { ctx, g } = started({ seed: 13 });
-  step(g, 0.5);
-  g.rocks.push({ x: g.r.x + 4, r: 20, done: false, hit: false }); g.update(DT);
-  assert.equal(g.phase, "play", "an early crash ended the run");
-  assert.ok(g.inv > 0, "a tumble gives a moment of grace");
-  step(g, 2);
-  kill(g);
+test("a skip over a bump is not a landing: it neither scores nor breaks the chain", () => {
+  const { g } = started({ seed: 13 });
+  clearAll(g);
+  g.chain = 2;
+  const x = onDownslope(g), th = g.slopeAt(x);
+  Object.assign(g.r, { x, y: g.gy(x) - 1, air: true, airT: 0.05, vx: 600 * Math.cos(th), vy: 600 * Math.sin(th), tx: x - 10 });
+  g.update(DT);
+  assert.equal(g.chain, 2);
+  assert.equal(g.R.perfects, 0);
+});
+test("three perfect slides in a row are fever: double points, for a while", () => {
+  const { g } = started({ seed: 14, progress: { schema: 3, up: { coil: 1 } } });
+  clearAll(g);
+  const x = onDownslope(g);
+  for (let k = 0; k < 3; k++) landAt(g, x, 0.05);
+  assert.equal(g.R.fevers, 1);
+  assert.ok(g.fever > 6.5, "the coil did not lengthen fever: " + g.fever);
+  const pts = g.pts;
+  g.addPoints(10);
+  assert.equal(g.pts - pts, 20);
+  step(g, 8);
+  assert.equal(g.fever, 0, "fever did not run out");
+});
+test("daylight runs down; a new zone buys more; at night the sled coasts to a stop and the run ends", () => {
+  const { ctx, g } = started({ seed: 15, progress: { schema: 3, up: { bat: 1 } } });
+  assert.equal(g.T, 48, "the battery did not add daylight");
+  step(g, 1);
+  assert.ok(g.T < 47.1);
+  const T = g.T;
+  g.enterZone(1);
+  assert.ok(g.T > T + 24);
+  g.T = 0.01;
+  step(g, 0.1);
+  assert.ok(g.night);
+  assert.equal(g.phase, "play", "the run ended before the sled stopped");
+  for (let i = 0; i < 60 * 30 && g.phase === "play"; i++) g.update(DT);
   assert.equal(g.phase, "over");
-  assert.equal(g.reason, "rock");
+  assert.equal(g.reason, "night");
   step(g, 3);
   assert.equal(ctx.calls.score.length, 1, "the score was not recorded exactly once");
   assert.equal(ctx.calls.saved.filter((s) => s.runs === 1).length, 1);
-  assert.equal(ctx.calls.saved.at(-1).schema, 2);
+  assert.equal(ctx.calls.saved.at(-1).schema, 3);
 });
-test("hover pads catch one crash per tier", () => {
-  const { g } = started({ seed: 14, progress: { schema: 2, up: { hov: 1 } } });
-  step(g, 0.5);
-  assert.equal(g.hovers, 1);
-  kill(g);
-  assert.equal(g.phase, "play");
-  assert.equal(g.hovers, 0);
-  step(g, 2);
-  kill(g);
-  assert.equal(g.phase, "over");
+test("a rille is flown by a sled fast enough at its rim; a slow one falls in and loses daylight", () => {
+  const at = (v) => {
+    const { g } = started({ seed: 16 });
+    clearAll(g);
+    const crest = g.kp.find((p) => !p.valley && p.x > g.r.x + 300);
+    const c = { x0: crest.x + 30, x1: crest.x + 230, done: false }; // the widest a rille is made
+    g.chasms = [c];
+    const x = crest.x + 20;
+    Object.assign(g.r, { x, y: g.gy(x), v, air: false });
+    const T = g.T;
+    for (let i = 0; i < 90; i++) g.update(DT);
+    return { g, c, lost: T - g.T };
+  };
+  const fast = at(RILLE_V);
+  assert.equal(fast.g.R.chasms, 1, "a sled at RILLE_V did not clear the widest rille");
+  assert.equal(fast.g.R.falls, 0);
+  const slow = at(250);
+  assert.equal(slow.g.R.falls, 1, "a slow sled cleared it");
+  assert.ok(slow.lost > 8, "no daylight lost: " + slow.lost);
+  assert.equal(slow.g.phase, "play");
+  assert.ok(slow.g.r.x > slow.c.x1, "not set down past the rille");
 });
-test("combos multiply trick points, run out on plain ground and surge the sled from three", () => {
-  const { g } = started({ seed: 15 });
-  step(g, 0.5);
-  for (let i = 0; i < 6; i++) g.trickDone(1, 10, "T");
-  assert.equal(g.mult(), 3);
-  assert.equal(g.R.combo, 6);
-  step(g, 3);
-  assert.equal(g.combo, 0, "the combo did not run out");
-});
-test("a rille is cleared by a jump before its edge and swallows a sled that rides into it", () => {
-  const { g } = started({ seed: 16, progress: { schema: 2, far: 2, sel: { start: 2 } } });
-  // Start in the rilles; the bot jumps them.
-  assert.equal(g.zone, 2);
-  g.forgiveTo = 0;
-  const bot = runnerBot(g, { flips: false });
-  step(g, 40, bot);
-  assert.ok(g.R.chasms >= 3, "rilles cleared " + g.R.chasms);
-  const idle = started({ seed: 16, progress: { schema: 2, far: 2, sel: { start: 2 } } }).g;
-  idle.forgiveTo = 0;
-  step(idle, 40);
-  assert.equal(idle.phase, "over");
-});
-test("cables are ground: points per metre, and a rille too wide to jump always has a cable over it", () => {
-  const { g } = started({ seed: 17, progress: { schema: 2, far: 3, sel: { start: 3 } } });
-  g.forgiveTo = 0;
-  const bot = runnerBot(g, { flips: false });
-  let wide = 0;
-  for (let i = 0; i < 60 * 60 && g.phase === "play"; i++) {
-    bot(); g.update(DT);
-    for (const c of g.chasms) if (c.x1 - c.x0 > 200) {
-      wide++;
-      assert.ok(g.rails.some((rl) => rl.x0 < c.x0 && rl.x1 > c.x1), "a wide rille has no cable");
-    }
-  }
-  assert.ok(wide > 0 && g.R.grind > 20, `wide ${wide}, grind ${g.R.grind}`);
-});
-test("a vent throws the sled high enough for a double flip", () => {
-  const { g } = started({ seed: 18 });
-  step(g, 0.5);
-  g.vents.push({ x: g.r.x + 20, w: 56, used: false });
-  let top = 0;
-  for (let i = 0; i < 120; i++) { g.update(DT); top = Math.max(top, g.gy(g.r.x) - g.r.y); }
-  assert.ok(top > 250, "vent height " + top);
+test("dust pits drag, a boost crystal throws the sled forward while held, a vent throws it high", () => {
+  const roll = (fn, hold) => {
+    const { g } = started({ seed: 17 });
+    clearAll(g);
+    const x = onDownslope(g);
+    Object.assign(g.r, { x, y: g.gy(x), v: 500, air: false });
+    fn(g, x);
+    if (hold) g.down();
+    let top = 0;
+    for (let i = 0; i < 20; i++) { g.update(DT); top = Math.max(top, g.gy(g.r.x) - g.r.y); }
+    return { v: g.r.v, top, g };
+  };
+  const plain = roll(() => {}, true);
+  const pit = roll((g, x) => g.pits.push({ x0: x - 10, x1: x + 600 }), true);
+  assert.ok(pit.v < plain.v - 100, `pit ${pit.v.toFixed(0)} vs ${plain.v.toFixed(0)}`);
+  const pad = roll((g, x) => g.pads.push({ x0: x - 10, x1: x + 600, used: false }), true);
+  assert.ok(pad.v > plain.v + 150, `crystal ${pad.v.toFixed(0)} vs ${plain.v.toFixed(0)}`);
+  assert.equal(pad.g.R.pads, 1);
+  const light = roll((g, x) => g.pads.push({ x0: x - 10, x1: x + 600, used: false }), false);
+  assert.equal(light.g.R.pads, 0, "a crystal fired without a hold");
+  const vent = roll((g, x) => g.vents.push({ x: x + 40, w: 60, used: false }), false);
+  assert.ok(vent.top > 120 && vent.g.R.vents === 1, "vent height " + vent.top);
 });
 
-// ---- the slope ---------------------------------------------------------------------------------
-test("the slope is smooth and continuous, and the camera moves exactly with the sled", () => {
+// ---- the hills ---------------------------------------------------------------------------------
+test("the hills are smooth and continuous, and the camera follows the sled and pulls back with speed", () => {
   const { g } = started({ seed: 19 });
   const bot = runnerBot(g);
-  let worst = 0;
-  for (let i = 0; i < 60 * 60 && g.phase === "play"; i++) {
-    const cam = g.camX, x = g.r.x;
+  let worst = 0, steep = 0, zoomFast = 1, zoomSlow = 0;
+  for (let i = 0; i < 60 * 90 && g.phase === "play"; i++) {
     bot(); g.update(DT);
-    if (g.phase === "play") assert.ok(Math.abs((g.camX - cam) - (g.r.x - x)) < 1e-6);
+    if (g.phase !== "play") break;
+    assert.equal(g.camX, g.r.x);
+    assert.ok(g.zoom >= 0.42 && g.zoom <= 1.05);
     for (let k = 0; k < 4; k++) {
-      const x0 = g.r.x + k * 200;
+      const x0 = g.r.x + k * 300;
       worst = Math.max(worst, Math.abs(g.gy(x0 + 1) - g.gy(x0)));
+      steep = Math.max(steep, Math.abs(g.slopeAt(x0)));
     }
+    const s = Math.hypot(g.r.vx, g.r.vy);
+    if (s > 1000) zoomFast = Math.min(zoomFast, g.zoom);
+    if (s < 400) zoomSlow = Math.max(zoomSlow, g.zoom);
   }
-  assert.ok(worst < 4, "the ground jumps by " + worst + " px in 1 px");
+  assert.ok(worst < 1.2, "the ground jumps by " + worst + " px in 1 px");
+  assert.ok(steep < 0.85, "a slope is too steep: " + steep);
+  assert.ok(zoomFast < zoomSlow - 0.1, `zoom fast ${zoomFast}, slow ${zoomSlow}`);
 });
-test("each zone adds its own feature: boulders from II, rilles from III, cables from IV, vents from V", () => {
+test("each zone adds its own thing: pits from II, rilles from III, crystals from IV, vents from V", () => {
   const seen = ZONES.map(() => new Set());
   for (let zi = 0; zi < ZONES.length; zi++) {
     const g = new Moonrunner(appContext({ seed: 20 + zi }));
     g.sv.far = 5; g.sv.sel.start = zi;
     g.start();
-    // Sweep the sled forward and file what the planner put down under the zone it lies in.
-    const note = (x, kind) => { if (x > g.x0 + 2400) seen[zoneAt(x / PX_M)].add(kind); };
-    for (let k = 0; k < 80; k++) {
+    const note = (x, kind) => { if (x > g.x0 + 3200) seen[zoneAt(x / PX_M)].add(kind); };
+    for (let k = 0; k < 120; k++) {
       g.r.x += 300; g.extend();
-      for (const q of g.rocks) note(q.x, "rock");
+      for (const q of g.pits) note(q.x0, "pit");
       for (const c of g.chasms) note(c.x0, "chasm");
-      for (const rl of g.rails) note(rl.x0, "rail");
+      for (const p of g.pads) note(p.x0, "pad");
       for (const v of g.vents) note(v.x, "vent");
       g.prune();
     }
   }
-  assert.deepEqual([...seen[0]], [], "the mare has hazards");
-  assert.ok(seen[1].has("rock") && !seen[1].has("chasm") && !seen[1].has("rail"), [...seen[1]].join());
-  assert.ok(seen[2].has("chasm") && !seen[2].has("rail") && !seen[2].has("vent"), [...seen[2]].join());
-  assert.ok(seen[3].has("rail") && !seen[3].has("vent"), [...seen[3]].join());
+  assert.deepEqual([...seen[0]], [], "the mare has obstacles");
+  assert.ok(seen[1].has("pit") && !seen[1].has("chasm") && !seen[1].has("pad"), [...seen[1]].join());
+  assert.ok(seen[2].has("chasm") && !seen[2].has("pad") && !seen[2].has("vent"), [...seen[2]].join());
+  assert.ok(seen[3].has("pad") && !seen[3].has("vent"), [...seen[3]].join());
   assert.ok(seen[4].has("vent"), [...seen[4]].join());
-  assert.ok(["rock", "chasm", "rail", "vent"].every((k) => seen[5].has(k)), [...seen[5]].join());
+  assert.ok(["pit", "chasm", "pad", "vent"].every((k) => seen[5].has(k)), [...seen[5]].join());
 });
-test("the first 120 m of every run are free of hazards", () => {
+test("the first 150 m of every run have no rilles or dust pits, and every rille sits on a downslope", () => {
   for (const seed of [21, 22, 23]) {
-    const { g } = started({ seed, progress: { schema: 2, far: 5, sel: { start: 4 } } });
-    assert.ok(!g.rocks.some((q) => q.x < g.x0 + 2400) && !g.chasms.some((c) => c.x0 < g.x0 + 2400) && !g.vents.length || g.vents.every((v) => v.x > g.x0 + 2400));
+    const { g } = started({ seed, progress: { schema: 3, far: 5, sel: { start: 4 } } });
+    assert.ok(!g.chasms.some((c) => c.x0 < g.x0 + 3000) && !g.pits.some((p) => p.x0 < g.x0 + 3000));
+    for (let k = 0; k < 40; k++) {
+      g.r.x += 300; g.extend(); g.prune();
+      for (const c of g.chasms) assert.ok(g.slopeAt(c.x0) >= 0 && c.x1 - c.x0 <= 200, JSON.stringify(c));
+    }
   }
-});
-test("plain rilles are narrow enough to jump at the slowest speed", () => {
-  const { g } = started({ seed: 24, progress: { schema: 2, far: 5, sel: { start: 2 } } });
-  let n = 0;
-  for (let k = 0; k < 60; k++) {
-    g.r.x += 300; g.extend(); g.prune();
-    for (const c of g.chasms) if (!g.rails.some((rl) => rl.x0 < c.x0 && rl.x1 > c.x1)) { n++; assert.ok(c.x1 - c.x0 < MIN_V * 0.7, "width " + (c.x1 - c.x0)); }
-  }
-  assert.ok(n > 3);
 });
 
 // ---- lamps -------------------------------------------------------------------------------------
@@ -252,38 +290,43 @@ test("lamps: always nine whole numbers 0-255, changing during play, dark on the 
   assert.ok(writes.every((v) => v.length === 9 && v.every((x) => Number.isInteger(x) && x >= 0 && x <= 255)));
   assert.ok(new Set(writes.map((v) => v.join())).size > 20, "the lamps hardly change");
   kill(g);
-  assert.ok(ctx.calls.leds.at(-1).some((x) => x > 0), "no red at the end");
+  assert.ok(ctx.calls.leds.at(-1).some((x) => x > 0), "no light at the end");
   step(g, 1);
   assert.ok(ctx.calls.leds.at(-1).every((x) => x === 0), "lamps lit on the result screen");
 });
-test("lamps in the air: green when a landing now would be clean, red when it would crash", () => {
+test("lamps in the air: the middle lamp is green when a landing now would be perfect, amber when not", () => {
   const { ctx, g } = started({ seed: 26 });
-  step(g, 1);
-  const r = g.r;
-  Object.assign(r, { air: true, y: g.gy(r.x) - 60, vy: -50, a: g.slopeAt(r.x + r.vx * 0.15), w: 0, spin: 0 });
+  clearAll(g);
+  step(g, 3); // past the zone banner
+  const x = onDownslope(g), th = g.slopeAt(x + 60);
+  Object.assign(g.r, { x, y: g.gy(x) - 40, air: true, vx: 600 * Math.cos(th), vy: 600 * Math.sin(th) });
   g.update(DT);
   let v = ctx.calls.leds.at(-1);
-  assert.ok(v[1] > v[0] && v[1] > 0, "not green: " + v);
-  Object.assign(r, { air: true, y: g.gy(r.x) - 60, vy: -50, a: g.slopeAt(r.x) + Math.PI, w: 0 });
+  assert.ok(v[4] > v[3] && v[4] > 0, "not green: " + v);
+  Object.assign(g.r, { x, y: g.gy(x) - 40, air: true, vx: 600, vy: -400 });
   g.update(DT);
   v = ctx.calls.leds.at(-1);
-  assert.ok(v[0] > v[1] * 2, "not red: " + v);
+  assert.ok(v[3] > v[5] && v[3] > 0, "not amber: " + v);
 });
-test("lamps on the ground: the right lamp brightens as a boulder closes and blinks when it is time to jump", () => {
+test("lamps: the right lamp shows daylight, and blinks red for a rille ahead of a slow sled", () => {
   const { ctx, g } = started({ seed: 27 });
-  step(g, 1);
-  const r = g.r, levels = [];
-  for (const ahead of [0.9, 0.6, 0.4]) {
-    g.rocks = [{ x: r.x + r.v * ahead + 20, r: 18, done: false, hit: false }];
-    g.update(DT);
-    const v = ctx.calls.leds.at(-1);
-    levels.push(v[6] + v[7] + v[8]);
-    assert.ok(v[6] > v[8], "the right lamp is not amber: " + v);
-  }
-  assert.ok(levels[0] < levels[1] && levels[1] < levels[2], JSON.stringify(levels));
+  clearAll(g);
+  step(g, 3);
+  let v = ctx.calls.leds.at(-1);
+  assert.ok(v[8] > v[6], "plenty of daylight is not cyan: " + v);
+  g.T = 12; step(g, 0.05);
+  v = ctx.calls.leds.at(-1);
+  assert.ok(v[6] > v[8], "low daylight is not amber: " + v);
+  g.T = 30;
   const blinks = new Set();
-  for (let i = 0; i < 12; i++) { g.rocks = [{ x: r.x + r.v * 0.2 + 20, r: 18, done: false, hit: false }]; g.t += 0.05; g.update(DT); blinks.add(ctx.calls.leds.at(-1)[6] > 100); }
-  assert.ok(blinks.size === 2, "the right lamp does not blink in the last moment");
+  for (let i = 0; i < 20; i++) {
+    g.chasms = [{ x0: g.r.x + 300, x1: g.r.x + 440, done: false }];
+    Object.assign(g.r, { air: false, v: 200, y: g.gy(g.r.x) });
+    g.t += 0.05; g.update(DT);
+    v = ctx.calls.leds.at(-1);
+    blinks.add(v[6] > 100 && v[7] < 60);
+  }
+  assert.equal(blinks.size, 2, "the right lamp does not blink red");
 });
 test("cancel, pause and dispose leave the lamps dark, and nothing is written while paused", () => {
   for (const how of ["cancel", "pause", "dispose"]) {
@@ -294,19 +337,19 @@ test("cancel, pause and dispose leave the lamps dark, and nothing is written whi
     if (how !== "cancel") { const n = ctx.calls.leds.length; step(g, 1); assert.equal(ctx.calls.leds.length, n, how + " wrote light"); }
   }
 });
-test("three quick taps followed by cancel() do not end the run", () => {
+test("the menu gesture takes back its presses: three quick taps and cancel() leave the run going", () => {
   const { g } = started({ seed: 29 });
   step(g, 1);
-  g.forgiveTo = 0;
   for (let i = 0; i < 3; i++) { g.down(); step(g, 0.06); g.up(); step(g, 0.06); }
   g.cancel();
+  assert.equal(g.held, false);
   step(g, 0.5);
   assert.equal(g.phase, "play");
 });
 
 // ---- orders, levels, unlocks -------------------------------------------------------------------
 test("orders: level 1 is the fixed introduction; every level has three different orders it can meet", () => {
-  assert.deepEqual(ordersFor(1).map((o) => o.k), ["flips", "dist", "shards"]);
+  assert.deepEqual(ordersFor(1).map((o) => o.k), ["perfects", "dist", "shards"]);
   for (let L = 2; L <= 60; L++) {
     const list = ordersFor(L);
     assert.equal(list.length, 3, "level " + L);
@@ -320,7 +363,7 @@ test("orders: level 1 is the fixed introduction; every level has three different
   assert.deepEqual(ordersFor(7), ordersFor(7), "orders are the same every time");
 });
 test("meeting all three orders raises the level at the end of the run and unlocks what that level gives", () => {
-  const { ctx, g } = started({ seed: 30, progress: { schema: 2, lv: 2, gd: [1, 1, 0] } });
+  const { ctx, g } = started({ seed: 30, progress: { schema: 3, lv: 2, gd: [1, 1, 0] } });
   assert.equal(g.sv.lv, 2);
   g.sv.gd[2] = 1;
   step(g, 1);
@@ -335,12 +378,13 @@ test("meeting all three orders raises the level at the end of the run and unlock
 test("an order met in the middle of a run is marked at once and kept", () => {
   const { g } = started({ seed: 31 });
   const bot = runnerBot(g);
-  step(g, 40, bot);
+  step(g, 50, bot);
+  assert.equal(g.sv.gd[0], 1, "3 perfect slides were not marked");
   assert.equal(g.sv.gd[1], 1, "400 m was not marked");
   assert.equal(g.sv.gd[2], 1, "10 shards was not marked");
 });
 test("the zone order counts only a run from the start", () => {
-  const { g } = started({ seed: 32, progress: { schema: 2, far: 3, sel: { start: 3 } } });
+  const { g } = started({ seed: 32, progress: { schema: 3, far: 3, sel: { start: 3 } } });
   assert.equal(ORDER_KINDS.zone.prog(g), 0);
 });
 
@@ -348,39 +392,53 @@ test("the zone order counts only a run from the start", () => {
 test("save: the first release's run record migrates (runs, last, milestone kept; milestones become shards)", () => {
   const old = { schema: 1, runs: 14, last: { metres: 812, relics: 31, milestone: 8 }, milestone: 9 };
   const sv = migrateSave(old);
-  assert.equal(sv.schema, 2);
+  assert.equal(sv.schema, 3);
   assert.equal(sv.runs, 14);
   assert.deepEqual(sv.last, old.last);
   assert.equal(sv.milestone, 9);
   assert.equal(sv.sh, 45);
   assert.equal(sv.lv, 1);
-  assert.deepEqual(migrateSave(JSON.parse(JSON.stringify(sv))), sv, "schema 2 does not round-trip");
-  // The game starts on an old save, and its first finished run keeps the history.
+  assert.deepEqual(migrateSave(JSON.parse(JSON.stringify(sv))), sv, "schema 3 does not round-trip");
   const { ctx, g } = started({ seed: 33, progress: old });
   step(g, 1); kill(g);
   const saved = ctx.calls.saved.at(-1);
   assert.equal(saved.runs, 15);
   assert.equal(saved.milestone, 9);
-  assert.equal(saved.schema, 2);
+  assert.equal(saved.schema, 3);
 });
-test("save: anything malformed becomes a clean schema 2", () => {
-  for (const raw of [null, undefined, 7, "x", [], { lv: -4, sh: NaN, up: { mag: 99 }, sel: { ride: 9, start: -2 }, pb: "no", gd: "yes", st: { m: Infinity } }]) {
+test("save: the downhill test build (schema 2) keeps level, shards, sleds and records, and refunds its upgrades", () => {
+  const old = { schema: 2, runs: 30, lv: 5, gd: [1, 0, 1], sh: 100, up: { mag: 2, hov: 2, lamp: 1 }, sel: { ride: 1, start: 2, trail: 1 }, far: 3, pb: [5000, 4000, 0], st: { m: 20000, best: 6000 } };
+  const sv = migrateSave(old);
+  assert.equal(sv.schema, 3);
+  assert.equal(sv.lv, 5);
+  assert.deepEqual(sv.gd, [0, 0, 0], "the old orders carried over");
+  assert.equal(sv.sh, 100 + 150 + 450 + 120);
+  assert.deepEqual(sv.up, { mag: 2, bat: 0, coil: 0 });
+  assert.deepEqual(sv.sel, { ride: 1, start: 2, trail: 1 });
+  assert.equal(sv.far, 3);
+  assert.deepEqual(sv.pb, [5000, 4000, 0]);
+  assert.equal(sv.st.m, 20000);
+  assert.deepEqual(migrateSave(JSON.parse(JSON.stringify(sv))), sv, "schema 3 does not round-trip");
+});
+test("save: anything malformed becomes a clean schema 3", () => {
+  for (const raw of [null, undefined, 7, "x", [], { lv: -4, sh: NaN, up: { mag: 99, bat: -1 }, sel: { ride: 9, start: -2 }, pb: "no", gd: "yes", st: { m: Infinity } }]) {
     const sv = migrateSave(raw);
-    assert.equal(sv.schema, 2);
-    assert.ok(sv.lv >= 1 && sv.up.mag <= 3 && sv.sel.ride < RIDES.length && sv.sel.start >= 0);
+    assert.equal(sv.schema, 3);
+    assert.ok(sv.lv >= 1 && sv.up.mag <= 3 && sv.up.bat >= 0 && sv.sel.ride < RIDES.length && sv.sel.start >= 0);
     assert.ok(numbers(sv).every(Number.isFinite));
   }
 });
 
-// ---- depot, workshop, rides --------------------------------------------------------------------
+// ---- depot, workshop, sleds --------------------------------------------------------------------
 const press = (g, seconds) => { g.down(); step(g, seconds); g.up(); };
+const DEPOT_ROW = (g) => ["RIDE OUT", "SLED", "START", "ZEN", "DAILY", "WORKSHOP", "ORDERS", "LOG"][g.cur];
 test("depot: a hold on the title opens it, a tap moves to the next line, a hold chooses", () => {
-  const ctx = appContext({ seed: 34, progress: { schema: 2, lv: 6, sh: 500 } }), g = new Moonrunner(ctx);
+  const ctx = appContext({ seed: 34, progress: { schema: 3, lv: 6, sh: 500 } }), g = new Moonrunner(ctx);
   press(g, 0.6);
   assert.equal(g.phase, "depot");
   press(g, 0.1);
   assert.equal(g.cur, 1);
-  press(g, 0.6); // RIDE: next unlocked sled
+  press(g, 0.6);
   assert.equal(g.sv.sel.ride, 1);
   press(g, 0.6);
   assert.equal(g.sv.sel.ride, 2);
@@ -389,7 +447,6 @@ test("depot: a hold on the title opens it, a tap moves to the next line, a hold 
   const locked = new Moonrunner(appContext({ seed: 35 }));
   press(locked, 0.6); press(locked, 0.1); press(locked, 0.6);
   assert.equal(locked.sv.sel.ride, 0, "a locked sled was chosen");
-  // Workshop: buy a magnet tier; a second purchase without shards is refused.
   while (DEPOT_ROW(g) !== "WORKSHOP") press(g, 0.1);
   press(g, 0.6);
   assert.equal(g.view, "workshop");
@@ -406,43 +463,52 @@ test("depot: a hold on the title opens it, a tap moves to the next line, a hold 
   assert.equal(g.phase, "play");
   assert.equal(g.rideIx, 0);
 });
-const DEPOT_ROW = (g) => ["RIDE OUT", "RIDE", "START", "ZEN", "DAILY", "WORKSHOP", "ORDERS", "LOG"][g.cur];
-test("the HAULER breaks small boulders; a magnet pulls shards from further away", () => {
-  const { g } = started({ seed: 36, progress: { schema: 2, lv: 6, sel: { ride: 2 } } });
-  step(g, 1);
-  g.forgiveTo = 0;
-  g.rocks.push({ x: g.r.x + 4, r: 16, done: false, hit: false }); g.update(DT);
-  assert.equal(g.phase, "play", "the hauler did not break a small boulder");
-  const m = started({ seed: 37, progress: { schema: 2, up: { mag: 2 } } }).g;
+test("the sleds differ: the SKIMMER floats longer, the HAULER drops sooner; a magnet reaches further", () => {
+  const flight = (ride) => {
+    const { g } = started({ seed: 36, progress: { schema: 3, lv: 9, sel: { ride } } });
+    clearAll(g);
+    const x = onDownslope(g);
+    Object.assign(g.r, { x, y: g.gy(x) - 200, air: true, vx: 500, vy: -200 });
+    let t = 0;
+    while (g.r.air && t < 5) { g.update(DT); t += DT; }
+    return t;
+  };
+  const sk = flight(1), su = flight(0), ha = flight(2);
+  assert.ok(sk > su && su > ha, `skimmer ${sk}, surveyor ${su}, hauler ${ha}`);
+  assert.ok(RIDES[2].dive > RIDES[0].dive && RIDES[2].maxV > RIDES[0].maxV);
+  const m = started({ seed: 37, progress: { schema: 3, up: { mag: 2 } } }).g;
   step(m, 1);
-  m.shards = [{ x: m.r.x + 60, off: 0, y: m.r.y - 18 - 60, got: 0, pull: 0 }];
+  m.shards = [{ x: m.r.x + 60, y: m.r.y - 18 - 60, got: 0, pull: 0 }];
   step(m, 0.3);
   assert.equal(m.R.shards, 1);
 });
 test("only a run from the start sets the console record; other starts keep a best per sled", () => {
-  const { ctx, g } = started({ seed: 38, progress: { schema: 2, far: 3, sel: { start: 2 } } });
+  const { ctx, g } = started({ seed: 38, progress: { schema: 3, far: 3, sel: { start: 2 } } });
   step(g, 3, runnerBot(g));
   kill(g);
   assert.equal(ctx.calls.score.length, 0);
   assert.ok(g.sv.pb[0] > 0);
 });
-test("zen: no score, no end; a crash is a tumble and the ride goes on", () => {
-  const ctx = appContext({ seed: 39, progress: { schema: 2, lv: 2 } }), g = new Moonrunner(ctx);
+test("zen: no clock and no score; a rille costs nothing and the ride goes on", () => {
+  const ctx = appContext({ seed: 39, progress: { schema: 3, lv: 2 } }), g = new Moonrunner(ctx);
   g.start("zen");
   step(g, 1);
-  for (let i = 0; i < 3; i++) { kill(g); step(g, 2); }
+  assert.equal(g.T, Infinity);
+  g.fall({ x0: g.r.x, x1: g.r.x + 100, done: false });
+  step(g, 30, runnerBot(g));
   assert.equal(g.phase, "play");
+  assert.equal(g.T, Infinity);
   g.pause(); g.dispose();
   assert.equal(ctx.calls.score.length, 0);
   assert.ok(g.sv.st.zen > 0, "zen metres were not banked");
 });
-test("daily run: the same slope for everyone on a date, a different one the next day, and a streak", () => {
+test("daily run: the same hills for everyone on a date, different ones the next day, and a streak", () => {
   const make = (key) => { const g = new Moonrunner(appContext({ seed: Math.random() * 1e9 })); g.dayKey = () => key; g.start("daily"); g.r.x += 3000; g.extend(); return g; };
   const a = make("2026-10-01"), b = make("2026-10-01"), c = make("2026-10-02");
-  assert.deepEqual(a.ty, b.ty);
-  assert.notDeepEqual(a.ty, c.ty);
+  assert.deepEqual(a.kp, b.kp);
+  assert.notDeepEqual(a.kp, c.kp);
   assert.ok(dailyGoal("2026-10-01").text.length > 5);
-  const g = new Moonrunner(appContext({ seed: 40, progress: { schema: 2, dl: { last: "2026-09-30", streak: 2 } } }));
+  const g = new Moonrunner(appContext({ seed: 40, progress: { schema: 3, dl: { last: "2026-09-30", streak: 2 } } }));
   g.dayKey = () => "2026-10-01";
   g.start("daily");
   g.goalDone = true;
@@ -464,11 +530,10 @@ test("leaving in the middle of a run banks it: the score, the stats and the shar
 test("every screen draws without throwing, with text of 16 px or more, and drawing changes nothing", () => {
   const sizes = [];
   const g2d = new Proxy({}, { get: (t, k) => (k === "fillText" ? () => sizes.push(Number(/(\d+)px/.exec(t.font)?.[1])) : k in t ? t[k] : () => {}), set: (t, k, v) => { t[k] = v; return true; } });
-  const ctx = appContext({ seed: 42, progress: { schema: 2, lv: 9, far: 5, sh: 999 } }), g = new Moonrunner(ctx);
-  const views = [];
-  g.draw(g2d); views.push("title");
+  const ctx = appContext({ seed: 42, progress: { schema: 3, lv: 9, far: 5, sh: 999 } }), g = new Moonrunner(ctx);
+  g.draw(g2d);
   press(g, 0.6);
-  for (const v of ["menu", "workshop", "orders", "log"]) { g.view = v; g.draw(g2d); views.push(v); }
+  for (const v of ["menu", "workshop", "orders", "log"]) { g.view = v; g.draw(g2d); }
   g.view = "menu"; g.cur = 0; press(g, 0.6);
   const bot = runnerBot(g);
   for (let i = 0; i < 60 * 30; i++) {
@@ -479,6 +544,7 @@ test("every screen draws without throwing, with text of 16 px or more, and drawi
       assert.equal(JSON.stringify(plainState(g)), before, "draw changed the game");
     }
   }
+  g.T = 5; g.fever = 2; step(g, 0.1); g.draw(g2d); // the terminator and fever
   g.sv.sel.start = 5; g.start(); step(g, 3, runnerBot(g)); g.draw(fakeCanvas()); // the far side
   kill(g); step(g, 1); g.draw(g2d);
   assert.ok(sizes.length > 100);

@@ -72,13 +72,14 @@ export function playOrbit(seed, policy, maxSeconds = 1200) {
 }
 
 // ----------------------------------------------------------------- Moonrunner
-// The downhill run (rebuilt 2026-10-01). policy: {kind:"timed", sigmaFrames} (jump timing error per
-// obstacle, flips planned on a copy of the sled) | never | hold | rhythm(period) | mash(hz).
+// The hill-flyer (rebuilt 2026-10-01). policy: {kind:"timed", sigmaFrames} (dives timed on a copy of
+// the sled; every change of the button lands sigmaFrames late) | eye (dives by eye, no planning) |
+// never | hold | rhythm(period) | mash(hz).
 export function playRunner(seed, policy, maxSeconds = 1200, gestureAt = null) {
-  const c = makeCtx(seed), g = new Moonrunner(c), br = new Random(seed * 104729 + 7);
+  const c = makeCtx(seed), g = new Moonrunner(c);
   const rig = makeRig(g, c);
   g.down(); g.up();
-  const bot = policy.kind === "timed" ? runnerBot(g, { jitter: () => gauss(br, policy.sigmaFrames) / 60 }) : null;
+  const bot = policy.kind === "timed" ? runnerBot(g, { lag: policy.sigmaFrames / 60 }) : policy.kind === "eye" ? runnerBot(g, { plan: false }) : null;
   let t = 0, frame = 0, releaseAt = -1, gestureDone = gestureAt === null, tGesture = null;
   const at = {}; // time (s) at which each zone was first reached
   while (g.phase === "play" && t < maxSeconds) {
@@ -96,7 +97,7 @@ export function playRunner(seed, policy, maxSeconds = 1200, gestureAt = null) {
     g.update(DT); t += DT; frame++;
     at[g.zone] ??= t;
   }
-  return { at, metres: Math.floor(g.R.m), score: g.scoreNow(), flips: g.R.flips, seconds: t, over: g.phase === "over", tGesture };
+  return { at, metres: Math.floor(g.R.m), score: g.scoreNow(), perfects: g.R.perfects, fevers: g.R.fevers, seconds: t, over: g.phase === "over", tGesture };
 }
 
 // ------------------------------------------------------------------- Undertow

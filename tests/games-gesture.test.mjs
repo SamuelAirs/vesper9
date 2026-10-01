@@ -20,7 +20,7 @@ const snap = (g, keys) => Object.fromEntries(keys.map((k) => [k, structuredClone
 function killOrbit(c) { const g = new OrbitLock(c); g.down(); g.lives = 1; g.angle = 0; g.target = 3; g.down(); return g; }
 function killUndertow(c) { const g = new Undertow(c); g.down(); g.up(); g.hull = 1; g.y = 10; g.update(DT); return g; }
 function killGlyph(c) { const g = new GlyphVault(c); g.down(); step(g, 4); g.lives = 1; g.sequence = [0, 0, 0]; g.focus = 3; g.down(); return g; }
-// Moonrunner, rebuilt as a downhill run, uses AppGuard (engine/input.js) like the newer games: its
+// Moonrunner, rebuilt as a hill-flyer, uses AppGuard (engine/input.js) like the newer games: its
 // gesture tolerance is checked with every field in tests/gesture-apps.test.mjs and below.
 const killers = [["Orbit Lock", killOrbit], ["Undertow", killUndertow], ["Glyph Archive", killGlyph]];
 
@@ -34,8 +34,8 @@ const gestureCases = {
     make: (c) => { const g = new GlyphVault(c); g.down(); step(g, 4); g.sequence = [4, 4, 4]; g.round = 6; g.points = 900; return g; },
   },
   Moonrunner: {
-    keys: ["phase", "r", "pts", "combo", "R", "rocks", "chasms"],
-    make: (c) => { const g = new Moonrunner(c); g.down(); g.up(); step(g, 1.0); g.forgiveTo = 0; g.rocks.push({ x: g.r.x + 140, r: 20, done: false, hit: false }); return g; },
+    keys: ["phase", "r", "pts", "chain", "R", "chasms", "T", "held"],
+    make: (c) => { const g = new Moonrunner(c); g.down(); g.up(); step(g, 1.0); g.chain = 2; g.chasms.push({ x0: g.r.x + 140, x1: g.r.x + 300, done: false }); return g; },
   },
   Undertow: {
     keys: ["phase", "points", "y", "vy", "gates"],
@@ -59,14 +59,18 @@ for (const [name, { keys, make }] of Object.entries(gestureCases)) {
 }
 
 test("gesture: a death caused during the gesture is undone and never recorded", () => {
-  // Moonrunner: the gesture's taps jump and its hold turns the sled, so it lands upside down.
+  // Moonrunner: the last of the daylight runs out during the gesture and the sled, slow on a climb,
+  // stops: the run ends inside the gesture.
   const c = makeCtx(22), g = new Moonrunner(c), rig = makeRig(g, c);
-  g.down(); g.up(); step(g, 0.5); g.forgiveTo = 0;
-  const x = g.r.x;
+  g.down(); g.up(); step(g, 0.5);
+  g.chasms = []; g.pits = []; g.pads = []; g.vents = [];
+  const i = g.kp.findIndex((p, k) => p.valley && k + 1 < g.kp.length && p.x > g.r.x + 200), x = (g.kp[i].x + g.kp[i + 1].x) / 2;
+  Object.assign(g.r, { x, y: g.gy(x), v: 152, air: false });
+  g.T = 0.05;
   let crashed = false;
   gestureWithUpdates(g, rig, () => { if (g.phase === "over") crashed = true; });
   assert.equal(rig.menuOpen, 1);
-  assert.ok(crashed, "setup: the gesture crashed the sled");
+  assert.ok(crashed, "setup: the run did not end during the gesture");
   assert.equal(g.phase, "play", "the gesture's own taps ended the run");
   assert.equal(c.log.saves.length, 0);
   assert.equal(g.r.x, x, "the sled is not back where it was before the first tap");
@@ -111,9 +115,11 @@ test("gesture: edges are immediate, a tap changes the game on the very next step
   g.down(); g.target = g.angle;
   g.down();
   assert.equal(g.points, 1, "the lock was not credited at once");
-  const m = new Moonrunner(makeCtx(25)); m.down(); m.up(); // the title screen starts a run on release
-  m.update(DT); m.down(); m.update(DT);
-  assert.ok(m.r.air && m.r.vy < 0, "the jump did not start on the next frame");
+  // Moonrunner: a run starts on a downslope, and a held button dives from the very next step.
+  const m = new Moonrunner(makeCtx(25)), twin = new Moonrunner(makeCtx(25));
+  for (const r of [m, twin]) { r.down(); r.up(); r.update(DT); } // the title screen starts a run on release
+  m.down(); m.update(DT); twin.update(DT);
+  assert.ok(m.held && m.r.v > twin.r.v, "the dive did not start on the next frame");
   const u = new Undertow(makeCtx(25)); u.down(); u.update(DT);
   assert.ok(u.vy < 0);
 });

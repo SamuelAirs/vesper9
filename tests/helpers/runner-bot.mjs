@@ -1,55 +1,52 @@
 // A seeded Moonrunner player for tests and the balance audit. It plays through the game's own
-// down()/up(), reads only what a player can see (the sled, the slope, boulders, rilles, cables), and
-// decides a flip the way a practised player does: it tries the flip on a copy of the sled with the
-// game's own physics (Moonrunner.advance) and holds only when that copy lands clean.
-// `lag` (seconds, may be negative) shifts every jump: a sloppy player. `flips: false` never flips.
-const TAU = Math.PI * 2;
-export function runnerBot(g, { flips = true, lag = 0, margin = 0.15, jitter = null } = {}) {
-  const s = { holding: false, target: 0, planned: false, wasAir: false, aim: new WeakMap() };
-  const CLEAN = 0.5;
-  function plan(r) {
-    for (const n of [3, 2, 1]) {
+// down()/up() and reads only what a player can see (the sled and the shape of the hills).
+// On the ground it holds (dives) while the slope ahead runs downhill and lets go on the climb, so
+// the sled flies off the crest. In the air it plans the way a practised player times a dive: it
+// tries "float for k frames, then dive" on a copy of the sled with the game's own physics
+// (Moonrunner.advance, as a probe) and keeps the first k that lands as a perfect slide. With no
+// such k (or with `plan: false`) it plays by eye: it dives while the hill below falls away more
+// steeply than the sled is falling. Near a rille it stays light.
+// `lag` (seconds) delays every change of the button: a sloppy player. `plan: false` never looks
+// ahead and only plays by eye.
+import { PERFECT } from "../../web/apps/runner.js";
+
+const DT = 1 / 60;
+export function runnerBot(g, { lag = 0, plan = true } = {}) {
+  const s = { want: false, since: 0, at: 0, flight: null };
+  // Frames of floating before the dive that land perfect, or -1.
+  function search(r) {
+    for (let k = 0; k <= 150; k += 3) {
       const q = { ...r };
-      let t = 0;
       for (let f = 0; f < 400; f++) {
-        const ev = g.advance(q, 1 / 60, t >= 0.12 && Math.abs(q.spin) < n * TAU - 0.15);
-        t += 1 / 60;
-        if (ev && (ev.type === "land" || ev.type === "rail")) {
-          if (ev.diff <= CLEAN - margin && Math.round(Math.abs(ev.spin) / TAU) === n) return n;
-          break;
-        }
-        if (ev && (ev.type === "fell" || ev.type === "wall")) break;
+        const ev = g.advance(q, DT, f >= k, true);
+        if (!ev) continue;
+        if (ev.type === "land") { if (ev.diff <= PERFECT * 0.8 && ev.th > 0.08) return k; break; }
+        if (ev.type === "fell" || ev.type === "wall") break;
+        if (ev.type !== "gap") break;
       }
     }
-    return 0;
+    return -1;
   }
-  const off = (o) => { if (!jitter) return lag; if (!s.aim.has(o)) s.aim.set(o, lag + jitter()); return s.aim.get(o); };
+  const rille = (r) => g.chasms.some((c) => c.x1 > r.x && c.x0 - r.x < Math.max(120, r.v * 0.35));
+  function choose(r) {
+    if (!r.air) { s.flight = null; return !rille(r) && g.slopeAt(r.x + r.v * 0.06) > 0.03; }
+    if (plan) {
+      if (!s.flight) s.flight = { k: search(r), f: 0 };
+      const fl = s.flight;
+      fl.f++;
+      if (fl.k >= 0) return fl.f > fl.k;
+    }
+    if (g.chasmAt(r.x) || rille(r)) return false;
+    // By eye: dive while the hill below falls away more steeply than the sled is falling.
+    return g.slopeAt(r.x + r.vx * 0.12) > Math.atan2(r.vy, r.vx);
+  }
   return function step() {
     if (g.phase !== "play") return;
-    const r = g.r;
-    if (r.air) {
-      if (!s.wasAir) { s.wasAir = true; s.planned = false; }
-      if (s.holding) { if (Math.abs(r.spin) >= s.target * TAU - 0.15) { g.up(); s.holding = false; } return; }
-      if (!s.planned && flips) {
-        s.planned = true;
-        const n = plan(r);
-        if (n) { g.down(); s.holding = true; s.target = n; }
-      }
-      return;
-    }
-    s.wasAir = false;
-    if (s.holding) { g.up(); s.holding = false; }
-    const v = r.v;
-    let go = false;
-    // Boulders that stand close together are one obstacle: aim at the middle of the group.
-    const live = g.rocks.filter((k) => !k.done && !k.hit && k.x > r.x);
-    if (live.length) {
-      let end = live[0].x;
-      for (const k of live) if (k.x - end < 130) end = k.x;
-      if ((live[0].x + end) / 2 - r.x < v * (0.3 + off(live[0])) + 10) go = true;
-    }
-    for (const c of g.chasms) if (!c.done && c.x0 > r.x && c.x0 - r.x < v * (0.1 + off(c)) + 12) go = true;
-    for (const rl of g.rails) if (rl.ya !== null && r.rail === null && rl.x0 > r.x && rl.x0 - r.x < v * (0.12 + off(rl))) go = true;
-    if (go) { g.down(); g.up(); }
+    s.at += DT;
+    const want = choose(g.r);
+    if (want !== s.want) { s.want = want; s.since = s.at; }
+    if (s.at - s.since < lag - 1e-9) return;
+    if (s.want && !g.held) g.down();
+    else if (!s.want && g.held) g.up();
   };
 }

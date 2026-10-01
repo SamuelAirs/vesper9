@@ -25,10 +25,10 @@ const dark = (v) => v.every((x) => x === 0);
 const sum = (v, lamp) => v[lamp * 3] + v[lamp * 3 + 1] + v[lamp * 3 + 2];
 const wholeNumbers = (writes) => writes.every((v) => v.length === 9 && v.every((x) => Number.isInteger(x) && x >= 0 && x <= 255));
 const distinct = (writes) => new Set(writes.map((v) => v.join())).size;
-// Moonrunner (the downhill run): past the forgiving first stretch, a boulder under the sled ends the run.
+// Moonrunner (the hill-flyer): night has fallen and the sled has all but stopped, so the run ends.
 function killRunner(c) {
   const g = new Moonrunner(c); g.down(); g.up(); step(g, 0.2);
-  g.forgiveTo = 0; g.rocks.push({ x: g.r.x + 4, r: 20, done: false, hit: false }); g.update(DT);
+  g.T = 0; g.night = true; Object.assign(g.r, { air: false, v: 20, y: g.gy(g.r.x) }); g.update(DT);
   return g;
 }
 
@@ -463,8 +463,8 @@ test("canvas text is at least 16 px everywhere in the games and Signal School", 
 const guarded = {
   "Orbit Lock": { keys: ["phase", "points", "lives", "target", "angle", "dir", "drift", "idle", "miss", "feedback"],
     make: (c) => { const g = new OrbitLock(c); g.down(); g.points = 21; g.dir = -1; g.drift = 0.2; g.idle = 4; g.target = 0; g.angle = 3; return g; } },
-  Moonrunner: { keys: ["phase", "r", "pts", "combo", "comboT", "R", "rocks", "chasms", "shards", "sv", "hovers", "inv"],
-    make: (c) => { const g = new Moonrunner(c); g.down(); g.up(); step(g, 1); g.combo = 4; g.comboT = 2; g.inv = 0.7; g.rocks.push({ x: g.r.x + 500, r: 20, done: false, hit: false }); return g; } },
+  Moonrunner: { keys: ["phase", "r", "pts", "chain", "fever", "T", "night", "R", "chasms", "pads", "vents", "shards", "sv", "held"],
+    make: (c) => { const g = new Moonrunner(c); g.down(); g.up(); step(g, 1); g.chain = 2; g.fever = 1.5; g.T = 21; g.chasms.push({ x0: g.r.x + 500, x1: g.r.x + 640, done: false }); return g; } },
   Undertow: { keys: ["phase", "points", "y", "vy", "gates", "hull", "grace", "trail", "lastCenter"],
     make: (c) => { const g = new Undertow(c); g.down(); g.up(); g.hull = 1; g.grace = 0.9; g.points = 14; g.y = 100; g.vy = -50; return g; } },
   "Glyph Archive": { keys: ["phase", "round", "points", "lives", "entered", "sequence", "focus", "order", "step", "scan", "wait"],

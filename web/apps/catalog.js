@@ -22,18 +22,19 @@ export const CARTRIDGES = [
   {
     "id": "runner",
     "name": "MOONRUNNER",
-    "subtitle": "Ride the long slopes down.",
-    "description": "Ride a survey sled down the long slopes of the moon. Tap to jump; hold in the air to flip backwards, and let go so you land flat. Flips, cable grinds, rilles and boulders build a combo that multiplies your points and speeds you up. Six zones, survey orders that unlock sleds and zen riding, a workshop and a daily run. In the air the lamps turn green when a landing would be clean; on the ground the right lamp warns of what is coming.",
-    "controls": "TAP TO JUMP · HOLD IN THE AIR TO FLIP",
+    "subtitle": "Dive the slopes. Fly the crests.",
+    "description": "Fly a survey sled over the rolling hills of the moon before the night catches it. Hold to make the sled heavy and dive down a slope; let go to make it light and fly off the crest. Come down along a downslope for a perfect slide and a burst of speed; three in a row is fever. Every zone reached buys more daylight. Dust pits, rilles to fly over, boost crystals and gas vents; survey orders that unlock sleds and zen riding, a workshop and a daily run. In the air the middle lamp turns green when a landing would be perfect; the right lamp is the daylight.",
+    "controls": "HOLD TO DIVE · LET GO TO FLY",
     "category": "PLAY / RUNNER",
     "glyph": 1,
     "factory": "Moonrunner",
     "record": {
       "score": "Score",
       "metres": "Distance / m",
-      "flips": "Flips",
+      "perfects": "Perfect slides",
+      "chain": "Best chain",
       "shards": "Shards",
-      "combo": "Best combo",
+      "top": "Top speed / km/h",
       "zone": "Furthest zone"
     },
     "voice": [

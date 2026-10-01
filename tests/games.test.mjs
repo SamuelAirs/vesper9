@@ -69,9 +69,9 @@ function killOrbit(c) {
   const g = new OrbitLock(c); g.down(); g.lives = 1; g.angle = 0; g.target = 3; g.down(); return g;
 }
 function killRunner(c) {
-  // Moonrunner is now a downhill run: past its forgiving first stretch, a boulder under the sled ends it.
+  // Moonrunner is now a hill-flyer: night has fallen and the sled has all but stopped, so the run ends.
   const g = new Moonrunner(c); g.down(); g.up(); step(g, 0.2);
-  g.forgiveTo = 0; g.rocks.push({ x: g.r.x + 4, r: 20, done: false, hit: false }); g.update(DT); return g;
+  g.T = 0; g.night = true; Object.assign(g.r, { air: false, v: 20, y: g.gy(g.r.x) }); g.update(DT); return g;
 }
 function killUndertow(c) {
   const g = new Undertow(c); g.down(); g.up(); g.hull = 1; g.y = 10; g.update(DT); return g;

@@ -58,6 +58,8 @@ S and H remain valid strings of short presses; they do not open the menu in Sign
 
 Choose a preset, then Create Timer. Presets are 30 seconds, 1 minute, 5 minutes, 15 minutes, 25 minutes, and 1 hour. Up to eight timers can exist at once. Pause, resume, or remove each using its labelled menu action. Custom Timer opens a six-digit HH:MM:SS wizard. Choose each digit, then a label such as TEA or FOCUS. Start it, or save one of six reusable custom presets. Back and Cancel remain available; supported duration is 5 seconds–24 hours.
 
+The screen leads with a large readout and progress bar for the nearest running timer; the other timers (up to three) are listed below it. While Chronometer is open the lamps show that timer as a bar that drains from the right across the three lamps, green turning amber; in the last ten seconds they show the same amber three, two, one countdown as the rest of the console. A finished or paused nearest timer leaves the lamps dark. The lamps are only taken once a timer is running, and they go dark again when you leave.
+
 Timers continue while another app is open. Completion shows a message and optionally plays a chime. On the dashboard, Chronometer, or Atmosphere, the physical lights also signal completion; games keep control of their lights. The footer shows the nearest active timer. Finished timers remain until removed and still count toward the eight-timer limit. Deadlines follow the Pi wall clock across restarts: moving the clock forward can finish one sooner, while moving it backward extends the displayed remaining time. No alarm can sound while powered off.
 
 ### Field Notes
@@ -68,13 +70,23 @@ Transcription continues after leaving the app until explicitly stopped, muted th
 
 ### Atmosphere
 
-Displays the latest temperature in °C and relative humidity. The Pi stores about one sample per 30 seconds, retains 30 days, and displays the latest 24 hours in five-minute aggregate points. Early in a new installation there will not yet be enough history for a line chart. Use Refresh History to update the plotted series. The age label marks values stale after 15 seconds without a new sample or whenever the node is disconnected. Stale values remain visible as last readings.
+Displays the latest temperature (in the unit chosen in Calibration) and relative humidity, each with its change over the last hour as an arrow and a rate (steady below 0.3 °C or 1.5 % per hour; "collecting" until about 20 minutes of samples exist). Beside them:
+
+- **Comfort**: DRY below 30 % RH, COMFORTABLE 30 to 60 %, HUMID 60 to 70 %, VERY HUMID above 70 % (EPA indoor guidance 30 to 50 %, ASHRAE 55 and mould guidance cap at 60 %).
+- **Dew point**: Magnus formula with the Alduchov and Eskridge constants (−45 to 60 °C).
+- **Feels like**: the US National Weather Service heat index (Rothfusz regression with the NWS humidity adjustments) when it is defined, which is 80 °F (26.7 °C) to 120 °F and 40 % RH or more. Outside that range the plain air temperature is shown and marked AIR TEMP, because the formula gives nonsense there.
+- **Absolute humidity** in g/m³ (Bolton saturation vapour pressure and the ideal gas law; it is a density, so it does not change with the temperature unit).
+- **Today low / high** since local midnight, with their times. They come from the stored five-minute averages plus the live reading, so a brief spike shorter than five minutes is smoothed out.
+
+The three lamps show the comfort band quietly while Atmosphere is open: amber dry, green comfortable, cyan humid, violet very humid, all three the same dim colour (about a quarter of full before the Calibration lamp level). A reading older than two minutes, or a disconnected node, leaves the lamps dark. In a timer's last ten seconds they show the amber countdown instead. They go dark when you leave.
+
+The Range action cycles the two charts (shown side by side, axes in the chosen unit) between 24 HOURS, 7 DAYS and 30 DAYS. The Pi stores about one sample per 30 seconds and retains 30 days, but `/api/history` currently returns only the last 24 hours in five-minute averages. The 7 and 30 day views ask for `/api/history?hours=H&bucket=S`; until the service understands it they show those 24 hours with the note "ONLY THE LAST 24 H IS AVAILABLE". Early in a new installation there will not yet be enough history for a line chart. History reloads once a minute; Refresh History reloads it now. The status line marks values stale after 15 seconds without a new sample or whenever the node is disconnected, then counts the age in minutes. Stale values remain visible as last readings.
 
 Simulators display **SIMULATED SENSOR READINGS**. Real hardware readings and server-simulator history use different default data directories.
 
 ### Node Scope
 
-Inspect button down/up, capture status, mic level, incoming audio bytes, CRC errors, missing audio samples, and the latest sensor values. Select a light, then cycle its test color. Changing the selected light takes effect on the next color test. All Lights Off clears the test. Audio Test sends a chime to the Pi/browser's chosen output. Export Diagnostics includes device/capture/counter/frame information, but no transcript text. Frame statistics describe this browser, not calibrated button latency.
+Inspect button down/up, capture status, mic level, incoming audio bytes, CRC errors, missing audio samples, and the latest sensor values. From the node's once-a-second status it also shows the link type (USB or UART), the firmware string, and the sensor bus diagnostics added in firmware 0.1.2: the I²C address in use, the count of good and failed reads, and the last error. Those rows read AWAITING STATUS until the first status arrives and SIMULATOR on the simulator, which sends none. The current Calibration lamp level is listed too. Select a light, then cycle its test color. Changing the selected light takes effect on the next color test. The lamp level applies to these checks: at LOW they are dim, and at OFF the test action is labelled LAMPS OFF and a notice says the checks cannot light the lamps (the request is still made and the screen shows it). All Lights Off clears the test. Audio Test sends a chime to the Pi/browser's chosen output. Export Diagnostics includes device/capture/counter/frame information, but no transcript text. Frame statistics describe this browser, not calibrated button latency.
 
 ### Calibration
 

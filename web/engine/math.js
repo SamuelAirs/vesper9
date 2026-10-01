@@ -49,3 +49,93 @@ export const escapeHTML = (value) =>
         c
       ],
   );
+
+// ---- Atmosphere helpers (pure; inputs in Celsius and percent relative humidity) ----
+
+// A temperature difference (a rate or a span) converts without the +32 offset.
+export const tempDelta = (celsiusDelta, unit) => (unit === "F" ? (celsiusDelta * 9) / 5 : celsiusDelta);
+
+// Dew point, Magnus formula with the Sonntag (1990) / Alduchov & Eskridge (1996) constants:
+// a = 17.625, b = 243.04 degC. Good to about 0.4 degC from -45 to 60 degC; needs RH > 0.
+// Returns null outside that range or for non-numbers.
+export function dewPoint(celsius, humidity) {
+  if (!Number.isFinite(celsius) || !Number.isFinite(humidity)) return null;
+  if (celsius < -45 || celsius > 60 || humidity <= 0 || humidity > 100) return null;
+  const a = 17.625, b = 243.04;
+  const gamma = Math.log(humidity / 100) + (a * celsius) / (b + celsius);
+  return (b * gamma) / (a - gamma);
+}
+
+// Absolute humidity in g/m3: saturation vapour pressure from Bolton (1980),
+// es = 6.112 exp(17.67 T / (T + 243.5)) hPa, then rho = 216.74 e / (273.15 + T) (ideal gas
+// for water vapour). Valid -30 to 60 degC; null outside it.
+export function absoluteHumidity(celsius, humidity) {
+  if (!Number.isFinite(celsius) || !Number.isFinite(humidity)) return null;
+  if (celsius < -30 || celsius > 60 || humidity < 0 || humidity > 100) return null;
+  const saturation = 6.112 * Math.exp((17.67 * celsius) / (celsius + 243.5));
+  return (216.74 * (saturation * humidity) / 100) / (273.15 + celsius);
+}
+
+// Heat index in Fahrenheit: the US National Weather Service procedure (Rothfusz 1990
+// regression with the NWS low/high humidity adjustments, Steadman's simple formula first).
+// Defined only for 80 F and above, 40 % RH and above, up to 120 F; null otherwise.
+export function heatIndexF(fahrenheit, humidity) {
+  if (!Number.isFinite(fahrenheit) || !Number.isFinite(humidity)) return null;
+  if (fahrenheit < 80 || fahrenheit > 120 || humidity < 40 || humidity > 100) return null;
+  const T = fahrenheit, R = humidity;
+  const simple = 0.5 * (T + 61 + (T - 68) * 1.2 + R * 0.094);
+  if ((simple + T) / 2 < 80) return simple;
+  let hi = -42.379 + 2.04901523 * T + 10.14333127 * R - 0.22475541 * T * R - 0.00683783 * T * T
+    - 0.05481717 * R * R + 0.00122874 * T * T * R + 0.00085282 * T * R * R - 0.00000199 * T * T * R * R;
+  if (R < 13 && T <= 112) hi -= ((13 - R) / 4) * Math.sqrt((17 - Math.abs(T - 95)) / 17);
+  else if (R > 85 && T <= 87) hi += ((R - 85) / 10) * ((87 - T) / 5);
+  return hi;
+}
+
+// "Feels like" in Celsius: the heat index where it is defined (above 26.7 C / 80 F and 40 % RH),
+// otherwise the plain air temperature. `heat` says which one it is.
+export function feelsLike(celsius, humidity) {
+  if (!Number.isFinite(celsius)) return null;
+  const hi = heatIndexF((celsius * 9) / 5 + 32, humidity);
+  return hi === null ? { celsius, heat: false } : { celsius: ((hi - 32) * 5) / 9, heat: true };
+}
+
+// Indoor comfort by relative humidity: below 30 % dry (static, dry skin), 30-60 % comfortable
+// (EPA indoor guidance 30-50 %, ASHRAE 55 and mould guidance cap at 60 %), 60-70 % humid, above
+// very humid. Lower bound inclusive.
+export function comfortBand(humidity) {
+  if (!Number.isFinite(humidity)) return null;
+  if (humidity < 30) return { id: "dry", label: "DRY", note: "BELOW 30 % RH" };
+  if (humidity < 60) return { id: "comfortable", label: "COMFORTABLE", note: "30-60 % RH" };
+  if (humidity < 70) return { id: "humid", label: "HUMID", note: "60-70 % RH" };
+  return { id: "very-humid", label: "VERY HUMID", note: "ABOVE 70 % RH" };
+}
+
+// Minimum and maximum of `key` among rows (`at` in seconds) from `since` on, each with its time.
+export function extremes(rows, key, since = -Infinity) {
+  let min = null, max = null;
+  for (const row of rows || []) {
+    const v = row?.[key], at = row?.at;
+    if (!Number.isFinite(v) || !Number.isFinite(at) || at < since) continue;
+    if (!min || v < min.value) min = { value: v, at };
+    if (!max || v > max.value) max = { value: v, at };
+  }
+  return min && { min, max };
+}
+
+// Least-squares slope of `key` over the last `windowSec` before `now`, in units per hour.
+// Needs three samples spanning at least a third of the window; otherwise null. `steady` is the
+// rate magnitude below which the arrow is level.
+export function trend(rows, key, now, steady, windowSec = 3600) {
+  const points = (rows || []).filter((r) => Number.isFinite(r?.[key]) && Number.isFinite(r?.at) && r.at >= now - windowSec && r.at <= now + 60);
+  if (points.length < 3) return null;
+  const t0 = points[0].at, span = points.at(-1).at - t0;
+  if (span < windowSec / 3) return null;
+  const n = points.length;
+  let sx = 0, sy = 0, sxx = 0, sxy = 0;
+  for (const p of points) { const x = (p.at - t0) / 3600, y = p[key]; sx += x; sy += y; sxx += x * x; sxy += x * y; }
+  const denominator = n * sxx - sx * sx;
+  if (denominator <= 0) return null;
+  const rate = (n * sxy - sx * sy) / denominator;
+  return { rate, arrow: Math.abs(rate) < steady ? "→" : rate > 0 ? "↑" : "↓", steady: Math.abs(rate) < steady };
+}

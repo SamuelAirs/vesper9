@@ -17,10 +17,20 @@ def load_catalog(path=None):
                 raise ValueError(f'Missing cartridge {key}: {ident}')
         if app['escape'] not in ('adaptive', 'hold') or not isinstance(app['capabilities'], list):
             raise ValueError(f'Invalid control policy: {ident}')
+        # Optional: inline SVG shapes for the dashboard card (48 x 48 viewBox, trusted
+        # project source) and labels for keys of the saved field record.
+        if not isinstance(app.get('icon', ''), str) or '<script' in app.get('icon', '').lower():
+            raise ValueError(f'Invalid cartridge icon: {ident}')
+        record = app.get('record', {})
+        if not isinstance(record, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in record.items()):
+            raise ValueError(f'Invalid record labels: {ident}')
         for alias in app.get('voice', []):
             if not re.fullmatch(r'[a-z]+(?: [a-z]+)*', alias) or alias in aliases:
                 raise ValueError(f'Invalid or duplicate voice alias: {alias}')
             aliases.add(alias)
+    sectors = data.setdefault('sectors', [])
+    if not isinstance(sectors, list) or not all(isinstance(name, str) and name for name in sectors):
+        raise ValueError('Invalid sector names')
     return data
 
 

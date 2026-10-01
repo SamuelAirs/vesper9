@@ -12,6 +12,12 @@
     "scanMs": 850,
     "tempUnit": "F"
   },
+  "sectors": [
+    "PLAY",
+    "PLAY II",
+    "INSTRUMENTS",
+    "INSTRUMENTS II"
+  ],
   "apps": [
     {
       "id": "orbit",
@@ -134,6 +140,126 @@
       ]
     },
     {
+      "id": "pulsar",
+      "name": "PULSAR",
+      "subtitle": "Keep time with a dying star.",
+      "description": "Beats fall down three lanes toward the strike line. Tap on the beat; hold through the long signals.",
+      "controls": "TAP ON THE BEAT · HOLD LONG SIGNALS",
+      "category": "PLAY / RHYTHM",
+      "glyph": 3,
+      "factory": "Pulsar",
+      "voice": [
+        "rhythm"
+      ],
+      "escape": "adaptive",
+      "capabilities": [
+        "button",
+        "lights",
+        "audio",
+        "progress"
+      ]
+    },
+    {
+      "id": "perihelion",
+      "name": "PERIHELION",
+      "subtitle": "Swing between small suns.",
+      "description": "Hold to tether to the nearest anchor and swing. Release to fly on. Distance is everything.",
+      "controls": "HOLD TO TETHER · RELEASE TO FLY",
+      "category": "PLAY / MOMENTUM",
+      "glyph": 0,
+      "factory": "Perihelion",
+      "voice": [
+        "swing"
+      ],
+      "escape": "adaptive",
+      "capabilities": [
+        "button",
+        "lights",
+        "audio",
+        "progress"
+      ]
+    },
+    {
+      "id": "descent",
+      "name": "DESCENT",
+      "subtitle": "Set down gently, or not at all.",
+      "description": "Hold to burn against gravity and settle on the pad before the fuel runs out. The lamps are your descent-rate indicator.",
+      "controls": "HOLD TO BURN · RELEASE TO FALL",
+      "category": "PLAY / LANDER",
+      "glyph": 1,
+      "factory": "Descent",
+      "voice": [
+        "lander"
+      ],
+      "escape": "adaptive",
+      "capabilities": [
+        "button",
+        "lights",
+        "audio",
+        "progress"
+      ]
+    },
+    {
+      "id": "ricochet",
+      "name": "RICOCHET",
+      "subtitle": "Break the lattice.",
+      "description": "The paddle never stops. Tap to reverse it and keep the signal bouncing through the lattice.",
+      "controls": "TAP TO REVERSE THE PADDLE",
+      "category": "PLAY / BREAKOUT",
+      "glyph": 5,
+      "factory": "Ricochet",
+      "voice": [
+        "breakout"
+      ],
+      "escape": "adaptive",
+      "capabilities": [
+        "button",
+        "lights",
+        "audio",
+        "progress"
+      ]
+    },
+    {
+      "id": "helix",
+      "name": "HELIX",
+      "subtitle": "Grow without crossing yourself.",
+      "description": "A signal thread that only turns one way. Tap to turn, gather fragments, and do not touch your own trail.",
+      "controls": "TAP TO TURN",
+      "category": "PLAY / TRAIL",
+      "glyph": 2,
+      "factory": "Helix",
+      "voice": [
+        "snake"
+      ],
+      "escape": "adaptive",
+      "capabilities": [
+        "button",
+        "lights",
+        "audio",
+        "progress"
+      ]
+    },
+    {
+      "id": "ballista",
+      "name": "BALLISTA",
+      "subtitle": "Launch probes through the wind.",
+      "description": "The aim sweeps by itself. Hold to charge, release to launch, and allow for the wind.",
+      "controls": "HOLD TO CHARGE · RELEASE TO LAUNCH",
+      "category": "PLAY / ARTILLERY",
+      "glyph": 4,
+      "factory": "Ballista",
+      "voice": [
+        "launcher"
+      ],
+      "escape": "adaptive",
+      "capabilities": [
+        "button",
+        "lights",
+        "audio",
+        "progress"
+      ]
+    },
+    {
       "id": "morse",
       "name": "SIGNAL SCHOOL",
       "subtitle": "Speak in dots and dashes.",
@@ -241,6 +367,116 @@
       "escape": "adaptive",
       "capabilities": [
         "settings"
+      ]
+    },
+    {
+      "id": "lantern",
+      "name": "LANTERN",
+      "subtitle": "Carry a little light.",
+      "description": "The three lamps as a lamp: colours, brightness and slow scenes, with a night-light that switches itself off.",
+      "controls": "TAP NEXT · HOLD TO CHOOSE",
+      "category": "INSTRUMENT / LIGHT",
+      "glyph": 4,
+      "factory": "Lantern",
+      "voice": [
+        "lamp"
+      ],
+      "escape": "adaptive",
+      "capabilities": [
+        "lights",
+        "progress"
+      ]
+    },
+    {
+      "id": "cadence",
+      "name": "CADENCE",
+      "subtitle": "Count the beat and the laps.",
+      "description": "A metronome with tap tempo, a stopwatch with laps, and work/rest intervals shown on the lamps.",
+      "controls": "TAP NEXT · HOLD TO CHOOSE",
+      "category": "INSTRUMENT / TEMPO",
+      "glyph": 3,
+      "factory": "Cadence",
+      "voice": [
+        "metronome"
+      ],
+      "escape": "adaptive",
+      "capabilities": [
+        "button",
+        "lights",
+        "audio",
+        "progress"
+      ]
+    },
+    {
+      "id": "ephemeris",
+      "name": "EPHEMERIS",
+      "subtitle": "Know where the sky is.",
+      "description": "The time, the Moon's phase, sunrise and sunset for your location, and a small orrery. All computed locally.",
+      "controls": "TAP NEXT · HOLD TO CHOOSE",
+      "category": "INSTRUMENT / SKY",
+      "glyph": 0,
+      "factory": "Ephemeris",
+      "voice": [
+        "moon"
+      ],
+      "escape": "adaptive",
+      "capabilities": [
+        "progress"
+      ]
+    },
+    {
+      "id": "resonance",
+      "name": "RESONANCE",
+      "subtitle": "See what the room sounds like.",
+      "description": "Sound level, spectrum and pitch from the microphone. Nothing is recognised or stored.",
+      "controls": "TAP NEXT · HOLD TO CHOOSE",
+      "category": "INSTRUMENT / SOUND",
+      "glyph": 2,
+      "factory": "Resonance",
+      "voice": [
+        "sound"
+      ],
+      "escape": "adaptive",
+      "capabilities": [
+        "microphone",
+        "lights"
+      ]
+    },
+    {
+      "id": "oracle",
+      "name": "ORACLE",
+      "subtitle": "Ask the dark for a number.",
+      "description": "Dice, coins, random picks and yes-or-no answers, rolled across the lamps.",
+      "controls": "TAP NEXT · HOLD TO CHOOSE",
+      "category": "INSTRUMENT / CHANCE",
+      "glyph": 5,
+      "factory": "Oracle",
+      "voice": [
+        "dice"
+      ],
+      "escape": "adaptive",
+      "capabilities": [
+        "button",
+        "lights",
+        "audio",
+        "progress"
+      ]
+    },
+    {
+      "id": "telemetry",
+      "name": "TELEMETRY",
+      "subtitle": "Listen to the machine itself.",
+      "description": "Health of the Pi and the node: temperature, load, memory, storage, link and firmware.",
+      "controls": "TAP NEXT · HOLD TO CHOOSE",
+      "category": "SYSTEM / HEALTH",
+      "glyph": 1,
+      "factory": "Telemetry",
+      "voice": [
+        "system"
+      ],
+      "escape": "adaptive",
+      "capabilities": [
+        "sensor"
       ]
     }
   ]

@@ -5,7 +5,7 @@ import { Synth, BrowserMicrophone } from "./engine/audio.js";
 import { Random, escapeHTML as esc, formatTime, formatTemp, tempUnit } from "./engine/math.js";
 import { ambient, glyph, C, text, space } from "./engine/draw.js";
 import { APPS } from "./apps/registry.js";
-import { DEFAULT_SETTINGS as DEFAULT } from "./apps/catalog.js";
+import { DEFAULT_SETTINGS as DEFAULT, SECTORS } from "./apps/catalog.js";
 import { LightDirector } from "./engine/lights.js";
 import { microphoneStatus } from "./engine/status.js";
 
@@ -18,8 +18,9 @@ const ICONS = [
   '<circle cx="24" cy="24" r="18"/><circle cx="24" cy="24" r="6"/><path d="M24 2v11M24 35v11M2 24h11M35 24h11"/>',
   '<path d="M24 3l20 12v23L24 46 4 34V11zM4 11l20 13 20-9M24 24v22M14 8l19 12"/>',
 ];
-function icon(index) {
-  return `<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">${ICONS[index % ICONS.length]}</svg>`;
+// A cartridge may bring its own card icon (catalog "icon"); otherwise "glyph" picks a shared one.
+function icon(app) {
+  return `<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">${app.icon || ICONS[app.glyph % ICONS.length]}</svg>`;
 }
 
 export class Vesper {
@@ -284,16 +285,19 @@ export class Vesper {
   select() {
     this.activate(this.nav.items[this.nav.index]);
   }
+  get cartridges() {
+    return APPS.length;
+  }
   buildHome() {
     const collection = APPS.slice(this.page * 6, this.page * 6 + 6);
     $("app-grid").innerHTML = collection
       .map(
         (app, i) =>
-          `<button class="app-card" type="button" data-app="${app.id}"><span class="card-number">${String(i + 1).padStart(2, "0")}</span><span class="app-icon">${icon(app.glyph)}</span><span class="card-name">${app.name}</span><span class="card-desc">${app.subtitle}</span></button>`,
+          `<button class="app-card" type="button" data-app="${app.id}"><span class="card-number">${String(i + 1).padStart(2, "0")}</span><span class="app-icon">${icon(app)}</span><span class="card-name">${app.name}</span><span class="card-desc">${app.subtitle}</span></button>`,
       )
       .join("");
     const pages = Math.ceil(APPS.length / 6),
-      names = ["PLAY", "INSTRUMENTS"];
+      names = SECTORS;
     const name = names[this.page] || "EXPANSION";
     $("collection-title").textContent =
       name + " / " + collection.length + " CHANNELS";
@@ -547,7 +551,7 @@ export class Vesper {
   }
   fieldRecord() {
     const saved = this.state.progress?.[this.meta?.id] || {}, last = saved.last || {};
-    const labels = { locks: 'Locks', metres: 'Metres', relics: 'Relics', passages: 'Passages', sequences: 'Sequences', inscriptions: 'Inscriptions', milliseconds: 'Reaction / ms', metric: 'Timing source', scanMs: 'Scan / ms', reason: 'Last signal', error: 'Last signal' };
+    const labels = { locks: 'Locks', metres: 'Metres', relics: 'Relics', passages: 'Passages', sequences: 'Sequences', inscriptions: 'Inscriptions', milliseconds: 'Reaction / ms', metric: 'Timing source', scanMs: 'Scan / ms', reason: 'Last signal', error: 'Last signal', ...(this.meta?.record || {}) };
     const detail = Object.entries(labels).filter(([key]) => last[key] !== undefined).map(([key,label]) => `${label}: ${last[key]}`).join('. ');
     this.help(`${saved.runs || 0} field entries. Highest milestone: ${saved.milestone || 0}. Last entry — ${detail || 'No result yet.'}`);
   }

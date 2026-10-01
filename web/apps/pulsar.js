@@ -28,6 +28,9 @@ const LANE_NAME = ["LOW", "MID", "HIGH"];
 const SCALE = [220, 261.63, 293.66, 329.63, 392, 440, 523.25];
 const LANE_OF = [0, 0, 1, 1, 2, 2, 2];
 const SLOTS = 16; // half-beats per phrase (eight beats)
+// The song has an end: after this many phrases (about two and a half minutes) the
+// chart stops, and a player who is still holding the signal wins.
+const FINALE = 32;
 
 // Difficulty by phrase index: tempo, off-beat odds, hold odds and lengths, rests.
 function spec(p) {
@@ -40,8 +43,8 @@ function spec(p) {
     maxHold: p < 6 ? 3 : p < 10 ? 4 : 6,
     perfect: Math.max(0.065, 0.1 - 0.004 * p),
     good: Math.max(0.14, 0.2 - 0.006 * p),
-    miss: p < 2 ? 0.06 : 0.09,
-    news: p === 0 ? "QUARTER NOTES" : p === 2 ? "NEW: OFF-BEATS" : p === 4 ? "NEW: HOLD THE LONG SIGNALS"
+    miss: p < 2 ? 0.03 : p < 4 ? 0.06 : 0.09, // gentle at first: a hesitating newcomer lasts past 20 s
+    news: p === FINALE - 1 ? "FINAL PHRASE" : p === 0 ? "QUARTER NOTES" : p === 2 ? "NEW: OFF-BEATS" : p === 4 ? "NEW: HOLD THE LONG SIGNALS"
       : p === 6 ? "TEMPO RISING" : p === 10 ? "NEW: LONGER HOLDS" : p > 6 && p % 3 === 0 ? "TEMPO UP" : "",
   };
 }
@@ -84,6 +87,8 @@ export class Pulsar {
     this.cur = spec(0);
     this.frame = 0;
     this.finale = 0;
+    this.cleared = false;
+    this.bonus = 0;
   }
 
   get accuracy() {
@@ -105,6 +110,7 @@ export class Pulsar {
 
   generate() {
     const rng = this.ctx.rng;
+    if (this.genIndex >= FINALE) return false;
     const index = this.genIndex++;
     const s = spec(index);
     const start = this.genEnd;
@@ -134,6 +140,7 @@ export class Pulsar {
     }
     this.genEnd = start + SLOTS * slot;
     this.phrases.push({ start, end: this.genEnd, bpm: s.bpm, index, news: s.news });
+    return true;
   }
 
   // ---- input -------------------------------------------------------------
@@ -254,7 +261,7 @@ export class Pulsar {
 
   step(dt) {
     this.song += dt;
-    while (this.genEnd < this.song + LOOKAHEAD) this.generate();
+    while (this.genEnd < this.song + LOOKAHEAD && this.generate());
     // Current phrase and its windows.
     let cur = null;
     for (const p of this.phrases) if (p.start <= this.song) cur = p;
@@ -264,7 +271,7 @@ export class Pulsar {
         this.phraseNo = cur.index;
         this.cur = spec(cur.index);
         this.curPhrase = cur;
-        this.setHint("Phrase " + (cur.index + 1) + " at " + cur.bpm + " BPM. " + (cur.index < 4
+        this.setHint("Phrase " + (cur.index + 1) + " of " + FINALE + " at " + cur.bpm + " BPM. " + (cur.index < 4
           ? "Tap on the beat." : "Tap short beats, hold the long signals."));
       }
     }
@@ -298,10 +305,19 @@ export class Pulsar {
       && this.song - (this.notes[0].t + this.notes[0].len) > 1) this.notes.shift();
     while (this.phrases.length > 3 && this.phrases[0].end < this.song - 1) this.phrases.shift();
     if (this.stab <= 0) this.end();
+    else if (this.genIndex >= FINALE && this.song > this.genEnd && !this.holdNote
+      && !this.notes.some((n) => n.state === "pending")) this.end(true);
   }
 
-  end() {
+  end(cleared = false) {
     this.phase = "over";
+    this.cleared = cleared;
+    this.flash = [null, null, null];
+    if (cleared) {
+      // Finishing the song is worth the stability you kept.
+      this.bonus = Math.round(this.stab * 2000);
+      this.score += this.bonus;
+    }
     this.endedAt = this.t;
     this.pressing = false;
     if (this.holdNote) this.dropHold(this.holdNote, false);
@@ -310,10 +326,14 @@ export class Pulsar {
     this.ctx.score(this.score);
     recordRun(this.ctx, { score: this.score, combo: this.maxCombo, accuracy, phrases: this.phraseNo + 1,
       milestone: this.phraseNo + 1 });
-    this.ctx.tone(330, 0.2, "triangle");
-    this.ctx.tone(247, 0.3, "triangle");
-    this.ctx.tone(165, 0.5, "triangle");
-    this.setHint("Signal lost. Press to play again.");
+    if (cleared) {
+      for (const hz of [330, 392, 523.25]) this.ctx.tone(hz, 0.5, "triangle");
+    } else {
+      this.ctx.tone(330, 0.2, "triangle");
+      this.ctx.tone(247, 0.3, "triangle");
+      this.ctx.tone(165, 0.5, "triangle");
+    }
+    this.setHint(cleared ? "Signal resolved. Press to play again." : "Signal lost. Press to play again.");
   }
 
   updateHud() {
@@ -348,7 +368,8 @@ export class Pulsar {
       base = dim(calm, level);
     } else {
       const wave = 0.5 - 0.5 * Math.cos(this.t * (this.phase === "title" ? 1.6 : 0.9));
-      base = this.phase === "title" ? dim(LAMP.cyan, 0.03 + 0.09 * wave) : dim(LAMP.red, 0.02 + 0.06 * wave);
+      base = this.phase === "title" ? dim(LAMP.cyan, 0.03 + 0.09 * wave)
+        : dim(this.cleared ? LAMP.green : LAMP.red, 0.02 + 0.06 * wave);
     }
     for (let i = 0; i < 3; i++) out[i] = base;
     if (this.phase !== "play") return out;
@@ -396,9 +417,15 @@ export class Pulsar {
     space(g, this.t, 0.5);
     this.drawField(g);
     if (this.phase === "title") {
-      banner(g, "PULSAR", "TAP THE BEAT / HOLD THE LONG SIGNALS");
-      text(g, "THE THREE LAMPS SWELL BEFORE EACH BEAT", 480, 380, 16, C.muted, "center");
-      text(g, "HOLD 3 SECONDS FOR THE MENU", 480, 404, 16, C.muted, "center");
+      // Own panel (not banner): it must clear the strike circles below it.
+      g.fillStyle = "#0c1511e8";
+      g.fillRect(140, 150, 680, 236);
+      line(g, 195, 160, 765, 160, C.line);
+      text(g, "PULSAR", 480, 206, 42, C.ink, "center");
+      text(g, "TAP WHEN A DIAMOND TOUCHES THE LINE", 480, 252, 22, C.muted, "center");
+      text(g, "HOLD THE LONG BARS TO THE END", 480, 282, 22, C.muted, "center");
+      text(g, "THE LAMPS SWELL BEFORE EACH BEAT", 480, 322, 16, C.muted, "center");
+      text(g, "PRESS TO BEGIN", 480, 360, 22, C.amber, "center");
     } else if (this.phase === "play") {
       this.drawPlay(g);
     } else {
@@ -424,7 +451,7 @@ export class Pulsar {
     for (let i = 0; i < 3; i++) {
       const x = LANE_X[i], f = this.flash[i];
       circle(g, x, STRIKE_Y, 34, C.muted, false, 3);
-      if (f) circle(g, x, STRIKE_Y, 34 + 14 * ((this.t - f.t0) / f.dur), "rgb(" + f.rgb.join(",") + ")", false, 4);
+      if (f && play) circle(g, x, STRIKE_Y, 34 + 14 * ((this.t - f.t0) / f.dur), "rgb(" + f.rgb.join(",") + ")", false, 4);
       text(g, LANE_NAME[i], x, STRIKE_Y + 54, 16, C.muted, "center");
       // A copy of what the physical lamp is doing, so the lamps can be learned by eye.
       const l = lampsNow[i];
@@ -486,18 +513,19 @@ export class Pulsar {
 
   drawResult(g) {
     g.fillStyle = "#0c1511f0";
-    g.fillRect(190, 95, 580, 330);
-    line(g, 235, 105, 725, 105, C.line, 2);
-    text(g, "SIGNAL LOST", 480, 145, 40, C.red, "center");
+    g.fillRect(190, 80, 580, 312);
+    line(g, 235, 90, 725, 90, C.line, 2);
+    text(g, this.cleared ? "SIGNAL RESOLVED" : "SIGNAL LOST", 480, 132, 40, this.cleared ? C.ink : C.red, "center");
     const rows = [["SCORE", this.score], ["BEST COMBO", this.maxCombo],
-      ["ACCURACY", Math.round(this.accuracy * 100) + "%"], ["PHRASES", this.phraseNo + 1]];
+      ["ACCURACY", Math.round(this.accuracy * 100) + "%"], ["PHRASES", (this.phraseNo + 1) + " / " + FINALE]];
     rows.forEach(([label, value], i) => {
-      text(g, label, 270, 210 + i * 40, 20, C.muted);
-      text(g, value, 690, 210 + i * 40, 28, C.ink, "right");
+      text(g, label, 270, 190 + i * 36, 20, C.muted);
+      text(g, value, 690, 190 + i * 36, 28, C.ink, "right");
     });
-    text(g, "RECORD " + this.ctx.best(), 480, 378, 22, C.amber, "center");
-    if (this.t - this.endedAt > 0.8) text(g, "PRESS TO PLAY AGAIN", 480, 406, 22, C.amber, "center");
+    text(g, "RECORD " + this.ctx.best(), 480, 342, 22, C.amber, "center");
+    if (this.t - this.endedAt > 0.8) text(g, "PRESS TO PLAY AGAIN", 480, 374, 22, C.amber, "center");
   }
 }
 
 Pulsar.INPUT_OFFSET = INPUT_OFFSET;
+Pulsar.FINALE = FINALE;

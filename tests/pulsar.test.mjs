@@ -38,16 +38,19 @@ function play(app, seconds, { skill = 1, jitter = 0.04, seed = 7 } = {}) {
 
 test("a seeded bot beats an idle player by a wide margin", () => {
   const bot = new Pulsar(appContext({ seed: 11 }));
-  play(bot, 240);
+  play(bot, 170);
   const idle = new Pulsar(appContext({ seed: 11 }));
   idle.down();
   run(idle, 240);
   assert.equal(idle.phase, "over");
+  assert.ok(!idle.cleared);
+  assert.ok(idle.song >= 17, "an idle newcomer lasts past the count-in and then some: " + idle.song);
   assert.ok(idle.score <= 0 || bot.score > idle.score * 20 + 1000, `bot ${bot.score} idle ${idle.score}`);
-  assert.equal(bot.phase, "play", "competent bot survives four minutes");
+  assert.equal(bot.phase, "over", "the song has an end");
+  assert.ok(bot.cleared, "competent bot resolves the signal");
+  assert.equal(bot.phraseNo + 1, Pulsar.FINALE);
   assert.ok(bot.maxCombo > 100, "combo " + bot.maxCombo);
   assert.ok(bot.accuracy > 0.9, "accuracy " + bot.accuracy);
-  assert.ok(bot.phraseNo >= 10, "phrase " + bot.phraseNo);
   console.log(`bot: score ${bot.score} combo ${bot.maxCombo} acc ${(bot.accuracy * 100).toFixed(1)}% phrase ${bot.phraseNo + 1} stab ${bot.stab.toFixed(2)}`);
   console.log(`idle: ended with score ${idle.score} at song ${idle.song.toFixed(1)}s, phrase ${idle.phraseNo + 1}`);
 });
@@ -225,10 +228,14 @@ test("three quick taps then cancel do not end the run", () => {
     const app = new Pulsar(ctx);
     app.down(); // starts the run
     run(app, when);
+    const before = app.stab;
     for (let i = 0; i < 3; i++) { app.down(); run(app, 0.07); app.up(); run(app, 0.07); }
     app.cancel();
     assert.equal(app.phase, "play");
-    assert.ok(app.stab > 0.5);
+    // The taps (and at most one beat that slipped by meanwhile) cost little. Measured
+    // against the stability at the moment of the first tap: a player who idled for 20 s
+    // before tapping is not blamed for the idling.
+    assert.ok(app.stab > before - 0.15 && app.stab > 0, `${when}: ${before} -> ${app.stab}`);
   }
   // also from the title: three taps and cancel, no run lost
   const t = new Pulsar(appContext());
@@ -279,4 +286,45 @@ test("result screen lamps are dim and everything survives garbage input", () => 
   app.update(0); app.update(NaN); app.up(); app.cancel(); app.pause(); app.event?.({});
   app.dispose();
   assert.ok(lampsOk(ctx));
+});
+
+test("the song ends: a finished run is saved with a stability bonus, lamps go green and dim", () => {
+  const ctx = appContext({ seed: 11 });
+  const app = new Pulsar(ctx);
+  play(app, 170);
+  assert.ok(app.cleared);
+  assert.ok(app.bonus > 1500, "bonus " + app.bonus);
+  assert.equal(ctx.calls.score.length, 1);
+  assert.equal(ctx.calls.score[0][0], app.score);
+  assert.equal(ctx.calls.saved.length, 1);
+  run(app, 2);
+  const lamp = ctx.calls.leds.at(-1);
+  assert.ok(lamp.every((x) => x < 60), "result lamps are dim");
+  assert.ok(lamp.some((x) => x > 0), "result lamps breathe");
+  assert.equal(app.genIndex, Pulsar.FINALE, "no phrase generated past the finale");
+  app.draw(fakeCanvas());
+  run(app, 1);
+  app.down();
+  assert.equal(app.phase, "play");
+  assert.ok(!app.cleared && app.bonus === 0, "a new run starts clean");
+});
+
+test("the title and result screens keep their text clear of the strike circles", () => {
+  // Strike circles top out at STRIKE_Y - 34 = 396 in logical pixels.
+  const rows = [];
+  const g = fakeCanvas();
+  const wrapped = new Proxy(g, { get(o, k) {
+    if (k === "fillText") return (t, x, y) => rows.push([t, y]);
+    return o[k];
+  } });
+  const title = new Pulsar(appContext());
+  title.draw(wrapped);
+  const result = new Pulsar(appContext({ seed: 2 }));
+  result.down();
+  run(result, 100);
+  run(result, 1);
+  result.draw(wrapped);
+  const labels = rows.filter(([t]) => !["LOW", "MID", "HIGH"].includes(t));
+  assert.ok(labels.length > 8, "text was drawn");
+  for (const [t, y] of labels) assert.ok(y < 392, `${t} at y=${y} overlaps the strike circles`);
 });

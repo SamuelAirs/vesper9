@@ -128,3 +128,7 @@ third of taps missing), while 4000 caught 34 of 34 in round 1 and the quiet room
 4000. Tap `hf` on the real case is 48 to 126, so it stays a diagnostic. The clipped-ring
 allowance did no harm (0 of 54 ordinary taps judged sustained). Still to check on the device:
 the console's own tones with sound up, and a run at about 2500 to measure the lightest taps.
+
+Confirmed on the device (threshold 2500, three spots, 95 light taps): all 95 would pass 4000, 93
+pass 5000, 83 pass 8000; lightest 4123 (top of the case), no stray events in 60 s. The presets
+above stand. Remaining: the console-tones check.

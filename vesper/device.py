@@ -14,7 +14,9 @@ log = logging.getLogger(__name__)
 
 # A knock on the case (docs/PROTOCOL.md, KNOCK and KNOCK_SET): the node's peak threshold for each
 # sensitivity setting, in the units of the streamed 16-bit audio. 0 switches detection off.
-KNOCK_THRESHOLDS = {"off": 0, "low": 8000, "medium": 4000, "high": 2000}
+# Measured on the case (PR #4, 2026-10-01): the softest deliberate tap peaked above 10000 and a quiet
+# room near 2300, so medium sits below the softest tap and high still well above the room.
+KNOCK_THRESHOLDS = {"off": 0, "low": 16000, "medium": 8000, "high": 5000}
 WRITE_FAILURES_LIMIT = 3   # consecutive failed writes before the link is torn down and reopened
 REPEAT_LOG_EVERY = 30      # a link that stays down is logged on the first failure, then every 30th
 
@@ -328,9 +330,12 @@ class SerialDevice:
                 self.audio_expected = (index + (len(p) - 4) // 2) & 0xFFFFFFFF
                 self.audio_bytes += len(p) - 4
                 await self.emit({"type": "audio", "pcm": p[4:]})
-            elif kind == Kind.KNOCK and len(p) == 10:
-                at, peak = struct.unpack("<QH", p)
-                await self.emit({"type": "knock", "at_us": at, "peak": peak, "source": "node", "generation": self.generation})
+            elif kind == Kind.KNOCK and len(p) in (10, 11):
+                at, peak = struct.unpack_from("<QH", p)
+                event = {"type": "knock", "at_us": at, "peak": peak, "source": "node", "generation": self.generation}
+                if len(p) == 11:
+                    event["hf"] = p[10]
+                await self.emit(event)
             elif kind == Kind.CUE and len(p) == 12:
                 trial, at = struct.unpack("<IQ", p)
                 await self.emit({"type": "cue", "trial": trial, "at_us": at, "simulated": False, "generation": self.generation})

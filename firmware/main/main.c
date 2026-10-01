@@ -37,13 +37,14 @@ static atomic_bool mic_wanted = false, mic_active = false;
 typedef struct {
   int64_t at;
   int32_t peak;
+  uint8_t hf;
   uint8_t verdict;
 } knock_candidate;
 static atomic_uint knock_threshold = 0;
 static int64_t button_edges[KNOCK_EDGES] = {0};
 static unsigned button_edge_next = 0;
-static uint32_t knock_sent = 0, knock_button = 0, knock_sustained = 0;
-static int32_t knock_last_peak = 0;
+static uint32_t knock_sent = 0, knock_button = 0, knock_sustained = 0, knock_bright = 0;
+static int32_t knock_last_peak = 0, knock_last_hf = 0;
 static atomic_uint audio_drops = 0;
 // Sensor diagnostics for STATUS: address in use (0 = none), counts, last esp_err_t.
 static atomic_int sensor_address = 0, sensor_error = 0;
@@ -170,7 +171,7 @@ static void status(uint8_t kind) {
                    "{\"fw\":\"vesper-node-0.1.3\",\"link\":\"%s\",\"mic\":%s,\"button\":%s,\"audio_"
                    "drops\":%u,\"rx_crc\":%lu,\"sensor\":{\"addr\":%d,\"ok\":%u,\"fail\":%u,\"err\":%d},\"leds\":[%"
                    "u,%u,%u,%u,%u,%u,%u,%u,%u],\"knock\":{\"thr\":%u,\"n\":%lu,\"btn\":%lu,\"long\":%lu,"
-                   "\"peak\":%ld}}",
+                   "\"bright\":%lu,\"peak\":%ld,\"hf\":%ld}}",
                    link == LINK_USB ? "usb" : link == LINK_UART ? "uart" : "none",
                    atomic_load(&mic_active) ? "true" : "false", button_stable ? "true" : "false",
                    atomic_load(&audio_drops),
@@ -179,7 +180,8 @@ static void status(uint8_t kind) {
                    atomic_load(&sensor_error), leds[0], leds[1],
                    leds[2], leds[3], leds[4], leds[5], leds[6], leds[7], leds[8],
                    atomic_load(&knock_threshold), (unsigned long)knock_sent, (unsigned long)knock_button,
-                   (unsigned long)knock_sustained, (long)knock_last_peak);
+                   (unsigned long)knock_sustained, (unsigned long)knock_bright, (long)knock_last_peak,
+                   (long)knock_last_hf);
   if (n > 0 && n < (int)sizeof(data))
     send_message(kind, data, (uint16_t)n, false);
 }
@@ -377,10 +379,11 @@ static void microphone_task(void *unused) {
     }
     if (verdict != KNOCK_NONE) {
       // The last sample of this read was captured at about read_at; count back to the onset.
-      // (At most one verdict per read: a verdict comes 70 ms after its onset and the next onset
+      // (At most one verdict per read: a verdict comes 90 ms after its onset and the next onset
       // is 150 ms later.)
       knock_candidate c = {.at = read_at - (int64_t)(uint32_t)(knock.samples - knock.onset) * 1000000 / NODE_RATE,
                            .peak = knock.last_peak,
+                           .hf = (uint8_t)knock.last_hf,
                            .verdict = (uint8_t)verdict};
       xQueueSend(knock_queue, &c, 0);
     }
@@ -397,8 +400,13 @@ static void microphone_task(void *unused) {
 // the switch itself and is dropped.
 static void knock_decide(const knock_candidate *c) {
   knock_last_peak = c->peak;
-  if (c->verdict != KNOCK_HIT) {
+  knock_last_hf = c->hf;
+  if (c->verdict == KNOCK_SUSTAINED) {
     knock_sustained++;
+    return;
+  }
+  if (c->verdict != KNOCK_HIT) {
+    knock_bright++;
     return;
   }
   for (int i = 0; i < KNOCK_EDGES; i++) {
@@ -411,10 +419,11 @@ static void knock_decide(const knock_candidate *c) {
   if (!link_alive || !atomic_load(&knock_threshold))
     return;
   knock_sent++;
-  uint8_t p[10];
+  uint8_t p[11];
   v9_put64(p, (uint64_t)c->at);
   v9_put16(p + 8, (uint16_t)(c->peak > 32767 ? 32767 : c->peak));
-  send_message(V9_KNOCK, p, 10, false);
+  p[10] = c->hf;
+  send_message(V9_KNOCK, p, 11, false);
 }
 
 static uint8_t sensor_crc(const uint8_t *p) {

@@ -21,10 +21,18 @@ static void background(size_t n, double level) {
     signal[i] = clip(noise() * level);
 }
 // A tap on a plastic case: a few cycles of ringing that die out within about 15 ms.
-static void add_knock(size_t at, double amplitude) {
-  for (size_t i = 0; i < (size_t)MS(40) && at + i < sizeof(signal) / 2; i++) {
+static void add_ring(size_t at, double amplitude, double decay_s, size_t length) {
+  for (size_t i = 0; i < length && at + i < sizeof(signal) / 2; i++) {
     double t = (double)i / RATE;
-    signal[at + i] = clip(signal[at + i] + amplitude * exp(-t / 0.004) * sin(2 * M_PI * 900 * t));
+    signal[at + i] = clip(signal[at + i] + amplitude * exp(-t / decay_s) * sin(2 * M_PI * 900 * t));
+  }
+}
+static void add_knock(size_t at, double amplitude) { add_ring(at, amplitude, 0.004, MS(40)); }
+// A clap: a burst of broadband noise that dies away within about 20 ms.
+static void add_clap(size_t at, double amplitude) {
+  for (size_t i = 0; i < (size_t)MS(60); i++) {
+    double t = (double)i / RATE;
+    signal[at + i] = clip(signal[at + i] + amplitude * exp(-t / 0.005) * noise());
   }
 }
 // A beep, with a 1 ms ramp at each end.
@@ -46,7 +54,7 @@ static void add_syllable(size_t at, double amplitude) {
 typedef struct {
   int hits, sustained;
   uint32_t onset[16];
-  int32_t peak[16];
+  int32_t peak[16], hf[16];
 } result;
 static result run(size_t n, uint16_t threshold) {
   knock_detector k;
@@ -58,6 +66,7 @@ static result run(size_t n, uint16_t threshold) {
       // The verdict comes KNOCK_TAIL_TO_MS after the onset, never sooner.
       assert(k.samples - k.onset >= (uint32_t)MS(KNOCK_TAIL_TO_MS) - KNOCK_BLOCK);
       r.onset[r.hits] = k.onset;
+      r.hf[r.hits] = k.last_hf;
       r.peak[r.hits++] = k.last_peak;
     } else if (v == KNOCK_SUSTAINED)
       r.sustained++;
@@ -140,6 +149,23 @@ int main(void) {
   add_knock(MS(500), 90000);
   r = run(n, medium);
   assert(r.hits == 1 && r.peak[0] >= 32767);
+
+  // A hard knock that clips and rings for longer (seen on the real case: 3 of 14 such knocks were
+  // judged sustained with a 20-70 ms window and no allowance for clipping): still one hit.
+  background(n, 60);
+  add_ring(MS(500), 200000, 0.012, MS(120));
+  r = run(n, medium);
+  assert(r.hits == 1 && r.sustained == 0 && r.peak[0] >= 32767);
+
+  // Brightness: a clap (broadband) reads far brighter than a knock's ring. KNOCK_MAX_HF is not set
+  // yet, so both count; the device measurements will set it.
+  background(n, 60);
+  add_knock(MS(300), 20000);
+  add_clap(MS(900), 20000);
+  r = run(n, medium);
+  assert(r.hits == 2);
+  printf("brightness: knock %d, clap %d\n", (int)r.hf[0], (int)r.hf[1]);
+  assert(r.hf[0] < 60 && r.hf[1] > 90);
 
   puts("knock detector: all cases passed");
   return 0;

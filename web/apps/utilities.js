@@ -464,8 +464,8 @@ export function sensorBus(sensor) {
 }
 
 // Knock-on-the-case input as Node Scope shows it: the setting, and the node's own counters (firmware
-// 0.1.3 status "knock": thr, n sent, btn dropped at a button edge, long judged sustained, peak of the
-// last candidate). Older firmware has no counters.
+// 0.1.3 status "knock": thr, n sent, btn dropped at a button edge, long judged sustained, bright too
+// bright, peak and hf of the last candidate). Older firmware has no counters.
 const KNOCK_LEVELS = ['off', 'low', 'medium', 'high'];
 export function knockReadout(setting, knock, lastKnock, now = performance.now()) {
   const level = KNOCK_LEVELS.includes(setting) ? setting : 'medium';
@@ -473,7 +473,7 @@ export function knockReadout(setting, knock, lastKnock, now = performance.now())
   const input = !knock || typeof knock !== 'object' ? level.toUpperCase() + ' · NOT IN THIS FIRMWARE'
     : level.toUpperCase() + (knock.thr ? ' · THRESHOLD ' + peakDb(knock.thr) : ' · NODE NOT LISTENING');
   const counts = !knock || typeof knock !== 'object' ? '—'
-    : `${knock.n ?? 0} SENT · ${knock.btn ?? 0} AT BUTTON · ${knock.long ?? 0} TOO LONG · LAST ${peakDb(knock.peak)}`;
+    : `${knock.n ?? 0} SENT · ${knock.btn ?? 0} AT BUTTON · ${knock.long ?? 0} TOO LONG` + (knock.bright ? ` · ${knock.bright} TOO BRIGHT` : '') + ` · LAST ${peakDb(knock.peak)}` + (Number.isFinite(knock.hf) ? ` HF ${knock.hf}` : '');
   const last = lastKnock ? `${peakDb(lastKnock.peak)} · ${Math.max(0, Math.round((now - lastKnock.at) / 1000))} S AGO` : 'NONE YET';
   return { input, counts, last };
 }

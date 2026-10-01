@@ -8,13 +8,13 @@ on synthetic signals only. Branch `claude/project-thread-79km6i`, draft PR, not 
 
 - **Firmware 0.1.3** (`firmware/main/knock.h`, `main.c`): while the host has set a threshold the
   node keeps the microphone running and looks for a knock in 1 ms blocks: a peak at or above the
-  threshold and 8× the background, that has died down to 20 % by 20-70 ms later, 150 ms apart.
+  threshold and 8× the background, that has died down to 20 % (40 % if it clipped) by 40-90 ms later, 150 ms apart.
   The main loop drops any knock within 60 ms of a button edge (the switch clicks). Only
   `KNOCK` (type 8: `u64 at_us, u16 peak`) leaves the node. `KNOCK_SET` (type 22: `u16
   threshold`, 0 = off) controls it; the node resets it to 0 at boot and after 3 s without the
   host. STATUS gains `knock: {thr, n, btn, long, peak}`; STATUS `mic` still means streaming only.
   Protocol stays v1 (two new message types; older firmware answers `KNOCK_SET` as unknown).
-- **Service**: setting `knock` (`off`/`low`/`medium`/`high` → 0/8000/4000/2000, default
+- **Service**: setting `knock` (`off`/`low`/`medium`/`high` → 0/16000/8000/5000 since round 2, default
   medium), sent on connect and re-sent whenever STATUS disagrees; `knock` events broadcast;
   `knock` command for the simulator; `/api/system` `node.knock`.
 - **Browser**: `InputRouter.knock()` hands it to the app's optional `knock(event)` only where a
@@ -79,9 +79,41 @@ What to send back: the peaks from (1) and (2), whether (3), (4) and (5) behaved,
   constants are at the top of `knock.h`.
 - A short, loud beep (under about 30 ms) from a speaker close to the node could pass as a knock;
   step 4 of the console test checks this.
-- `at_us` is estimated from the end of the 20 ms audio buffer; the event arrives about 70-100 ms
+- `at_us` is estimated from the end of the 20 ms audio buffer; the event arrives about 90-120 ms
   after the knock. Fine for "knock to do X", not for rhythm-exact timing.
 - Knock detection keeps the microphone (I2S) running while the console is connected, as Sam
   approved; no audio is sent unless a microphone mode asks for it.
 - `tests/perihelion.test.mjs` "a planning bot crosses every region" fails on seed 3003 on this
   host with and without this branch (Node 22). Not touched here.
+
+## Round 2, after Sam's device test (PR #4 comment, 2026-10-01)
+
+The Pi's test: 10/10 firm knocks and 34/34 soft-to-firm taps, no doubles; no knock from 24 button
+presses; speech and whistles rejected. Three problems, and what changed (still cloud-only, not
+run on the node):
+
+1. **Hard knocks clip and were sometimes judged sustained** (3 of 14). The tail window moves to
+   40-90 ms and a clipped onset may keep 40 % of its level there instead of 20 %. New host case:
+   a clipped knock ringing with a 12 ms decay is one hit. Verdict and event now come ~90 ms after
+   the knock.
+2. **Claps pass as knocks.** Level can't separate them (both clip). The node now measures `hf`,
+   the brightness of the first 10 ms (synthetic: knock ring 35, clap 130), sends it with each
+   KNOCK (now 11 bytes; the service still accepts the old 10) and in STATUS, and the probe prints
+   it. `KNOCK_MAX_HF` in `knock.h` will reject anything brighter, but it stays off (255) until the
+   real case's numbers are known: a clipped knock is brighter than the synthetic one.
+3. **Thresholds were too sensitive.** Now low 16000, medium 8000, high 5000 (softest tap 10474,
+   quiet room peak 2339). The probe defaults to 8000.
+
+### Re-test (Pi thread)
+
+Rebuild and flash this branch's head as before (`git -C ../knock-test pull`, then
+`flash-node.sh`), then `node-probe.py "$NODE" --listen 3 --knock 90`:
+
+1. 10 firm knocks, 10 soft taps: count, and note each `hf`.
+2. 15 hard knocks that clip, a second apart: how many arrive (target: all).
+3. 10 claps at the distances Sam would clap: note each `hf`.
+4. The console with sound up (`--http-port 8800` run as before): a minute of a game with frequent
+   tones; KNOCK COUNTS in Node Scope should not rise.
+
+Send back the `hf` values for knocks and claps; if they separate, the next commit sets
+`KNOCK_MAX_HF` between them.

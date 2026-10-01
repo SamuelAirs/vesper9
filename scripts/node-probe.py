@@ -73,11 +73,12 @@ class Probe:
             self.presses += bool(pressed)
             if show:
                 print(f"BUTTON {'down' if pressed else 'up  '} at {at / 1e6:.3f} s", flush=True)
-        elif kind == Kind.KNOCK and len(p) == 10:
-            at, peak = struct.unpack("<QH", p)
+        elif kind == Kind.KNOCK and len(p) in (10, 11):
+            at, peak = struct.unpack_from("<QH", p)
             self.knocks += 1
             if show:
-                print(f"KNOCK at {at / 1e6:.3f} s  peak {peak} ({20 * math.log10(max(peak, 1) / 32768):.1f} dBFS)", flush=True)
+                hf = f"  hf {p[10]}" if len(p) > 10 else ""
+                print(f"KNOCK at {at / 1e6:.3f} s  peak {peak} ({20 * math.log10(max(peak, 1) / 32768):.1f} dBFS){hf}", flush=True)
         elif kind == Kind.SENSOR and len(p) == 16 and show:
             _, t, rh = struct.unpack("<Qff", p)
             print(f"SENSOR {t:.2f} C  {rh:.2f} %RH", flush=True)
@@ -121,8 +122,8 @@ def main():
                         help="light one output at a time; each button press advances (maps real lamp/colour per GPIO)")
     parser.add_argument("--knock", type=float, default=0,
                         help="seconds to listen for knocks on the case (prints each one, then the node's counters)")
-    parser.add_argument("--threshold", type=int, default=4000,
-                        help="knock peak threshold, 256-32767 (the service uses 8000 low, 4000 medium, 2000 high)")
+    parser.add_argument("--threshold", type=int, default=8000,
+                        help="knock peak threshold, 256-32767 (the service uses 16000 low, 8000 medium, 5000 high)")
     args = parser.parse_args()
     probe = Probe(args.port, args.baud)
     try:
@@ -173,7 +174,8 @@ def main():
             probe.pump(args.knock)
             knock = (probe.status or {}).get("knock")
             print(f"KNOCKS {probe.knocks} received; node counters {knock}"
-                  " (n sent, btn dropped at a button edge, long judged sustained, peak of the latest)", flush=True)
+                  " (n sent, btn dropped at a button edge, long judged sustained, bright too bright,"
+                  " peak and hf of the latest)", flush=True)
             probe.command(Kind.KNOCK_SET, b"\x00\x00")
         print("FINAL", probe.status)
         print("packets", probe.counts, "host crc errors", probe.decoder.errors, "discarded bytes", probe.decoder.discarded)

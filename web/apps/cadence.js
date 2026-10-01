@@ -442,7 +442,7 @@ export class Cadence {
   }
   resetStopwatch() {
     Object.assign(this.sw, { running: false, before: 0, laps: [], lapAt: -1e9 });
-    this.build();
+    this.build("go"); // RESET leaves START highlighted, not BACK
     this.render(this.clock(), true);
   }
 

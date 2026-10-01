@@ -454,3 +454,35 @@ test("scopeStatus honours the host's confirmed capture", () => {
   assert.equal(scopeStatus({ device: {}, mic: {} }).code, "muted");
   assert.equal(scopeStatus(undefined).code, "muted");
 });
+
+// What the host does with the highlight when a list is published (web/main.js setNav): it stays
+// on the action with the same id, otherwise on the same row number. `card` is the row the
+// dashboard had highlighted when the instrument opened: the first list starts at that row.
+function highlighted(ctx, card) {
+  let items = null, index = card;
+  const idOf = (i) => i.id || i.label;
+  for (const next of ctx.calls.actions) {
+    const match = items ? next.findIndex((i) => idOf(i) === idOf(items[index])) : -1;
+    index = Math.min(match >= 0 ? match : index, next.length - 1);
+    items = next;
+  }
+  return items[index].label;
+}
+
+test("opened from any dashboard card START LISTENING is highlighted, not RETURN TO DASHBOARD", () => {
+  for (let card = 0; card < 8; card++) assert.equal(highlighted(rig().ctx, card), "START LISTENING", "card " + card);
+});
+
+test("while the system menu is open the lamps are left to it, and come back after", async () => {
+  const r = await listen(rig());
+  feed(r, [frame({ rmsDb: -20, peakDb: -15, bands: Array(BAND_COUNT).fill(-50) })]);
+  assert.ok(r.lastLamps().some((v) => v > 0));
+  r.app.pause();
+  const n = r.ctx.calls.leds.length;
+  feed(r, [frame({ rmsDb: -10, peakDb: -5 }), frame({ rmsDb: -30 })]);
+  assert.equal(r.ctx.calls.leds.length, n, "nothing is written while paused");
+  r.app.resume();
+  assert.ok(r.ctx.calls.leds.length > n && valid(r.lastLamps()));
+  r.app.dispose();
+  assert.deepEqual(r.lastLamps(), Array(9).fill(0));
+});

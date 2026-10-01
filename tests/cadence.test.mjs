@@ -549,3 +549,16 @@ test("a paused interval keeps one dim lamp and is dark again once stopped", () =
   advance(100);
   assert.deepEqual(ctx.calls.leds.at(-1), Array(9).fill(0));
 });
+
+test("RESET on the stopwatch leaves START highlighted", () => {
+  const { ctx, advance } = open();
+  const hand = pad(ctx);
+  hand.tap(1).hold(); hand.hold();
+  advance(2000);
+  hand.hold(); // STOP
+  assert.equal(hand.label, "RESUME");
+  hand.tap(1);
+  assert.equal(hand.label, "RESET");
+  hand.hold();
+  assert.equal(hand.label, "START");
+});

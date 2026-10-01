@@ -63,13 +63,29 @@ export function grid(g, step = 60) {
   for (let x = 0; x <= 960; x += step) line(g, x, 0, x, 540, "#233929", 0.6);
   for (let y = 0; y <= 540; y += step) line(g, 0, y, 960, y, "#233929", 0.6);
 }
+// Breaks a caption into lines of at most `limit` characters, preferring the " / " separators.
+export function wrapText(value, limit = 44) {
+  const lines = [];
+  for (const part of String(value).split(" / ")) {
+    let current = "";
+    for (const word of part.split(" ")) {
+      if (current && (current + " " + word).length > limit) { lines.push(current); current = word; }
+      else current = current ? current + " " + word : word;
+    }
+    if (current) lines.push(current);
+  }
+  return lines.slice(0, 3);
+}
+// Title and result card. The canvas is shown at 0.70 scale on the 1024 x 600 display, so the
+// caption is 22 px (about 15 px on screen) and wraps instead of shrinking.
 export function banner(g, title, subtitle, color = C.ink) {
+  const lines = wrapText(subtitle), last = 283 + (lines.length - 1) * 30;
   g.fillStyle = "#0c1511e8";
-  g.fillRect(140, 170, 680, 185);
+  g.fillRect(140, 170, 680, last + 72 - 170);
   line(g, 195, 178, 765, 178, C.line);
   text(g, title, 480, 226, 42, color, "center");
-  text(g, subtitle, 480, 283, 18, C.muted, "center");
-  text(g, "PRESS TO BEGIN", 480, 325, 14, C.amber, "center");
+  lines.forEach((part, i) => text(g, part, 480, 283 + i * 30, 22, C.muted, "center"));
+  text(g, "PRESS TO BEGIN", 480, last + 42, 20, C.amber, "center");
 }
 export function glyph(g, index, x, y, size = 32, color = C.ink) {
   g.save();

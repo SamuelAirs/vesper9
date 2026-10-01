@@ -547,5 +547,6 @@ export const DEFAULT_SETTINGS = {
   "tempUnit": "F",
   "tempOffset": 0,
   "lampLevel": "medium",
-  "lampAmbient": true
+  "lampAmbient": true,
+  "knock": "medium"
 };

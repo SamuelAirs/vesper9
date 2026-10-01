@@ -85,6 +85,9 @@ def validate_setting(key, value):
         valid = value in ('full', 'medium', 'low', 'off')
     elif key == 'scanMs':
         valid = type(value) is int and value in (600, 850, 1200, 1600)
+    elif key == 'knock':
+        # Sensitivity of knock-on-the-case input (vesper/device.py KNOCK_THRESHOLDS).
+        valid = value in ('off', 'low', 'medium', 'high')
     elif key == 'gesturePace':
         valid = value in ('quick', 'standard', 'relaxed')
     elif key == 'tempUnit':

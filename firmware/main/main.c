@@ -12,6 +12,7 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "hardware.h"
+#include "knock.h"
 #include "protocol.h"
 #include <math.h>
 #include <stdatomic.h>
@@ -25,8 +26,24 @@ typedef struct {
   uint16_t length;
   uint8_t payload[V9_MAX_PAYLOAD];
 } message;
-static QueueHandle_t urgent_queue, audio_queue;
+static QueueHandle_t urgent_queue, audio_queue, knock_queue;
 static atomic_bool mic_wanted = false, mic_active = false;
+// Knock detection (knock.h) runs on the microphone whenever the host has set a threshold, whether or
+// not audio is being streamed; only KNOCK events leave the node. The microphone task owns the
+// detector and queues each verdict; the main loop, which owns the button timing, drops knocks that
+// coincide with a button edge (the switch clicks) and sends the rest.
+#define KNOCK_GUARD_US 60000
+#define KNOCK_EDGES 32
+typedef struct {
+  int64_t at;
+  int32_t peak;
+  uint8_t verdict;
+} knock_candidate;
+static atomic_uint knock_threshold = 0;
+static int64_t button_edges[KNOCK_EDGES] = {0};
+static unsigned button_edge_next = 0;
+static uint32_t knock_sent = 0, knock_button = 0, knock_sustained = 0;
+static int32_t knock_last_peak = 0;
 static atomic_uint audio_drops = 0;
 // Sensor diagnostics for STATUS: address in use (0 = none), counts, last esp_err_t.
 static atomic_int sensor_address = 0, sensor_error = 0;
@@ -147,19 +164,22 @@ static void setup_lights(void) {
 }
 
 static void status(uint8_t kind) {
-  char data[400];
+  char data[512];
   int link = atomic_load(&active_link);
   int n = snprintf(data, sizeof(data),
-                   "{\"fw\":\"vesper-node-0.1.2\",\"link\":\"%s\",\"mic\":%s,\"button\":%s,\"audio_"
+                   "{\"fw\":\"vesper-node-0.1.3\",\"link\":\"%s\",\"mic\":%s,\"button\":%s,\"audio_"
                    "drops\":%u,\"rx_crc\":%lu,\"sensor\":{\"addr\":%d,\"ok\":%u,\"fail\":%u,\"err\":%d},\"leds\":[%"
-                   "u,%u,%u,%u,%u,%u,%u,%u,%u]}",
+                   "u,%u,%u,%u,%u,%u,%u,%u,%u],\"knock\":{\"thr\":%u,\"n\":%lu,\"btn\":%lu,\"long\":%lu,"
+                   "\"peak\":%ld}}",
                    link == LINK_USB ? "usb" : link == LINK_UART ? "uart" : "none",
                    atomic_load(&mic_active) ? "true" : "false", button_stable ? "true" : "false",
                    atomic_load(&audio_drops),
                    (unsigned long)(decoders[LINK_UART].errors + decoders[LINK_USB].errors),
                    atomic_load(&sensor_address), atomic_load(&sensor_good), atomic_load(&sensor_bad),
                    atomic_load(&sensor_error), leds[0], leds[1],
-                   leds[2], leds[3], leds[4], leds[5], leds[6], leds[7], leds[8]);
+                   leds[2], leds[3], leds[4], leds[5], leds[6], leds[7], leds[8],
+                   atomic_load(&knock_threshold), (unsigned long)knock_sent, (unsigned long)knock_button,
+                   (unsigned long)knock_sustained, (long)knock_last_peak);
   if (n > 0 && n < (int)sizeof(data))
     send_message(kind, data, (uint16_t)n, false);
 }
@@ -204,6 +224,13 @@ static void command(uint8_t kind, uint16_t sequence, const uint8_t *p, uint16_t 
     reaction_led = p[8];
     memcpy(reaction_rgb, p + 9, 3);
     reaction_armed = true;
+    break;
+  case V9_KNOCK_SET:
+    if (n != 2 || (v9_u16(p) && (v9_u16(p) < KNOCK_MIN_THRESHOLD || v9_u16(p) > 32767))) {
+      ack(sequence, kind, 1);
+      return;
+    }
+    atomic_store(&knock_threshold, v9_u16(p));
     break;
   case V9_CANCEL:
     if (n) {
@@ -279,31 +306,49 @@ static void microphone_task(void *unused) {
   // high-pass (about 25 Hz at 16 kHz) on the 24-bit signal.
   size_t settle = 0;
   float previous_in = 0, previous_out = 0;
-  bool primed = false;
+  bool primed = false, running = false;
+  knock_detector knock;
+  knock_init(&knock, 0);
   for (;;) {
-    if (!atomic_load(&mic_wanted)) {
-      if (atomic_load(&mic_active)) {
+    const bool stream = atomic_load(&mic_wanted);
+    const uint16_t threshold = (uint16_t)atomic_load(&knock_threshold);
+    // "mic" in STATUS is streaming to the host; listening for knocks alone is not capture.
+    if (!stream && atomic_load(&mic_active)) {
+      atomic_store(&mic_active, false);
+      xQueueReset(audio_queue);
+    }
+    if (!stream && !threshold) {
+      if (running) {
         i2s_channel_disable(microphone);
-        atomic_store(&mic_active, false);
-        xQueueReset(audio_queue);
+        running = false;
       }
       vTaskDelay(pdMS_TO_TICKS(10));
       continue;
     }
-    if (!atomic_load(&mic_active)) {
+    if (!running) {
       if (i2s_channel_enable(microphone) != ESP_OK) {
         atomic_store(&mic_wanted, false);
+        atomic_store(&knock_threshold, 0);
         continue;
       }
-      atomic_store(&mic_active, true);
+      running = true;
       settle = NODE_RATE * 3 / 10;
       primed = false;
+      knock_init(&knock, threshold);
+    }
+    if (stream)
+      atomic_store(&mic_active, true);
+    if (knock.threshold != threshold) {
+      knock.threshold = threshold;
+      knock_reset(&knock);
     }
     size_t bytes = 0;
     if (i2s_channel_read(microphone, raw, sizeof(raw), &bytes, 100) != ESP_OK)
       continue;
+    const int64_t read_at = esp_timer_get_time();
     const size_t samples = bytes / (2 * sizeof(int32_t));
     v9_put32(payload, index);
+    knock_verdict verdict = KNOCK_NONE;
     for (size_t i = 0; i < samples; i++) {
       float in = (float)(raw[i * 2] >> 8);
       if (!primed) {
@@ -320,15 +365,56 @@ static void microphone_task(void *unused) {
       if (value < -32768)
         value = -32768;
       v9_put16(payload + 4 + i * 2, (uint16_t)(int16_t)value);
+      if (!settle && threshold) {
+        knock_verdict v = knock_push(&knock, (int16_t)value);
+        if (v != KNOCK_NONE)
+          verdict = v;
+      }
     }
     if (settle) {
       settle -= samples < settle ? samples : settle;
       continue;
     }
+    if (verdict != KNOCK_NONE) {
+      // The last sample of this read was captured at about read_at; count back to the onset.
+      // (At most one verdict per read: a verdict comes 70 ms after its onset and the next onset
+      // is 150 ms later.)
+      knock_candidate c = {.at = read_at - (int64_t)(uint32_t)(knock.samples - knock.onset) * 1000000 / NODE_RATE,
+                           .peak = knock.last_peak,
+                           .verdict = (uint8_t)verdict};
+      xQueueSend(knock_queue, &c, 0);
+    }
+    if (!stream)
+      continue;
     index += (uint32_t)samples;
     if (atomic_load(&mic_wanted) && samples)
       send_message(V9_AUDIO, payload, 4 + samples * 2, true);
   }
+}
+
+// Called by the main loop for each queued verdict, once no button edge can still arrive inside its
+// guard window. A knock within KNOCK_GUARD_US of any raw button edge (press, release or bounce) is
+// the switch itself and is dropped.
+static void knock_decide(const knock_candidate *c) {
+  knock_last_peak = c->peak;
+  if (c->verdict != KNOCK_HIT) {
+    knock_sustained++;
+    return;
+  }
+  for (int i = 0; i < KNOCK_EDGES; i++) {
+    int64_t edge = button_edges[i];
+    if (edge && edge >= c->at - KNOCK_GUARD_US && edge <= c->at + KNOCK_GUARD_US) {
+      knock_button++;
+      return;
+    }
+  }
+  if (!link_alive || !atomic_load(&knock_threshold))
+    return;
+  knock_sent++;
+  uint8_t p[10];
+  v9_put64(p, (uint64_t)c->at);
+  v9_put16(p + 8, (uint16_t)(c->peak > 32767 ? 32767 : c->peak));
+  send_message(V9_KNOCK, p, 10, false);
 }
 
 static uint8_t sensor_crc(const uint8_t *p) {
@@ -404,7 +490,8 @@ static void sensor_task(void *unused) {
 void app_main(void) {
   urgent_queue = xQueueCreate(24, sizeof(message));
   audio_queue = xQueueCreate(12, sizeof(message));
-  if (!urgent_queue || !audio_queue)
+  knock_queue = xQueueCreate(4, sizeof(knock_candidate));
+  if (!urgent_queue || !audio_queue || !knock_queue)
     abort();
   gpio_config_t button = {.pin_bit_mask = 1ULL << NODE_BUTTON,
                           .mode = GPIO_MODE_INPUT,
@@ -475,7 +562,12 @@ void app_main(void) {
     if (pressed != button_raw) {
       button_raw = pressed;
       button_edge = now;
+      button_edges[button_edge_next++ % KNOCK_EDGES] = now;
     }
+    knock_candidate candidate;
+    if (xQueuePeek(knock_queue, &candidate, 0) == pdTRUE && now >= candidate.at + KNOCK_GUARD_US &&
+        xQueueReceive(knock_queue, &candidate, 0) == pdTRUE)
+      knock_decide(&candidate);
     if (button_raw != button_stable && now - button_edge >= 8000) {
       button_stable = button_raw;
       if (!button_stable)
@@ -491,6 +583,7 @@ void app_main(void) {
       link_alive = false;
       atomic_store(&active_link, LINK_NONE);
       atomic_store(&mic_wanted, false);
+      atomic_store(&knock_threshold, 0);
       reaction_armed = false;
       pattern_count = 0;
       lights_off();

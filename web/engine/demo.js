@@ -149,6 +149,10 @@ export class DemoBridge extends EventTarget {
           generation: 1,
         });
       }
+    } else if (command === "knock") {
+      // As on the node, nothing while knock input is off.
+      if ((this.state.settings.knock || "medium") !== "off")
+        this.emit({ type: "knock", at_us: performance.now() * 1000, peak: 20000, source: "simulator", generation: 1 });
     } else if (command === "leds") {
       const values = data.values;
       if (!Array.isArray(values) || values.length !== 9 || values.some((x) => !Number.isInteger(x) || x < 0 || x > 255))

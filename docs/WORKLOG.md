@@ -62,3 +62,9 @@ The long integrated run was started while final review continued. The final held
 - Browser workflow and extension tests pass on this Pi with Playwright 1.63 driving the system Chromium 151 (32 s). Tests now take a free port each and mute audio so several checkouts can run them at once.
 - Project placed under local git: `v0.2.0-as-delivered`, then bring-up commits. The generated simulator is no longer tracked.
 - Sam's feedback after playing: fun; the lamps are underused; dictation a little inaccurate; wants more games and instruments. Plan for the overnight agent fleet: `../fleet/PLAN.md`.
+
+## 2026-10-01 — knock input (cloud session, not on the device)
+
+- Knock on the case, approved by Sam: detected on the node (firmware 0.1.3, `firmware/main/knock.h`) so only a knock event leaves it; knocks within 60 ms of a button edge are dropped on the node, which owns the button timing. Protocol v1 gains KNOCK (8) and KNOCK_SET (22); older firmware ignores the new command and the console carries on without knocks.
+- Decided: the knock is a second game input (`app.knock(event)`), not a way into the menu (tap, tap, hold already works everywhere). Sensitivity is a setting (`knock`, default medium) because the right threshold depends on the case; Node Scope shows the node's counters for tuning.
+- Verified here: detector host test on synthetic knocks, tones and speech; firmware builds without warnings under ESP-IDF v5.4.2 (x86-64 host); all JS, Python, catalog and browser suites. Not verified: anything on the real node or case. Device steps: `fleet-notes/reports/knock-input.md`. The prebuilt image is still 0.1.2.

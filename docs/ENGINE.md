@@ -32,6 +32,7 @@ A registered factory receives an app context and returns an object with any of t
 | `navigation = true` | A menu-driven HTML instrument. Omit for a Canvas game. |
 | `down(event)` | Immediate accepted switch-down in a game. |
 | `up(event)` | Switch release; includes `durationMs`. |
+| `knock(event)` | Optional second input: a knock on the case. `{ at_us, peak, source }`, a single instant with no release. See below. |
 | `cancel()` | Clear any held input or sidetone after focus changes. |
 | `update(dt)` | Fixed simulation step, `dt = 1 / 60`, games only. |
 | `draw(g)` | Draw into the 960 × 540 Canvas 2D context. |
@@ -55,7 +56,7 @@ Menus use short-release to advance and hold-release to select. The default selec
 
 One gesture opens the system menu, identically in every app and on the dashboard: **tap, tap, hold**. The router (`InputRouter`, `web/engine/input.js`) recognises it from three presses: two taps (each 8 ms to `tapMs` long), each press following the previous release within `gapMs`, and a third press that is still down when it has been held for the pace's `holdMs`. `GESTURE_PACES` holds the three presets of the `gesturePace` setting: quick 120/180/900 ms, standard 150/220/1000 ms, relaxed 220/320/1100 ms (tap, gap, hold). Exactly two taps arm the hold; a third quick tap in a row, or a slow tap, or a long pause breaks the sequence. A hold in a game is otherwise an ordinary hold of any length and never opens the menu on its own. `escape` in the catalog no longer changes anything.
 
-Input stays immediate: the two taps arrive in the app as taps and the third press arrives as a press being held. When the hold reaches the threshold the host calls `requestMenu("gesture", { focus })`, which cancels the held press (the app's `cancel()`, then `pause()`), consumes the release that follows, and opens the system menu. Every way into the menu goes through `Vesper.requestMenu(source, options)`: the gesture, the Escape key, the on-screen PAUSE button, the voice command, an interruption (link loss, a hidden page) and any future trigger (a knock on the case) get the same guarantees. If the node's timestamps show the hold was long enough but the host only learns it at the release (a burst of events, a stalled frame), the gesture completes on the release instead.
+Input stays immediate: the two taps arrive in the app as taps and the third press arrives as a press being held. When the hold reaches the threshold the host calls `requestMenu("gesture", { focus })`, which cancels the held press (the app's `cancel()`, then `pause()`), consumes the release that follows, and opens the system menu. Every way into the menu goes through `Vesper.requestMenu(source, options)`: the gesture, the Escape key, the on-screen PAUSE button, the voice command, an interruption (link loss, a hidden page) and any future trigger get the same guarantees. If the node's timestamps show the hold was long enough but the host only learns it at the release (a burst of events, a stalled frame), the gesture completes on the release instead.
 
 In navigation contexts (the dashboard, instruments and menus) the same three presses are also tap, tap, choose: a tap advances, a release at or past the selection threshold chooses. The gesture arms only when both taps met the pace's tap and gap limits, and its hold must be at least `holdMs` of the pace and at least 350 ms (`SELECT_MARGIN_MS`) past the selection threshold, so choosing after two quick steps (a release between 650 ms and just under the gesture threshold) still chooses. When the gesture completes the host puts the highlight back where it stood before the first tap (`focusMark()`/`restoreFocus()`), opens the menu, and the release chooses nothing. Navigation contexts also keep a plain three-second hold as a silent fallback (`FALLBACK_HOLD_MS`); games do not.
 
@@ -64,6 +65,10 @@ Games and instruments must tolerate `cancel()` after the two taps and the first 
 Button events contain `source` (`node`, `simulator`, or `keyboard`) and `at_us`. ESP32 times are monotonic microseconds since node boot. They are not comparable to Pi, browser, or Unix clocks. Light Trial compares cue and button events only within the same clock domain. A keyboard action in hardware mode uses approximate screen timing.
 
 The keyboard and mouse are additional ways to operate the same navigation. `Space` is the virtual switch; `Escape` opens/closes the menu; right/down arrows advance menus. All actual menu actions are native HTML buttons, so direct clicking and ordinary keyboard focus also work.
+
+### Knock on the case
+
+A sharp knock on the node's case is a second input, detected on the node (firmware 0.1.3, `firmware/main/knock.h`) and sent as a `knock` event; no audio leaves the node for it. `InputRouter.knock()` passes it to the app's `knock(event)` only where a button press would go as a raw edge (a game, no menu open, no menu release outstanding); dashboards, instruments and menus ignore it, and it never takes part in tap, tap, hold. It is an instant, not a press: there is no release and no `cancel()` to expect. `event.peak` (256 … 32767, the loudest 1 ms of the knock in 16-bit sample units) can scale an effect; `event.at_us` is on the node's clock, like button edges, so the time between a knock and a button press is exact to about the microphone's 20 ms buffer. The node drops knocks within 60 ms of any button edge (the switch clicks), and a knock is judged 70 ms after it starts, so expect the event about 70 to 100 ms after the tap. Use it for something that tolerates that, not for frame-exact timing. Every app also sees the raw `knock` event through `event()`. On the keyboard, K produces a knock (in the simulator, through the service). A game should keep working without knocks: older firmware, sensitivity OFF or a noisy room all mean none arrive.
 
 ## App context
 
@@ -75,6 +80,7 @@ The keyboard and mouse are additional ways to operate the same navigation. `Spac
 | `alive()` | Whether this app instance is still mounted; check after async work. |
 | `hud([[label,value], ...])` | Small persistent game readouts. |
 | `silentTicks(true/false)` | Silence the host's own short "advance" tick tone while taps are musical (Cadence's tap tempo and stopwatch). Reset when the app is left. |
+| `knockInput()` | Whether knock input is switched on (KNOCK SENSITIVITY in Calibration is not OFF), so a game can show or hide its knock hint. |
 | `menuGesture()` | `{ armed, elapsedMs, thresholdMs, progress }`: whether a third press of the menu gesture is being counted now. |
 | `hint(text)` | App-specific status/readout text above the control deck. |
 | `controls(text)` | Update the persistent control deck when a cartridge changes mode. |

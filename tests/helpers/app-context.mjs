@@ -15,6 +15,7 @@ export function appContext(options = {}) {
     retire: () => { mounted = false; },
     simulated: () => true,
     settings: () => settings,
+    knockInput: () => (settings.knock || "medium") !== "off",
     state: () => state,
     progress: () => progress,
     saveProgress: (value) => { progress = value; calls.saved.push(value); return Promise.resolve({ ok: true }); },

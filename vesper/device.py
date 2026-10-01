@@ -12,6 +12,9 @@ from .protocol import Decoder, Kind, encode
 
 log = logging.getLogger(__name__)
 
+# A knock on the case (docs/PROTOCOL.md, KNOCK and KNOCK_SET): the node's peak threshold for each
+# sensitivity setting, in the units of the streamed 16-bit audio. 0 switches detection off.
+KNOCK_THRESHOLDS = {"off": 0, "low": 8000, "medium": 4000, "high": 2000}
 WRITE_FAILURES_LIMIT = 3   # consecutive failed writes before the link is torn down and reopened
 REPEAT_LOG_EVERY = 30      # a link that stays down is logged on the first failure, then every 30th
 
@@ -32,8 +35,10 @@ class SimulatedDevice:
         self.name = "SIMULATED NODE"
         self.pressed = False
         self.generation = 1
+        self.knock_threshold = 0
         self.status = {"fw": "simulated", "link": "simulated", "mic": False, "button": False,
-                       "sensor": {"simulated": True, "ok": 0, "fail": 0, "err": None}}
+                       "sensor": {"simulated": True, "ok": 0, "fail": 0, "err": None},
+                       "knock": {"thr": 0, "n": 0, "btn": 0, "long": 0, "peak": 0}}
         self.status_at = time.monotonic()
 
     async def run(self):
@@ -54,6 +59,9 @@ class SimulatedDevice:
         elif kind == Kind.MIC:
             self.mic = bool(payload[0])
             self.status["mic"] = self.mic
+        elif kind == Kind.KNOCK_SET:
+            self.knock_threshold = struct.unpack("<H", payload)[0]
+            self.status["knock"]["thr"] = self.knock_threshold
         elif kind == Kind.ARM:
             await self.command(Kind.CANCEL)
             trial, delay, index, r, g, b = struct.unpack("<IIBBBB", payload)
@@ -93,6 +101,18 @@ class SimulatedDevice:
             self.pressed = pressed
             await self.emit({"type": "button", "pressed": pressed, "at_us": time.monotonic_ns() // 1000, "source": "simulator", "generation": self.generation})
 
+    async def set_knock(self, threshold):
+        await self.command(Kind.KNOCK_SET, struct.pack("<H", threshold))
+
+    async def knock(self):
+        """A simulated knock on the case, as strong as a firm tap. Ignored while detection is off, as on the node."""
+        if not self.knock_threshold:
+            return
+        self.status["knock"]["n"] += 1
+        self.status["knock"]["peak"] = 20000
+        await self.emit({"type": "knock", "at_us": time.monotonic_ns() // 1000, "peak": 20000, "source": "simulator",
+                         "generation": self.generation})
+
     def status_age(self):
         """Seconds since the last status record (None before the first)."""
         return None if self.status_at is None else time.monotonic() - self.status_at
@@ -129,6 +149,7 @@ class SerialDevice:
         self.status = None          # last HELLO/STATUS payload from the node
         self.status_at = None       # monotonic time it arrived
         self.write_failures = 0     # consecutive failed serial writes
+        self.knock_threshold = 0    # what the console wants; the node is told on connect and whenever its STATUS differs
         self.attempt_failures = 0   # consecutive connection attempts that never heard the node
 
     @property
@@ -221,6 +242,8 @@ class SerialDevice:
                                 await self.raw_send(Kind.MIC, b"\x00")
                                 await self.raw_send(Kind.CANCEL)
                                 await self.raw_send(Kind.LEDS, bytes(9))
+                                if self.knock_threshold:
+                                    await self.raw_send(Kind.KNOCK_SET, struct.pack("<H", self.knock_threshold))
                                 await self.emit({"type": "device", "connected": True, "simulated": False, "name": self.port})
                             await self.packet(packet)
                         if heartbeat.done():
@@ -257,6 +280,13 @@ class SerialDevice:
                 if was_connected:
                     await self.emit({"type": "device", "connected": False, "simulated": False, "name": self.port})
             await asyncio.sleep(2)
+
+    async def set_knock(self, threshold):
+        """Firmware before 0.1.3 does not know KNOCK_SET and answers it as unknown; nothing waits for
+        that answer, so the command is sent without one and STATUS confirms it."""
+        self.knock_threshold = threshold
+        if self.serial and self.connected:
+            await self.raw_send(Kind.KNOCK_SET, struct.pack("<H", threshold))
 
     async def heartbeat(self):
         failures = 0
@@ -298,6 +328,9 @@ class SerialDevice:
                 self.audio_expected = (index + (len(p) - 4) // 2) & 0xFFFFFFFF
                 self.audio_bytes += len(p) - 4
                 await self.emit({"type": "audio", "pcm": p[4:]})
+            elif kind == Kind.KNOCK and len(p) == 10:
+                at, peak = struct.unpack("<QH", p)
+                await self.emit({"type": "knock", "at_us": at, "peak": peak, "source": "node", "generation": self.generation})
             elif kind == Kind.CUE and len(p) == 12:
                 trial, at = struct.unpack("<IQ", p)
                 await self.emit({"type": "cue", "trial": trial, "at_us": at, "simulated": False, "generation": self.generation})
@@ -314,6 +347,11 @@ class SerialDevice:
                 self.pressed = bool(state.get("button", False))
                 if "leds" in state:
                     self.leds = state["leds"]
+                # A node that lost the setting (it resets it after 3 s without the host, and at boot) is
+                # told again. Firmware without knock detection has no "knock" field and is left alone.
+                knock = state.get("knock")
+                if isinstance(knock, dict) and knock.get("thr") != self.knock_threshold and self.serial:
+                    await self.raw_send(Kind.KNOCK_SET, struct.pack("<H", self.knock_threshold))
                 await self.emit({"type": "node_status", **state, "crcErrors": self.crc_errors,
                                  "missingSamples": self.audio_missing, "audioBytes": self.audio_bytes, "generation": self.generation})
         except (ValueError, struct.error, UnicodeDecodeError) as exc:

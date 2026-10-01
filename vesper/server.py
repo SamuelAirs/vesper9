@@ -19,7 +19,7 @@ from pathlib import Path
 from aiohttp import web, WSMsgType, WSCloseCode
 
 from . import analysis
-from .device import SerialDevice, SimulatedDevice
+from .device import KNOCK_THRESHOLDS, SerialDevice, SimulatedDevice
 from .health import HostProbe, safe
 from .protocol import Kind
 from .speech import Speech, COMMANDS
@@ -109,6 +109,9 @@ class Console:
                 self.settings[key] = validate_setting(key, value)
             except Exception:
                 logging.warning("Ignoring stored setting %r", key)
+        self.device.knock_threshold = self.knock_threshold()
+        if self.device.simulated:
+            self.device.status["knock"]["thr"] = self.device.knock_threshold
         self.started = time.time()
         self.host = HostProbe(args.data)
         self.tasks = []
@@ -124,6 +127,16 @@ class Console:
                 logging.error("Background operation failed", exc_info=t.exception())
         task.add_done_callback(done)
         return task
+
+    def knock_threshold(self):
+        return KNOCK_THRESHOLDS.get(self.settings.get("knock"), KNOCK_THRESHOLDS["medium"])
+
+    async def apply_knock(self):
+        """Tell the node the knock sensitivity. A disconnected node is told when it reconnects."""
+        try:
+            await self.device.set_knock(self.knock_threshold())
+        except Exception as exc:
+            logging.warning("Knock sensitivity not sent to the node: %s", exc)
 
     def mic_error(self):
         return self.speech.error or self.analysis_error
@@ -492,6 +505,10 @@ class Console:
             if type(data.get("pressed")) is not bool:
                 raise ValueError("pressed must be true or false")
             await self.device.button(data["pressed"])
+        elif kind == "knock":
+            if not self.device.simulated:
+                raise ValueError("Desktop controls are disabled in hardware mode")
+            await self.device.knock()
         elif kind == "mic":
             mode = data.get("mode")
             if not isinstance(mode, str):
@@ -533,11 +550,14 @@ class Console:
             self.store.put("settings", settings)
             self.settings = settings
             await self.broadcast({"type": "settings", "settings": self.settings})
+            if key == "knock":
+                await self.apply_knock()
         elif kind == "reset_settings":
             settings = dict(DEFAULT_SETTINGS)
             self.store.put("settings", settings)
             self.settings = settings
             await self.broadcast({"type": "settings", "settings": self.settings})
+            await self.apply_knock()
         elif kind == "focus":
             focus = data.get("app")
             if not isinstance(focus, str) or (focus != "home" and focus not in APP_IDS):
@@ -670,6 +690,7 @@ class Console:
             "nodeRxCrc": status.get("rx_crc"),
             "audioDrops": status.get("audio_drops"),
             "sensor": status.get("sensor"),
+            "knock": status.get("knock"),
         }
         alive = {name: not task.done() for name, task in zip(self.task_names, self.tasks)}
         service = {

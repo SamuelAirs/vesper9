@@ -280,6 +280,15 @@ export class InputRouter {
     if (!this.blocked || (this.blockSource && this.blockSource !== source)) return;
     if (pressed === false) { this.blocked = false; this.blockSource = null; this.resetSequence(); }
   }
+  // A knock on the case (docs/PROTOCOL.md): a second input that is a single instant, with no press
+  // or release. It reaches the app (its knock() method) only where button presses do: never in a
+  // menu or navigation context, and not while a menu's press is still waiting for its release.
+  // It does not touch the tap, tap, hold sequence. Returns whether the app was given it.
+  knock(event = {}) {
+    if (this.blocked || this.host.inputMode() !== 'raw') return false;
+    this.host.rawKnock(event);
+    return true;
+  }
   cancel(waitForRelease = this.blocked, source = this.blockSource) {
     if (this.press?.mode === 'raw') this.host.rawCancel();
     this.press = null; this.blocked = waitForRelease; this.blockSource = source;

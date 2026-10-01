@@ -15,6 +15,8 @@ node --test tests/engine.test.mjs
 python3 scripts/build-catalog.py --check
 cc -Wall -Wextra -Werror -std=c11 firmware/host-test/protocol_test.c -o /tmp/vesper-protocol-test
 /tmp/vesper-protocol-test
+cc -Wall -Wextra -Werror -std=c11 -D_DEFAULT_SOURCE firmware/host-test/knock_test.c -lm -o /tmp/vesper-knock-test
+/tmp/vesper-knock-test
 ```
 
 Node 20+ and a C compiler are development tools, not runtime requirements.

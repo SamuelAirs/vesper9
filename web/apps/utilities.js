@@ -463,6 +463,21 @@ export function sensorBus(sensor) {
   return { bus, error };
 }
 
+// Knock-on-the-case input as Node Scope shows it: the setting, and the node's own counters (firmware
+// 0.1.3 status "knock": thr, n sent, btn dropped at a button edge, long judged sustained, peak of the
+// last candidate). Older firmware has no counters.
+const KNOCK_LEVELS = ['off', 'low', 'medium', 'high'];
+export function knockReadout(setting, knock, lastKnock, now = performance.now()) {
+  const level = KNOCK_LEVELS.includes(setting) ? setting : 'medium';
+  const peakDb = (peak) => (!(peak > 0) ? '—' : peak >= 32767 ? 'FULL SCALE' : (20 * Math.log10(peak / 32768)).toFixed(1) + ' dBFS');
+  const input = !knock || typeof knock !== 'object' ? level.toUpperCase() + ' · NOT IN THIS FIRMWARE'
+    : level.toUpperCase() + (knock.thr ? ' · THRESHOLD ' + peakDb(knock.thr) : ' · NODE NOT LISTENING');
+  const counts = !knock || typeof knock !== 'object' ? '—'
+    : `${knock.n ?? 0} SENT · ${knock.btn ?? 0} AT BUTTON · ${knock.long ?? 0} TOO LONG · LAST ${peakDb(knock.peak)}`;
+  const last = lastKnock ? `${peakDb(lastKnock.peak)} · ${Math.max(0, Math.round((now - lastKnock.at) / 1000))} S AGO` : 'NONE YET';
+  return { input, counts, last };
+}
+
 export class Diagnostics {
   constructor(c) {
     this.c = c;
@@ -493,7 +508,8 @@ export class Diagnostics {
       sensor = s.sensor,
       level = this.level(),
       node = this.node,
-      bus = sensorBus(node?.sensor);
+      bus = sensorBus(node?.sensor),
+      knock = knockReadout(this.c.settings().knock, node?.knock, this.lastKnock);
     const waiting = s.simulated ? 'SIMULATOR' : d.connected ? 'AWAITING STATUS' : '—';
     const rows = [
       ["NODE", d.connected ? "CONNECTED" : "DISCONNECTED"],
@@ -514,6 +530,9 @@ export class Diagnostics {
       ["AUDIO BYTES", d.audioBytes || 0],
       ["CRC ERRORS", d.crcErrors || 0],
       ["MISSING SAMPLES", d.missingSamples || 0],
+      ["KNOCK INPUT", s.simulated ? String(this.c.settings().knock || 'medium').toUpperCase() + ' · K KEY KNOCKS' : node ? knock.input : waiting],
+      ["KNOCK COUNTS", node ? knock.counts : waiting],
+      ["LAST KNOCK", knock.last + (this.lastKnock && performance.now() - this.lastKnock.at < 1500 ? " ◆" : "")],
     ];
     const notice = level === 'off' ? '<p class="recording-tag">LAMP LEVEL IS OFF (CALIBRATION): CHANNEL CHECKS CANNOT LIGHT THE LAMPS.</p>'
       : level === 'low' ? '<p class="recording-tag">LAMP LEVEL IS LOW (CALIBRATION): CHANNEL CHECKS ARE DIM.</p>' : '';
@@ -575,7 +594,10 @@ export class Diagnostics {
       this.lastButton = e.pressed ? "DOWN" : "UP";
       this.render();
     } else if (e.type === "node_status") {
-      this.node = { link: e.link, fw: e.fw, sensor: e.sensor };
+      this.node = { link: e.link, fw: e.fw, sensor: e.sensor, knock: e.knock };
+      this.render();
+    } else if (e.type === "knock") {
+      this.lastKnock = { at: performance.now(), peak: e.peak };
       this.render();
     } else if (e.type === "node_reset" || (e.type === "device" && e.connected === false)) {
       this.node = null;
@@ -631,7 +653,7 @@ export class Settings {
     this.c.content(
       panel(
         "Adjust the instrument",
-        "<p>Every setting is reachable with the arcade button. Voice uses the prefix <strong>“computer”</strong>. Sound plays through the Pi or browser audio output.</p><p>One gesture opens the system menu from anywhere, in every game, instrument and on the dashboard: <strong>tap, tap, then press and hold</strong> for about a second. CLICK TIMING sets how quick the taps must be. Inside a menu a tap moves and a hold chooses; hold clearly longer, after two taps, and the menu opens instead. The microphone always starts muted after a service restart.</p>",
+        "<p>Every setting is reachable with the arcade button. Voice uses the prefix <strong>“computer”</strong>. Sound plays through the Pi or browser audio output.</p><p>One gesture opens the system menu from anywhere, in every game, instrument and on the dashboard: <strong>tap, tap, then press and hold</strong> for about a second. CLICK TIMING sets how quick the taps must be. Inside a menu a tap moves and a hold chooses; hold clearly longer, after two taps, and the menu opens instead. The microphone always starts muted after a service restart.</p><p>A sharp <strong>knock on the case</strong> is a second input in games that use it. Only the knock itself leaves the node, never sound. KNOCK SENSITIVITY sets how hard it must be; OFF stops the node listening for it. Node Scope counts the knocks it hears.</p>",
       ),
     );
     this.c.actions([
@@ -677,6 +699,8 @@ export class Settings {
         run: () => this.setting('lampLevel', ({ full: 'medium', medium: 'low', low: 'off', off: 'full' })[s.lampLevel] || 'full') },
       { id: 'lamp-ambient', label: 'AMBIENT GLOW / ' + (s.lampAmbient === false ? 'OFF' : 'ON'),
         run: () => this.setting('lampAmbient', s.lampAmbient === false) },
+      { id: 'knock', label: 'KNOCK SENSITIVITY / ' + String(s.knock || 'medium').toUpperCase(),
+        run: () => this.setting('knock', ({ off: 'low', low: 'medium', medium: 'high', high: 'off' })[s.knock] || 'high') },
       { id: 'gesture-pace', label: 'MENU GESTURE TIMING / ' + s.gesturePace.toUpperCase(),
         run: () => this.setting('gesturePace', ({ quick: 'standard', standard: 'relaxed', relaxed: 'quick' })[s.gesturePace]) },
       { id: 'scan-speed', label: 'ANSWER SCAN / ' + s.scanMs + ' ms',

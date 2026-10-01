@@ -39,24 +39,28 @@ export function makeCtx(seed = 1979, opts = {}) {
   return ctx;
 }
 
-// Router + host stub mirroring main.js: raw edges go to the app, the terminal
-// click of the menu gesture calls cancel(), then the menu pauses the app and
-// the light director writes zeros.
-export function makeRig(app, ctx, { clicks = 4, pace = "standard", escape = "adaptive" } = {}) {
+// Router + host stub mirroring main.js: raw edges go to the app; when tap, tap, hold completes the router
+// asks the host for the menu, which cancels held input (the app's cancel()), pauses the app and the light
+// director writes zeros. `holdMs` is the selection threshold of menus (the setting).
+export function makeRig(app, ctx, { pace = "standard", holdMs = 650 } = {}) {
   let now = 0;
-  const rig = { now: () => now, menuOpen: 0, menu: false };
+  const rig = { now: () => now, menuOpen: 0, menu: false, via: null, focus: null, advances: 0, selects: 0 };
   const host = {
     epoch: 0,
-    holdMs: () => 650,
-    escapePolicy: () => ({ clicks: escape === "hold" ? 0 : clicks, pace }),
+    holdMs: () => holdMs,
+    escapePolicy: () => ({ pace }),
     inputMode: () => (rig.menu ? "menu" : "raw"),
     pressVisual() {}, holdVisual() {}, clickVisual() {},
-    advance() {}, select() {},
+    advance() { rig.advances++; }, select() { rig.selects++; },
     rawDown: (e) => app.down?.(e),
     rawUp: (e) => app.up?.(e),
     rawCancel: () => app.cancel?.(),
-    systemMenu() {
-      rig.menuOpen++; host.epoch++; rig.menu = true;
+    requestMenu(via, { focus } = {}) {
+      rig.menuOpen++; rig.via = via; rig.focus = focus;
+      // Vesper.openMenu: cancel held input (its release is swallowed), cancel the app, pause it, release the lamps.
+      router.cancel(router.blocked || !!router.press, router.blockSource || router.press?.event.source);
+      host.rawCancel();
+      host.epoch++; rig.menu = true;
       app.pause?.();
       ctx.ledsNow = Array(9).fill(0); // LightDirector.release()
     },
@@ -68,6 +72,15 @@ export function makeRig(app, ctx, { clicks = 4, pace = "standard", escape = "ada
     tap(ms = 60, gap = 55, source = "node") {
       router.down({ source, generation: 1, at_us: now * 1000 }); rig.wait(ms);
       router.up({ source, generation: 1, at_us: now * 1000 }); rig.wait(gap);
+    },
+    // Tap, tap, then a third press held until the menu opens or `until` ms pass; the app runs throughout.
+    gesture({ tap = 67, gap = 50, until = 5000, source = "node" } = {}) {
+      const frames = (ms) => { for (let f = 0; f < Math.max(1, Math.round(ms / 16.7)); f++) app.update?.(DT); };
+      const edge = (kind) => router[kind]({ source, generation: 1, at_us: now * 1000 });
+      for (let i = 0; i < 2; i++) { edge("down"); frames(tap); rig.wait(tap); edge("up"); frames(gap); rig.wait(gap); }
+      edge("down");
+      for (let t = 0; t < until; t += 16.7) { rig.wait(16.7); if (rig.menuOpen) break; app.update?.(DT); }
+      return rig.menuOpen > 0;
     },
     // Same order as Vesper.closeMenu(): cancel pending input, then lifecycle resume.
     resume() { rig.menu = false; host.epoch++; router.cancel(); app.resume?.(); },

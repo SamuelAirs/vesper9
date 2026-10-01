@@ -23,6 +23,7 @@ import { clamp } from "../engine/math.js";
 import { C, text, line, circle, diamond, space, banner } from "../engine/draw.js";
 import { LAMP, lamps, dim, lightsOff, pulse, chase } from "../engine/lightshow.js";
 import { recordRun } from "../engine/kit.js";
+import { AppGuard } from "../engine/input.js";
 
 const W = 24, H = 13, CELL = 36, X0 = 48, Y0 = 44;
 const DX = [1, 0, -1, 0], DY = [0, 1, 0, -1]; // heading 0 east; +1 is clockwise on screen
@@ -34,8 +35,8 @@ const READY = 1.4; // seconds before the first step of a run
 // turned clockwise instead of dying, so a newcomer who hesitates (or an idle one) still has
 // the time to read the screen and learn the single turn. After that the walls kill.
 const GRACE = 20;
-// A press held this long is not a tap: the world waits until release, so the three-second
-// hold that opens the system menu cannot cost the run.
+// A press held this long is not a tap: the world waits until release, so the long press of
+// the menu gesture cannot cost the run.
 const FREEZE_AFTER = 0.6;
 const DECAY_AFTER = 10, DECAY_EVERY = 4; // steps without a fragment before the tail shortens
 const MILESTONE = 5; // fragments per milestone
@@ -64,6 +65,8 @@ function bearing(hx, hy, dir, tx, ty) {
 export class Helix {
   constructor(ctx) {
     this.ctx = ctx;
+    // Takes back a menu gesture that reached the game (docs/ENGINE.md). The search tables are scratch.
+    this.guard = new AppGuard(this, ctx, { skip: ["seen", "dead", "bfsQ", "bfsD"] });
     this.t = 0;
     this.phase = "title";
     this.endedAt = -9;
@@ -138,6 +141,7 @@ export class Helix {
 
   // ---- input -------------------------------------------------------------
   down() {
+    this.guard.mark();
     if (this.phase === "title") { this.begin(); return; }
     if (this.phase === "over") {
       if (this.t - this.endedAt > RESTART_DELAY) this.begin();
@@ -151,11 +155,11 @@ export class Helix {
       this.ctx.tone(520, 0.03, "triangle");
     }
   }
-  up() { this.pressing = false; this.heldTime = 0; }
+  up() { this.guard.release(); this.pressing = false; this.heldTime = 0; }
   get frozen() { return this.phase === "play" && this.pressing && this.heldTime >= FREEZE_AFTER; }
-  cancel() { this.pressing = false; this.heldTime = 0; this.queue.length = 0; this.ctx.leds(lightsOff()); }
-  pause() { this.cancel(); }
-  dispose() { this.pressing = false; this.queue.length = 0; this.ctx.leds(lightsOff()); }
+  cancel() { this.guard.rewind(); this.pressing = false; this.heldTime = 0; this.queue.length = 0; this.ctx.leds(lightsOff()); }
+  pause() { this.guard.settle(); this.cancel(); }
+  dispose() { this.guard.settle(); this.pressing = false; this.queue.length = 0; this.ctx.leds(lightsOff()); }
 
   begin() {
     this.reset();
@@ -259,6 +263,7 @@ export class Helix {
 
   // ---- simulation --------------------------------------------------------
   update(dt) {
+    this.guard.tick(dt);
     if (!(dt > 0) || dt > 0.25) dt = 1 / 60;
     this.t += dt;
     if (this.accent > 0) this.accent -= dt;
@@ -455,7 +460,7 @@ export class Helix {
     this.ctx.tone(220, 0.15, "square");
     this.ctx.tone(165, 0.2, "square");
     this.ctx.tone(110, 0.4, "sawtooth");
-    this.setHint("Tap to try again. Hold three seconds for the menu.");
+    this.setHint("Tap to try again. Menu: tap, tap, hold.");
   }
 
   // The state the head will be in `n` steps from now if nothing more is tapped.

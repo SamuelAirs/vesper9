@@ -6,6 +6,7 @@ import { C, space, text, line, circle, diamond, banner } from "../engine/draw.js
 import { TAU, clamp, lerp, wrapAngle } from "../engine/math.js";
 import { LAMP, lamps, dim, ramp, spot, pulse, blink, fill, lightsOff } from "../engine/lightshow.js";
 import { recordRun } from "../engine/kit.js";
+import { AppGuard } from "../engine/input.js";
 
 const G = 240; // px/s^2, light gravity for flight and swing alike
 const REACH = 275; // how far a tether can be thrown
@@ -35,6 +36,7 @@ const smooth = (x) => { const t = clamp(x, 0, 1); return t * t * (3 - 2 * t); };
 export class Perihelion {
   constructor(ctx) {
     this.c = ctx;
+    this.guard = new AppGuard(this, ctx); // takes back a menu gesture that reached the game (docs/ENGINE.md)
     this.t = 0;
     this.held = false;
     this.launches = 0; // runs started in this session; the first waits for a deliberate press
@@ -216,6 +218,7 @@ export class Perihelion {
 
   // ---- input -------------------------------------------------------------
   down() {
+    this.guard.mark();
     if (this.phase === "title" || (this.phase === "over" && this.deadT > 0.7)) {
       this.start();
       return;
@@ -232,22 +235,26 @@ export class Perihelion {
     this.tryCatch();
   }
   up() {
+    this.guard.release();
     this.held = false;
     this.buffer = 0;
     this.pending = null;
     if (this.phase === "play" && this.p.a) this.releaseTether();
   }
   cancel() {
+    this.guard.rewind();
     this.up();
     this.c.leds(lightsOff());
   }
   pause() {
+    this.guard.settle();
     this.c.leds(lightsOff());
   }
   resume() {
     this.held = false;
   }
   dispose() {
+    this.guard.settle();
     this.held = false;
     this.c.leds(lightsOff());
   }
@@ -308,6 +315,7 @@ export class Perihelion {
     return 1 + Math.min(4, Math.floor(this.chain / 2));
   }
   update(dt) {
+    this.guard.tick(dt);
     this.t += dt;
     if (this.phase === "play") { if (!this.ready) this.stepPlay(dt); }
     else if (this.phase === "over") {

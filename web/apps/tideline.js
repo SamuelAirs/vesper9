@@ -6,6 +6,7 @@
 import { C, space, text, line, circle, banner, wrapText } from "../engine/draw.js";
 import { TAU, clamp, lerp } from "../engine/math.js";
 import { LAMP, lamps, dim, ramp, spot, pulse, blink, fill, only, meter, lightsOff } from "../engine/lightshow.js";
+import { AppGuard } from "../engine/input.js";
 
 // ---- the world ---------------------------------------------------------------------
 const WATERS = [
@@ -217,6 +218,7 @@ const RIDGE = Array.from({ length: 33 }, (_, i) => [i * 30, 250 - 6 - Math.floor
 export class Tideline {
   constructor(ctx) {
     this.c = ctx;
+    this.guard = new AppGuard(this, ctx); // takes back a menu gesture that reached the game (docs/ENGINE.md)
     this.t = 0;
     this.sv = normalizeSave(ctx.progress?.());
     this.phase = "title";
@@ -353,6 +355,7 @@ export class Tideline {
 
   // ---- input ---------------------------------------------------------------------------
   down() {
+    this.guard.mark();
     this.held = true;
     this.pressT = 0;
     this.ignoreUp = false;
@@ -375,6 +378,7 @@ export class Tideline {
     }
   }
   up(event) {
+    this.guard.release();
     const dur = Number.isFinite(event?.durationMs) ? event.durationMs / 1000 : this.pressT;
     const was = this.held;
     this.held = false;
@@ -397,6 +401,7 @@ export class Tideline {
     else if (this.phase === "menu" && !this.menu.done) this.menuStep();
   }
   cancel() {
+    this.guard.rewind();
     this.held = false;
     this.ignoreUp = false;
     this.stopTension();
@@ -406,6 +411,7 @@ export class Tideline {
     this.c.leds(lightsOff());
   }
   pause() {
+    this.guard.settle();
     this.stopTension();
     this.c.leds(lightsOff());
   }
@@ -414,6 +420,7 @@ export class Tideline {
     if (this.cur) this.cur.grace = Math.max(this.cur.grace, 1.5);
   }
   dispose() {
+    this.guard.settle();
     this.held = false;
     this.stopTension();
     this.c.leds(lightsOff());
@@ -594,6 +601,7 @@ export class Tideline {
 
   // ---- simulation ----------------------------------------------------------------------
   update(dt) {
+    this.guard.tick(dt);
     this.t += dt;
     this.phaseT += dt;
     if (this.held) this.pressT += dt;

@@ -7,7 +7,6 @@
     "reducedMotion": false,
     "morseWpm": 10,
     "holdMs": 650,
-    "menuClicks": 4,
     "gesturePace": "standard",
     "scanMs": 850,
     "tempUnit": "F",
@@ -15,11 +14,53 @@
     "lampAmbient": true
   },
   "sectors": [
-    "PLAY",
-    "PLAY II",
-    "PLAY III",
-    "INSTRUMENTS",
-    "INSTRUMENTS II"
+    {
+      "name": "PLAY",
+      "apps": [
+        "perihelion",
+        "orbit",
+        "runner",
+        "pulsar",
+        "tideline"
+      ]
+    },
+    {
+      "name": "PLAY II",
+      "apps": [
+        "drift",
+        "descent",
+        "ballista",
+        "ricochet",
+        "helix"
+      ]
+    },
+    {
+      "name": "PLAY III",
+      "apps": [
+        "outpost",
+        "reaction",
+        "echo",
+        "glyphs"
+      ]
+    },
+    {
+      "name": "INSTRUMENTS",
+      "apps": [
+        "morse",
+        "timers",
+        "cadence",
+        "transcribe"
+      ]
+    },
+    {
+      "name": "INSTRUMENTS II",
+      "apps": [
+        "environment",
+        "lantern",
+        "resonance",
+        "oracle"
+      ]
+    }
   ],
   "apps": [
     {
@@ -34,7 +75,6 @@
       "voice": [
         "orbit"
       ],
-      "escape": "adaptive",
       "capabilities": [
         "button",
         "lights",
@@ -54,7 +94,6 @@
       "voice": [
         "runner"
       ],
-      "escape": "adaptive",
       "capabilities": [
         "button",
         "lights",
@@ -74,7 +113,6 @@
       "voice": [
         "drift"
       ],
-      "escape": "adaptive",
       "capabilities": [
         "button",
         "lights",
@@ -94,7 +132,6 @@
       "voice": [
         "echo"
       ],
-      "escape": "hold",
       "capabilities": [
         "button",
         "lights",
@@ -114,7 +151,6 @@
       "voice": [
         "lights"
       ],
-      "escape": "adaptive",
       "capabilities": [
         "button",
         "lights",
@@ -134,7 +170,6 @@
       "voice": [
         "glyphs"
       ],
-      "escape": "adaptive",
       "capabilities": [
         "button",
         "lights",
@@ -154,7 +189,6 @@
       "voice": [
         "rhythm"
       ],
-      "escape": "hold",
       "capabilities": [
         "button",
         "lights",
@@ -181,7 +215,6 @@
       "voice": [
         "swing"
       ],
-      "escape": "adaptive",
       "capabilities": [
         "button",
         "lights",
@@ -213,7 +246,6 @@
       "voice": [
         "lander"
       ],
-      "escape": "adaptive",
       "capabilities": [
         "button",
         "lights",
@@ -233,7 +265,6 @@
       "voice": [
         "breakout"
       ],
-      "escape": "hold",
       "capabilities": [
         "button",
         "lights",
@@ -260,7 +291,6 @@
       "voice": [
         "snake"
       ],
-      "escape": "hold",
       "capabilities": [
         "button",
         "lights",
@@ -294,7 +324,6 @@
       "voice": [
         "launcher"
       ],
-      "escape": "adaptive",
       "capabilities": [
         "button",
         "lights",
@@ -314,7 +343,6 @@
       "voice": [
         "fishing"
       ],
-      "escape": "adaptive",
       "capabilities": [
         "button",
         "lights",
@@ -347,7 +375,6 @@
       "voice": [
         "station"
       ],
-      "escape": "adaptive",
       "capabilities": [
         "button",
         "lights",
@@ -367,7 +394,6 @@
       "voice": [
         "morse"
       ],
-      "escape": "hold",
       "capabilities": [
         "button",
         "lights",
@@ -387,7 +413,6 @@
       "voice": [
         "timer"
       ],
-      "escape": "adaptive",
       "capabilities": [
         "timers",
         "progress"
@@ -405,7 +430,6 @@
       "voice": [
         "notes"
       ],
-      "escape": "adaptive",
       "capabilities": [
         "microphone",
         "notes"
@@ -423,7 +447,6 @@
       "voice": [
         "environment"
       ],
-      "escape": "adaptive",
       "capabilities": [
         "sensor"
       ]
@@ -440,7 +463,6 @@
       "voice": [
         "diagnostics"
       ],
-      "escape": "adaptive",
       "capabilities": [
         "button",
         "lights",
@@ -460,7 +482,6 @@
       "voice": [
         "settings"
       ],
-      "escape": "adaptive",
       "capabilities": [
         "settings"
       ]
@@ -478,7 +499,6 @@
       "voice": [
         "lamp"
       ],
-      "escape": "adaptive",
       "capabilities": [
         "lights",
         "progress"
@@ -496,7 +516,6 @@
       "voice": [
         "metronome"
       ],
-      "escape": "adaptive",
       "capabilities": [
         "button",
         "lights",
@@ -515,10 +534,7 @@
       "glyph": 0,
       "factory": "Ephemeris",
       "icon": "<path d=\"M4 34h40\"/><path d=\"M12 34a12 12 0 0 1 24 0\"/><path d=\"M24 16v-5M10 22l-3-3M38 22l3-3\"/><path d=\"M38 5a6 6 0 1 0 5 9 5 5 0 0 1-5-9z\"/><circle cx=\"8\" cy=\"42\" r=\"1.5\" fill=\"currentColor\"/><circle cx=\"24\" cy=\"42\" r=\"1.5\" fill=\"currentColor\"/><circle cx=\"40\" cy=\"42\" r=\"1.5\" fill=\"currentColor\"/>",
-      "voice": [
-        "moon"
-      ],
-      "escape": "adaptive",
+      "voice": [],
       "capabilities": [
         "progress"
       ]
@@ -536,7 +552,6 @@
       "voice": [
         "sound"
       ],
-      "escape": "adaptive",
       "capabilities": [
         "microphone",
         "lights"
@@ -555,7 +570,6 @@
       "voice": [
         "dice"
       ],
-      "escape": "adaptive",
       "capabilities": [
         "button",
         "lights",
@@ -576,10 +590,14 @@
       "voice": [
         "system"
       ],
-      "escape": "adaptive",
       "capabilities": [
         "sensor"
       ]
     }
+  ],
+  "system": [
+    "settings",
+    "diagnostics",
+    "telemetry"
   ]
 }

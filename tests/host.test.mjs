@@ -8,7 +8,7 @@ import { LightDirector, normalizeLeds } from "../web/engine/lights.js";
 globalThis.localStorage = { getItem: () => null, setItem() {} };
 const { DemoBridge } = await import("../web/engine/demo.js");
 
-function harness(mode = "raw", policy = { clicks: 4, pace: "standard" }) {
+function harness(mode = "raw", policy = { pace: "standard" }) {
   let now = 0;
   const events = [];
   const host = {
@@ -20,7 +20,7 @@ function harness(mode = "raw", policy = { clicks: 4, pace: "standard" }) {
     advance: () => events.push("advance"), select: () => events.push("select"),
     rawDown: (e) => events.push(["down", e]), rawUp: (e) => events.push(["up", e]),
     rawCancel: () => events.push("cancel"),
-    systemMenu() { events.push("menu"); this.epoch++; },
+    requestMenu(via) { events.push("menu"); this.epoch++; },
   };
   const router = new InputRouter(host, () => now);
   return { router, host, events, advance: (ms) => { now += ms; router.update(); }, now: () => now };
@@ -258,42 +258,53 @@ test("F4 demo plays the amber timer-complete effect on the dashboard, but not du
 });
 
 // F9 ---------------------------------------------------------------------------------------
-// Steady clicking: click k goes down at k*P and is released 80 ms (or the pace's limit) later.
-// The menu opens on the fourth click only if the whole run fits the pace's total window.
-function steadyClicks(pace, period, jitter = 0, n = 40) {
-  let now = 0, opened = 0, seed = 7;
-  const host = { epoch: 0, holdMs: () => 650, inputMode: () => "raw", escapePolicy: () => ({ clicks: 4, pace }),
-    pressVisual() {}, holdVisual() {}, rawDown() {}, rawUp() {}, rawCancel() {}, advance() {}, select() {}, systemMenu() { opened++; } };
+// The gesture is tap, tap, hold. Each tap lasts `tap` ms, the pauses between the three presses are `gap` ms,
+// and the third press is held for `hold` ms. The menu opens exactly when every limit of the pace is met.
+function gestureAt(pace, tap, gap, hold) {
+  let now = 0, opened = 0;
+  const host = { epoch: 0, holdMs: () => 650, inputMode: () => "raw", escapePolicy: () => ({ pace }),
+    pressVisual() {}, holdVisual() {}, rawDown() {}, rawUp() {}, rawCancel() {}, advance() {}, select() {}, requestMenu() { opened++; host.epoch++; } };
   const router = new InputRouter(host, () => now);
-  const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
-  const tap = Math.min(80, GESTURE_PACES[pace].tapMs - 10);
   let t = 0;
-  for (let i = 0; i < n; i++) {
+  const press = (ms) => {
     now = t; router.down({ source: "node", generation: 1, at_us: t * 1000 });
-    now = t + tap; router.up({ source: "node", generation: 1, at_us: (t + tap) * 1000 });
-    t += period * (1 + (rnd() * 2 - 1) * jitter);
-    now = t; router.update();
-  }
-  return { opened, tap };
+    for (let step = 10; step <= ms; step += 10) { now = t + step; router.update(); }
+    now = t + ms; router.up({ source: "node", generation: 1, at_us: (t + ms) * 1000 });
+    t += ms;
+  };
+  const pause = (ms) => { t += ms; now = t; router.update(); };
+  press(tap); pause(gap); press(tap); pause(gap); press(hold);
+  return opened;
 }
 
-test("F9 steady clicking opens the menu exactly when four clicks fit the preset's window", () => {
+test("F9 the menu opens exactly when both taps, both pauses and the hold meet the pace's limits", () => {
   const table = [];
   for (const pace of Object.keys(GESTURE_PACES)) {
     const p = GESTURE_PACES[pace];
-    for (let period = 150; period <= 400; period += 25) {
-      const { opened, tap } = steadyClicks(pace, period);
-      const fits = 3 * period + tap <= p.totalMs && period - tap <= p.gapMs;
-      table.push(`${pace}@${period}ms:${opened}`);
-      assert.equal(opened > 0, fits, `${pace} at ${period} ms per click opened ${opened} times`);
-      if (fits) assert.equal(opened, 10, "every group of four opens the menu once");
+    for (const [tap, gap, hold, ok] of [
+      [p.tapMs, p.gapMs, p.holdMs, true],
+      [60, 60, p.holdMs, true],
+      [p.tapMs + 20, p.gapMs, p.holdMs, false],   // taps too slow
+      [p.tapMs, p.gapMs + 40, p.holdMs, false],   // a pause too long
+      [p.tapMs, p.gapMs, p.holdMs - 80, false],   // hold too short
+    ]) {
+      const opened = gestureAt(pace, tap, gap, hold);
+      table.push(`${pace} tap ${tap} gap ${gap} hold ${hold}: ${opened}`);
+      assert.equal(opened, ok ? 1 : 0, table.at(-1));
     }
   }
 });
 
-test("F9 decision recorded: the overrunning click stays dropped (restarting with it measured no easier)", () => {
-  // Measured with both variants at 150-400 ms per click, three presets, 0/20/35 % jitter: the
-  // restart variant opened the menu at the same tempos, so the gesture is left as designed.
-  // At the standard preset the cut-off is between 250 and 275 ms per click.
-  assert.ok(steadyClicks("standard", 275).opened === 0 && steadyClicks("standard", 250).opened > 0);
+test("F9 decision recorded: steady quick clicking is not a gesture (a run of three or more taps never arms the hold)", () => {
+  // Four quick clicks in a rhythm game then a held note must not open the menu: the hold only counts
+  // after exactly two taps. (The old gesture was four clicks; clicking quickly four times now does nothing.)
+  let now = 0, opened = 0;
+  const host = { epoch: 0, holdMs: () => 650, inputMode: () => "raw", escapePolicy: () => ({ pace: "standard" }),
+    pressVisual() {}, holdVisual() {}, rawDown() {}, rawUp() {}, rawCancel() {}, advance() {}, select() {}, requestMenu() { opened++; } };
+  const router = new InputRouter(host, () => now);
+  for (let i = 0; i < 4; i++) { router.down({ source: "node", generation: 1, at_us: now * 1000 }); now += 70; router.up({ source: "node", generation: 1, at_us: now * 1000 }); now += 60; router.update(); }
+  router.down({ source: "node", generation: 1, at_us: now * 1000 });
+  for (let i = 0; i < 40; i++) { now += 50; router.update(); }
+  router.up({ source: "node", generation: 1, at_us: now * 1000 });
+  assert.equal(opened, 0);
 });

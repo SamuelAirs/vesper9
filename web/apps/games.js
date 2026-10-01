@@ -10,7 +10,7 @@ import {
   banner,
   glyph,
 } from "../engine/draw.js";
-import { GESTURE_PACES } from "../engine/input.js";
+import { GestureTimeline, AppGuard } from "../engine/input.js";
 import { LAMP, lamps, fill, only, meter, spot, ramp, blink, dim, lightsOff } from "../engine/lightshow.js";
 
 export function recordRun(ctx, result) {
@@ -26,21 +26,26 @@ export const SETTLE = 2;
 
 const clone = (value) => structuredClone(value);
 
-// The system menu opens on the fourth quick click, and the first three have already reached the
-// game as ordinary presses (docs/ENGINE.md, input contract). Edges stay immediate, so the game
-// cannot know a tap belongs to a gesture. Instead each press first saves the run's state; when the
-// host calls cancel() and the last presses look like the click gesture (`menuClicks` short taps,
-// at the configured pace, the last one still down), the game goes back to the state saved at the
-// gesture's first tap. Nothing is delayed in normal play, and cancel() only follows a menu gesture
-// or an interruption, so the rewind reaches back no further than the gesture window (about a second).
+// The system menu opens on tap, tap, hold, and the two taps and the start of the hold have already
+// reached the game as ordinary presses (docs/ENGINE.md, input contract). Edges stay immediate, so the
+// game cannot know a press belongs to a gesture. Instead each press first saves the run's state; when
+// the host calls cancel() and the last presses look like the gesture (two short taps at the configured
+// pace, then a third press still down for about the hold), the game goes back to the state saved at the
+// gesture's first tap. Nothing is delayed in normal play, and cancel() only follows a menu gesture or
+// an interruption, so the rewind reaches back no further than the gesture window (about two seconds).
 // A run that ends is not recorded straight away either (see end/settle), so a death that the
 // gesture caused and the rewind undid never reaches the scores or the field record.
+// (GestureGuard saves the named fields; AppGuard, in engine/input.js, saves everything and also holds back the
+// score and the progress writes. Both recognise the gesture with GestureTimeline from engine/input.js.)
 export class GestureGuard {
   constructor(game, ctx, fields) {
     this.game = game; this.c = ctx; this.fields = [...fields, "phase", "ended", "overAt"];
-    this.t = 0; this.marks = [];
+    this.t = 0; this.line = new GestureTimeline(() => ctx.settings?.() || {});
     // Finished runs whose game has already started another one, still waiting out the window.
     this.backlog = [];
+    // A finished run gets a number when it ends; the ones already recorded are remembered, so a run that
+    // was recorded while the gesture was under way and then restored by the rewind is not recorded twice.
+    this.seq = 0; this.done = new Set();
   }
   snapshot() { const saved = {}; for (const key of this.fields) saved[key] = clone(this.game[key]); return saved; }
   tick(dt) {
@@ -49,35 +54,21 @@ export class GestureGuard {
     if (this.backlog.length && this.backlog[0].due <= this.t) this.record(this.backlog.shift());
   }
   // Call at the very top of down(), before the press changes anything.
-  mark() {
-    this.marks.push({ at: this.t, up: null, state: this.snapshot() });
-    if (this.marks.length > 6) this.marks.shift();
-  }
-  release() { const last = this.marks.at(-1); if (last && last.up === null) last.up = this.t; }
+  mark() { this.line.mark(this.t, this.snapshot()); }
+  release() { this.line.release(this.t); }
   // Rewind after a menu gesture; returns whether it did.
   rewind() {
-    const marks = this.marks; this.marks = [];
-    const settings = this.c.settings?.() || {};
-    const clicks = settings.menuClicks ?? 4;
-    if (!clicks || marks.length < clicks) return false;
-    const pace = GESTURE_PACES[settings.gesturePace] || GESTURE_PACES.standard, slop = 0.15;
-    const tap = pace.tapMs / 1000 + slop, gap = pace.gapMs / 1000 + slop;
-    const taps = marks.slice(-clicks), last = taps.at(-1);
-    // The terminal release is consumed by the host, so the final tap has no release yet.
-    if (last.up !== null || this.t - last.at > tap) return false;
-    if (this.t - taps[0].at > (pace.totalMs / 1000) * (clicks / 4) + slop) return false;
-    for (let i = 0; i < clicks - 1; i++) {
-      if (taps[i].up === null || taps[i].up - taps[i].at > tap) return false;
-      if (taps[i + 1].at - taps[i].up > gap) return false;
-    }
-    for (const [key, value] of Object.entries(taps[0].state)) this.game[key] = clone(value);
+    const first = this.line.match(this.t);
+    if (!first) return false;
+    for (const [key, value] of Object.entries(first.state)) this.game[key] = clone(value);
     // A run that ended and was replaced during the gesture is part of what was just undone.
-    this.backlog = this.backlog.filter((entry) => entry.stashed < taps[0].at);
+    this.backlog = this.backlog.filter((entry) => entry.stashed < first.at);
+    if (this.game.ended && this.done.has(this.game.ended.id)) this.game.ended = null;
     return true;
   }
   // End the run now, record it later.
   end(score, run) {
-    this.game.phase = "over"; this.game.overAt = this.t; this.game.ended = { score, run };
+    this.game.phase = "over"; this.game.overAt = this.t; this.game.ended = { score, run, id: ++this.seq };
   }
   // The game starts another run: the finished one waits in the backlog.
   stash() {
@@ -85,6 +76,7 @@ export class GestureGuard {
     if (ended) this.backlog.push({ ...ended, stashed: this.t, due: this.game.overAt + SETTLE });
   }
   record(ended) {
+    this.done.add(ended.id);
     this.c.score(...ended.score);
     recordRun(this.c, ended.run);
   }
@@ -840,10 +832,14 @@ export function echoHeard(ms, expected, wobbles) {
   if (Math.abs(ms - ECHO_LINE) <= WOBBLE_MS && wobbles > 0) return { side, ok: true, wobble: true };
   return { side, ok: false, wobble: false };
 }
+// A held press longer than this is no pulse the game asks for (the longest is about 0.7 s), so the
+// sidetone stops: the worst a menu gesture costs the ear is two short beeps and a tone of this length.
+export const ECHO_TONE_CAP = 0.75;
 export class EchoVault {
   constructor(ctx) {
     this.c = ctx;
     this.lamps = new LampBus(ctx);
+    this.guard = new AppGuard(this, ctx);
     this.reset();
   }
   reset() {
@@ -882,6 +878,7 @@ export class EchoVault {
     this.c.hint("Receive the signal. Your turn follows the final pulse.");
   }
   down() {
+    this.guard.mark();
     if (this.phase === "title" || this.phase === "over") {
       if (this.phase === "over" && this.t - this.overAt < LOCKOUT) return;
       this.reset();
@@ -892,11 +889,13 @@ export class EchoVault {
       this.held = true;
       this.holdAt = this.t;
       this.stepped = false;
+      this.capped = false;
       this.heard = null;
       this.c.synth.startTone(440);
     }
   }
   up(event) {
+    this.guard.release();
     if (this.phase === "listen" && this.held) {
       this.held = false;
       this.c.synth.stopTone();
@@ -935,6 +934,7 @@ export class EchoVault {
     }
   }
   cancel() {
+    this.guard.rewind();
     this.held = false;
     this.c.synth.stopTone();
     this.lamps.clear();
@@ -950,6 +950,7 @@ export class EchoVault {
   }
   // Leaving mid-run keeps the sequences completed so far.
   pause() {
+    this.guard.settle();
     if (this.phase !== 'over' && this.round > 0) this.c.score(this.round);
     this.lamps.sleep();
   }
@@ -974,6 +975,7 @@ export class EchoVault {
     return null;
   }
   update(dt) {
+    this.guard.tick(dt);
     this.t += dt;
     this.wait -= dt;
     if (this.heardT > 0) this.heardT -= dt;
@@ -982,6 +984,9 @@ export class EchoVault {
       this.stepped = true;
       this.c.synth.startTone(660);   // the sidetone steps up when the hold becomes long
     }
+    // Past any pulse the game asks for the tone stops, and the screen says the menu gesture is being counted.
+    if (this.held && !this.capped && this.t - this.holdAt >= ECHO_TONE_CAP) { this.capped = true; this.c.synth.stopTone(); }
+    if (this.held && this.capped && this.c.menuGesture?.().armed) announce(this, "MENU GESTURE / KEEP HOLDING", 0.4);
     const s = this.tempo();
     if (this.phase === "show" && this.wait <= 0) {
       if (this.lit) {
@@ -1096,6 +1101,7 @@ export class LightTrial {
   constructor(ctx) {
     this.c = ctx;
     this.lamps = new LampBus(ctx);
+    this.guard = new AppGuard(this, ctx);
     this.phase = "title";
     this.trial = 0;
     this.cueAt = 0;
@@ -1118,6 +1124,7 @@ export class LightTrial {
     this.lamps.flash(0.8, (e) => (Math.floor(e / 0.2) % 2 === 0 ? only(0, LAMP.red, 0.8) : only(2, LAMP.red, 0.8)));
   }
   down(event) {
+    this.guard.mark();
     if (
       this.phase === "title" ||
       this.phase === "result" ||
@@ -1199,14 +1206,20 @@ export class LightTrial {
     if (this.phase === "wait" || this.phase === "go") this.phase = "title";
   }
   // An interruption clears the glow, but never while a trial is armed: the node owns the lamps then.
-  cancel() { if (this.phase !== "wait" && this.phase !== "go") this.lamps.clear(); }
-  pause() { this.abort(); this.lamps.sleep(); }
+  up() { this.guard.release(); }
+  cancel() {
+    this.guard.rewind();
+    if (this.phase !== "wait" && this.phase !== "go") this.lamps.clear();
+  }
+  pause() { this.guard.settle(); this.abort(); this.lamps.sleep(); }
   resume() { this.lamps.wake(); }
   dispose() {
+    this.guard.settle();
     this.c.command("cancel").catch(() => {});
     this.lamps.sleep();
   }
   update(dt) {
+    this.guard.tick(dt);
     this.t += dt;
     // No host light while armed or waiting for the cue.
     if (this.phase !== "wait" && this.phase !== "go") this.lamps.frame(dt, null);

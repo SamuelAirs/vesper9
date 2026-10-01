@@ -11,6 +11,7 @@ import { clamp } from "../engine/math.js";
 import { C, text, line, circle, diamond, space, banner } from "../engine/draw.js";
 import { LAMP, lamps, dim, blend, lightsOff } from "../engine/lightshow.js";
 import { recordRun } from "../engine/kit.js";
+import { AppGuard } from "../engine/input.js";
 
 // Seconds the game assumes a press happened before the button event reached it
 // (USB serial, host scheduling, one frame of simulation granularity). A press is
@@ -52,6 +53,7 @@ function spec(p) {
 export class Pulsar {
   constructor(ctx) {
     this.ctx = ctx;
+    this.guard = new AppGuard(this, ctx); // takes back a menu gesture that reached the game (docs/ENGINE.md)
     this.t = 0; // animation clock, always runs
     this.phase = "title";
     this.endedAt = -9;
@@ -146,6 +148,7 @@ export class Pulsar {
   // ---- input -------------------------------------------------------------
 
   down() {
+    this.guard.mark();
     if (this.phase === "title") return this.begin();
     if (this.phase === "over") {
       if (this.t - this.endedAt > 0.8) this.begin();
@@ -190,6 +193,7 @@ export class Pulsar {
   }
 
   up() {
+    this.guard.release();
     this.pressing = false;
     const n = this.holdNote;
     if (!n || this.phase !== "play") return;
@@ -198,14 +202,16 @@ export class Pulsar {
   }
 
   cancel() {
+    this.guard.rewind();
     // Focus change or menu: drop held input without penalty and go dark.
     this.pressing = false;
     if (this.holdNote) this.dropHold(this.holdNote, false);
     this.ctx.synth?.stopTone?.();
     this.ctx.leds(lightsOff());
   }
-  pause() { this.cancel(); }
+  pause() { this.guard.settle(); this.cancel(); }
   dispose() {
+    this.guard.settle();
     this.pressing = false;
     this.holdNote = null;
     this.ctx.synth?.stopTone?.();
@@ -252,6 +258,7 @@ export class Pulsar {
 
   update(dt) {
     if (!(dt > 0)) return;
+    this.guard.tick(dt);
     this.t += dt;
     this.frame++;
     if (this.phase === "play") this.step(dt);

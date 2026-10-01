@@ -4,7 +4,7 @@
 // Everything here is pure logic from host state and a time in milliseconds to nine whole
 // numbers 0–255. The host (web/main.js) only feeds it state and writes the result.
 import { clamp } from "./math.js";
-import { LAMP, dim, lamps, lightsOff, meter, spot, pulse, scaleLeds } from "./lightshow.js";
+import { LAMP, dim, blend, lamps, lightsOff, meter, spot, pulse, scaleLeds } from "./lightshow.js";
 
 // Global lamp level: a multiplier for everything the lamps do (host effects, plain leds
 // values, pattern colours). The reaction cue is node-timed at fixed colours and is not scaled.
@@ -17,8 +17,7 @@ export const levelScale = (level) =>
 // No input for IDLE.startMs, then the host layer fades to exactly dark over IDLE.fadeMs.
 export const IDLE = { startMs: 4 * 60 * 1000, fadeMs: 30 * 1000 };
 export const SELECT_DEAD_MS = 150;   // taps are not hold progress
-export const ESCAPE_MS = 3000;       // the menu hold that every menu keeps
-export const ESCAPE_DEAD_MS = 500;   // a game's ordinary long hold is not escape progress yet
+export const ESCAPE_MS = 3000;       // the silent plain-hold fallback that navigation contexts keep
 export const COUNTDOWN_S = 10;
 // After a timer-completion effect the node pattern runs ~1.1 s; the host layer stays out for
 // that plus a margin, then fades back in so the glow never overwrites the effect's end.
@@ -51,6 +50,9 @@ function flashLayer(flash) {
     default: return null;
   }
 }
+// Hold progress. "select" is a menu press working towards a choice: amber fills, and past the selection
+// threshold white counts to the silent three-second fallback. "gesture" is the third press of the menu
+// gesture (tap, tap, hold): the two tap lamps stay lit and the right lamp fills white towards the menu.
 function pressLayer(press) {
   if (!press) return null;
   const e = press.elapsedMs;
@@ -60,13 +62,16 @@ function pressLayer(press) {
     // Past the selection threshold: amber stays (release selects) while white counts to the menu hold.
     return meter((e - press.holdMs) / Math.max(1, ESCAPE_MS - press.holdMs), LAMP.white, LAMP.amber);
   }
-  if (press.kind === "escape" && e >= ESCAPE_DEAD_MS)
-    return meter((e - ESCAPE_DEAD_MS) / (ESCAPE_MS - ESCAPE_DEAD_MS), LAMP.white);
+  if (press.kind === "gesture") {
+    const fraction = clamp(e / Math.max(1, press.holdMs), 0, 1);
+    return lamps(dim(CYAN, 0.55), dim(CYAN, 0.55), blend(dim(CYAN, 0.2), LAMP.white, fraction));
+  }
   return null;
 }
+// One lamp per tap of the gesture, left to right; the third lamp is the hold (pressLayer).
 function clickLayer(clicks) {
-  if (!clicks || !(clicks.count > 0) || clicks.count >= clicks.total) return null; // the last click opens the menu
-  const lit = Math.min(3, clicks.count);
+  if (!clicks || !(clicks.count > 0)) return null;
+  const lit = Math.min(2, clicks.count);
   return lamps(...[0, 1, 2].map((i) => (i < lit ? dim(CYAN, 0.55) : null)));
 }
 // Last ten seconds of a running timer: three, two, then one lamp, brightest on each second.

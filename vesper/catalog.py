@@ -15,7 +15,12 @@ def load_catalog(path=None):
         for key in ('name', 'subtitle', 'description', 'controls', 'category', 'factory'):
             if not isinstance(app[key], str) or not app[key]:
                 raise ValueError(f'Missing cartridge {key}: {ident}')
-        if app['escape'] not in ('adaptive', 'hold') or not isinstance(app['capabilities'], list):
+        if not isinstance(app['capabilities'], list):
+            raise ValueError(f'Invalid capabilities: {ident}')
+        # "escape" ("adaptive" or "hold") was a per-app menu policy. The menu gesture is now the same
+        # everywhere (tap, tap, hold), so the field changes nothing: older cartridges that still carry it
+        # are accepted (a bad value is still an error) and it is dropped from the loaded catalog.
+        if app.pop('escape', 'adaptive') not in ('adaptive', 'hold'):
             raise ValueError(f'Invalid control policy: {ident}')
         # Optional: inline SVG shapes for the dashboard card (48 x 48 viewBox, trusted
         # project source) and labels for keys of the saved field record.
@@ -28,10 +33,43 @@ def load_catalog(path=None):
             if not re.fullmatch(r'[a-z]+(?: [a-z]+)*', alias) or alias in aliases:
                 raise ValueError(f'Invalid or duplicate voice alias: {alias}')
             aliases.add(alias)
-    sectors = data.setdefault('sectors', [])
-    if not isinstance(sectors, list) or not all(isinstance(name, str) and name for name in sectors):
-        raise ValueError('Invalid sector names')
+    data['sectors'] = validate_sectors(data.get('sectors'), [app['id'] for app in data['apps']])
+    system = data.setdefault('system', [])
+    if not isinstance(system, list) or any(not isinstance(i, str) or i not in ids for i in system) or len(set(system)) != len(system):
+        raise ValueError('Invalid system apps')
     return data
+
+
+# The dashboard shows one page per sector. A page holds at most this many cards (a 3 x 2 grid).
+SECTOR_PAGE_SIZE = 6
+
+
+def validate_sectors(sectors, app_ids):
+    """Sectors are named groups of app ids, in order: [{"name": "PLAY", "apps": ["orbit", ...]}, ...].
+    An app in no sector is not on the dashboard (it stays launchable by id and by voice). The older
+    form, a list of names with the apps taken six at a time in catalog order, is still accepted."""
+    if isinstance(sectors, list) and sectors and all(isinstance(name, str) and name for name in sectors):
+        sectors = [{'name': name, 'apps': app_ids[i * SECTOR_PAGE_SIZE:(i + 1) * SECTOR_PAGE_SIZE]} for i, name in enumerate(sectors)]
+        sectors = [sector for sector in sectors if sector['apps']]
+    if not isinstance(sectors, list) or not sectors:
+        raise ValueError('Invalid sectors')
+    seen, names = set(), set()
+    for sector in sectors:
+        if not isinstance(sector, dict) or set(sector) != {'name', 'apps'}:
+            raise ValueError('Invalid sector')
+        name, apps = sector['name'], sector['apps']
+        if not isinstance(name, str) or not name or name in names:
+            raise ValueError(f'Invalid or duplicate sector name: {name!r}')
+        names.add(name)
+        if not isinstance(apps, list) or not 1 <= len(apps) <= SECTOR_PAGE_SIZE:
+            raise ValueError(f'Sector {name} must list 1 to {SECTOR_PAGE_SIZE} apps')
+        for ident in apps:
+            if not isinstance(ident, str) or ident not in app_ids:
+                raise ValueError(f'Sector {name} lists an unknown app: {ident!r}')
+            if ident in seen:
+                raise ValueError(f'App listed in two sectors: {ident}')
+            seen.add(ident)
+    return sectors
 
 
 CATALOG = load_catalog()
@@ -45,8 +83,6 @@ def validate_setting(key, value):
         valid = type(value) is bool
     elif key == 'lampLevel':
         valid = value in ('full', 'medium', 'low', 'off')
-    elif key == 'menuClicks':
-        valid = type(value) is int and value in (0, 3, 4)
     elif key == 'scanMs':
         valid = type(value) is int and value in (600, 850, 1200, 1600)
     elif key == 'gesturePace':

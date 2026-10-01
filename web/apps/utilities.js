@@ -512,7 +512,7 @@ export class Settings {
     this.c.content(
       panel(
         "Adjust the instrument",
-        "<p>Every setting is reachable with the arcade button. Voice uses the prefix <strong>“computer”</strong>. Sound plays through the Pi or browser audio output.</p><p>Games use four quick clicks for the menu by default. Signal School and Echo Vault reserve a three-second hold to protect their tap patterns. Menus use a three-second hold too. The microphone always starts muted after a service restart.</p>",
+        "<p>Every setting is reachable with the arcade button. Voice uses the prefix <strong>“computer”</strong>. Sound plays through the Pi or browser audio output.</p><p>One gesture opens the system menu from anywhere, in every game, instrument and on the dashboard: <strong>tap, tap, then press and hold</strong> for about a second. CLICK TIMING sets how quick the taps must be. Inside a menu a tap moves and a hold chooses; hold clearly longer, after two taps, and the menu opens instead. The microphone always starts muted after a service restart.</p>",
       ),
     );
     this.c.actions([
@@ -554,13 +554,11 @@ export class Settings {
       },
       { id: 'temp-unit', label: 'TEMPERATURE / ' + (s.tempUnit === 'F' ? 'FAHRENHEIT' : 'CELSIUS'),
         run: () => this.setting('tempUnit', s.tempUnit === 'F' ? 'C' : 'F') },
-      { id: 'menu-clicks', label: 'GAME MENU / ' + (s.menuClicks ? s.menuClicks + ' QUICK CLICKS' : 'HOLD 3s'),
-        run: () => this.setting('menuClicks', s.menuClicks === 4 ? 3 : s.menuClicks === 3 ? 0 : 4) },
       { id: 'lamp-level', label: 'LAMP LEVEL / ' + String(s.lampLevel || 'medium').toUpperCase(),
         run: () => this.setting('lampLevel', ({ full: 'medium', medium: 'low', low: 'off', off: 'full' })[s.lampLevel] || 'full') },
       { id: 'lamp-ambient', label: 'AMBIENT GLOW / ' + (s.lampAmbient === false ? 'OFF' : 'ON'),
         run: () => this.setting('lampAmbient', s.lampAmbient === false) },
-      { id: 'gesture-pace', label: 'CLICK TIMING / ' + s.gesturePace.toUpperCase(),
+      { id: 'gesture-pace', label: 'MENU GESTURE TIMING / ' + s.gesturePace.toUpperCase(),
         run: () => this.setting('gesturePace', ({ quick: 'standard', standard: 'relaxed', relaxed: 'quick' })[s.gesturePace]) },
       { id: 'scan-speed', label: 'ANSWER SCAN / ' + s.scanMs + ' ms',
         run: () => this.setting('scanMs', ({ 600: 850, 850: 1200, 1200: 1600, 1600: 600 })[s.scanMs] || 850) },

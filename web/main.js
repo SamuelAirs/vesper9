@@ -1,11 +1,11 @@
 import { Bridge } from "./engine/bridge.js";
 import { DemoBridge } from "./engine/demo.js";
-import { InputRouter } from "./engine/input.js";
+import { InputRouter, GESTURE_TAPS } from "./engine/input.js";
 import { Synth, BrowserMicrophone } from "./engine/audio.js";
 import { Random, escapeHTML as esc, formatTime, formatTemp, tempUnit } from "./engine/math.js";
 import { ambient, glyph, C, text, space } from "./engine/draw.js";
 import { APPS } from "./apps/registry.js";
-import { DEFAULT_SETTINGS as DEFAULT, SECTORS } from "./apps/catalog.js";
+import { DEFAULT_SETTINGS as DEFAULT, SECTORS, SYSTEM_APPS } from "./apps/catalog.js";
 import { LightDirector } from "./engine/lights.js";
 import { HostLamps, levelScale } from "./engine/ambient.js";
 import { microphoneStatus } from "./engine/status.js";
@@ -29,6 +29,18 @@ const ICONS = [
 // A cartridge may bring its own card icon (catalog "icon"); otherwise "glyph" picks a shared one.
 function icon(app) {
   return `<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">${app.icon || ICONS[app.glyph % ICONS.length]}</svg>`;
+}
+
+// The dashboard's pages, from the catalog's explicit sectors: each is a named list of app ids in order.
+// An app in no sector is not on the dashboard (it stays launchable by id, by voice and from the menu).
+const PAGES = SECTORS.map((sector) => ({ name: sector.name, apps: sector.apps.map((id) => APPS.find((a) => a.id === id)).filter(Boolean) }))
+  .filter((page) => page.apps.length);
+function locateCard(id) {
+  for (let page = 0; page < PAGES.length; page++) {
+    const index = PAGES[page].apps.findIndex((a) => a.id === id);
+    if (index >= 0) return { page, index };
+  }
+  return null;
 }
 
 export class Vesper {
@@ -88,16 +100,41 @@ export class Vesper {
         this.bridge.command("keepalive", {}, true)?.catch?.(() => {});
     }, 1000);
   }
+  // The one menu gesture, everywhere: tap, tap, hold (engine/input.js). Only its pace is a setting.
   escapePolicy() {
-    return { clicks: this.meta?.escape === "hold" ? 0 : (this.state.settings.menuClicks ?? 4), pace: this.state.settings.gesturePace || "standard" };
+    return { pace: this.state.settings.gesturePace || "standard" };
   }
   menuHint() {
-    const p = this.escapePolicy();
-    return !this.app || this.app.navigation || !p.clicks ? "MENU: HOLD 3s" : `MENU: ${p.clicks} QUICK CLICKS`;
+    return "MENU: TAP · TAP · HOLD";
   }
-  clickVisual(count, total) {
-    this.clickState = count ? { count, total } : null;
-    if ($("escape-hint")) $("escape-hint").textContent = count ? `MENU: ${count} / ${total}` : this.menuHint();
+  // The control deck's click indicator: a dot per tap so far, then the hold.
+  clickVisual(count) {
+    this.clickState = count ? { count } : null;
+    const dots = "●".repeat(count) + "○".repeat(Math.max(0, GESTURE_TAPS - count));
+    if ($("escape-hint")) $("escape-hint").textContent = count ? `MENU: ${dots} ${count < GESTURE_TAPS ? "TAP AGAIN" : "NOW HOLD"}` : this.menuHint();
+  }
+  // Where the highlight stands, so a menu gesture that moved it with its two taps can put it back.
+  focusMark() {
+    if (this.menu) return null;
+    const item = this.nav.items[this.nav.index];
+    return { index: this.nav.index, id: item?.id };
+  }
+  restoreFocus(mark) {
+    const nav = this.nav;
+    if (!mark || !nav.items.length) return;
+    // The app may have re-rendered its list since: find the same action by id, else the same row.
+    const byId = mark.id !== undefined ? nav.items.findIndex((item) => item.id === mark.id) : -1;
+    nav.index = Math.min(byId >= 0 ? byId : mark.index, nav.items.length - 1);
+    this.updateFocus(nav);
+  }
+  // The single way into the system menu from wherever the player is. The gesture (tap, tap, hold), the
+  // Escape key, the on-screen PAUSE button, the voice command, an interruption and any later trigger (a
+  // knock on the case) all call this, so they all get the same guarantees: held input is cancelled and its
+  // release swallowed, the app is told to cancel() and then pause(), the lamps go back to the host, and the
+  // highlight a gesture's taps moved is put back. `source` says who asked; `focus` is a focusMark().
+  requestMenu(source = "api", { focus = null } = {}) {
+    if (focus && !this.menu) this.restoreFocus(focus);
+    this.systemMenu();
   }
   inputMode() {
     return this.menu || !this.app || this.app.navigation ? "menu" : "raw";
@@ -114,11 +151,14 @@ export class Vesper {
       $("control-title").textContent = "SINGLE-SWITCH INTERFACE";
     }
   }
-  holdVisual(ratio, ready) {
+  // ratio: progress of the press towards its goal; ready: a release would choose now (menus);
+  // armed: the press is the third of tap, tap, hold and the bar is counting towards the menu.
+  holdVisual(ratio, ready, armed = false) {
     for (const id of ["hold-fill", "menu-hold-fill"])
       $(id).style.width = ratio * 100 + "%";
     $("control-title").textContent =
-      ready ? "RELEASE TO SELECT" : ratio >= 1 ? "RELEASE THE SWITCH" : "SINGLE-SWITCH INTERFACE";
+      armed ? (ready ? "RELEASE TO SELECT / KEEP HOLDING FOR MENU" : "MENU GESTURE / KEEP HOLDING")
+        : ready ? "RELEASE TO SELECT" : "SINGLE-SWITCH INTERFACE";
   }
   rawDown(e) {
     try {
@@ -191,7 +231,7 @@ export class Vesper {
       }
       if (e.code === "Escape") {
         e.preventDefault();
-        this.menu ? this.closeMenu() : this.systemMenu();
+        this.menu ? this.closeMenu() : this.requestMenu("key");
       }
       if (
         ["ArrowRight", "ArrowDown"].includes(e.code) &&
@@ -220,7 +260,7 @@ export class Vesper {
       if (document.hidden) {
         this.softwareButton(false);
         this.input.cancel();
-        if (this.app && !this.menu) this.systemMenu();
+        if (this.app && !this.menu) this.requestMenu("interrupt");
       }
     });
     $("arcade").addEventListener("click", (e) => {
@@ -234,7 +274,7 @@ export class Vesper {
       this.home();
     });
     $("mic-button").addEventListener("click", () => this.micMenu());
-    $("pause-button").addEventListener("click", () => this.systemMenu());
+    $("pause-button").addEventListener("click", () => this.requestMenu("button"));
     $("menu-overlay").addEventListener("keydown", (e) => {
       if (e.key !== "Tab") return;
       const buttons = [...$("menu-overlay").querySelectorAll("button")];
@@ -304,7 +344,12 @@ export class Vesper {
       block: "nearest",
       behavior: "instant",
     });
-    this.synth.tone(210, 0.025, "triangle");
+    this.tick();
+  }
+  // The short tone that confirms a step. An app whose taps are musical (a tap tempo, a stopwatch)
+  // silences it with ctx.silentTicks(true); launching or leaving an app resets that.
+  tick() {
+    if (!this.silentTicks) this.synth.tone(210, 0.025, "triangle");
   }
   select() {
     this.hostLamps.touch(performance.now());
@@ -315,22 +360,21 @@ export class Vesper {
     return APPS.length;
   }
   buildHome(index = 0) {
-    const collection = APPS.slice(this.page * 6, this.page * 6 + 6);
+    const collection = PAGES[this.page]?.apps || [];
     $("app-grid").innerHTML = collection
       .map(
         (app, i) =>
           `<button class="app-card" type="button" data-app="${app.id}"><span class="card-number">${String(i + 1).padStart(2, "0")}</span><span class="app-icon">${icon(app)}</span><span class="card-name">${app.name}</span><span class="card-desc">${app.subtitle}</span></button>`,
       )
       .join("");
-    const pages = Math.ceil(APPS.length / 6),
-      names = SECTORS;
-    const name = names[this.page] || "EXPANSION";
+    const pages = PAGES.length;
+    const name = PAGES[this.page]?.name || "EXPANSION";
     $("collection-title").textContent =
       name + " / " + collection.length + " CHANNELS";
     $("sector-label").textContent =
       "SECTOR " + String(this.page + 1).padStart(2, "0") + " / " + name;
     $("sector-button").textContent =
-      "NEXT SECTOR → " + (names[(this.page + 1) % pages] || "EXPANSION");
+      "NEXT SECTOR → " + (PAGES[(this.page + 1) % pages]?.name || "EXPANSION");
     const nav = [...$("app-grid").querySelectorAll("button")].map(
       (element, i) => ({ element, run: () => this.launch(collection[i].id) }),
     );
@@ -347,15 +391,17 @@ export class Vesper {
     this.setNav(nav, index);
   }
   home() {
-    // Come back to the card the player just left, on its own sector.
-    const left = this.meta ? APPS.findIndex((a) => a.id === this.meta.id) : -1;
+    // Come back to the card the player just left, on its own sector. An app that is not on the
+    // dashboard (a system tool opened from the menu) returns to where the dashboard stood before.
+    const found = this.meta ? locateCard(this.meta.id) : null;
+    const left = found || this.returnTo || { page: this.page, index: 0 };
     this.closeMenu(false);
     this.unmount();
-    if (left >= 0) this.page = Math.floor(left / 6);
+    this.page = Math.min(left.page, PAGES.length - 1);
     $("console").classList.remove("playing");
     $("dashboard").hidden = false;
     $("application").hidden = true;
-    this.buildHome(left >= 0 ? left % 6 : 0);
+    this.buildHome(left.index);
     this.nav.items[this.nav.index]?.element.scrollIntoView({ block: "nearest", behavior: "instant" });
     this.hint("TAP TO ADVANCE · HOLD & RELEASE TO ENTER");
     this.bridge.command("focus", { app: "home" }, true);
@@ -376,12 +422,16 @@ export class Vesper {
     this.lights.release().catch(() => {});
     this.hudValue = "";
     this.hudLabels = "";
+    this.silentTicks = false;
   }
   launch(id) {
     const meta = APPS.find((a) => a.id === id);
     if (!meta) return;
     this.closeMenu(false);
+    if (!this.app) this.returnTo = { page: this.page, index: this.nav.index };
     this.unmount();
+    // The new app starts with nothing highlighted from the last screen: its first action is row 0.
+    this.nav = { items: [], index: 0 };
     this.meta = meta;
     const token = this.token;
     const alive = () => this.token === token;
@@ -405,7 +455,12 @@ export class Vesper {
     this.hint(meta.controls);
     this.synth.unlock();
     const ctx = {
-      rng: new Random(),
+      rng: Random.warm(),
+      // True while the app's taps are musical: the host's own step tick would sound with them.
+      silentTicks: guarded((on = true) => { this.silentTicks = !!on; }),
+      // The menu gesture as the router sees it right now (a third press being counted), for apps
+      // that show or sound something on a long press (the Morse sidetone).
+      menuGesture: () => (alive() ? this.input.gestureState() : { armed: false, elapsedMs: 0, thresholdMs: 0, progress: 0 }),
       synth: { startTone: guarded(hz => this.synth.startTone(hz)), stopTone: guarded(() => this.synth.stopTone()), chime: guarded(() => this.synth.chime()) },
       alive: () => this.token === token,
       state: () => this.state,
@@ -440,7 +495,8 @@ export class Vesper {
           $("utility-content").innerHTML = html;
         }
       },
-      actions: (items) => {
+      // `focus` names the action (by id, or label when it has none) to highlight after this render.
+      actions: (items, { focus } = {}) => {
         if (this.token !== token) return;
         const container = $("utility-actions");
         const unchanged =
@@ -455,13 +511,13 @@ export class Vesper {
                 `<button type="button" class="utility-button">${esc(item.label)}</button>`,
             )
             .join("");
-        this.setNav(
-          [...$("utility-actions").children].map((element, i) => ({
-            element,
-            id: items[i].id || items[i].label,
-            run: guarded(items[i].run),
-          })),
-        );
+        const entries = [...$("utility-actions").children].map((element, i) => ({
+          element,
+          id: items[i].id || items[i].label,
+          run: guarded(items[i].run),
+        }));
+        const at = focus === undefined ? -1 : entries.findIndex((item) => item.id === focus);
+        this.setNav(entries, at >= 0 ? at : null);
       },
       home: guarded(() => this.home()),
       resume: guarded(() => this.closeMenu()),
@@ -578,7 +634,7 @@ export class Vesper {
     if (this.faulted) return this.faultMenu(); // RESUME is blocked while faulted, so never offer it
     this.hostLamps.note("menu", performance.now());
     const mic = this.state.mic.mode;
-    this.openMenu("System channel", "Tap to move. Hold and release to choose. " + this.menuHint(), [
+    this.openMenu("System channel", "Tap to move. Hold and release to choose. To open this menu from anywhere: tap, tap, hold.", [
       {
         label: this.app ? "RESUME / " + this.meta.name : "RETURN TO DASHBOARD",
         run: () => this.closeMenu(),
@@ -592,11 +648,20 @@ export class Vesper {
         run: () =>
           this.help(
             this.meta
-              ? this.meta.description + " " + this.menuHint() + ". Rapid clicks can also affect gameplay before the menu opens."
-              : "Tap to move between items. Hold and release to select. Games use quick menu clicks; Signal School and Echo Vault reserve a three-second hold. Space or the on-screen arcade button also works. The second dashboard sector contains the instruments.",
+              ? this.meta.description + " To open the menu from anywhere: tap, tap, then press and hold for about a second. The two taps and the hold reach the app first; when the menu opens, the app puts back anything they changed."
+              : "Tap to move between items. Hold and release to select. To open the system menu from anywhere, in any app: tap, tap, then press and hold for about a second. Space or the on-screen arcade button also works. Games come first on the dashboard, then the instruments; Calibration, Node Scope and Telemetry are under SYSTEM TOOLS in the system menu.",
           ),
       },
       { label: "CALIBRATION / SETTINGS", run: () => this.launch("settings") },
+      ...(SYSTEM_APPS.length ? [{ label: "SYSTEM TOOLS", run: () => this.systemTools() }] : []),
+    ]);
+  }
+  // The apps that are not on the dashboard: calibration and the two diagnostic tools.
+  systemTools() {
+    const apps = SYSTEM_APPS.map((id) => APPS.find((a) => a.id === id)).filter(Boolean);
+    this.openMenu("System tools", apps.map((a) => a.name + ": " + a.subtitle).join(" "), [
+      ...apps.map((app) => ({ label: app.name, run: () => this.launch(app.id) })),
+      { label: "BACK", run: () => this.systemMenu() },
     ]);
   }
   fieldRecord() {
@@ -680,7 +745,7 @@ export class Vesper {
       case "select": say = "SELECT / " + label(); this.select(); break;
       case "sector": this.nav.items.find((item) => item.element === $("sector-button"))?.run(); break;
       case "home": this.home(); break;
-      case "menu": this.systemMenu(); break;
+      case "menu": this.requestMenu("voice"); break;
       case "resume": this.closeMenu(); break;
       case "launch": this.launch(plan.app); break;
       case "timer": this.bridge.command("timer", { op: plan.op, id: plan.id }).catch(failed); break;
@@ -699,7 +764,7 @@ export class Vesper {
     this.nav.index = (this.nav.index + this.nav.items.length - 1) % this.nav.items.length;
     this.updateFocus();
     this.nav.items[this.nav.index].element.scrollIntoView({ block: "nearest", behavior: "instant" });
-    this.synth.tone(210, 0.025, "triangle");
+    this.tick();
   }
   // A short lamp answer, only while the host owns the lamps; they are handed back when it ends.
   answerLamps(plan) {
@@ -785,7 +850,7 @@ export class Vesper {
         this.browserMic.stop();
         this.input.cancel();
         this.status();
-        if (this.app && !this.menu) this.systemMenu();
+        if (this.app && !this.menu) this.requestMenu("interrupt");
         this.toast("Console service disconnected. Reconnecting…");
         break;
       case "device":
@@ -795,13 +860,13 @@ export class Vesper {
         if (!e.connected) {
           this.input.cancel(true, this.state.simulated ? "simulator" : "node");
           this.browserMic.stop();
-          if (this.app && !this.menu) this.systemMenu();
+          if (this.app && !this.menu) this.requestMenu("interrupt");
         }
         break;
       case "node_reset":
         this.lights.invalidate();
         this.input.cancel(true, this.state.simulated ? "simulator" : "node");
-        if (this.app && !this.menu) this.systemMenu();
+        if (this.app && !this.menu) this.requestMenu("interrupt");
         break;
       case "button":
         this.hostLamps.touch(performance.now());
@@ -945,8 +1010,9 @@ export class Vesper {
     let hold = null;
     if (press && !press.consumed) {
       const elapsedMs = this.input.clock() - press.at;
-      if (press.mode === "menu") hold = { kind: "select", elapsedMs, holdMs: this.holdMs() };
-      else if (!this.escapePolicy().clicks) hold = { kind: "escape", elapsedMs };
+      // The third press of tap, tap, hold fills the right lamp; any other menu press fills towards a choice.
+      if (press.armed) hold = { kind: "gesture", elapsedMs, holdMs: this.input.thresholdMs(press) };
+      else if (press.mode === "menu") hold = { kind: "select", elapsedMs, holdMs: this.holdMs() };
     }
     // A timer's countdown belongs where the service plays the completion effect.
     let remaining = null;

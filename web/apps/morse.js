@@ -1,6 +1,7 @@
 import { C, text, line, circle, space } from "../engine/draw.js";
 import { LAMP, fill, only, spot, dim } from "../engine/lightshow.js";
 import { LampBus } from "./games.js";
+import { AppGuard } from "../engine/input.js";
 export const MORSE = {
   A: ".-",
   B: "-...",
@@ -91,9 +92,14 @@ export class MorseSchool {
     this.attempts = this.learning.attempts;
     this.t = 0;
     this.lamps = new LampBus(ctx);
+    this.guard = new AppGuard(this, ctx);
     this.start('guided');
   }
   get unit() { return 1200 / this.c.settings().morseWpm; }
+  // The longest element Morse keying means is a dash, three units. A press held past five units is no
+  // element at all, so the sidetone stops there: keying "dot dot dash" at 10 wpm is never more than 360 ms
+  // of tone, and a menu gesture's long press at most five units (or until the menu opens).
+  get toneCapMs() { return this.unit * 5; }
   menuActions() {
     return ['guided', 'listen', 'review'].map(mode => ({
       label: 'SIGNAL SCHOOL / ' + { guided: 'GUIDED KEYING', listen: 'LISTEN & IDENTIFY', review: 'ADAPTIVE REVIEW' }[mode],
@@ -101,7 +107,7 @@ export class MorseSchool {
     }));
   }
   start(mode) {
-    this.cancel();
+    this.clearKey();
     this.mode = mode; this.sessionCorrect = 0; this.sessionAttempts = 0;
     this.c.controls?.(mode === 'listen' ? 'WATCH OR LISTEN · PRESS THE HIGHLIGHTED ANSWER' : 'TAP A DOT · HOLD A DASH');
     this.nextDelay = 0; this.summary = false; this.run = 0;
@@ -111,7 +117,7 @@ export class MorseSchool {
     this.target = this.mode === 'review' ? reviewLetter(this.learning) : LESSONS[this.index % LESSONS.length];
     this.input = ''; this.downAt = null; this.gap = 0; this.phase = 'key';
     this.result = this.mode === 'review' ? 'Recall the signal. Weak characters return sooner.' : 'Transmit the letter above.';
-    this.c.hint('Hold 3s for learning modes / menu. Dot: tap. Dash: hold briefly.');
+    this.c.hint('Dot: tap. Dash: hold briefly. Menu and learning modes: tap, tap, hold.');
     if (this.mode === 'listen') this.demonstrate();
   }
   // The key-down and gap steps of a letter, one unit per dot, three per dash, one unit between.
@@ -121,7 +127,7 @@ export class MorseSchool {
       { on: false, seconds: this.unit / 1000 }]);
   }
   demonstrate() {
-    this.cancel();
+    this.clearKey();
     const choices = [this.target];
     while (choices.length < 4) {
       const candidate = LESSONS[this.c.rng.int(0, 25)];
@@ -134,16 +140,18 @@ export class MorseSchool {
     this.pulses = [{ on: false, seconds: .6 }, ...this.elements(this.target)];
     this.pulse = -1; this.pulseWait = 0; this.phase = 'signal'; this.lit = false;
     this.result = 'Watch the pulse lamp or listen. The answer stays hidden.';
-    this.c.hint('After the signal, press the highlighted answer. REPLAY repeats it. Hold 3s for modes.');
+    this.c.hint('After the signal, press the highlighted answer. REPLAY repeats it. Modes: tap, tap, hold.');
   }
   down() {
+    this.guard.mark();
     if (this.summary) { this.start(this.mode); return; }
     if (this.nextDelay > 0 || this.phase === 'signal') return;
     if (this.phase === 'choose') { this.pendingChoice = this.focus; return; }
-    this.downAt = this.t; this.gap = 0;
+    this.downAt = this.t; this.gap = 0; this.toneCut = false;
     this.c.synth.startTone(550);
   }
   up(event) {
+    this.guard.release();
     if (this.phase === 'choose' && this.pendingChoice !== null && this.pendingChoice !== undefined) {
       const choice = this.choices[this.pendingChoice]; this.pendingChoice = null;
       if (choice === 'REPLAY') this.demonstrate(); else this.answer(choice);
@@ -207,20 +215,28 @@ export class MorseSchool {
     if (this.gap > 0) return fill(LAMP.amber, 0.25 * Math.min(1, this.gap / (this.gapTotal || 0.6)));
     return null;
   }
-  cancel() {
-    this.downAt = null; this.pendingChoice = null; this.input = ''; this.gap = 0;
+  // The host's cancel: take back a menu gesture that has reached the keyer (the dots it keyed, an answer it
+  // chose), then let go of the key. A letter that was half keyed stays as it was, and its pause keeps its
+  // place, so opening the menu never costs the letter; the app's own restarts use clearKey().
+  cancel() { this.guard.rewind(); this.releaseKey(); }
+  releaseKey() {
+    this.downAt = null; this.pendingChoice = null;
     this.c.synth.stopTone(); this.lamps.clear(); this.lit = false;
   }
-  pause() { this.cancel(); this.lamps.sleep(); }
+  clearKey() { this.releaseKey(); this.input = ''; this.gap = 0; }
+  pause() { this.guard.settle(); this.releaseKey(); this.lamps.sleep(); }
   resume() { this.lamps.wake(); if (this.mode === 'listen' && !this.summary && !(this.nextDelay > 0)) this.demonstrate(); }
-  dispose() { this.cancel(); this.lamps.sleep(); }
+  dispose() { this.guard.settle(); this.clearKey(); this.lamps.sleep(); }
   update(dt) {
+    this.guard.tick(dt);
     this.t += dt;
+    if (this.downAt !== null && !this.toneCut && (this.t - this.downAt) * 1000 > this.toneCapMs) { this.toneCut = true; this.c.synth.stopTone(); }
+    if (this.downAt !== null && this.toneCut && this.c.menuGesture?.().armed) this.result = 'MENU GESTURE / KEEP HOLDING';
     if (!this.summary) {
       if (this.nextDelay > 0) {
         this.nextDelay -= dt;
         if (this.nextDelay <= 0) {
-          if (this.sessionAttempts >= 10) { this.summary = true; this.cancel(); }
+          if (this.sessionAttempts >= 10) { this.summary = true; this.clearKey(); }
           else if (this.lastAccepted || this.mode === 'review') this.nextCharacter();
           else if (this.mode === 'listen') this.demonstrate();
           else { this.input = ''; this.result = 'Try the same character again.'; }
@@ -257,7 +273,7 @@ export class MorseSchool {
       text(g, `${this.index} of ${LESSONS.length} letters learned`, 480, 290, 24, C.ink, 'center');
       text(g, 'Next review: ' + reviewLetter(this.learning), 480, 340, 24, C.ink, 'center');
       text(g, 'PRESS FOR ANOTHER SESSION', 480, 430, 22, C.muted, 'center');
-      text(g, 'HOLD 3s FOR MODES', 480, 470, 20, C.muted, 'center');
+      text(g, 'MODES: TAP, TAP, HOLD', 480, 470, 20, C.muted, 'center');
       return;
     }
     if (this.mode === 'listen') {

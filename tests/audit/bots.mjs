@@ -7,17 +7,18 @@ import { OrbitLock, Moonrunner, Undertow, EchoVault, GlyphVault, orbitSpeed, RUN
 import { MorseSchool } from "../../web/apps/morse.js";
 import { makeCtx, makeRig, DT } from "./harness.mjs";
 
-// The default 4-click menu gesture as a human delivers it (about 65 ms taps, 50 ms
-// gaps), with the game still running between taps. Returns when the menu has opened.
-export function gestureWithUpdates(g, rig, onFrame = () => {}) {
-  for (let i = 0; i < 4; i++) {
-    rig.router.down({ source: "node", generation: 1, at_us: rig.now() * 1000 });
-    for (let f = 0; f < 4; f++) { g.update(DT); onFrame(); }
-    rig.wait(67);
-    rig.router.up({ source: "node", generation: 1, at_us: rig.now() * 1000 });
-    for (let f = 0; f < 3; f++) { g.update(DT); onFrame(); }
-    rig.wait(50);
+// The menu gesture, tap, tap, hold, as a human delivers it (about 65 ms taps, 50 ms gaps, then a press
+// held until the menu opens), with the game still running between and during the presses. Returns when the
+// menu has opened (false if it never did within five seconds).
+export function gestureWithUpdates(g, rig, onFrame = () => {}, { tapMs = 67, gapMs = 50 } = {}) {
+  const frames = (ms) => { for (let f = 0; f < Math.max(1, Math.round(ms / 16.7)); f++) { g.update(DT); onFrame(); } };
+  const edge = (kind) => rig.router[kind]({ source: "node", generation: 1, at_us: rig.now() * 1000 });
+  for (let i = 0; i < 2; i++) {
+    edge("down"); frames(tapMs); rig.wait(tapMs);
+    edge("up"); frames(gapMs); rig.wait(gapMs);
   }
+  edge("down");
+  for (let t = 0; t < 5000; t += 16.7) { rig.wait(16.7); if (rig.menuOpen) break; g.update(DT); onFrame(); }
   return rig.menuOpen > 0;
 }
 

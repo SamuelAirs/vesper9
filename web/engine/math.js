@@ -4,9 +4,29 @@ export const lerp = (a, b, t) => a + (b - a) * t;
 export const wrapAngle = (a) => ((((a + Math.PI) % TAU) + TAU) % TAU) - Math.PI;
 export const overlaps = (a, b) =>
   a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+// The murmur3 finaliser: every input bit changes about half of the output bits.
+export const mixSeed = (n) => {
+  let x = n >>> 0;
+  x ^= x >>> 16; x = Math.imul(x, 0x85ebca6b);
+  x ^= x >>> 13; x = Math.imul(x, 0xc2b2ae35);
+  x ^= x >>> 16;
+  return x >>> 0;
+};
 export class Random {
   constructor(seed = Date.now()) {
     this.state = seed >>> 0 || 0x9e3779b9;
+  }
+  // The generator the host gives an app at launch. xorshift32 started from nearby seeds (two launches a
+  // few milliseconds apart, as Date.now() gives) produces alike first outputs (chi-square 403 over 60000
+  // consecutive-millisecond launches), so the seed is hashed and a few draws are discarded. An explicit
+  // seed (tests) is mixed the same way, so it stays reproducible. Plain `new Random(seed)` is unchanged.
+  static warm(seed) {
+    const entropy = seed !== undefined ? seed
+      : (Date.now() ^ Math.floor((typeof performance !== "undefined" ? performance.now() : 0) * 1000)
+        ^ (typeof crypto !== "undefined" && crypto.getRandomValues ? crypto.getRandomValues(new Uint32Array(1))[0] : 0));
+    const random = new Random(mixSeed(entropy));
+    for (let i = 0; i < 8; i++) random.next();
+    return random;
   }
   next() {
     let x = this.state;

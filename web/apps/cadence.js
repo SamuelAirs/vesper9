@@ -23,6 +23,7 @@
 // chooses. A short press also "advances" focus, which with a single action is a no-op.
 import { LAMP, dim, blend, lamps, only, spot, meter, fill, lightsOff } from "../engine/lightshow.js";
 import { clamp, escapeHTML as esc } from "../engine/math.js";
+import { GestureTimeline } from "../engine/input.js";
 
 export const BPM_MIN = 40, BPM_MAX = 220;
 export const SIGNATURES = [2, 3, 4, 6];
@@ -181,6 +182,9 @@ export class Cadence {
     this.touched = false; // the lamps have been written: until then they belong to the host
     this.chosen = null; // id of the action that was run last (see focusOn)
     this.down = null;
+    // The menu gesture (tap, tap, hold) reaches this instrument as three button edges: cancel() takes back
+    // the tempo and laps the first two taps made. See undoGesture().
+    this.gesture = new GestureTimeline(() => ctx.settings?.() || {});
     this.frameGap = 16;
     this.lastFrame = null;
     this.lastRender = -1e9;
@@ -231,10 +235,12 @@ export class Cadence {
     if (!e || e.type !== "button" || this.paused || this.dead) return;
     if (e.pressed) {
       if (e.repeat) return;
+      this.gesture.mark(this.clock() / 1000, { tap: { ...this.tap, times: this.tap.times.slice() }, bpm: this.bpm, t0: this.m.t0, n0: this.m.n0, laps: this.sw.laps.length });
       const node = Number.isFinite(e.at_us);
       this.down = { stamp: node ? e.at_us / 1000 : this.clock(), node, src: e.source || "local", arrival: this.clock() };
       return;
     }
+    this.gesture.release(this.clock() / 1000);
     const d = this.down;
     this.down = null;
     if (!d) return; // a release whose press belonged to the menu or the previous screen
@@ -245,7 +251,16 @@ export class Cadence {
     else return;
     this.wake();
   }
-  cancel() { this.down = null; }
+  cancel() { this.undoGesture(); this.down = null; }
+  // The host opened the menu on tap, tap, hold. The two taps were counted as they arrived (a tap tempo,
+  // laps); when the presses fit the gesture, the tempo, the taps and the laps go back to what they were.
+  undoGesture() {
+    const first = this.gesture.match(this.clock() / 1000);
+    if (!first) return;
+    const s = first.state;
+    this.tap = s.tap; this.bpm = s.bpm; this.m.t0 = s.t0; this.m.n0 = s.n0;
+    this.sw.laps.length = Math.min(this.sw.laps.length, s.laps);
+  }
   // The system menu opened. A running metronome keeps clicking and a running interval keeps
   // its time and its tones (the owner may be adjusting volume or looking something up); a
   // stopwatch must keep counting, and does, because it is computed from the clock. Only the
@@ -575,18 +590,18 @@ export class Cadence {
           a("sig", "BEATS / " + this.sig, () => this.cycleSignature()),
         ];
         if (!running) items.push(back);
-        hint = "Tap to advance. Hold and release to choose. TAP TEMPO lets you tap the button in time. Hold three seconds for the system menu.";
+        hint = "Tap to advance. Hold and release to choose. TAP TEMPO lets you tap the button in time. Menu: tap, tap, hold.";
         break;
       }
       case "tap":
         items = [a("done", "DONE", () => { this.lastTool = "metro"; this.persist(); this.go("metro", "go"); })];
-        hint = "Tap the button in time with the music. Hold and release to finish. (Hold three seconds for the system menu.)";
+        hint = "Tap the button in time with the music. Hold and release to finish. (Menu: tap, tap, hold.)";
         break;
       case "stop": {
         const sw = this.sw;
         if (sw.running) {
           items = [a("go", "STOP", () => this.stopStopwatch())];
-          hint = "Tap = LAP. Hold and release = STOP. (Hold three seconds for the system menu.)";
+          hint = "Tap = LAP. Hold and release = STOP. (Menu: tap, tap, hold.)";
         } else {
           items = [a("go", this.swElapsed() > 0 ? "RESUME" : "START", () => this.startStopwatch())];
           if (this.swElapsed() > 0) items.push(a("reset", "RESET", () => this.resetStopwatch()));
@@ -599,7 +614,7 @@ export class Cadence {
         const iv = this.iv;
         if (iv.running || iv.paused) {
           items = [a("pause", iv.paused ? "RESUME" : "PAUSE", () => this.pauseIntervals()), a("end", "STOP", () => this.stopIntervals())];
-          hint = "The lamps drain across the period: green work, cyan rest, amber at the end. (Hold three seconds for the system menu.)";
+          hint = "The lamps drain across the period: green work, cyan rest, amber at the end. (Menu: tap, tap, hold.)";
         } else if (iv.doneAt >= 0) {
           items = [a("end", "FINISHED / CLEAR", () => this.stopIntervals())];
           hint = "All rounds complete.";

@@ -80,6 +80,31 @@ class KnockDecode(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events, [{"type": "knock", "at_us": 123456789, "peak": 18000, "source": "node", "generation": 0},
                                   {"type": "knock", "at_us": 5, "peak": 32767, "hf": 41, "source": "node", "generation": 0}])
 
+    async def test_knocks_from_the_button_are_dropped(self):
+        events = []
+        async def emit(event): events.append(event)
+        device = SerialDevice("unused", 921600, emit)
+        ms = 1000
+        def button(at, pressed): return encode(Kind.BUTTON, struct.pack("<QB", at * ms, pressed))
+        def knock(at): return encode(Kind.KNOCK, struct.pack("<QHB", at * ms, 30000, 120))
+        stream = (knock(1000)                                 # a tap, nothing near: kept
+                  + button(2000, 1) + knock(2100)             # while the button is down
+                  + button(2150, 0) + knock(2300)             # 150 ms after the release
+                  + knock(2400)                               # 250 ms after: kept
+                  + knock(2950) + button(3000, 1)             # 50 ms before a press (arrives first)
+                  + button(3120, 0) + knock(3500)             # a tap well after the press: kept
+                  + encode(Kind.HELLO, json.dumps({"fw": "vesper-node-0.1.3"}).encode()) + knock(2100))  # node restarted
+        for packet in Decoder().feed(stream):
+            await device.packet(packet)
+        knocks = [e["at_us"] // ms for e in events if e["type"] == "knock"]
+        self.assertEqual(knocks, [1000, 2400, 2950, 3500, 2100])
+        self.assertEqual(device.knock_guarded, 2)
+        # The press that follows a knock is caught when the knock arrives late.
+        device.button_edges.append((4000 * ms, True))
+        device.button_edges.append((4100 * ms, False))
+        self.assertTrue(device.button_sound(3960 * ms))
+        self.assertFalse(device.button_sound(3900 * ms))
+
     def test_setting_values(self):
         for value in ("off", "low", "medium", "high"):
             self.assertEqual(validate_setting("knock", value), value)

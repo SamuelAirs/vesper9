@@ -691,6 +691,7 @@ class Console:
             "audioDrops": status.get("audio_drops"),
             "sensor": status.get("sensor"),
             "knock": status.get("knock"),
+            "knockGuarded": getattr(device, "knock_guarded", 0),
         }
         alive = {name: not task.done() for name, task in zip(self.task_names, self.tasks)}
         service = {

@@ -64,7 +64,18 @@ test("knock input on: the right lane is struck by the case, with the same rhythm
   };
   const plain = rhythm(appContext({ seed: 12 })), tapped = rhythm(tapCtx(12));
   assert.equal(tapped.tapMode, true);
-  assert.equal(tapped.notes.map((n) => n.t.toFixed(3) + n.lane).join(), plain.notes.map((n) => n.t.toFixed(3) + n.lane).join());
+  // The same rhythm, less any tap beat that would come right after a button beat: the service drops
+  // a knock just after a button edge, since the switch can sound like a tap.
+  const key = (n) => n.t.toFixed(3) + "/" + n.lane;
+  const kept = new Set(tapped.notes.map(key));
+  let buttonEnd = -Infinity, dropped = 0;
+  for (const n of plain.notes) {
+    const near = n.lane === 2 && n.t - buttonEnd < Pulsar.TAP_AFTER_BUTTON;
+    assert.equal(kept.has(key(n)), !near, `beat at ${key(n)}`);
+    if (n.lane !== 2) buttonEnd = n.t + n.len;
+    if (near) dropped++;
+  }
+  assert.ok(dropped > 0 && dropped < plain.notes.length / 4, `a few beats left out (${dropped})`);
   assert.ok(tapped.notes.some((n) => n.tap), "some beats are tap beats");
   for (const n of tapped.notes) {
     assert.equal(n.tap, n.lane === 2);

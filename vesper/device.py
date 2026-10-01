@@ -1,5 +1,6 @@
 """An explicit simulator and a reconnecting USB-serial transport."""
 import asyncio
+import collections
 import contextlib
 import json
 import logging
@@ -17,6 +18,12 @@ log = logging.getLogger(__name__)
 # Measured on the case (PR #4, 2026-10-01): Sam's lightest wanted taps peak around 8000 and below, a
 # quiet room near 2300. Medium (4000) caught 34 of 34 taps in the first test; high stays above the room.
 KNOCK_THRESHOLDS = {"off": 0, "low": 8000, "medium": 4000, "high": 3000}
+# The button itself can sound like a tap: during 11 minutes of button-only play at full volume about
+# 15 of 36 stray knocks came with a button press, loud and bright, past the node's own 60 ms guard
+# (PR #4). The service also drops a knock, by the node's clock, while the button is down, from
+# KNOCK_GUARD_BEFORE_US before any button edge, or up to KNOCK_GUARD_AFTER_US after one.
+KNOCK_GUARD_BEFORE_US = 60_000
+KNOCK_GUARD_AFTER_US = 200_000
 WRITE_FAILURES_LIMIT = 3   # consecutive failed writes before the link is torn down and reopened
 REPEAT_LOG_EVERY = 30      # a link that stays down is logged on the first failure, then every 30th
 
@@ -152,6 +159,8 @@ class SerialDevice:
         self.status_at = None       # monotonic time it arrived
         self.write_failures = 0     # consecutive failed serial writes
         self.knock_threshold = 0    # what the console wants; the node is told on connect and whenever its STATUS differs
+        self.button_edges = collections.deque(maxlen=16)  # (node at_us, pressed) of recent button edges
+        self.knock_guarded = 0      # knocks dropped as the button's own sound
         self.attempt_failures = 0   # consecutive connection attempts that never heard the node
 
     @property
@@ -303,6 +312,18 @@ class SerialDevice:
                     raise  # run() sees the finished task and reconnects
             await asyncio.sleep(1)
 
+    def button_sound(self, at):
+        """Whether a knock at node time `at` is more likely the button than a tap: the button was down
+        then, or an edge lies within the guard around it. Edges a little after `at` may not have
+        arrived yet; the node's own guard covers those."""
+        down = False
+        for edge, pressed in self.button_edges:
+            if at - KNOCK_GUARD_AFTER_US <= edge <= at + KNOCK_GUARD_BEFORE_US:
+                return True
+            if edge <= at:
+                down = pressed
+        return down
+
     async def packet(self, packet):
         kind, p = packet.kind, packet.payload
         try:
@@ -317,6 +338,7 @@ class SerialDevice:
             elif kind == Kind.BUTTON and len(p) == 9:
                 at, pressed = struct.unpack("<QB", p)
                 self.pressed = bool(pressed)
+                self.button_edges.append((at, self.pressed))
                 await self.emit({"type": "button", "pressed": self.pressed, "at_us": at, "source": "node", "generation": self.generation})
             elif kind == Kind.SENSOR and len(p) == 16:
                 at, temperature, humidity = struct.unpack("<Qff", p)
@@ -335,13 +357,18 @@ class SerialDevice:
                 event = {"type": "knock", "at_us": at, "peak": peak, "source": "node", "generation": self.generation}
                 if len(p) == 11:
                     event["hf"] = p[10]
-                await self.emit(event)
+                if self.button_sound(at):
+                    self.knock_guarded += 1
+                    log.debug("Knock at %d dropped as the button's sound (peak %d)", at, peak)
+                else:
+                    await self.emit(event)
             elif kind == Kind.CUE and len(p) == 12:
                 trial, at = struct.unpack("<IQ", p)
                 await self.emit({"type": "cue", "trial": trial, "at_us": at, "simulated": False, "generation": self.generation})
             elif kind in (Kind.HELLO, Kind.STATUS):
                 if kind == Kind.HELLO:
                     self.audio_expected = None
+                    self.button_edges.clear()  # the node's clock restarts
                     self.generation += 1
                     await self.emit({"type": "node_reset", "generation": self.generation})
                 state = json.loads(p)

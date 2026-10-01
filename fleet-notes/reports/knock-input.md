@@ -148,3 +148,24 @@ The system menu has PULSAR / TAP LANE to switch it off for the session; Calibrat
 Test on the console (sound at 100 %): play Pulsar a few phrases with the tap lane; check that right-
 lane beats register as PERFECT/GOOD when tapped on time, that the button cannot strike them, and
 that the game's own beats and tones do not register as taps (stray count, or Node Scope KNOCK COUNTS).
+
+## Round 4: stray taps from the button during play
+
+The Pi's log (11 minutes of Perihelion, Descent and Moonrunner, button only, sound at 100 %, threshold
+4000): 36 knocks, about 15 with a button edge in the same second (peaks 26800 to full scale, `hf` 97
+to 140), the rest with none (some in bursts). The first group is the button: a hard press bottoming out
+or the release, sounding later than the node's 60 ms guard reaches. The node's `at_us` can also run
+late by the microphone's buffering, which shifts a press's thump outside a symmetric 60 ms window.
+
+Changed (service and Pulsar only; **no reflash**, firmware stays as flashed):
+
+- The service drops a knock, by the node's own timestamps, while the button was down, from 60 ms before
+  a button edge, or up to 200 ms after one. `/api/system` `node.knockGuarded` counts them; the node's
+  `n` still counts everything it sent.
+- Pulsar leaves out a tap beat that would come within 0.45 s of a button beat's end (about one tap
+  beat in six), so the guard never swallows an on-time tap. The rest of the rhythm is unchanged.
+
+Re-test: the same counter log during button-only play, now reading both `n` and `knockGuarded`. The
+strays left are `n` minus `knockGuarded`; the ones with a button edge nearby should be gone. Any that
+remain without a button edge (the bursts) are either tones or handling: one run with the sound muted
+would tell which.

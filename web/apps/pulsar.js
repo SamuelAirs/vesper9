@@ -28,6 +28,9 @@ const HOLD_TOLERANCE = 0.22;
 const TAP_LANE = 2;
 const TAP_LATENCY = 0.1;
 const TAP_GRACE = 0.25; // a hold may be released this early and still count
+// The service drops a knock up to 200 ms after a button edge (the switch can sound like a tap), so
+// a tap beat never comes this soon after a button beat ends; such a beat is left out of the chart.
+const TAP_AFTER_BUTTON = 0.45;
 const LOOKAHEAD = 6; // chart is generated this far ahead of the song clock
 const STRIKE_Y = 430, TOP_Y = 70;
 const SPEED = (STRIKE_Y - TOP_Y) / APPROACH;
@@ -130,7 +133,7 @@ export class Pulsar {
     const start = this.genEnd;
     const slot = 30 / s.bpm, beat = 60 / s.bpm;
     for (let b = 0; b < 8; b++) this.beats.push({ t: start + b * beat, accent: b % 4 === 0 });
-    let busy = 0, prev = false;
+    let busy = 0, prev = false, buttonEnd = -Infinity;
     for (let k = 0; k < SLOTS - 2; k++) {
       if (k < busy) { prev = false; continue; }
       const even = k % 2 === 0;
@@ -153,7 +156,10 @@ export class Pulsar {
       const lane = LANE_OF[this.melody], tap = this.tapMode && lane === TAP_LANE;
       // A tap beat is an instant: no hold. (The random draws are the same, so a seed gives the same rhythm.)
       if (tap) len = 0;
-      this.notes.push({ t: start + k * slot, len, lane, tap, freq: SCALE[this.melody], state: "pending", q: 0 });
+      const t = start + k * slot;
+      if (tap && t - buttonEnd < TAP_AFTER_BUTTON) continue;
+      if (!tap) buttonEnd = t + len;
+      this.notes.push({ t, len, lane, tap, freq: SCALE[this.melody], state: "pending", q: 0 });
     }
     this.genEnd = start + SLOTS * slot;
     this.phrases.push({ start, end: this.genEnd, bpm: s.bpm, index, news: s.news });
@@ -602,3 +608,4 @@ export class Pulsar {
 Pulsar.INPUT_OFFSET = INPUT_OFFSET;
 Pulsar.FINALE = FINALE;
 Pulsar.TAP_LATENCY = TAP_LATENCY;
+Pulsar.TAP_AFTER_BUTTON = TAP_AFTER_BUTTON;

@@ -1725,7 +1725,7 @@ export class Outpost {
     for (let x = 30; x < 960; x += 90) line(g, x, gy + 8, x + 40, gy + 8, C.dark, 2);
     let ghost = -1;
     for (let i = 0; i < NP; i++) {
-      const x = 72 + i * 90.5, n = s.own[i];
+      const x = 56 + i * (848 / (NP - 1)), n = s.own[i]; // twelve machines across the width
       if (n > 0) {
         this.structure(g, i, x, gy, n);
         text(g, "x" + n, x, gy + 26, 16, this.flash[i] > 0 ? C.cyan : C.muted, "center");
@@ -1832,7 +1832,7 @@ export class Outpost {
     for (let k = 0; k < rows && first + k < es.length; k++) {
       const it = es[first + k], y = 204 + k * 46, sel = first + k === r.idx;
       if (sel) { g.fillStyle = "#1c3322"; g.fillRect(44, y - 20, 420, 40); g.strokeStyle = it.aff ? C.ink : C.muted; g.lineWidth = 2; g.strokeRect(44, y - 20, 420, 40); }
-      const col = it.kind === "close" || it.kind === "back" ? C.muted : it.aff ? C.ink : C.line;
+      const col = it.kind === "close" || it.kind === "back" || it.kind === "info" ? C.muted : it.aff ? C.ink : C.line;
       text(g, (it.aff ? "> " : "  ") + it.label.slice(0, 21), 54, y, 22, sel && !it.aff ? C.muted : col, "left");
       if (it.sub) text(g, it.sub, 456, y, 16, it.aff ? C.amber : C.line, "right");
     }

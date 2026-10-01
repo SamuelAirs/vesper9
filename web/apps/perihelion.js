@@ -35,11 +35,19 @@ const SLING_GAIN = 1.08, SLING_CAP = 460; // a sling sun adds this much speed on
 const RELIC_PICK = 26; // collect radius (relic radius plus probe)
 const NEAR_GAP = 28; // a dark body passed within this many px of its edge is a near pass
 const ARRIVAL = 28000; // the perihelion itself
+const BACK = 400; // how far behind the furthest point reached the probe may go back for a sun
+const STALL_PHI = 1.75; // a swing that stops this far round from the bottom (above level) is a stall
+const MAX_LOOPS = 3; // loops that score on one tether (a loop can go on for ever otherwise)
+// Tricks: flat points (not multiplied by the chain, so style adds to a run without swamping distance).
+const TRICKS = { stall: ["STALL", 15], loop: ["LOOP", 25], skip: ["SKIP", 10], back: ["BACKTRACK", 10] };
+// Paced runs: the screen moves at a set speed, px/s, and its left edge ends the run.
+const PACES = [{ name: "OFF", v: 0 }, { name: "STEADY", v: 100 }, { name: "BRISK", v: 135 }];
 const REASONS = {
   fall: "FELL INTO THE DARK",
   top: "LOST ABOVE THE FIELD",
   void: "STRUCK A DARK BODY",
   dark: "OVERTAKEN BY THE TERMINATOR",
+  edge: "LEFT BEHIND BY THE PACE",
   arrived: "THE PERIHELION IS REACHED",
 };
 
@@ -73,7 +81,15 @@ const GUIDE = [
     "The tether is a solid rod. Grab from below, beside or above.",
     "RELEASE: fly off the way the swing is carrying you.",
     "A quick tap barely bends your course.",
+    "Heading back? The diamond marks a sun behind you, not too far.",
     "Stay between the dashed lines. Outrun the dark behind you."],
+  ["TRICKS",
+    "Points for style, added on top of the distance score.",
+    "STALL: swing up past level and hang there as it stops.",
+    "LOOP: swing right round the sun. Up to 3 loops pay on one tether.",
+    "SKIP: pass over unused suns to catch one further on.",
+    "BACKTRACK: go back for an earlier sun.",
+    "Going back keeps the chain but only new suns add to it."],
   ["CHAIN AND SCORE",
     "Score is distance flown times the multiplier.",
     "CHAIN: swings in a row. Hold each one 0.35 s or more.",
@@ -89,6 +105,7 @@ const GUIDE = [
   ["HANGAR",
     "Feats unlock the Ballast and Wisp probes and trails.",
     "START: begin in any region you have reached.",
+    "PACE: the screen moves by itself; keep up or the run ends.",
     "Only a Standard run from the Approach sets the console best.",
     "LOG: regions reached and your best crossing times."],
 ];
@@ -125,6 +142,8 @@ const FEATS = [
   { id: "long", name: "ADRIFT", text: "Catch a sun after 2.4 s of free flight.", n: 2.4, prog: (a) => a.R.longFlight },
   { id: "sling", name: "SLUNG", text: "Let go of a sling sun.", n: 1, prog: (a) => a.R.slings },
   { id: "phase3", name: "IN STEP", text: "Catch 3 pulsing suns in one run.", n: 3, prog: (a) => a.R.pulses },
+  { id: "stall", name: "HANG TIME", text: "Stall a swing above its sun.", n: 1, prog: (a) => a.R.stalls },
+  { id: "loop", name: "LOOP THE LOOP", text: "Swing a full loop round a sun.", n: 1, prog: (a) => a.R.loops },
   { id: "arrive", name: "PERIHELION", text: "Reach the perihelion.", n: 1, prog: (a) => a.R.arrived },
   { id: "daily", name: "ON THE DAY", text: "Meet a daily goal.", n: 1, prog: (a) => life(a, "daily") },
   { id: "plumb", name: "PLUMB LINE", text: "", hint: "The swing sings at one point. Let go there.", n: 5, hidden: true, prog: (a) => a.R.bottom },
@@ -179,9 +198,10 @@ export function migrateSave(raw) {
     far: clamp(Math.floor(num(r.far)), 0, REGIONS.length - 1),
     rb: arr(r.rb, REGIONS.length),
     pb: arr(r.pb, PROBES.length),
+    pp: arr(r.pp, PACES.length),
     ft: Array.isArray(r.ft) ? r.ft.filter((id, i) => FEAT_IDS.includes(id) && r.ft.indexOf(id) === i) : [],
     st: { relics: Math.max(0, num(st.relics)), near: Math.max(0, num(st.near)), daily: Math.max(0, num(st.daily)), arrivals: Math.max(0, num(st.arrivals)) },
-    sel: { probe: clamp(Math.floor(num(sel.probe)), 0, PROBES.length - 1), start: clamp(Math.floor(num(sel.start)), 0, REGIONS.length - 1), trail: clamp(Math.floor(num(sel.trail)), 0, TRAILS.length - 1) },
+    sel: { probe: clamp(Math.floor(num(sel.probe)), 0, PROBES.length - 1), start: clamp(Math.floor(num(sel.start)), 0, REGIONS.length - 1), trail: clamp(Math.floor(num(sel.trail)), 0, TRAILS.length - 1), pace: clamp(Math.floor(num(sel.pace)), 0, PACES.length - 1) },
     dl: { d: typeof dl.d === "string" ? dl.d.slice(0, 10) : "", best: Math.max(0, num(dl.best)), done: dl.done ? 1 : 0, streak: Math.max(0, Math.floor(num(dl.streak))), last: typeof dl.last === "string" ? dl.last.slice(0, 10) : "" },
     seen: r.seen && typeof r.seen === "object" ? Object.fromEntries(Object.keys(INTRO).filter((k) => r.seen[k]).map((k) => [k, 1])) : {},
   };
@@ -226,12 +246,14 @@ export class Perihelion {
     this.probeIx = this.sv.sel.probe;
     if (this.probeIx > 0 && this.sv.ft.length < PROBES[this.probeIx].need) this.probeIx = 0;
     this.startReg = this.daily ? 0 : Math.min(this.sv.sel.start, this.sv.far);
+    this.pace = this.daily ? 0 : this.sv.sel.pace;
     const x0 = REGIONS[this.startReg].from;
-    this.p = { x: x0 + 140, y: 220, vx: 280, vy: -70, a: null, r: 0, phi: 0, om: 0, t: 0, v0x: 0, v0y: 0, fuse: 0, lastId: -1, clk: 0, g: G * PROBES[this.probeIx].g };
+    this.p = { x: x0 + 140, y: 220, vx: 280, vy: -70, a: null, r: 0, phi: 0, om: 0, t: 0, v0x: 0, v0y: 0, fuse: 0, lastId: -1, back: x0, clk: 0, g: G * PROBES[this.probeIx].g };
     this.dstate = this.daily ? (mixSeed(hashText("day" + this.dayKey())) || 1) : 0;
     this.addAnchor(x0 + 330, 180, "steady");
     this.extend(x0 + 1600);
     this.cam = this.p.x - CAM_LEAD;
+    this.paceX = this.cam;
     this.front = this.p.x - 400;
     this.maxX = this.p.x;
     this.scoreRaw = 0;
@@ -274,7 +296,10 @@ export class Perihelion {
     this.reg = regIndex(this.p.x);
     this.regT = 0;
     this.regC = 0;
-    this.R = { relics: 0, near: 0, slings: 0, pulses: 0, bottom: 0, thread: 0, longFlight: 0, ceil: 0, ceilMax: 0, fast1: 0, fast2: 0, arrived: 0, daily: 0, far: 0 };
+    this.R = { relics: 0, near: 0, slings: 0, pulses: 0, bottom: 0, thread: 0, longFlight: 0, ceil: 0, ceilMax: 0, fast1: 0, fast2: 0, arrived: 0, daily: 0, far: 0, tricks: 0, trickPts: 0, stalls: 0, loops: 0 };
+    this.topId = -1; // the furthest sun released cleanly: a catch beyond it skips the suns between
+    this.trickText = "";
+    this.trickT = 0;
     this.cross = [];
     this.goalDone = false;
   }
@@ -283,10 +308,11 @@ export class Perihelion {
   // personal best of the chosen probe or of the day otherwise.
   bestRef() {
     if (this.daily) return this.sv.dl.d === this.dayKey() ? this.sv.dl.best : 0;
+    if (this.pace > 0) return this.sv.pp[this.pace] || 0;
     if (this.probeIx === 0 && this.startReg === 0) return this.c.best();
     return this.sv.pb[this.probeIx] || 0;
   }
-  plainRun() { return !this.daily && this.probeIx === 0 && this.startReg === 0; }
+  plainRun() { return !this.daily && !this.pace && this.probeIx === 0 && this.startReg === 0; }
   setHint(message) {
     if (message === this.lastHint) return;
     this.lastHint = message;
@@ -437,22 +463,26 @@ export class Perihelion {
     }
     p.clk = clk + dt;
   }
-  // The sun a press would catch right now (or null): the nearest one ahead of or above the
-  // probe within reach that is not behind the last sun used, and (for a pulsing sun) lit now
-  // and until the tether lands. The tether is a solid rod, so when nothing above is in reach
-  // the nearest sun below can be caught: the probe then pivots over the top of it.
+  // The sun a press would catch right now (or null). Moving forward: the nearest sun ahead
+  // (not behind the last one used) within reach. Moving backward: the nearest sun behind, but
+  // never one further back than p.back. Either way a sun above or level wins; the tether is a
+  // solid rod, so the nearest sun below is offered only when none is. A pulsing sun must be lit
+  // now and until the tether lands. When nothing lies the way the probe is heading, the other way.
   pickTarget(p) {
-    const clk = p.clk || 0;
+    const clk = p.clk || 0, fwd = p.vx >= 0;
+    return this.pickWay(p, clk, fwd) || this.pickWay(p, clk, !fwd);
+  }
+  pickWay(p, clk, ahead) {
     let best = null, bestD = Infinity, under = null, underD = Infinity;
     for (const a of this.anchors) {
-      if (a.dead || a.id <= p.lastId) continue;
+      if (a.dead) continue;
       const A = place(a, clk, PP);
       const dx = A.x - p.x, dy = A.y - p.y;
-      if (dx < -40) continue;
+      if (ahead ? dx < -40 || a.id <= p.lastId : dx >= -40 || A.x < (p.back ?? -Infinity)) continue;
       const d = Math.hypot(dx, dy);
       if (d < MIN_CATCH || d > REACH) continue;
       if (a.pu && !(lit(a, clk) && lit(a, clk + CATCH_LAG + 0.05))) continue;
-      if (dy > 30) { if (d < underD) { under = a; underD = d; } } // below: only when nothing above or level is in reach
+      if (dy > 30) { if (d < underD) { under = a; underD = d; } }
       else if (d < bestD) { best = a; bestD = d; }
     }
     return best || under;
@@ -604,10 +634,32 @@ export class Perihelion {
     if (row === "LOG") { this.view = "log"; return; }
     if (row === "GUIDE") { this.view = "guide"; this.page = 0; return; }
     if (row === "PROBE") { let i = s.probe; do i = (i + 1) % PROBES.length; while (!this.unlockedProbe(i)); s.probe = i; }
+    else if (row === "PACE") s.pace = (s.pace + 1) % PACES.length;
     else if (row === "START") s.start = (Math.min(s.start, this.sv.far) + 1) % (this.sv.far + 1);
     else if (row === "TRAIL") { let i = s.trail; do i = (i + 1) % TRAILS.length; while (!this.unlockedTrail(i)); s.trail = i; }
     this.c.tone(520, 0.05, "sine");
     this.persist();
+  }
+  // Suns passed over to reach `a`: unused ones between the furthest sun used and it.
+  skipped(a) {
+    if (a.id <= this.topId + 1) return 0;
+    let n = 0;
+    for (const s of this.anchors) if (s.id > this.topId && s.id < a.id && !s.dead && s.x < a.x - 20) n++;
+    return Math.min(3, n);
+  }
+  // A trick pays its points (times `mult`, e.g. suns skipped) and says so above the probe.
+  trick(id, mult = 1) {
+    const [name, pts] = TRICKS[id], got = Math.round(pts * mult);
+    this.scoreRaw += got;
+    this.R.tricks++;
+    this.R.trickPts += got;
+    this.trickText = name + "  +" + got;
+    this.trickT = 1.3;
+    this.trickFlash = 0.3;
+    const f = 523 * (1 + 0.25 * Math.min(this.R.tricks % 5, 4));
+    this.queueNote(0, f, 0.08, "triangle");
+    this.queueNote(0.07, f * 1.5, 0.12, "triangle");
+    this.checkFeats();
   }
   tryCatch() {
     const p = this.p;
@@ -632,7 +684,7 @@ export class Perihelion {
       return;
     }
     this.engage(p, a);
-    this.tether = { counted: false, flightAtCatch: this.flightT, pulse: a.kind === "pulse" };
+    this.tether = { counted: false, flightAtCatch: this.flightT, pulse: a.kind === "pulse", spin: 0, loops: 0, stalls: 0, skip: this.skipped(a), back: a.id < this.topId && !a.backed && a.x < this.p.x };
     this.catchFlash = 0.14;
     this.burst(A.x, A.y, 5, 90);
     this.bottomT = 0;
@@ -650,7 +702,12 @@ export class Perihelion {
     this.tether = null;
     if (!clean) return;
     if (tt && !tt.counted) this.countCatch(tt);
-    this.chain++;
+    if (a.id > this.topId) { // a sun already used keeps the chain but does not add to it
+      this.chain++;
+      this.topId = a.id;
+    }
+    if (tt && tt.skip) this.trick("skip", tt.skip);
+    if (tt && tt.back) { a.backed = true; this.trick("back"); } // once per sun
     if (this.chain === 2) this.intro("chain");
     this.bestChain = Math.max(this.bestChain, this.chain);
     this.flightT = 0;
@@ -668,6 +725,21 @@ export class Perihelion {
     }
     if (Math.abs(phi) < 0.14) this.R.bottom++;
     this.checkFeats();
+  }
+  // A stall: the swing stops and turns back above level. A loop: a full turn round the sun.
+  swingTricks(tt, phiBefore, omBefore) {
+    const p = this.p;
+    tt.spin += wrapAngle(p.phi - phiBefore);
+    if (Math.abs(tt.spin) >= TAU * (tt.loops + 1) && tt.loops < MAX_LOOPS) {
+      tt.loops++;
+      this.R.loops++;
+      this.trick("loop");
+    }
+    if (omBefore * p.om < 0 && Math.abs(p.phi) > STALL_PHI && tt.stalls < 2) {
+      tt.stalls++;
+      this.R.stalls++;
+      this.trick("stall", 1 + (Math.abs(p.phi) - STALL_PHI) / (Math.PI - STALL_PHI));
+    }
   }
   countCatch(tt) {
     tt.counted = true;
@@ -723,6 +795,8 @@ export class Perihelion {
     this.relicFlash = Math.max(0, this.relicFlash - dt);
     this.regFlash = Math.max(0, this.regFlash - dt);
     this.bannerT = Math.max(0, this.bannerT - dt);
+    this.trickT = Math.max(0, this.trickT - dt);
+    this.trickFlash = Math.max(0, (this.trickFlash || 0) - dt);
     if (this.pending) {
       this.pendT += dt;
       if (this.pendT >= CATCH_LAG - 1e-9) this.land();
@@ -731,12 +805,14 @@ export class Perihelion {
       this.tryCatch();
     }
     if (!p.a) this.flightT += dt;
-    const phiBefore = p.phi, wasTethered = !!p.a;
+    const phiBefore = p.phi, omBefore = p.om, wasTethered = !!p.a;
+    p.back = Math.max(this.maxX - BACK, this.pace ? this.cam + 40 : -Infinity);
     this.stepProbe(p, dt);
     this.head += wrapAngle(Math.atan2(p.vy, p.vx) - this.head) * Math.min(1, dt * 12);
     if (p.a) {
       const tt = this.tether;
       if (tt && !tt.counted && p.t >= CLEAN) this.countCatch(tt);
+      if (tt && wasTethered) this.swingTricks(tt, phiBefore, omBefore);
       // The swing sings: a note each time it passes the bottom, climbing with speed.
       if (wasTethered && phiBefore * p.phi < 0 && Math.abs(phiBefore) < 1.5 && this.runT - this.bottomT > 0.2) {
         this.bottomT = this.runT;
@@ -756,9 +832,10 @@ export class Perihelion {
     }
     if (p.y < 60) this.R.ceil = 0;
     // The terminator: a wall of dark sweeping up from behind, so stalling costs.
-    this.front += this.frontSpeed() * dt;
+    if (this.pace) this.front = this.cam - 8; // the screen's left edge is the dark
+    else this.front += this.frontSpeed() * dt;
     let why = this.fate(p);
-    if (!why && p.x < this.front + 8) why = "dark";
+    if (!why && p.x < this.front + 8) why = this.pace ? "edge" : "dark";
     if (why) { this.crash(why); return; }
     if (p.x > this.maxX) {
       this.scoreRaw += ((p.x - this.maxX) * this.multiplier()) / PX_PER_MKM;
@@ -776,6 +853,10 @@ export class Perihelion {
     }
     this.stageEvents();
     this.cam += (p.x - CAM_LEAD - this.cam) * Math.min(1, dt * 4);
+    if (this.pace) { // the screen never slows below the pace or goes back
+      this.paceX = Math.max(this.paceX + PACES[this.pace].v * dt, this.cam);
+      this.cam = this.paceX;
+    }
     this.extend(p.x + 1500);
     this.prune();
     if (++this.trailTick % 3 === 0) this.pushTrail(p.x, p.y);
@@ -872,7 +953,7 @@ export class Perihelion {
     return Math.min(110, 36 + 0.2 * this.runT) + 0.5 * Math.max(0, this.runT - 300);
   }
   stageEvents() {
-    if (this.runT > 300 && !this.quickened) {
+    if (this.runT > 300 && !this.quickened && !this.pace) {
       this.quickened = true;
       this.notice = "The dark is quickening.";
       this.noticeT = 4;
@@ -948,7 +1029,8 @@ export class Perihelion {
           sv.dl.last = key;
           this.R.daily = 1;
         }
-      } else sv.pb[this.probeIx] = Math.max(sv.pb[this.probeIx] || 0, score);
+      } else if (this.pace) sv.pp[this.pace] = Math.max(sv.pp[this.pace] || 0, score);
+      else sv.pb[this.probeIx] = Math.max(sv.pb[this.probeIx] || 0, score);
       this.checkFeats();
       this.result = { mkm: score, chain: this.bestChain, catches: this.catches, reason: REASONS[why] || why, milestone: Math.floor(score / 100), relics: this.R.relics, region: REGIONS[this.reg].name };
       sv.milestone = Math.max(sv.milestone, this.result.milestone);
@@ -1032,6 +1114,10 @@ export class Perihelion {
     if (this.relicFlash > 0) { // a quick sweep left to right: a relic is yours
       const k = Math.min(2, Math.floor((0.35 - this.relicFlash) / 0.1));
       return lamps(...[0, 1, 2].map((i) => (i <= k ? dim(LAMP.white, i === k ? 0.8 : 0.3) : null)));
+    }
+    if (this.trickFlash > 0) { // a trick: a quick cyan sweep right to left
+      const k = 2 - Math.min(2, Math.floor((0.3 - this.trickFlash) / 0.1));
+      return lamps(...[0, 1, 2].map((i) => (i >= k ? dim(LAMP.cyan, i === k ? 0.8 : 0.3) : null)));
     }
     if (this.catchFlash > 0) return fill(LAMP.white, 0.7);
     if (this.regFlash > 0.02) return fill(this.flareCol || REGIONS[this.reg].col, 0.5 * Math.min(1, this.regFlash) * (0.6 + 0.4 * pulse(this.runT, 4)));
@@ -1244,6 +1330,11 @@ export class Perihelion {
       g.fillRect(this.parts[o] - cam - 1.5, this.parts[o + 1] - 1.5, 3, 3);
     }
     g.globalAlpha = 1;
+    if (this.pace && this.phase === "play") { // a paced run's left edge
+      g.setLineDash(DASH);
+      line(g, 3, 0, 3, 540, C.red, 3);
+      g.setLineDash(NO_DASH);
+    }
     // Terminator.
     const fx = this.front - cam;
     if (fx > 0) {
@@ -1365,7 +1456,7 @@ export class Perihelion {
     const gap = p.x - this.front;
     if (gap < 220) {
       g.globalAlpha = 0.5 + 0.5 * blink(this.t, 4);
-      text(g, "DARK CLOSING", 30, 60, 22, C.red);
+      text(g, this.pace ? "EDGE CLOSING" : "DARK CLOSING", 30, 60, 22, C.red);
       g.globalAlpha = 1;
     }
     if (this.multiplier() > 1) text(g, "x" + this.multiplier(), 480, 44, 30, C.amber, "center");
@@ -1375,6 +1466,11 @@ export class Perihelion {
       if (f > 0) line(g, 420, 62, 420 + 120 * f, 62, f < 0.35 ? C.red : C.amber, 4);
     }
     if (this.recText > 0) text(g, "NEW DISTANCE RECORD", 480, 80, 22, C.cyan, "center");
+    if (this.trickT > 0) {
+      g.globalAlpha = clamp(this.trickT * 2, 0, 1);
+      text(g, this.trickText, clamp(p.x - this.cam, 120, 840), clamp(p.y - 34, 40, 500), 22, C.cyan, "center");
+      g.globalAlpha = 1;
+    }
     if (this.bannerT > 0) {
       const reg = REGIONS[this.reg];
       g.globalAlpha = clamp(this.bannerT, 0, 1);
@@ -1403,13 +1499,14 @@ export class Perihelion {
     const row = (label, value, col = C.ink) => {
       text(g, label, 230, y, 18, C.muted);
       text(g, value, 730, y, 26, col, "right");
-      y += 36;
+      y += 32;
     };
     row("DISTANCE", r.mkm + " Mkm");
     row("BEST CHAIN", r.chain);
     row("ANCHORS CAUGHT", r.catches);
     const far = REGIONS[this.reg];
     if (this.reg > 0 || this.sv.far > 0) row("REGION", far.name.slice(4), far.ink);
+    if (this.R.tricks > 0) row("TRICKS", this.R.tricks + "   +" + this.R.trickPts);
     if (this.R.relics > 0 || this.sv.st.relics > 0) row("RELICS", this.R.relics + (this.R.near ? "   NEAR " + this.R.near : ""));
     const record = this.newRecord;
     text(g, record ? "NEW DISTANCE RECORD" : "BEST " + this.bestRef() + " Mkm", 480, y + 4, 18, record ? C.cyan : C.amber, "center");
@@ -1434,6 +1531,7 @@ export class Perihelion {
         LAUNCH: ["LAUNCH", "THE APPROACH"],
         PROBE: ["PROBE", pr.name],
         START: ["START", REGIONS[Math.min(sv.sel.start, sv.far)].name],
+        PACE: ["PACE", PACES[sv.sel.pace].name],
         TRAIL: ["TRAIL", tr.name],
         DAILY: ["DAILY RUN", this.dailyDone() ? "DONE TODAY" : "SEEDED BY DATE"],
         FEATS: ["FEATS", n + " / " + FEATS.length],
@@ -1441,16 +1539,17 @@ export class Perihelion {
         GUIDE: ["GUIDE", "HOW TO PLAY"],
       };
       HANGAR.forEach((id, i) => {
-        const y = 138 + i * 38, on = i === this.cur;
+        const y = 134 + i * 34, on = i === this.cur;
         if (on) diamond(g, 150, y, 9, C.amber, true);
         text(g, rows[id][0], 180, y, 24, on ? C.amber : C.ink);
         text(g, rows[id][1], 810, y, 22, on ? C.amber : C.muted, "right");
       });
       const id = HANGAR[this.cur];
       let info = "";
-      if (id === "LAUNCH") info = "Plain run from the start.";
+      if (id === "LAUNCH") info = sv.sel.pace ? "Paced run: " + PACES[sv.sel.pace].name + "." : "Plain run from the start.";
       else if (id === "PROBE") { const next = PROBES.find((x, i) => i > 0 && !this.unlockedProbe(i)); info = pr.text + (next ? "  NEXT: " + next.name + " AT " + next.need + " FEATS" : ""); }
       else if (id === "START") info = "Begin where you have been. Scored from there.";
+      else if (id === "PACE") info = sv.sel.pace ? "The screen moves on by itself. Its left edge ends the run." : "OFF: the dark behind you sets the pace.";
       else if (id === "TRAIL") { const next = TRAILS.find((x, i) => i > 0 && !this.unlockedTrail(i)); info = next ? "NEXT: " + next.name + " AT " + next.need + " FEATS" : "All trails earned."; }
       else if (id === "DAILY") { const gl = dailyGoal(this.dayKey()); info = "Goal: " + gl.text + "  Days in a row: " + this.streakNow(); }
       else if (id === "FEATS") info = "Named goals. Some are not listed.";
@@ -1496,7 +1595,7 @@ export class Perihelion {
   }
 }
 
-const HANGAR = ["LAUNCH", "PROBE", "START", "TRAIL", "DAILY", "FEATS", "LOG", "GUIDE"];
+const HANGAR = ["LAUNCH", "PROBE", "START", "PACE", "TRAIL", "DAILY", "FEATS", "LOG", "GUIDE"];
 const NOTES = [
   [1800, "Dark bodies ahead. Steer clear."],
   [4100, "Amber suns burn out. Do not linger."],

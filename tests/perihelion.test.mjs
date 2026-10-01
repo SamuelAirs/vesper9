@@ -112,8 +112,8 @@ function play(seed, seconds, driver) {
 
 test("a planning bot crosses every region to the perihelion on several seeds and far outscores an idle probe", () => {
   const rows = [];
-  // Seeds the bot crosses with the solid tether (it plays one catch deep, so some seeds beat it).
-  for (const seed of [17, 123]) {
+  // Seeds the bot crosses with the solid tether and backtracking (it plays one catch deep, so some seeds beat it).
+  for (const seed of [11, 3003, 123]) {
     const bot = botRun(seed, 300);
     const idle = play(seed, 120, null);
     rows.push({ seed, phase: bot.app.phase, reason: bot.app.reason, score: Math.floor(bot.app.scoreRaw), chain: bot.app.bestChain, catches: bot.app.catches, t: Math.round(bot.app.runT), cross: bot.app.cross, relics: bot.app.R.relics, near: bot.app.R.near, idleScore: Math.floor(idle.app.scoreRaw), idlePhase: idle.app.phase });
@@ -196,20 +196,72 @@ test("swing conserves energy over a long hold and releases exactly on the tangen
   }
 });
 
-test("the reticle names the nearest sun ahead or above, a sun below only when nothing above is in reach, and never one behind", () => {
+test("the reticle names the nearest sun ahead or above, a sun below only when nothing above is in reach, and one behind only when heading back or nothing is ahead", () => {
   const { app } = start({ seed: 2 });
   app.anchors.length = 0;
   const add = (x, y) => app.addAnchor(x, y, "steady");
   const near = add(300, 100), far = add(400, 150), behind = add(80, 200), below = add(260, 360);
-  const p = { x: 200, y: 200, vx: 0, vy: 0, lastId: -1 };
+  const p = { x: 200, y: 200, vx: 50, vy: 0, lastId: -1, back: 0 };
   assert.equal(app.pickTarget(p), near); // |(100,-100)| = 141
+  p.vx = -50;
+  assert.equal(app.pickTarget(p), behind, "heading back: the sun behind");
+  p.back = 100;
+  assert.equal(app.pickTarget(p), near, "but never one further back than the limit");
+  p.vx = 50; p.back = 0;
   near.dead = true;
   assert.equal(app.pickTarget(p), far, "above wins over a nearer sun below");
   far.dead = true;
   assert.equal(app.pickTarget(p), below, "the solid tether can take a sun below");
   below.dead = true;
-  assert.equal(app.pickTarget(p), null, "never a sun behind");
-  assert.ok(behind.x < p.x - 40);
+  assert.equal(app.pickTarget(p), behind, "nothing ahead: the sun behind");
+  p.back = 100;
+  assert.equal(app.pickTarget(p), null);
+});
+
+test("tricks: a stall above the sun and a loop round it pay flat points, at most three loops a tether", () => {
+  const { app } = inRegion(0, 3);
+  run(app, 0.2, null);
+  app.anchors.length = 0;
+  const a = app.addAnchor(app.p.x + 60, 260, "steady");
+  const p = app.p;
+  // A fast catch close to the sun: it loops.
+  p.x = a.x; p.y = a.y + 60; p.vx = 330; p.vy = 0;
+  app.engage(p, a);
+  app.held = true;
+  app.tether = { counted: false, flightAtCatch: 0, spin: 0, loops: 0, stalls: 0, skip: 0, back: false };
+  const s0 = app.scoreRaw;
+  run(app, 6, null);
+  assert.equal(app.R.loops, 3, "three loops pay");
+  assert.ok(app.scoreRaw - s0 >= 75);
+  assert.ok(app.R.trickPts >= 75 && app.R.tricks >= 3);
+  // A slow catch level with the sun swings up past level and stops: a stall.
+  const b = app.addAnchor(p.x + 400, 300, "steady");
+  app.up();
+  p.x = b.x - 100; p.y = b.y + 5; p.vx = 0; p.vy = 200; p.om = 0;
+  app.engage(p, b);
+  app.held = true;
+  app.tether = { counted: false, flightAtCatch: 0, spin: 0, loops: 0, stalls: 0, skip: 0, back: false };
+  const st = app.R.stalls;
+  run(app, 2.5, null);
+  assert.ok(app.R.stalls > st, "stalled");
+  assert.ok(app.sv.ft.includes("stall") && app.sv.ft.includes("loop"), "feats for both");
+});
+
+test("a paced run moves the screen on by itself and its left edge ends the run; it keeps its own best", () => {
+  const ctx = appContext({ seed: 4, progress: { schema: 2, runs: 5, sel: { pace: 2 } } });
+  const app = new Perihelion(ctx);
+  app.launches = 1;
+  app.down(); app.up();
+  assert.equal(app.pace, 2);
+  const cam0 = app.cam;
+  app.p.g = 1e-9; app.p.vx = 0; app.p.vy = 0;
+  run(app, 1, null);
+  assert.ok(app.cam - cam0 > 120, "the screen moved on: " + (app.cam - cam0));
+  run(app, 3, null);
+  assert.equal(app.phase, "over");
+  assert.equal(app.reason, "edge");
+  assert.equal(ctx.calls.score.length, 0, "a paced run does not touch the console best");
+  assert.ok(app.sv.pp[2] >= 0 && app.result.reason === "LEFT BEHIND BY THE PACE");
 });
 
 test("caught from above, the solid tether pivots the probe over the sun and keeps it at the same distance", () => {
@@ -338,7 +390,7 @@ test("a catch gives a bright accent and a new record flashes all three lamps", (
 });
 
 test("lists stay bounded and the world is generated ahead and dropped behind", () => {
-  const r = botRun(17, 300);
+  const r = botRun(11, 300);
   assert.ok(r.maxAnchors < 40 && r.maxVoids <= 30, `anchors ${r.maxAnchors} voids ${r.maxVoids}`);
   assert.ok(r.app.maxX > 27000, "went a long way: " + r.app.maxX);
   assert.ok(r.app.anchors[0].x > r.app.maxX - 1500);
@@ -715,7 +767,7 @@ test("the hangar: a hold opens it, taps move, holds choose; locked things stay l
   const press = (s) => { app.down(); run(app, s, null); app.up(); };
   assert.equal(app.cur, 1);
   press(0.1); assert.equal(app.cur, 2);
-  for (let i = 0; i < 7; i++) press(0.1);
+  for (let i = 0; i < 8; i++) press(0.1);
   assert.equal(app.cur, 1);
   press(0.6);
   assert.equal(app.sv.sel.probe, 0, "BALLAST is locked at 3 feats");
@@ -728,15 +780,15 @@ test("the hangar: a hold opens it, taps move, holds choose; locked things stay l
   assert.equal(app.sv.sel.start, 2, "start region cycles through 0..3 only");
   const g = fakeCanvas();
   app.draw(g);
-  while (app.cur !== 5) press(0.1);
+  while (app.cur !== 6) press(0.1);
   press(0.6); assert.equal(app.view, "feats");
   app.draw(g); press(0.1); assert.equal(app.page, 1); app.draw(g); press(0.1); press(0.1); press(0.6);
   assert.equal(app.view, "menu");
   press(0.1); press(0.6); assert.equal(app.view, "log");
   app.draw(g); press(0.1); assert.equal(app.view, "menu");
   press(0.1); press(0.6); assert.equal(app.view, "guide");
-  for (let i = 0; i < 4; i++) { app.draw(g); press(0.1); }
-  assert.equal(app.page, 0, "the guide's four pages wrap");
+  for (let i = 0; i < 5; i++) { app.draw(g); press(0.1); }
+  assert.equal(app.page, 0, "the guide's five pages wrap");
   press(0.6); assert.equal(app.view, "menu");
   press(0.1);
   assert.equal(app.cur, 0);

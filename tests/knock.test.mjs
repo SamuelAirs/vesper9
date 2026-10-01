@@ -53,10 +53,10 @@ test("a knock during a held press or between the gesture's taps changes nothing 
 });
 
 test("Node Scope: knock setting, the node's counters, the last knock, and old firmware", () => {
-  const r = knockReadout("medium", { thr: 8000, n: 3, btn: 2, long: 5, bright: 1, peak: 16384, hf: 42 }, { at: 0, peak: 32767 }, 2400);
-  assert.equal(r.input, "MEDIUM · THRESHOLD -12.2 dBFS");
+  const r = knockReadout("medium", { thr: 4000, n: 3, btn: 2, long: 5, bright: 1, peak: 16384, hf: 42 }, { at: 0, peak: 32767 }, 2400);
+  assert.equal(r.input, "MEDIUM · THRESHOLD -18.3 dBFS");
   assert.equal(r.counts, "3 SENT · 2 AT BUTTON · 5 TOO LONG · 1 TOO BRIGHT · LAST -6.0 dBFS HF 42");
-  assert.equal(knockReadout("medium", { thr: 8000, n: 0, btn: 0, long: 0, peak: 0 }).counts, "0 SENT · 0 AT BUTTON · 0 TOO LONG · LAST —", "first 0.1.3 build without bright/hf");
+  assert.equal(knockReadout("medium", { thr: 4000, n: 0, btn: 0, long: 0, peak: 0 }).counts, "0 SENT · 0 AT BUTTON · 0 TOO LONG · LAST —", "first 0.1.3 build without bright/hf");
   assert.equal(r.last, "FULL SCALE · 2 S AGO", "a clipped knock says so");
   assert.equal(knockReadout("off", { thr: 0, n: 0 }).input, "OFF · NODE NOT LISTENING");
   assert.equal(knockReadout("high", undefined).input, "HIGH · NOT IN THIS FIRMWARE");

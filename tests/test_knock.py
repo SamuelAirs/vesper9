@@ -46,12 +46,12 @@ class KnockLink(SerialCase):
             device.knock_threshold = KNOCK_THRESHOLDS["medium"]
             await self.until(lambda: device.connected, message="link up")
             node = FakeSerial.created[-1]
-            await self.until(lambda: node.knock_threshold == 8000, message="threshold sent")
+            await self.until(lambda: node.knock_threshold == 4000, message="threshold sent")
             kinds = [p.kind for p in node.frames if p.kind != Kind.PING]
             self.assertEqual(kinds[:4], [Kind.MIC, Kind.CANCEL, Kind.LEDS, Kind.KNOCK_SET])
             # The node drops the setting after 3 s without the host; its next STATUS says so.
             node.knock_threshold = 0
-            await self.until(lambda: node.knock_threshold == 8000, message="threshold re-sent after STATUS")
+            await self.until(lambda: node.knock_threshold == 4000, message="threshold re-sent after STATUS")
             await device.set_knock(0)
             await self.until(lambda: node.knock_threshold == 0, message="detection switched off")
             sent = node.count(Kind.KNOCK_SET)
@@ -96,7 +96,7 @@ class KnockService(ServiceCase):
     async def test_simulated_knock_follows_the_setting(self):
         ws, state = await self.connect()
         self.assertEqual(state["settings"]["knock"], "medium")
-        self.assertEqual(self.console.device.knock_threshold, 8000)
+        self.assertEqual(self.console.device.knock_threshold, 4000)
         await ws.send_json({"command": "knock", "requestId": 900})
         seen = []
         while not any(e.get("type") == "reply" and e.get("id") == 900 for e in seen):
@@ -104,7 +104,7 @@ class KnockService(ServiceCase):
         self.assertTrue(seen[-1]["ok"])
         event = next(e for e in seen if e.get("type") == "knock")
         self.assertEqual(event["source"], "simulator")
-        self.assertGreater(event["peak"], 8000)
+        self.assertGreater(event["peak"], 4000)
         self.assertTrue((await self.rpc(ws, "settings", key="knock", value="off"))["ok"])
         self.assertEqual(self.console.device.knock_threshold, 0)
         await self.rpc(ws, "knock")
@@ -112,9 +112,9 @@ class KnockService(ServiceCase):
         self.assertEqual(self.console.device.status["knock"]["n"], 1, "no knock while off")
         self.assertFalse((await self.rpc(ws, "settings", key="knock", value="loud"))["ok"])
         self.assertTrue((await self.rpc(ws, "reset_settings"))["ok"])
-        self.assertEqual(self.console.device.knock_threshold, 8000)
+        self.assertEqual(self.console.device.knock_threshold, 4000)
         system = await (await self.client.get("/api/system")).json()
-        self.assertEqual(system["node"]["knock"]["thr"], 8000)
+        self.assertEqual(system["node"]["knock"]["thr"], 4000)
         await ws.close()
 
     async def test_knock_command_is_refused_on_hardware(self):

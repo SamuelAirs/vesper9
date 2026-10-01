@@ -122,8 +122,8 @@ def main():
                         help="light one output at a time; each button press advances (maps real lamp/colour per GPIO)")
     parser.add_argument("--knock", type=float, default=0,
                         help="seconds to listen for knocks on the case (prints each one, then the node's counters)")
-    parser.add_argument("--threshold", type=int, default=8000,
-                        help="knock peak threshold, 256-32767 (the service uses 16000 low, 8000 medium, 5000 high)")
+    parser.add_argument("--threshold", type=int, default=4000,
+                        help="knock peak threshold, 256-32767 (the service uses 8000 low, 4000 medium, 3000 high)")
     args = parser.parse_args()
     probe = Probe(args.port, args.baud)
     try:

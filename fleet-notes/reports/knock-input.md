@@ -14,7 +14,7 @@ on synthetic signals only. Branch `claude/project-thread-79km6i`, draft PR, not 
   threshold`, 0 = off) controls it; the node resets it to 0 at boot and after 3 s without the
   host. STATUS gains `knock: {thr, n, btn, long, peak}`; STATUS `mic` still means streaming only.
   Protocol stays v1 (two new message types; older firmware answers `KNOCK_SET` as unknown).
-- **Service**: setting `knock` (`off`/`low`/`medium`/`high` → 0/16000/8000/5000 since round 2, default
+- **Service**: setting `knock` (`off`/`low`/`medium`/`high` → 0/8000/4000/3000 since round 3, default
   medium), sent on connect and re-sent whenever STATUS disagrees; `knock` events broadcast;
   `knock` command for the simulator; `/api/system` `node.knock`.
 - **Browser**: `InputRouter.knock()` hands it to the app's optional `knock(event)` only where a
@@ -119,3 +119,12 @@ and `hf` is only a diagnostic.
    tones; KNOCK COUNTS in Node Scope should not rise.
 
 Send back the tap count and peaks, and whether the game's tones raised KNOCK COUNTS.
+
+## Round 3, after the round-2 device test
+
+Run B showed 8000 cutting off Sam's lightest taps (reported peaks piled up just above it, a
+third of taps missing), while 4000 caught 34 of 34 in round 1 and the quiet room peaks near
+2300. Thresholds are now low 8000, medium 4000 (default), high 3000; the probe defaults to
+4000. Tap `hf` on the real case is 48 to 126, so it stays a diagnostic. The clipped-ring
+allowance did no harm (0 of 54 ordinary taps judged sustained). Still to check on the device:
+the console's own tones with sound up, and a run at about 2500 to measure the lightest taps.

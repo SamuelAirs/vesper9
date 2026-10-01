@@ -14,9 +14,9 @@ log = logging.getLogger(__name__)
 
 # A knock on the case (docs/PROTOCOL.md, KNOCK and KNOCK_SET): the node's peak threshold for each
 # sensitivity setting, in the units of the streamed 16-bit audio. 0 switches detection off.
-# Measured on the case (PR #4, 2026-10-01): the softest deliberate tap peaked above 10000 and a quiet
-# room near 2300, so medium sits below the softest tap and high still well above the room.
-KNOCK_THRESHOLDS = {"off": 0, "low": 16000, "medium": 8000, "high": 5000}
+# Measured on the case (PR #4, 2026-10-01): Sam's lightest wanted taps peak around 8000 and below, a
+# quiet room near 2300. Medium (4000) caught 34 of 34 taps in the first test; high stays above the room.
+KNOCK_THRESHOLDS = {"off": 0, "low": 8000, "medium": 4000, "high": 3000}
 WRITE_FAILURES_LIMIT = 3   # consecutive failed writes before the link is torn down and reopened
 REPEAT_LOG_EVERY = 30      # a link that stays down is logged on the first failure, then every 30th
 

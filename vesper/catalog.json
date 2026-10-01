@@ -261,6 +261,13 @@
       "category": "PLAY / ARTILLERY",
       "glyph": 4,
       "factory": "Ballista",
+      "icon": "<path d=\"M5 38h38M8 38l4-6h8l4 6\"/><path d=\"M16 31l8-8\" stroke-width=\"4\"/><path d=\"M22 20C27 8 36 8 40 25\" stroke-dasharray=\"3 4\"/><circle cx=\"40\" cy=\"31\" r=\"6\"/><circle cx=\"40\" cy=\"31\" r=\"2\" fill=\"currentColor\"/>",
+      "record": {
+        "score": "Score",
+        "stations": "Stations cleared",
+        "shots": "Probes launched",
+        "accuracy": "Accuracy %"
+      },
       "voice": [
         "launcher"
       ],

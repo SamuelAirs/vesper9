@@ -63,6 +63,14 @@ The long integrated run was started while final review continued. The final held
 - Project placed under local git: `v0.2.0-as-delivered`, then bring-up commits. The generated simulator is no longer tracked.
 - Sam's feedback after playing: fun; the lamps are underused; dictation a little inaccurate; wants more games and instruments. Plan for the overnight agent fleet: `../fleet/PLAN.md`.
 
+## 2026-10-01 — Moonrunner: rhythm and flow (desktop/cloud session)
+
+- Sam: "Moonrunner doesn't quite have the right rhythm. It's really hard to get a flow going." Measured with the by-eye bot (hold over a downhill, let go over an uphill): 77 percent of its landings hit the next climb, because flights off steep upslopes sailed past the downslope, and the time between presses varied by 41 percent.
+- Changes in `web/apps/runner.js`: hills come in sets of 3 to 5 matching hills (`SET`), each set's length sized to the sled's speed smoothed over 2.5 s (`TEMPO.k * speed`, within 0.8x to 2.2x of the zone's range), with the zone's height-to-length shape; a dive anywhere above a downslope closes in on it (aims 0.2 rad steeper than the slope, only steepening until 40 px above, then runs along it; 3 rad/s); diving in the air is 0.9x the sled's dive gravity; the camera also pulls back for a deep valley just ahead; `AHEAD` is 2400 px so new sets follow the speed sooner.
+- By-eye bot (seeds 1-6): perfect slides 13 to 74 percent of landings, landings on a climb 77 to 7 percent, press timing variation 41 to 18 percent. Balance (`BALANCE_SEEDS=6`): by eye about 10 300 in 217 s; a bot timing each dive about 12 700 in 249 s; 150 ms late about 11 400; never pressing about 630 in 65 s.
+- The daily run's hill lengths now follow each rider's speed, so riders share the date's features and draws but not the exact hills.
+- Not verified on the device.
+
 ## 2026-10-01 — Moonrunner: more air, bigger hills (desktop/cloud session)
 
 - Sam played the hill-flyer on the console: "a lot better, but it's pretty difficult. It should be closer to tiny wings. It's super hard to get air on it, and the hills are all very shallow." Measured with the by-eye bot: about 11 flights a minute, 18 percent of the time in the air.

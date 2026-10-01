@@ -27,14 +27,19 @@ export const PERFECT = 0.5; // a touchdown this close (radians, about 29 degrees
 export const THUD = 0.8; // beyond this the landing thuds and loses speed
 const DRAG = 0.00035, FRICT = 12;
 const RIDER_X = 300, RIDER_Y = 290; // where the camera's focus sits on screen
-const AHEAD = 3600, BEHIND = 900;
+const AHEAD = 2400, BEHIND = 900;
+// Hill length (crest to valley, px) for a set: TEMPO.k * speed^TEMPO.p, kept within the zone's
+// range scaled by lo..hi. SET is the number of matching hills in a set.
+export const TEMPO = { k: 0.65, p: 1, lo: 0.8, hi: 2.2, stick: 1, airDive: 0.9, assistH: 600 };
+const SET = [3, 5];
 const SAFE = 150 * PX_M; // the first 150 m of a run have no rilles or pits
 const START_T = 40, ZONE_T = 25, PERFECT_T = 0.5;
 const FEVER_T = 5, FEVER_CHAIN = 3;
 const NIGHT_STOP = 150; // after dark the run ends when the sled is this slow on the ground
 const FALL_T = 8; // seconds of daylight lost by falling into a rille
 const VENT_V = 950, BOOST_A = 1300;
-const ASSIST_H = 140, ASSIST_W = 2.2; // a dive this close (px) above a downslope bends toward it, this fast (rad/s)
+export const ASSIST = { w: 3 }; // how fast (rad/s) a dive above a downslope bends toward it
+const CLOSE_IN = 0.2; // how much steeper than the slope a drawn dive closes in
 const LAND_KEEP = 0.7; // a landing keeps at least this much of the speed in flight
 const HOP = 0.12; // flights shorter than this (s) neither score nor break a chain
 const LIP = 0.24; // the rim of a rille throws the sled up at about this slope
@@ -215,6 +220,8 @@ export class Moonrunner {
     // Hills: key points alternate crest and valley; between two the ground is half a cosine.
     this.kp = [{ x: this.x0 - 600, y: -60 }, { x: this.x0 + 260, y: 40, valley: true }];
     this.base = 0;
+    this.set = null;
+    this.vRef = 520; // the speed new hills are sized for: the sled's, smoothed over a few seconds
     this.chasms = []; this.pits = []; this.pads = []; this.vents = []; this.shards = [];
     this.extend();
     const x = this.x0 + 40;
@@ -291,9 +298,18 @@ export class Moonrunner {
     let guard = 0;
     while (this.frontier() < want && guard++ < 60) {
       const last = this.kp[this.kp.length - 1], zi = zoneAt(last.x / PX_M), z = ZONES[zi];
-      const deep = clamp((last.x / PX_M - z.from) / 900, 0, 1);
-      const L = rng.range(z.L[0], z.L[1]);
-      const H = Math.min(rng.range(z.H[0], z.H[1]) * (0.85 + 0.3 * deep), L * 0.9); // the steepest slope stays under ~55 degrees
+      // Hills come in sets of matching hills, so the dive and the release fall on a steady beat.
+      // A new set is sized to the sled's recent speed, so each flight off a crest comes down on
+      // the next downslope at any speed; its shape (height over length) is the zone's.
+      if (!this.set || this.set.left <= 0) {
+        const deep = clamp((last.x / PX_M - z.from) / 900, 0, 1);
+        const L = clamp(TEMPO.k * Math.pow(this.vRef, TEMPO.p), z.L[0] * TEMPO.lo, z.L[1] * TEMPO.hi) * rng.range(0.94, 1.06);
+        const shape = ((z.H[0] + z.H[1]) / (z.L[0] + z.L[1])) * (0.9 + 0.2 * deep);
+        this.set = { L, H: Math.min(L * shape, L * 0.9), left: 2 * rng.int(SET[0], SET[1]) };
+      }
+      const set = this.set;
+      set.left--;
+      const L = set.L * rng.range(0.97, 1.03), H = set.H * rng.range(0.95, 1.05); // the steepest slope stays under ~55 degrees
       const valley = !last.valley;
       this.base += L * 0.06; // a slight overall descent, so even a careless sled keeps moving
       const p = { x: last.x + L, y: this.base + (valley ? H / 2 : -H / 2) };
@@ -386,9 +402,11 @@ export class Moonrunner {
         return { type: "gap" };
       }
       // Leaving the ground: the slope falls away faster than gravity can follow.
-      const ny = r.y + vy * dt + 0.5 * G * heavy * dt * dt, g1 = this.gy(nx);
+      // The sled hugs the ground (at least STICK gravity) until the hill falls away from it, so it
+      // leaves near the crest rather than half way up the climb.
+      const hug = G * Math.max(heavy, TEMPO.stick), ny = r.y + vy * dt + 0.5 * hug * dt * dt, g1 = this.gy(nx);
       if (ny < g1 - 0.05) {
-        r.air = true; r.vx = vx; r.vy = vy + G * heavy * dt; r.x = nx; r.y = ny; r.airT = 0; r.tx = r.x; r.hi = 0; r.vent = false;
+        r.air = true; r.vx = vx; r.vy = vy + hug * dt; r.x = nx; r.y = ny; r.airT = 0; r.tx = r.x; r.hi = 0; r.vent = false;
         return { type: "launch" };
       }
       r.x = nx; r.y = g1; r.a = this.slopeAt(nx); r.vx = vx; r.vy = vy;
@@ -396,16 +414,19 @@ export class Moonrunner {
     }
     // In the air: held, the sled drops fast (to meet a downslope); light, it floats.
     r.airT += dt;
-    const g = G * (dive && !dark ? ride.dive * 0.75 : ride.air);
+    const g = G * (dive && !dark ? ride.dive * TEMPO.airDive : ride.air);
     r.vx -= r.vx * 0.02 * dt;
     r.vy += g * dt;
-    // Diving close above a downslope, the sled is drawn onto it: its line bends toward the slope, so
-    // a dive that is roughly right lands as a perfect slide.
+    // Diving above a downslope, the sled is drawn onto it: its line bends to close in on the slope
+    // (a little steeper than it), and just before touchdown to run along it, so a dive that is
+    // roughly right lands as a perfect slide.
     if (dive && !dark) {
       const th = this.slopeAt(r.x + r.vx * 0.1), below = this.gy(r.x) - r.y;
-      if (th > 0.1 && below < ASSIST_H) {
+      if (th > 0.1 && below < TEMPO.assistH) {
         const sp = Math.hypot(r.vx, r.vy), path = Math.atan2(r.vy, r.vx);
-        const turn = clamp(wrapAngle(th - path), -ASSIST_W * dt, ASSIST_W * dt), na = path + turn;
+        const near = below < 40, aim = th + (near ? 0.05 : CLOSE_IN);
+        // Far above the slope the line only ever steepens, so a dive never floats the sled past it.
+        const turn = clamp(wrapAngle(aim - path), near ? -ASSIST.w * dt : 0, ASSIST.w * dt), na = path + turn;
         r.vx = sp * Math.cos(na); r.vy = sp * Math.sin(na);
       }
     }
@@ -573,6 +594,7 @@ export class Moonrunner {
       if (before > 10 && this.T <= 10) this.notify("THE NIGHT IS CLOSE", 2);
       if (this.T <= 0 && !this.night) { this.night = true; this.notify("NIGHT. THE SLED COASTS.", 3); this.c.tone(196, 0.5, "sine"); }
     }
+    this.vRef += (Math.hypot(r.vx, r.vy) - this.vRef) * (1 - Math.exp(-dt / 2.5));
     const ev = this.advance(r, dt, this.held);
     if (ev) {
       if (ev.type === "land") this.onLand(ev);
@@ -617,7 +639,10 @@ export class Moonrunner {
   // The camera follows the sled across, eases up and down between the sled and the ground under it,
   // and pulls back with speed and with height so the ground stays in view.
   camera(dt) {
-    const r = this.r, ground = this.gy(r.x), h = Math.max(0, ground - r.y);
+    const r = this.r, ground = this.gy(r.x);
+    // Height above the ground, or above the lowest ground just ahead, so a deep valley stays in view.
+    let h = Math.max(0, ground - r.y);
+    for (let k = 1; k <= 4; k++) h = Math.max(h, 0.6 * (this.gy(r.x + k * 150) - r.y));
     const speed = Math.hypot(r.vx, r.vy);
     const zt = clamp(Math.min(1.1 - (speed - 300) / 2200, 400 / Math.max(1, h + 120)), 0.42, 1.05);
     this.zoom += (zt - this.zoom) * (1 - Math.exp(-2.5 * dt));

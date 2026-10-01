@@ -4,8 +4,8 @@
 // the sled flies off the crest. In the air it plans the way a practised player times a dive: it
 // tries "float for k frames, then dive" on a copy of the sled with the game's own physics
 // (Moonrunner.advance, as a probe) and keeps the first k that lands as a perfect slide. With no
-// such k (or with `plan: false`) it plays by eye: once falling, it dives while there is a downslope
-// under the sled. Near a rille it stays light.
+// such k (or with `plan: false`) it plays by eye: it holds while there is a downhill under the
+// sled and lets go over an uphill. Near a rille it stays light.
 // `lag` (seconds) delays every change of the button: a sloppy player. `plan: false` never looks
 // ahead and only plays by eye.
 import { PERFECT } from "../../web/apps/runner.js";
@@ -37,8 +37,8 @@ export function runnerBot(g, { lag = 0, plan = true } = {}) {
       if (fl.k >= 0) return fl.f > fl.k;
     }
     if (g.chasmAt(r.x) || rille(r)) return false;
-    // By eye: once falling, dive while there is a downslope under the sled.
-    return r.vy > 0 && g.slopeAt(r.x + r.vx * 0.15) > 0.1;
+    // By eye, the one rule a Tiny Wings player learns: hold over a downhill, let go over an uphill.
+    return g.slopeAt(r.x) > 0.05;
   }
   return function step() {
     if (g.phase !== "play") return;

@@ -133,18 +133,23 @@ test("a perfect slide: speed, points, daylight and the chain; a thud breaks the 
   assert.equal(g.R.chain, 2);
   assert.equal(g.phase, "play", "a thud ended the run");
 });
-test("a dive close above a downslope bends the sled onto it; any landing keeps most of the speed", () => {
-  const { g } = started({ seed: 18 });
-  clearAll(g);
-  const x = onDownslope(g), th = g.slopeAt(x + 60);
-  const steep = th + 0.7; // falling far more steeply than the slope
-  Object.assign(g.r, { x, y: g.gy(x) - 100, air: true, airT: 0.6, vx: 600 * Math.cos(steep), vy: 600 * Math.sin(steep), tx: x - 200, hi: 100 });
-  g.down();
-  let landed = null;
-  const on = g.onLand.bind(g);
-  g.onLand = (ev) => { landed = ev; on(ev); };
-  for (let i = 0; i < 60 && !landed; i++) g.update(DT);
-  assert.ok(landed && landed.diff < 0.7 - 0.15, "the dive did not bend toward the slope: " + landed?.diff);
+test("a dive above a downslope bends the sled onto it; any landing keeps most of the speed", () => {
+  const land = (hold) => {
+    const { g } = started({ seed: 18 });
+    clearAll(g);
+    const x = onDownslope(g) - 120, th = g.slopeAt(x + 60);
+    const flat = th - 0.6; // flying much flatter than the slope, a little above it
+    Object.assign(g.r, { x, y: g.gy(x) - 60, air: true, airT: 0.6, vx: 600 * Math.cos(flat), vy: 600 * Math.sin(flat), tx: x - 200, hi: 60 });
+    if (hold) g.down();
+    let landed = null;
+    const on = g.onLand.bind(g);
+    g.onLand = (ev) => { landed = ev; on(ev); };
+    for (let i = 0; i < 90 && !landed; i++) g.update(DT);
+    return landed;
+  };
+  const held = land(true), light = land(false);
+  assert.ok(held && held.diff <= PERFECT && held.th > 0.08, "the dive did not land as a perfect slide: " + JSON.stringify(held));
+  assert.ok(light && light.dist > held.dist, "floating did not carry further than the dive");
   const b = started({ seed: 18 }).g;
   clearAll(b);
   const u = onUpslope(b);
@@ -264,6 +269,20 @@ test("the hills are smooth and continuous, and the camera follows the sled and p
   assert.ok(steep < 0.97, "a slope is too steep: " + steep);
   assert.ok(worst < Math.tan(0.97) + 0.05, "the ground jumps by " + worst + " px in 1 px");
   assert.ok(zoomFast < zoomSlow - 0.1, `zoom fast ${zoomFast}, slow ${zoomSlow}`);
+});
+test("hills come in sets of matching hills, each set sized to the sled's speed, for a steady beat", () => {
+  const make = (v) => {
+    const g = new Moonrunner(appContext({ seed: 43 }));
+    g.start(); g.vRef = v; g.set = null; g.kp.length = 2;
+    g.r.x = g.kp[1].x + 2000; g.extend(); // fill well past the start
+    return g.kp.slice(2).map((p, i, a) => (i ? p.x - a[i - 1].x : 0)).slice(1);
+  };
+  const slow = make(500), fast = make(1100);
+  // Within the first set (at least three hills = six half-waves) the lengths stay within 15%.
+  const first = slow.slice(0, 6);
+  assert.ok(Math.max(...first) / Math.min(...first) < 1.15, "the first set is uneven: " + first.map(Math.round));
+  const mean = (a) => a.slice(0, 6).reduce((x, y) => x + y, 0) / 6;
+  assert.ok(mean(fast) > mean(slow) * 1.5, `hills for a fast sled (${mean(fast) | 0}) are not longer than for a slow one (${mean(slow) | 0})`);
 });
 test("each zone adds its own thing: pits from II, rilles from III, crystals from IV, vents from V", () => {
   const seen = ZONES.map(() => new Set());

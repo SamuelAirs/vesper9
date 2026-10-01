@@ -171,7 +171,7 @@ export const CARTRIDGES = [
     "id": "descent",
     "name": "DESCENT",
     "subtitle": "Set down gently, or not at all.",
-    "description": "Hold to burn against gravity and settle on the pad before the fuel runs out. The lamps are your descent-rate indicator.",
+    "description": "Hold to burn against gravity and settle on the pad before the fuel runs out. The lamps are your descent-rate indicator. Hold on the title to switch on the voice throttle and hum to burn.",
     "controls": "HOLD TO BURN · RELEASE TO FALL",
     "category": "PLAY / LANDER",
     "glyph": 1,
@@ -189,7 +189,8 @@ export const CARTRIDGES = [
       "button",
       "lights",
       "audio",
-      "progress"
+      "progress",
+      "microphone"
     ]
   },
   {

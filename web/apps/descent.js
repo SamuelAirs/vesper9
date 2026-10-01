@@ -3,9 +3,17 @@
 // the sideways motion (drift, gusts, a sliding pad, a canyon), so the only decision is
 // when to fall and when to burn. The three lamps are the descent instrument: colour is
 // the vertical-speed verdict, and which lamp is lit says where the pad is.
+//
+// Voice throttle (optional). Holding the button on the title screen for a second switches the
+// microphone to `analyze` and lets your voice burn the engine too: the louder you hum, the
+// harder it burns, so you can hover and feather the descent in a way an on/off button cannot.
+// The button still burns flat out and always wins. The microphone is only on while the
+// player has chosen it; leaving the game switches it off (if this game switched it on), and a
+// mute from the system menu, an error or a lost link turns the voice throttle off. With no
+// signal the throttle is zero, so the game plays exactly as before.
 import { C, space, text, line, circle, diamond, banner } from "../engine/draw.js";
 import { clamp, lerp } from "../engine/math.js";
-import { LAMP, lamps, fill, dim, blend, pulse, blink, chase, lightsOff } from "../engine/lightshow.js";
+import { LAMP, lamps, fill, dim, blend, pulse, blink, chase, meter, lightsOff } from "../engine/lightshow.js";
 import { recordRun } from "../engine/kit.js";
 import { AppGuard } from "../engine/input.js";
 
@@ -20,6 +28,129 @@ const smooth = (t) => {
   const u = clamp(t, 0, 1);
   return u * u * (3 - 2 * u);
 };
+
+// ---- voice throttle ----
+// The analysis frames (about ten a second) carry 28 log bands, 60 Hz to 7 kHz, in dBFS. A voice
+// is read from the loudest band between about 140 Hz and 4 kHz: that leaves out the engine's
+// own 88 Hz rumble from the speaker and most hiss. The throttle is how far that sits above the
+// room's noise floor, which is measured while the player is quiet and then follows the room.
+export const VOICE = {
+  bands: [5, 24],     // band 5 starts at 140 Hz, band 24 ends near 4 kHz
+  gateDb: 12,         // this far above the floor before anything burns
+  spanDb: 28,         // and this much further for a full burn
+  calibrateS: 1.5,    // the first moments after switching on only learn the room
+  staleS: 0.5,        // no frame for this long: the throttle falls to zero
+  holdS: 0.8,         // a title-screen hold this long toggles the voice throttle
+  rise: 14, fall: 9,  // smoothing rates (per second) towards the latest frame
+};
+const FLOOR_LO = -110, FLOOR_HI = -35;
+
+// The voice level of one analysis frame, in dBFS, or null if the frame has nothing usable.
+export function voiceDb(frame) {
+  if (!frame || typeof frame !== "object") return null;
+  if (Array.isArray(frame.bands) && frame.bands.length > VOICE.bands[1]) {
+    let top = -Infinity;
+    for (let i = VOICE.bands[0]; i <= VOICE.bands[1]; i++) if (Number.isFinite(frame.bands[i])) top = Math.max(top, frame.bands[i]);
+    if (top > -Infinity) return top;
+  }
+  return Number.isFinite(frame.rmsDb) ? frame.rmsDb : null;
+}
+
+// Microphone ownership, the noise floor and the smoothed throttle. A class instance, so the
+// menu gesture's rewind (AppGuard) leaves it alone: the microphone is real, not game state.
+export class VoiceThrottle {
+  constructor(ctx) {
+    this.ctx = ctx;
+    this.want = false;    // the player has asked for it
+    this.owned = false;   // this game switched the microphone to analyze
+    this.pending = false;
+    this.clock = 0;
+    this.reset();
+  }
+  reset() {
+    this.floor = null;
+    this.samples = 0;
+    this.since = this.clock;
+    this.lastAt = -Infinity;
+    this.target = 0;
+    this.value = 0;
+    this.level = null;
+  }
+  get on() { return this.want && this.owned; }
+  get calibrating() { return this.on && (this.floor === null || this.clock - this.since < VOICE.calibrateS); }
+  get heard() { return this.on && this.clock - this.lastAt <= VOICE.staleS; }
+  get throttle() { return this.on && !this.calibrating ? this.value : 0; }
+
+  enable() {
+    if (this.want) return Promise.resolve();
+    if (this.ctx.state?.().controller === false) {
+      this.ctx.toast?.("This is a monitor tab. It cannot start the microphone.");
+      return Promise.resolve();
+    }
+    this.want = true;
+    this.pending = true;
+    this.owned = true;
+    this.reset();
+    let result;
+    try { result = this.ctx.setMic("analyze"); } catch (error) { result = Promise.reject(error); }
+    return Promise.resolve(result).then(
+      () => {
+        this.pending = false;
+        // The service reports the mode before it answers; anything but analyze is not ours.
+        const mode = this.ctx.state?.().mic?.mode;
+        if (mode !== undefined && mode !== "analyze") this.drop();
+      },
+      () => { this.pending = false; this.drop(); },
+    );
+  }
+  disable() {
+    const owned = this.owned;
+    this.drop();
+    if (!owned) return Promise.resolve();
+    let result;
+    try { result = this.ctx.setMic("off"); } catch (error) { result = Promise.reject(error); }
+    return Promise.resolve(result).catch(() => {});
+  }
+  // The microphone is gone (muted elsewhere, an error, a lost link): forget it, touch nothing.
+  drop() {
+    this.want = this.owned = this.pending = false;
+    this.reset();
+  }
+
+  event(e) {
+    if (!e || typeof e !== "object") return;
+    if (e.type === "analysis") this.frame(e);
+    else if (e.type === "analysis_error" || e.type === "offline" || e.type === "node_reset" || (e.type === "device" && e.connected === false)) {
+      if (this.want) this.drop();
+    } else if (e.type === "mic" && this.want && !this.pending && e.mode !== "analyze") this.drop();
+  }
+  frame(e) {
+    if (!this.on) return;
+    const level = voiceDb(e);
+    if (level === null) return;
+    const dt = Number.isFinite(this.lastAt) ? clamp(this.clock - this.lastAt, 0, 0.5) : 0.1;
+    this.lastAt = this.clock;
+    this.level = level;
+    if (this.floor === null || this.clock - this.since < VOICE.calibrateS) {
+      // Learning the room: the mean of the quiet frames so far.
+      this.samples = this.floor === null ? 1 : this.samples + 1;
+      this.floor = clamp(this.floor === null ? level : this.floor + (level - this.floor) / this.samples, FLOOR_LO, FLOOR_HI);
+    } else if (level < this.floor) this.floor = clamp(lerp(this.floor, level, 0.5), FLOOR_LO, FLOOR_HI);
+    else {
+      // Near the floor it follows the room; well above it (a voice) it barely moves.
+      const rate = level - this.floor < VOICE.gateDb ? 2 : 0.15;
+      this.floor = clamp(this.floor + rate * dt, FLOOR_LO, FLOOR_HI);
+    }
+    this.target = clamp((level - this.floor - VOICE.gateDb) / VOICE.spanDb, 0, 1);
+  }
+  tick(dt) {
+    this.clock += dt;
+    const target = this.heard ? this.target : 0;
+    const k = target > this.value ? VOICE.rise : VOICE.fall;
+    this.value += (target - this.value) * clamp(k * dt, 0, 1);
+    if (this.value < 0.002) this.value = 0;
+  }
+}
 
 // Sideways wind as a function of time: a list of levels, eased between every `gustP` seconds.
 function gustAt(s, t) {
@@ -108,6 +239,7 @@ const FEATURES = {
     s.delay = 2;
   },
 };
+const TITLE_HINT = "TAP TO BEGIN. HOLD ONE SECOND TO SWITCH THE VOICE THROTTLE ON OR OFF.";
 const FIXED = [[], ["drift"], ["drift", "tight"], ["thin", "drift"], ["heavy", "drift"], ["gust"], ["moving"], ["drift", "canyon"]];
 const BASIC = [
   ["TRAINING FLAT", "NO DRIFT. HOLD TO BURN, RELEASE TO FALL."],
@@ -168,12 +300,17 @@ export class Descent {
   constructor(ctx) {
     this.ctx = ctx;
     this.guard = new AppGuard(this, ctx); // takes back a menu gesture that reached the game (docs/ENGINE.md)
+    this.voice = new VoiceThrottle(ctx);
     this.t = 0;
     this.phase = "title";
     this.pt = 0;
     this.btn = false;
     this.latched = false;
     this.burning = false;
+    this.power = 0;       // engine output this step, 0..1
+    this.engineTone = false;
+    this.armed = false;   // a title-screen press waiting for its release: a tap starts, a hold toggles the voice
+    this.downAt = 0;
     this.intro = true; // the very first briefing of a session waits for a press
     this.waitBrief = false;
     this.warnClock = 0;
@@ -190,7 +327,7 @@ export class Descent {
     this.hudKey = "";
     this.hintKey = "";
     this.seq = 0;
-    this.setHint("TITLE", "PRESS TO BEGIN. HOLD TO BURN, RELEASE TO FALL.");
+    this.setHint("TITLE", TITLE_HINT);
     this.hudNow();
   }
 
@@ -211,7 +348,9 @@ export class Descent {
     this.guard.mark();
     this.btn = true;
     if (this.phase === "title" || (this.phase === "over" && this.pt > 1)) {
-      this.newRun();
+      // Decided on release: a tap starts a run, a hold switches the voice throttle.
+      this.armed = true;
+      this.downAt = this.t;
     } else if (this.phase === "brief" && this.pt > 0.5) {
       this.startPlay();
     } else if (this.phase === "landed" && this.pt > 1.2) {
@@ -225,11 +364,17 @@ export class Descent {
     this.guard.release();
     this.btn = false;
     this.latched = false;
+    if (this.armed) {
+      this.armed = false;
+      if (this.t - this.downAt >= VOICE.holdS) this.toggleVoice();
+      else this.newRun();
+    }
   }
   cancel() {
     this.guard.rewind();
     this.btn = false;
     this.latched = false;
+    this.armed = false;
     this.stopEngine();
     this.ctx.leds(lightsOff());
   }
@@ -238,11 +383,27 @@ export class Descent {
   dispose() {
     this.guard.settle();
     this.stopEngine();
+    this.voice.disable();
     this.ctx.leds(lightsOff());
+  }
+  event(e) {
+    try { this.voice.event(e); } catch {}
   }
   stopEngine() {
     this.burning = false;
+    this.power = 0;
+    this.engineTone = false;
     this.ctx.synth.stopTone();
+  }
+  toggleVoice() {
+    if (this.voice.want) {
+      this.voice.disable();
+      this.ctx.toast?.("VOICE THROTTLE OFF. THE MICROPHONE IS OFF.");
+      this.ctx.tone(330, 0.12, "triangle");
+    } else {
+      this.voice.enable();
+      this.ctx.tone(660, 0.12, "triangle");
+    }
   }
 
   // ---- flow ----
@@ -288,6 +449,7 @@ export class Descent {
   update(dt) {
     const step = dt > 0 && dt < 0.1 ? dt : STEP;
     this.guard.tick(step);
+    this.voice.tick(step);
     this.t += step;
     this.pt += step;
     if (this.phase === "play") this.play(step);
@@ -299,21 +461,28 @@ export class Descent {
   play(dt) {
     const s = this.site, w = this.w;
     stepWorld(s, w, dt);
-    const thrust = this.btn && !this.latched && this.fuel > 0;
+    // The button burns flat out; otherwise the voice throttle sets the burn. Fuel goes with output.
+    const pushed = this.btn && !this.latched;
+    const power = this.fuel > 0 ? (pushed ? 1 : this.voice.throttle) : 0;
+    const thrust = power > 0.02;
+    this.power = thrust ? power : 0;
     if (thrust) {
-      this.fuel = Math.max(0, this.fuel - dt);
+      this.fuel = Math.max(0, this.fuel - dt * this.power);
       this.burnedOnce = true;
     }
-    w.vy += (thrust ? s.g - s.a : s.g) * dt;
+    w.vy += (s.g - s.a * this.power) * dt;
     w.alt -= w.vy * dt;
     const ceil = s.H * 1.06;
     if (w.alt > ceil) {
       w.alt = ceil;
       if (w.vy < 0) w.vy = 0;
     }
-    if (thrust !== this.burning) {
-      this.burning = thrust;
-      if (thrust) this.ctx.synth.startTone(88);
+    this.burning = thrust;
+    // The rumble is the button's; a voice burn is heard already (and the rumble must not feed the microphone).
+    const rumble = thrust && pushed;
+    if (rumble !== this.engineTone) {
+      this.engineTone = rumble;
+      if (rumble) this.ctx.synth.startTone(88);
       else this.ctx.synth.stopTone();
     }
     this.out = outlook(w.alt, w.vy, this.fuel, s.g, s.a, s.safe);
@@ -337,7 +506,7 @@ export class Descent {
       this.setHint("PLAY", "SAFE TOUCHDOWN UNDER " + s.safe.toFixed(1) + " M/S. LAMPS: COLOUR = SPEED, POSITION = PAD.");
       return;
     }
-    if (!this.burnedOnce && w.alt > s.H * 0.5) this.setHint("A", "HOLD THE BUTTON TO BURN. RELEASE TO FALL.");
+    if (!this.burnedOnce && w.alt > s.H * 0.5) this.setHint(this.voice.on ? "AV" : "A", this.voice.on ? "HUM TO BURN, LOUDER FOR MORE. THE BUTTON IS A FULL BURN." : "HOLD THE BUTTON TO BURN. RELEASE TO FALL.");
     else if (this.out.crash) this.setHint("B", "TOO FAST. HOLD TO BURN NOW!");
     else if (w.vy > s.safe && this.out.urgency > 0.4) this.setHint("C", "BRAKE: HOLD THE BUTTON TO SLOW DOWN.");
     else if (w.vy > s.safe) this.setHint("D", "AMBER: FASTER THAN SAFE. BRAKE BEFORE THE GROUND.");
@@ -413,11 +582,16 @@ export class Descent {
     if (this.phase === "crashed" && this.lives <= 0 && this.pt > 2.6) {
       this.phase = "over";
       this.pt = 0;
-      this.setHint("OVER", "SURVEY ENDED. PRESS TO FLY AGAIN.");
+      this.setHint("OVER", "SURVEY ENDED. TAP TO FLY AGAIN. HOLD ONE SECOND FOR THE VOICE THROTTLE.");
     }
   }
 
   idleLamps() {
+    const held = this.armed ? this.t - this.downAt : 0;
+    if (held > 0.2) {
+      this.ctx.leds(meter(clamp((held - 0.2) / (VOICE.holdS - 0.2), 0, 1), dim(LAMP.cyan, 0.5)));
+      return;
+    }
     this.ctx.leds(fill(this.phase === "over" ? LAMP.amber : LAMP.green, 0.02 + 0.06 * pulse(this.t, 0.25)));
   }
 
@@ -458,6 +632,41 @@ export class Descent {
     else if (this.phase === "brief") this.drawBrief(g);
     else if (this.phase === "landed" || this.phase === "crashed") this.drawAfter(g);
     else if (this.phase === "over") this.drawOver(g);
+    if (this.phase === "title" || this.phase === "over") this.drawVoiceOption(g);
+  }
+
+  // The title and result screens: the voice throttle's state, and the hold that switches it.
+  drawVoiceOption(g) {
+    const v = this.voice, y = 420;
+    g.fillStyle = "#0c1511e8";
+    g.fillRect(200, y - 26, 560, 92);
+    const state = v.pending ? "STARTING THE MICROPHONE" : !v.on ? "OFF" : v.calibrating ? "ON / LISTENING TO THE ROOM, STAY QUIET" : "ON / HUM TO BURN, LOUDER BURNS HARDER";
+    text(g, "VOICE THROTTLE: " + state, 480, y, 20, v.on ? C.cyan : C.muted, "center");
+    const held = this.armed ? this.t - this.downAt : 0;
+    if (held > 0.2) {
+      const f = clamp((held - 0.2) / (VOICE.holdS - 0.2), 0, 1);
+      g.strokeStyle = C.line;
+      g.lineWidth = 2;
+      g.strokeRect(330, y + 20, 300, 12);
+      g.fillStyle = C.cyan;
+      g.fillRect(332, y + 22, 296 * f, 8);
+      text(g, f >= 1 ? "RELEASE TO SWITCH" : "KEEP HOLDING", 480, y + 52, 16, C.amber, "center");
+    } else {
+      text(g, "HOLD ONE SECOND TO SWITCH " + (v.want ? "OFF" : "ON") + ". THE MICROPHONE IS ONLY ON WHILE YOU CHOOSE IT.", 480, y + 34, 15, C.muted, "center");
+      if (v.on) this.drawVoiceMeter(g, 380, y + 46, 200);
+    }
+  }
+  // A small level meter: the voice above the room's floor, with the gate where burning starts.
+  drawVoiceMeter(g, x, y, width) {
+    const v = this.voice;
+    g.strokeStyle = C.line;
+    g.lineWidth = 2;
+    g.strokeRect(x, y, width, 10);
+    const lift = v.level === null || v.floor === null ? 0 : clamp((v.level - v.floor) / (VOICE.gateDb + VOICE.spanDb), 0, 1);
+    g.fillStyle = v.throttle > 0.02 ? C.amber : C.muted;
+    g.fillRect(x + 1, y + 1, (width - 2) * lift, 8);
+    const gx = x + width * (VOICE.gateDb / (VOICE.gateDb + VOICE.spanDb));
+    line(g, gx, y - 3, gx, y + 13, C.ink, 1);
   }
 
   drawTerrain(g, s) {
@@ -523,7 +732,7 @@ export class Descent {
         g.moveTo(-4, -9); g.lineTo(4, -9);
         g.stroke();
         if (this.burning) {
-          const f = 12 + 9 * (0.5 + 0.5 * Math.sin(this.t * 55)) + 4 * Math.sin(this.t * 31);
+          const f = (12 + 9 * (0.5 + 0.5 * Math.sin(this.t * 55)) + 4 * Math.sin(this.t * 31)) * (0.35 + 0.65 * this.power);
           g.fillStyle = C.amber;
           g.beginPath();
           g.moveTo(-5, -8); g.lineTo(0, -8 + f); g.lineTo(5, -8);
@@ -551,6 +760,15 @@ export class Descent {
     g.fillStyle = fr < 0.2 ? C.red : C.cyan;
     g.fillRect(607, 26, 186 * fr, 16);
     text(g, this.fuel.toFixed(1) + " S", 812, 34, 22, fr < 0.2 ? C.red : C.muted);
+    if (this.voice.on) {
+      // The engine output gauge: the voice's share, or the button's full burn.
+      text(g, this.voice.calibrating ? "VOICE: QUIET" : this.voice.heard ? "VOICE" : "VOICE: NO SIGNAL", 540, 100, 18, this.voice.heard ? C.cyan : C.muted);
+      g.strokeStyle = C.line;
+      g.lineWidth = 2;
+      g.strokeRect(700, 91, 95, 14);
+      g.fillStyle = this.engineTone ? C.amber : C.cyan;
+      g.fillRect(702, 93, 91 * clamp(play ? this.power : this.voice.throttle, 0, 1), 10);
+    }
     const lateral = s.drift || s.gusts.length || s.padSpeed;
     if (lateral) text(g, "DRIFT " + (w.vx >= 0 ? "+" : "-") + Math.abs(w.vx).toFixed(1), 250, 68, 22, C.muted);
     if (s.gusts.length) text(g, "WIND " + (w.vx > s.drift + 1 ? ">>" : w.vx < s.drift - 1 ? "<<" : "--"), 540, 68, 22, C.amber);
@@ -608,6 +826,6 @@ export class Descent {
     text(g, "SURVEY ENDED", 480, 184, 32, C.red, "center");
     text(g, "SCORE " + this.total, 480, 234, 30, C.ink, "center");
     text(g, "SITES CLEARED " + this.cleared + "   BEST " + Math.max(this.total, this.ctx.best?.() || 0), 480, 276, 19, C.muted, "center");
-    if (this.pt > 1) text(g, "PRESS TO FLY AGAIN", 480, 322, 18, C.amber, "center");
+    if (this.pt > 1) text(g, "TAP TO FLY AGAIN", 480, 322, 18, C.amber, "center");
   }
 }

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Descent } from "../web/apps/descent.js";
+import { Descent, VoiceThrottle, voiceDb, VOICE } from "../web/apps/descent.js";
 import { appContext, fakeCanvas, run } from "./helpers/app-context.mjs";
 
 const MAX_STEPS = 60 * 60 * 12; // twelve simulated minutes
@@ -292,4 +292,232 @@ test("the title says what the button does", () => {
   assert.match(all, /HOLD TO BURN/);
   assert.match(all, /RELEASE TO FALL/);
   assert.match(all, /LAND SLOWLY/);
+});
+
+// ---- voice throttle ----
+// A context whose setMic behaves like the host: the service reports the mode (a mic event) before it answers.
+function micContext(options = {}) {
+  const ctx = appContext(options);
+  ctx.calls.mic = [];
+  ctx.setMic = (mode) => { ctx.calls.mic.push(mode); ctx.state().mic.mode = mode; return Promise.resolve(); };
+  return ctx;
+}
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+// An analysis frame: a quiet room at about -90 dBFS in every band, with `voice` dB in the band at 300 Hz.
+const BANDS = 28;
+function frame(voice = null, extra = {}) {
+  const bands = Array(BANDS).fill(-90);
+  if (voice !== null) bands[9] = voice;
+  return { type: "analysis", rmsDb: voice ?? -85, peakDb: voice ?? -80, bands, ...extra };
+}
+async function holdOnTitle(app, seconds = 1) {
+  app.down({ source: "keyboard" });
+  run(app, seconds);
+  app.up({ source: "keyboard" });
+  await tick();
+}
+// Feed frames ten a second while the game runs.
+function runWithVoice(app, seconds, level) {
+  for (let i = 0, n = Math.round(seconds * 60); i < n; i++) {
+    if (i % 6 === 0) app.event(frame(typeof level === "function" ? level(app) : level));
+    app.update(1 / 60);
+  }
+}
+
+test("the voice level is the loudest band from 140 Hz to 4 kHz; the engine's 88 Hz rumble is left out", () => {
+  const bands = Array(BANDS).fill(-90);
+  bands[2] = -20; // 88 Hz, the engine tone
+  assert.equal(voiceDb({ bands }), -90);
+  bands[12] = -41;
+  assert.equal(voiceDb({ bands }), -41);
+  assert.equal(voiceDb({ rmsDb: -50 }), -50, "falls back to the overall level");
+  assert.equal(voiceDb({}), null);
+  assert.equal(voiceDb(null), null);
+});
+
+test("the throttle learns the room, rises with a voice above the floor, and falls when the voice or the signal stops", async () => {
+  const ctx = micContext();
+  const v = new VoiceThrottle(ctx);
+  await v.enable();
+  assert.ok(v.on);
+  const feed = (seconds, level) => { for (let i = 0; i < seconds * 10; i++) { v.event(frame(level)); for (let k = 0; k < 6; k++) v.tick(1 / 60); } };
+  feed(2, null);
+  assert.ok(!v.calibrating);
+  assert.ok(Math.abs(v.floor + 90) < 0.5, `floor ${v.floor}`);
+  assert.equal(v.throttle, 0, "a quiet room burns nothing");
+  feed(1, -90 + VOICE.gateDb - 2);
+  assert.equal(v.throttle, 0, "below the gate burns nothing");
+  feed(1, -90 + VOICE.gateDb + VOICE.spanDb / 2);
+  assert.ok(Math.abs(v.throttle - 0.5) < 0.08, `half voice ${v.throttle}`);
+  feed(1, -30);
+  assert.ok(v.throttle > 0.95, `full voice ${v.throttle}`);
+  const before = v.floor;
+  feed(10, -30);
+  assert.ok(v.floor - before < 3, "a long hum barely moves the floor");
+  assert.ok(v.throttle > 0.9);
+  for (let k = 0; k < 90; k++) v.tick(1 / 60); // frames stop: half a second of grace, then the burn fades
+  assert.equal(v.throttle, 0, "no signal, no burn");
+  feed(1, null);
+  assert.equal(v.throttle, 0);
+});
+
+test("the throttle is zero until the player chooses it, and while the room is being learned", () => {
+  const v = new VoiceThrottle(micContext());
+  v.event(frame(-20));
+  v.tick(0.5);
+  assert.equal(v.throttle, 0);
+  assert.equal(v.on, false);
+});
+
+test("a tap on the title starts a run; a one-second hold switches the voice throttle on and off", async () => {
+  const ctx = micContext();
+  const app = new Descent(ctx);
+  await holdOnTitle(app, 1);
+  assert.equal(app.phase, "title", "a hold does not start a run");
+  assert.deepEqual(ctx.calls.mic, ["analyze"]);
+  assert.ok(app.voice.on);
+  await holdOnTitle(app, 1);
+  assert.deepEqual(ctx.calls.mic, ["analyze", "off"]);
+  assert.ok(!app.voice.on);
+  await holdOnTitle(app, 0.3);
+  assert.equal(app.phase, "brief", "a short press starts");
+  assert.deepEqual(ctx.calls.mic, ["analyze", "off"], "and leaves the microphone alone");
+});
+
+test("leaving the game switches the microphone off only if the game switched it on", async () => {
+  const ctx = micContext();
+  const app = new Descent(ctx);
+  app.dispose();
+  assert.deepEqual(ctx.calls.mic, [], "never turned on, never touched");
+  const ctx2 = micContext();
+  const app2 = new Descent(ctx2);
+  await holdOnTitle(app2);
+  app2.dispose();
+  await tick();
+  assert.deepEqual(ctx2.calls.mic, ["analyze", "off"]);
+});
+
+test("a mute from elsewhere, an analysis error or a lost link turns the voice throttle off without touching the microphone", async () => {
+  for (const event of [{ type: "mic", mode: "off" }, { type: "analysis_error", error: "x" }, { type: "device", connected: false }, { type: "offline" }]) {
+    const ctx = micContext();
+    const app = new Descent(ctx);
+    await holdOnTitle(app);
+    assert.ok(app.voice.on);
+    app.event(event);
+    assert.ok(!app.voice.on, event.type);
+    app.dispose();
+    assert.deepEqual(ctx.calls.mic, ["analyze"], event.type + ": the game no longer owns the microphone");
+  }
+});
+
+test("a monitor tab or a refused microphone leaves the voice throttle off", async () => {
+  const ctx = micContext({ state: { controller: false } });
+  const app = new Descent(ctx);
+  await holdOnTitle(app);
+  assert.ok(!app.voice.on);
+  assert.deepEqual(ctx.calls.mic, []);
+  assert.match(ctx.calls.toast.join(" "), /monitor tab/);
+  const ctx2 = micContext();
+  ctx2.setMic = () => Promise.reject(new Error("no"));
+  const app2 = new Descent(ctx2);
+  await holdOnTitle(app2);
+  assert.ok(!app2.voice.on);
+});
+
+test("the menu gesture's hold on the title neither starts a run nor switches the microphone", () => {
+  const ctx = micContext();
+  const app = new Descent(ctx);
+  app.down({}); app.update(1 / 60); app.up({});        // tap one starts a run (taken back below)
+  app.down({}); app.update(1 / 60); app.up({});
+  app.down({});
+  run(app, 1.1);
+  app.cancel(); // the host opens the menu before the release
+  app.pause();
+  assert.equal(app.phase, "title");
+  assert.deepEqual(ctx.calls.mic, []);
+  app.resume();
+  app.up({});
+  assert.deepEqual(ctx.calls.mic, []);
+  assert.equal(app.phase, "title");
+});
+
+test("a voice burn is proportional, uses fuel in proportion, and makes no engine rumble", async () => {
+  const ctx = micContext();
+  let rumble = 0;
+  ctx.synth.startTone = () => { rumble++; };
+  const app = new Descent(ctx);
+  await holdOnTitle(app);
+  runWithVoice(app, 2, null); // learn the room on the title
+  app.down({}); app.up({});
+  runWithVoice(app, 0.6, null);
+  app.down({}); app.up({}); // start the descent from the first briefing
+  assert.equal(app.phase, "play");
+  const half = -90 + VOICE.gateDb + VOICE.spanDb / 2;
+  runWithVoice(app, 0.5, half);
+  const fuel0 = app.fuel, vy0 = app.w.vy;
+  runWithVoice(app, 1, half);
+  const used = fuel0 - app.fuel;
+  assert.ok(Math.abs(app.power - 0.5) < 0.08, `power ${app.power}`);
+  assert.ok(Math.abs(used - 0.5) < 0.08, `fuel used ${used}`);
+  const s = app.site;
+  const dv = app.w.vy - vy0;
+  assert.ok(Math.abs(dv - (s.g - s.a * 0.5)) < 0.4, `half a burn: dv ${dv}`);
+  assert.equal(rumble, 0, "no rumble for the voice");
+  app.down({});
+  app.update(1 / 60);
+  assert.equal(app.power, 1, "the button is a full burn");
+  assert.equal(rumble, 1);
+});
+
+test("a hovering voice pilot lands the opening sites", async () => {
+  // Proportional control: aim for a gentle descent speed and ask for just the burn that holds it.
+  const ctx = micContext({ seed: 5 });
+  const app = new Descent(ctx);
+  await holdOnTitle(app);
+  runWithVoice(app, 2, null);
+  app.down({}); app.up({});
+  let landed = 0, steps = 0;
+  while (steps++ < 60 * 240 && app.siteNo <= 3 && app.phase !== "over") {
+    const level = () => {
+      if (app.phase !== "play") return null;
+      const { w, site: s } = app;
+      const want = w.alt > 25 ? 0.8 * s.safe + w.alt / 12 : 0.5 * s.safe;
+      const need = clamp01((s.g + (w.vy - want) * 1.5) / s.a);
+      return need > 0 ? -90 + VOICE.gateDb + need * VOICE.spanDb : null;
+    };
+    if (app.phase === "landed" && app.pt > 1.3) { landed++; app.down({}); app.up({}); }
+    if (app.phase === "crashed" && app.pt > 1.5) { app.down({}); app.up({}); }
+    if (app.phase === "brief" && app.waitBrief) { app.down({}); app.up({}); }
+    runWithVoice(app, 0.1, level);
+  }
+  assert.ok(landed >= 3, `landed ${landed}`);
+  assert.equal(app.lives, 3, "without losing a lander");
+});
+function clamp01(x) { return Math.max(0, Math.min(1, x)); }
+
+test("with the voice throttle on but the microphone silent, the game plays exactly as with the button alone", async () => {
+  const runFor = async (voice) => {
+    const ctx = micContext({ seed: 11 });
+    const app = new Descent(ctx);
+    if (voice) await holdOnTitle(app);
+    const trace = [];
+    app.down({}); app.up({});
+    for (let i = 0; i < 60 * 40; i++) {
+      if (app.phase === "brief" && app.waitBrief) { app.down({}); app.up({}); }
+      if (app.phase === "play") { if (i % 90 === 0) app.down({}); if (i % 90 === 40) app.up({}); }
+      app.update(1 / 60);
+      if (app.w) trace.push(+app.w.alt.toFixed(4));
+    }
+    return trace;
+  };
+  assert.deepEqual(await runFor(true), await runFor(false));
+});
+
+test("the title shows the voice throttle option and how to switch it", () => {
+  const rows = [];
+  const g = fakeCanvas();
+  const spy = new Proxy(g, { get(o, k) { return k === "fillText" ? (t) => rows.push(t) : o[k]; } });
+  new Descent(micContext()).draw(spy);
+  assert.match(rows.join(" "), /VOICE THROTTLE: OFF/);
+  assert.match(rows.join(" "), /HOLD ONE SECOND TO SWITCH ON/);
 });

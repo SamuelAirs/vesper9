@@ -494,6 +494,7 @@ export const CARTRIDGES = [
     "category": "SYSTEM / HEALTH",
     "glyph": 1,
     "factory": "Telemetry",
+    "icon": "<path d=\"M6 38a18 18 0 1 1 36 0\"/><path d=\"M24 38l8-14\"/><path d=\"M10 38h4M34 38h4M24 20v4M12 26l3 2M36 26l-3 2\"/><circle cx=\"24\" cy=\"38\" r=\"2\" fill=\"currentColor\"/><path d=\"M8 44h32\" stroke-dasharray=\"3 3\"/>",
     "voice": [
       "system"
     ],

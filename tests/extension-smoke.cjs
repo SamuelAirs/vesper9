@@ -19,8 +19,8 @@ const python=process.env.PYTHON||'python3';const port=require('./free-port.cjs')
  const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
  for(const url of [origin,'file://'+path.join(copy,'VESPER-9-Simulator.html')]){
   await page.goto(url);await page.waitForFunction(()=>vesper.loaded);
-  await page.evaluate(()=>{vesper.page=Math.floor((vesper.cartridges-1)/6);vesper.buildHome();});
-  assert.equal(await page.locator('.app-card').count(),1);
+  await page.evaluate(()=>{vesper.page=Math.floor((vesper.cartridges-1)/6);vesper.buildHome((vesper.cartridges-1)%6);});
+  assert.equal(await page.locator('.app-card[data-app="garden"]').count(),1);
   await page.keyboard.down('Space');await page.waitForTimeout(760);await page.keyboard.up('Space');
   await page.waitForFunction(()=>vesper.meta?.id==='garden');
   await page.keyboard.down('Space');await page.waitForTimeout(60);await page.keyboard.up('Space');

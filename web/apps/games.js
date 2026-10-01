@@ -233,9 +233,11 @@ export class OrbitLock {
       this.points++;
       const p = this.points, sector = Math.floor(p / 5) + 1;
       this.feedback = p % 5 === 0 ? "SECTOR " + sector + " / ARRAY EXPANDS" : "SIGNAL LOCKED";
-      if (p % 5 === 0 && p >= 10) { this.dir = -this.dir; announce(this, "SECTOR " + sector + " / THE ORBIT REVERSES"); }
-      if (p === 20) announce(this, "THE GATE NOW DRIFTS");
-      if (p % 10 === 0 && this.lives < 3) { this.lives++; announce(this, "HULL REPAIRED"); }
+      const news = [];
+      if (p % 5 === 0 && p >= 10) { this.dir = -this.dir; news.push("THE ORBIT REVERSES"); }
+      if (p === 20) news.push("THE GATE NOW DRIFTS");
+      if (p % 10 === 0 && this.lives < 3) { this.lives++; news.push("HULL REPAIRED"); }
+      if (news.length) announce(this, news.join(" / "));
       this.drift = p >= 20 ? this.c.rng.range(-0.3, 0.3) : 0;
       this.target += this.dir * this.c.rng.range(1.2, ORBIT_AHEAD_MAX);
       this.c.tone(400 + Math.min(p, 45) * 22, 0.13);

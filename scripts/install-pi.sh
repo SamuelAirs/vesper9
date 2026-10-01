@@ -15,7 +15,7 @@ if ! python3 -m venv .venv; then
 fi
 .venv/bin/python -m pip install --upgrade pip
 if [[ "$speech" == 1 ]]; then
-  .venv/bin/python -m pip install -e '.[speech]'
+  .venv/bin/python -m pip install -e '.[speech,refine]'
   .venv/bin/python scripts/get-voice-model.py
 else
   .venv/bin/python -m pip install -e .

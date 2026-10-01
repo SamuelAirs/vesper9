@@ -183,6 +183,8 @@ async function button(page, ms = 80) {
   await page.getByRole('button',{name:'OLDER NOTES',exact:true}).click();
   await page.waitForFunction(()=>vesper.app.offset===5&&vesper.app.sessions.length===7);
   const older=await page.evaluate(()=>vesper.app.sessions[0].id);
+  // The action list is rebuilt just after the sessions arrive; wait for the entry itself.
+  await page.waitForFunction(id=>vesper.nav.items.some(i=>i.id==='note-'+id),older);
   await page.evaluate(id=>{ const a=vesper.nav.items.find(i=>i.id==='note-'+id);a.run(); },older);
   await page.waitForFunction(id=>vesper.app.selected===id&&vesper.app.lines.length===26,older);
   await page.getByRole('button',{name:'NEXT TEXT PAGE',exact:true}).click();

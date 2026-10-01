@@ -92,6 +92,34 @@ All modes follow the same rules. Only the controlling tab can request one, and a
 
 `state.mic` carries `mode`, `level`, `session`, `unavailable` (the speech-extra problem, if any; irrelevant to `analyze`), `error`, `modes` (the accepted names) and `analysis`, the constants of the analyzer: `{"rate": 16000, "bands": 28, "edgesHz": [29 band edges, 60 … 7000], "intervalMs": 100}`. Band `i` spans `edgesHz[i]` to `edgesHz[i+1]` Hz; the edges are logarithmically spaced.
 
+`state.mic.recognizer` is `{"engine": "vosk" | "vosk+parakeet", "refine": "unavailable" | "idle" | "loading" | "ready" | "failed", "detail": text | null}`: which recognisers dictation uses. `unavailable` means the optional second pass is not installed (`detail` says what is missing), `idle` that it is installed and loads when transcription starts, `loading` that it is loading in the background (dictation already works with Vosk), `ready` that it is loaded, and `failed` that it could not load or failed repeatedly (`detail` has the reason; dictation continues with Vosk alone). Every change is also broadcast as `{"type":"recognizer","engine":…,"refine":…,"detail":…}`.
+
+#### `speech` event (modes `transcribe`)
+
+`{"type":"speech","text":T,"final":false,"mode":"transcribe"}` is Vosk's live partial text. A finished utterance depends on the recognisers:
+
+- With the second pass, Vosk's final text is announced as `{"type":"speech","text":T,"final":false,"provisional":true,"utt":N,"mode":"transcribe"}` and stays provisional (shown, not stored). The final line follows, usually within about half a second, as `{"type":"speech","text":T2,"final":true,"utt":N,"engine":"second-pass"|"vosk","mode":"transcribe","session":S}` with the same `utt`. `engine` is `vosk` when the second pass failed, timed out, returned nothing or was skipped because it was behind, and the text is then Vosk's own. A final with empty text clears the provisional line. Finals arrive in `utt` order, one per utterance.
+- Without it: only `{"type":"speech","text":T,"final":true,"engine":"vosk","mode":"transcribe","session":S}` (no `utt`, nothing provisional), as before.
+
+Only `final: true` events are saved to the notes database, once each, in the session that is open when the final is produced. Stopping dictation or switching mode first finishes every open utterance (a pending second pass is awaited for at most 15 s, then Vosk's text is used) and so saves the last words before the session ends. Utterance audio is held in memory only until its line is final, cut at a pause after about 20 s and never longer than 30 s; no audio is written to disk.
+
+#### `voice` event (mode `commands`)
+
+`{"type":"voice","heard":"computer timer five minutes","action":"timer","seconds":300,"confidence":0.97,"result":"TIMER STARTED / 05:00"}` is broadcast when the grammar-constrained recogniser finishes an utterance that is exactly one phrase of the grammar (`vesper/commands.py`) and its least certain word scored at least `COMMAND_MIN_CONF` (`vesper/speech.py`). Anything else is dropped. `heard` is the phrase; `confidence` the lowest word confidence (0 to 1); the remaining fields depend on `action`:
+
+| `action` | Fields | Done by |
+| --- | --- | --- |
+| `next`, `previous`, `select`, `sector`, `home`, `pause`, `resume` | none | the host: `advance`, a step back, `select`, the dashboard's sector button, `home`, `systemMenu`, `closeMenu` |
+| `launch` | `app` (catalog id) | the host: `launch` |
+| `timer` | `seconds` (5 to 7200) | the service creates it (`timer_command`) and broadcasts `timers`; `result` says `TIMER STARTED / mm:ss` |
+| `timer_cancel`, `timer_pause`, `timer_resume` | none | the host, on the most recently created timer, with the `timer` command (`remove`, `toggle`) |
+| `dictation_start`, `dictation_stop` | none | the host: `mic transcribe` then open Field Notes; `dictation_stop` is only heard while dictation is off and only explains that |
+| `lamps` (`to`: `up`, `down`, `off`, `on`), `sound` (`to`: `on`, `off`), `volume` (`to`: `up`, `down`) | `to` | the host, with the `settings` command (`lampLevel`, `sound`, `volume`) |
+| `ask` | `about`: `time`, `temperature`, `humidity`, `timers` | the host: a toast and, if it owns the lamps, a 2.5 s lamp pattern |
+| `mute` | none | the service switches the microphone off; `result` is `MICROPHONE OFF` |
+
+Voice events within 0.7 s of the previous one are dropped. Only the controlling tab changes settings and timers; any tab shows the toast. Nothing is recognised as a command in `transcribe` mode, whatever is said.
+
 In `--simulate` mode there is no node microphone. In `analyze` the service generates its own clearly synthetic signal (a tone sweeping slowly between 110 and 700 Hz and back, 24 s per round trip, at about -23 dBFS RMS over faint noise); `analysis` events then carry `"simulated": true`. Audio frames sent by the browser are ignored while in `analyze`, so a front end need not start the browser microphone for it.
 
 #### `analysis` event (mode `analyze` only, about ten per second)

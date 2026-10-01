@@ -69,6 +69,18 @@ export class DemoBridge extends EventTarget {
       this.tick();
     }, 1000);
   }
+  // Microphone mode "analyze": a synthetic sweeping tone over faint noise, in the same event
+  // shape as the service (marked simulated). Never real audio.
+  setAnalysis(on) {
+    clearInterval(this.analysisTimer);
+    this.analysisTimer = null;
+    this.state.mic.mode = on ? "analyze" : "off";
+    this.state.device.capture = on;
+    this.emit({ type: "mic", mode: this.state.mic.mode, session: null, capture: on, error: null });
+    if (!on) return;
+    let seq = 0;
+    this.analysisTimer = setInterval(() => this.emit(syntheticAnalysis(seq++)), 100);
+  }
   sensor() {
     const t = Date.now() / 1000;
     this.state.sensor = {
@@ -200,7 +212,8 @@ export class DemoBridge extends EventTarget {
     } else if (command === "keepalive") {
       // Nothing to watch in the standalone edition.
     } else if (command === "mic") {
-      if (data.mode !== "off")
+      if (data.mode === "analyze" || data.mode === "off") this.setAnalysis(data.mode === "analyze");
+      else
         throw new Error(
           "The standalone edition simulates the node. Speech runs in the full Pi package.",
         );
@@ -257,4 +270,23 @@ export class DemoBridge extends EventTarget {
     return this.state;
   }
   sendAudio() {}
+}
+
+// One synthetic analysis frame: a tone sweeping 110..700 Hz and back (24 s round trip) with a
+// weak second harmonic, 28 log-spaced bands from 60 Hz to 7 kHz over a -93 dB noise floor.
+function syntheticAnalysis(seq) {
+  const position = Math.abs(((seq / 10 / 24) % 1) * 2 - 1);
+  const hz = 110 * Math.pow(700 / 110, position);
+  const step = Math.log(7000 / 60) / 28;
+  const bands = [];
+  for (let i = 0; i < 28; i++) {
+    const centre = 60 * Math.exp((i + 0.5) * step);
+    const d1 = Math.log(centre / hz) / step, d2 = Math.log(centre / (2 * hz)) / step;
+    const level = Math.max(-93 + Math.sin(seq * 0.7 + i * 1.3) * 1.5, -22 - 30 * d1 * d1, -48 - 30 * d2 * d2);
+    bands.push(Math.round(level * 10) / 10);
+  }
+  return {
+    type: "analysis", at: Date.now() / 1000, seq, rmsDb: -23, peakDb: -20, bands,
+    pitch: { hz: Math.round(hz * 10) / 10, confidence: 0.97 }, simulated: true,
+  };
 }

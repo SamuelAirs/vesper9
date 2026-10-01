@@ -477,6 +477,7 @@
       "category": "INSTRUMENT / SOUND",
       "glyph": 2,
       "factory": "Resonance",
+      "icon": "<rect x=\"5\" y=\"9\" width=\"38\" height=\"30\" rx=\"5\"/><path d=\"M9 24h5l3-9 4 18 4-22 4 20 3-11 2 4h6\"/><path d=\"M9 34h30\" stroke-dasharray=\"1 4\"/><circle cx=\"39\" cy=\"14\" r=\"1.6\" fill=\"currentColor\"/>",
       "voice": [
         "sound"
       ],

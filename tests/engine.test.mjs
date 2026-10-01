@@ -182,6 +182,7 @@ test("runner collision ends expedition once", () => {
 });
 test("flight thrust and release move in opposite directions", () => {
   const g = new Undertow(context());
+  g.down(); g.up(); // a tap on the title screen dives
   g.down();
   ticks(g, 0.3);
   assert.ok(g.vy < 0);
@@ -382,7 +383,7 @@ test('runner challenge shapes are clearable using the actual jump physics', () =
 test('flight gate changes are bounded and a fixed-step pilot can traverse seeded layouts', () => {
   const rng=new Random(91);let center=270;
   for(let i=0;i<1000;i++){const gate=nextGate(center,i,rng);assert.ok(Math.abs(gate.center-center)<=85.001);assert.ok(gate.gap>=100);center=gate.center;}
-  const g=new Undertow(context());g.down();
+  const g=new Undertow(context());g.down();g.up();
   for(let i=0;i<120*60&&g.phase==='play';i++){
     const target=g.gates.find(gate=>gate.x+65>202)?.center||270;
     // Aim with braking distance, retaining the same binary acceleration controls.

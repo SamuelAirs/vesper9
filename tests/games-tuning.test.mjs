@@ -62,7 +62,7 @@ const plays = {
     return g;
   },
   Undertow: (c) => {
-    const g = new Undertow(c); g.down();
+    const g = new Undertow(c); g.down(); g.up();
     for (let i = 0; i < 60 * 10; i++) {
       const target = g.gates.find((q) => q.x + 65 > 202)?.center || 270;
       if (g.y + g.vy * 0.42 > target) { if (!g.held) g.down(); } else if (g.held) g.up();

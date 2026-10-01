@@ -46,8 +46,9 @@ class Layout(unittest.TestCase):
         self.assertEqual(games, on_games_pages, 'no page mixes games and tools')
         self.assertEqual(sorted(games), sorted(set(GAMES) - {'pulsar', 'helix'}))
         self.assertLess(names.index('MIND'), names.index('TOOLS'), 'games come before tools')
-        self.assertEqual(sorted(sectors['TOOLS'] + sectors['SENSORS']),
-                         sorted(['morse', 'cadence', 'lantern', 'oracle', 'environment', 'resonance', 'transcribe']))
+        # New instruments (The Stacks, "library") join TOOLS; these seven are always there.
+        self.assertLessEqual({'morse', 'cadence', 'lantern', 'oracle', 'environment', 'resonance', 'transcribe'},
+                             set(sectors['TOOLS'] + sectors['SENSORS']))
         self.assertTrue(all(s.get('tagline') for s in CATALOG['sectors']), 'every page says what it is for')
 
     def test_chronometer_is_retired_in_favour_of_the_timer_tool_in_cadence(self):

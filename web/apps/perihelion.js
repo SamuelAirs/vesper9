@@ -818,7 +818,7 @@ export class Perihelion {
     this.sv.far = Math.max(this.sv.far, ri);
     this.R.far = Math.max(this.R.far, ri);
     if (ri === 0 && atStart) return;
-    this.bannerT = 3.4;
+    this.bannerT = 2.8;
     this.regFlash = 1.2;
     this.flareCol = reg.col;
     this.notice = reg.name + ". " + reg.text;
@@ -1261,9 +1261,9 @@ export class Perihelion {
         g.stroke();
       } else {
         g.setLineDash(DASH);
-        circle(g, x, y, 14, C.line, false, 3);
+        circle(g, x, y, 14, C.muted, false, 2.5);
         g.setLineDash(NO_DASH);
-        circle(g, x, y, 3, C.line, true);
+        circle(g, x, y, 3, C.muted, true);
       }
       return;
     }
@@ -1304,7 +1304,7 @@ export class Perihelion {
       const sx = wx - cam;
       const drift = (this.t * 30) % 60;
       for (let j = 0; j < 4; j++) {
-        const y = 90 + j * 110 + (drift * o.y) / 85 + ((i * 37) % 40);
+        const y = 90 + j * 100 + (drift * o.y) / 170 + ((i * 37) % 30);
         const dx = o.x * 0.5, dy = o.y * 0.45;
         line(g, sx, y, sx + dx, y + dy, REGIONS[3].ink, 2);
         if (Math.abs(dy) > 12) { // arrow head on the strong parts

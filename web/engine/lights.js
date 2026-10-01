@@ -1,50 +1,69 @@
-// Serialized ownership changes: a late ACK cannot bless a newer owner's cache.
+// The service accepts exactly nine integers from 0 to 255. Round and clamp what an app
+// supplies; a malformed array (wrong length, non-numbers) yields null and is ignored.
+export function normalizeLeds(values) {
+  if (!Array.isArray(values) || values.length !== 9) return null;
+  const out = [];
+  for (const v of values) {
+    if (typeof v !== "number" || !Number.isFinite(v)) return null;
+    out.push(Math.max(0, Math.min(255, Math.round(v))));
+  }
+  return out;
+}
+// Link trouble is not the payload's fault, so it must not stop the retry.
+const transient = (error) => error?.timedOut || /disconnected|reconnecting/i.test(error?.message || "");
+// Ownership changes bump a generation: a late ACK cannot bless a newer owner's cache.
+// Effects and release go straight to the bridge (which keeps order on the socket) so they
+// never wait behind a command whose reply is slow or lost.
 export class LightDirector {
-  constructor(command, clock = () => performance.now()) {
-    this.command = command; this.clock = clock; this.generation = 0;
-    this.desired = Array(9).fill(0); this.sent = null;
-    this.tail = Promise.resolve(); this.busy = false; this.last = -Infinity;
+  constructor(command, clock = () => performance.now(), timeoutMs = 2000) {
+    this.command = command; this.clock = clock; this.generation = 0; this.timeoutMs = timeoutMs;
+    this.desired = Array(9).fill(0); this.sent = null; this.failed = null;
+    this.busy = null; this.last = -Infinity;
     this.suspendedUntil = 0;
   }
-  enqueue(operation) {
-    const result = this.tail.catch(() => {}).then(operation);
-    this.tail = result.catch(() => {});
-    return result;
+  invalidate() { this.generation++; this.sent = null; this.failed = null; }
+  set(values) {
+    const next = normalizeLeds(values);
+    if (!next) return;
+    this.desired = next;
   }
-  invalidate() { this.generation++; this.sent = null; }
-  set(values) { this.desired = values.slice(); }
   effect(name, data) {
     this.invalidate(); this.desired = null;
-    const generation = this.generation;
-    return this.enqueue(() => generation === this.generation ? this.command(name, data) : undefined);
+    return this.command(name, data);
   }
   release() {
     this.invalidate(); this.suspendedUntil = 0; this.desired = Array(9).fill(0);
-    const generation = this.generation;
-    return this.enqueue(async () => {
-      if (generation !== this.generation) return;
-      await this.command('cancel', {});
-      if (generation !== this.generation) return;
-      await this.command('leds', { values: Array(9).fill(0) });
-      if (generation === this.generation) this.sent = Array(9).fill(0).join(',');
+    const generation = this.generation, zero = Array(9).fill(0);
+    // Both are written now; the socket delivers them in order after anything already sent.
+    const cancel = this.command('cancel', {});
+    const write = Promise.resolve(this.command('leds', { values: zero })).then(() => {
+      if (generation === this.generation) this.sent = zero.join(',');
     });
+    return Promise.all([cancel, write]).then(() => undefined);
   }
   suspend(ms) { this.invalidate(); this.suspendedUntil = this.clock() + ms; }
   observe(values) { if (values?.join(',') !== this.sent) this.sent = null; }
+  // A reply that never comes must not hold the lamps for the bridge's 20 s request timeout.
+  withTimeout(promise) {
+    let timer;
+    const limit = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(Object.assign(new Error("Light command timed out"), { timedOut: true })), this.timeoutMs);
+    });
+    return Promise.race([promise, limit]).finally(() => clearTimeout(timer));
+  }
   async flush(connected = true) {
     const now = this.clock();
-    if (!connected || this.busy || !this.desired || now < this.suspendedUntil || now - this.last < 60) return;
+    // A command in flight blocks only its own generation; a newer owner may write at once.
+    if (!connected || this.busy === this.generation || !this.desired || now < this.suspendedUntil || now - this.last < 60) return;
     const key = this.desired.join(',');
-    if (key === this.sent) return;
+    if (key === this.sent || key === this.failed) return;
     const values = this.desired.slice(), generation = this.generation;
-    this.busy = true; this.last = now;
+    this.busy = generation; this.last = now;
     try {
-      await this.enqueue(async () => {
-        if (generation !== this.generation) return;
-        await this.command('leds', { values });
-        if (generation === this.generation) this.sent = key;
-      });
-    } catch { this.sent = null; }
-    finally { this.busy = false; }
+      await this.withTimeout(this.command('leds', { values }));
+      if (generation === this.generation) this.sent = key;
+    } catch (error) {
+      if (generation === this.generation) { this.sent = null; if (!transient(error)) this.failed = key; }
+    } finally { if (this.busy === generation) this.busy = null; }
   }
 }

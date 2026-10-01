@@ -319,10 +319,11 @@ test('light effect release writes off even when the previous ordinary value was 
   await l.release();assert.deepEqual(physical,Array(9).fill(0));
   physical=Array(9).fill(50);l.observe(physical);now=100;await l.flush();assert.equal(physical[0],0);
 });
+// The service applies a command when it receives it; only the reply is late. Later writes go out in order.
 test('late light ACK cannot overwrite a new generation cache or final output', async () => {
   let resolve, physical=[], delayed=true;
   const l=new LightDirector(async(name,data)=>{
-    if(name==='leds') {if(delayed){delayed=false;await new Promise(r=>resolve=r);}physical=data.values;}
+    if(name==='leds') {physical=data.values;if(delayed){delayed=false;await new Promise(r=>resolve=r);}}
   });
   l.set(Array(9).fill(80));const pending=l.flush();await Promise.resolve();await Promise.resolve();
   const release=l.release();resolve();await pending;await release;

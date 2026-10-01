@@ -54,6 +54,20 @@ Remember a short inscription of unfamiliar glyphs. Once it disappears, a cursor 
 
 Lamps: while the inscription is shown the lamps fade out over the memorising time; while you choose they are a progress bar across the row (green, amber or red by attempts left), with a white tick on the third of the row the cursor is in each time it moves.
 
+### Perihelion
+
+A probe coasts right through small suns. Hold: it is tethered to the sun marked by the diamond and swings like a pendulum. Release: it leaves on the tangent. Chains of clean releases raise the multiplier (x1 to x5). The terminator, a wall of dark, sweeps up from behind and quickens after five minutes. This core is unchanged.
+
+The journey: six regions, announced by a banner, a flash of the region's colour on the lamps and three notes. I The Approach (the original field), II The Cluster (500 Mkm of track, suns crowd close, some with twins), III The Binaries (900 of track, paired suns orbit each other; the tether follows and the release carries the sun's velocity), IV The Nebula (1350, a current pushes the probe in free flight; streaks show how), V The Dark Field (1800, dark bodies crowd the lanes; passing within a short distance of one scores style points), VI The Beat (2250, some suns pulse and can be caught only while lit). At 2800 Mkm of track is the perihelion: the run ends as an arrival with a 400 point bonus. (Track distance is not the score: the score is multiplied by the chain.) Relics (a small cross) float off the safe line from the cluster on; flying through one pays 25 points times the multiplier. Sling suns (dashed cyan ring, chevron) add 8% speed to a clean release. Each new mechanic is explained once in the hint line.
+
+Controls beyond play: on the title and result screens a tap launches and a hold of half a second or more (a ring fills at the top right) opens the HANGAR. In the hangar a tap moves down the list and a hold chooses. PROBE: Standard, Ballast (heavy: flatter flights, slow swing; 4 feats) and Wisp (light: quick swing, steep arcs; 8 feats). START: begin in any region already reached (not for the console record). TRAIL: cosmetic, unlocked at 1, 3, 6 and 10 feats. DAILY RUN: the same world for everyone on a date, with a goal drawn from the date; it never touches the console's best distance. FEATS: sixteen named goals with progress (two are hidden: a hint is shown). LOG: regions reached and the best crossing time of each. Only a plain run from the start with the Standard probe raises the console's best distance; the others keep personal bests of their own in the save.
+
+Lamps: in flight, the colour is the region (green, white, violet, blue, magenta, yellow) turning amber and red toward the edge of the band as before, and the fill from the left is speed. In the nebula the colour is paler where the current lifts and deeper where it presses down. On a tether a cyan spot sweeps with the swing angle. A relic ahead pulses white on one lamp and a dark body ahead blinks red on one lamp: the left lamp means above you, the right lamp below, the middle level. Before a pulsing sun the lamps are a bar that drains from the right while it is lit; while it is dark the middle lamp blinks faster as it is about to relight. A catch is a white flash, a relic a quick white sweep left to right, a region change a swell of its colour, a record a white and amber flash. Title, hangar and result glow dimly in the colour of the furthest region reached.
+
+Sound: the swing sings a note each time it passes the bottom, higher with speed (a pentatonic scale); a clean release rings the note and its fifth; a relic is a rising pair; a near pass a short high tick; each region has its own three-note motif. Listen for the note at the bottom: releasing there opens a hidden feat.
+
+Save: a versioned record (schema 2) that keeps the original run count, last result and milestone, and adds the furthest region, best crossing times, feats, relics, selections and the daily record. A save from the first release loads unchanged.
+
 ## Six instruments
 
 ### Signal School

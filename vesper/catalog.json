@@ -207,8 +207,8 @@
       "id": "perihelion",
       "name": "PERIHELION",
       "subtitle": "Swing between small suns.",
-      "description": "Hold to tether to the nearest anchor and swing. Release to fly on. Distance is everything.",
-      "controls": "HOLD TO TETHER · RELEASE TO FLY",
+      "description": "Hold to tether to the nearest anchor and swing. Release to fly on. Cross six regions to the perihelion, find relics, earn feats. Hold on the title for the hangar.",
+      "controls": "HOLD TO TETHER · RELEASE TO FLY · HOLD ON TITLE: HANGAR",
       "category": "PLAY / MOMENTUM",
       "glyph": 0,
       "factory": "Perihelion",
@@ -225,7 +225,9 @@
       "record": {
         "mkm": "Distance / Mkm",
         "chain": "Best chain",
-        "catches": "Anchors caught"
+        "catches": "Anchors caught",
+        "relics": "Relics",
+        "region": "Furthest this run"
       }
     },
     {

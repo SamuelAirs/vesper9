@@ -1194,3 +1194,58 @@ main {
   .case-label { display: none; }
   .system-menu { max-height: calc(100dvh - 16px); }
 }
+
+/* 1024 × 600, part two: instrument screens and the game stage.
+   Instruments scroll inside <main>, so the title row is folded into one line, the
+   redundant description is dropped (each panel repeats its purpose) and the panels
+   and buttons are compacted so the content and the first actions sit above the fold. */
+@media (min-width: 900px) and (max-height: 640px) {
+  .app-heading { margin-top: 7px; }
+  .app-heading > div { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
+  .app-heading h1 { font-size: 20px; margin: 0; letter-spacing: 1px; }
+  .app-heading .eyebrow { font-size: 9px; }
+  .small-button { min-height: 28px; padding: 5px 12px; }
+  .app-description { display: none; }
+  .console:not(.playing) #application > .app-heading { padding-bottom: 7px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+  .utility-actions { gap: 6px; margin-top: 8px; }
+  .utility-button { min-height: 34px; padding: 7px 14px; line-height: 1.4; }
+  .utility-panel { padding: 12px 18px; }
+  .utility-panel h2 { font-size: 16px; margin: 0 0 6px; }
+  .utility-panel p { line-height: 1.5; margin: 5px 0; }
+  .readout-grid { gap: 8px; margin-bottom: 8px; }
+  .readout-grid .utility-panel { padding: 10px 16px; }
+  .big-readout { font-size: 34px; line-height: 1.15; }
+  .timer-row { padding: 8px 0; }
+  .timer-row .big-readout { font-size: 26px; }
+  .data-label { margin-bottom: 4px; }
+  .diag-item { padding: 5px 0; }
+  .session-list { gap: 4px; }
+  .session-list a { line-height: 1.5; }
+  .help-copy { line-height: 1.55; }
+  .transcript { font-size: 17px; line-height: 1.4; margin-top: 8px; }
+  .app-readout { margin: 4px 0 0; min-height: 16px; line-height: 1.4; }
+  .system-menu { padding: 16px 22px; }
+  .system-menu h2 { font-size: 24px; margin: 4px 0 8px; }
+  #menu-description { line-height: 1.45; margin-bottom: 12px; }
+  .menu-choice { padding: 8px 15px; min-height: 36px; margin-bottom: 5px; }
+  .menu-foot { margin: 8px 0 0; }
+  .menu-switch { padding-top: 8px; }
+}
+
+/* 1024 × 600, part three: give the game canvas the height. The title and the HUD
+   share one row, the category label and the decorative key caption go, and the
+   control deck shrinks to the button and its three lines of instruction. */
+@media (min-width: 900px) and (max-height: 640px) {
+  .arcade-label { display: none; }
+  .control-copy .eyebrow { display: none; }
+  .control-deck { align-items: center; }
+  .app-readout { margin-top: 6px; }
+  .console.playing #application { grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; column-gap: 24px; }
+  .console.playing .app-heading { grid-column: 1; grid-row: 1; margin-top: 6px; gap: 16px; }
+  .console.playing .app-heading .eyebrow { display: none; }
+  .console.playing .app-heading h1 { font-size: 20px; margin: 0; }
+  .console.playing .hud { grid-column: 2; grid-row: 1; align-self: end; min-height: 0; padding: 6px 0 4px; border-top: 0; gap: 4px 20px; min-width: 0; }
+  .console.playing .hud-item strong { font-size: 17px; }
+  .console.playing .game-stage { grid-column: 1 / -1; grid-row: 2; }
+  .console.playing .app-readout { grid-column: 1 / -1; grid-row: 3; }
+}

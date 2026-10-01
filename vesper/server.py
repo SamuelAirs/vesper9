@@ -67,6 +67,8 @@ class Outbox:
 
 
 class Console:
+    RESTART_DELAY = 1       # seconds before a failed long-lived task is restarted
+
     def __init__(self, args):
         self.args = args
         self.store = Store(args.data)
@@ -600,7 +602,7 @@ class Console:
 
     async def supervise(self, name, factory):
         """Run a long-lived task for ever: an error is logged and the task restarted, never lost."""
-        delay = 1
+        delay = self.RESTART_DELAY
         while not self.closing:
             started = time.monotonic()
             try:
@@ -610,9 +612,12 @@ class Console:
             except asyncio.CancelledError:
                 raise
             except Exception:
-                logging.exception("Task %s failed; restarting in %d s", name, delay)
-            delay = 1 if time.monotonic() - started > 60 else min(delay * 2, 30)
+                logging.exception("Task %s failed; restarting in %.1f s", name, delay)
+            if self.closing:
+                break
             await asyncio.sleep(delay)
+            # Back off while it keeps failing at once; start over after it ran for a while.
+            delay = self.RESTART_DELAY if time.monotonic() - started > 60 else min(delay * 2, 30)
 
     async def start(self, app):
         self.task_names = ["device", "timers"]
@@ -641,7 +646,7 @@ class Console:
         host, process = await asyncio.to_thread(self.host.sample)
         device = self.device
         status = device.status if isinstance(device.status, dict) else {}
-        age = safe(lambda: round(time.monotonic() - device.status_at, 1))
+        age = safe(lambda: round(device.status_age(), 1))
         node = {
             "connected": bool(device.connected),
             "simulated": bool(device.simulated),

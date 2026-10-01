@@ -8,7 +8,7 @@ Extract 0.2.0 into a new folder. Preserve your working copy and consistently bac
 .venv/bin/python scripts/install-service.py --port /dev/serial/by-id/YOUR_COM_PORT --data /absolute/path/to/existing/data/console --kiosk
 ```
 
-The installer now backs up existing VESPER service/autostart files under `backups/service-TIMESTAMP/` before replacing them, then restarts the service so an already-running installation uses the new checkout. Inspect those backups and record your source/data paths. To roll back, stop the new user service, restore the old service/autostart files, run `systemctl --user daemon-reload`, and start the old source with its preserved data. If restoring a database backup, restore it consistently while the service is stopped. Do not delete current notes as an incidental downgrade.
+The installer now backs up existing VESPER service/autostart files under `backups/service-TIMESTAMP/` before replacing them, then restarts the service so an already-running installation uses the new checkout. Re-running the installer without `--data` keeps the data directory of the service it replaces (an explicit `--data`, another checkout's default, or the simulator's), prints which directory it uses and never silently switches databases; pass `--data` to change it on purpose. Inspect those backups and record your source/data paths. To roll back, stop the new user service, restore the old service/autostart files, run `systemctl --user daemon-reload`, and start the old source with its preserved data. If restoring a database backup, restore it consistently while the service is stopped. Do not delete current notes as an incidental downgrade.
 
 ## 1. Prepare the Pi
 
@@ -128,6 +128,8 @@ systemctl --user status vesper.service
 journalctl --user -u vesper.service -f
 systemctl --user restart vesper.service
 ```
+
+At login the kiosk launcher waits up to three minutes for the service. If it still does not answer, the browser opens a "VESPER-9 SERVICE NOT RESPONDING" page that retries every three seconds and opens the console as soon as the service is up (the launcher also prints a note to its stderr). Restarting the service with the console open takes about a second: open tabs are closed first and reconnect by themselves.
 
 Alt-F4 closes the kiosk window. To disable automatic startup:
 

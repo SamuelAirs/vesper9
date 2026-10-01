@@ -197,8 +197,8 @@ def analyse(frame):
 
 
 class SyntheticSource:
-    """Simulator microphone: a tone sweeping slowly and smoothly up and down between 110 and 880 Hz
-    at -20 dBFS over faint noise (-60 dBFS). Deliberately artificial; never real audio."""
+    """Simulator microphone: a tone sweeping slowly and smoothly up and down between 110 and 700 Hz
+    (a 24 s round trip) at about -23 dBFS RMS over faint noise (about -71 dBFS). Deliberately artificial; never real audio."""
     def __init__(self, seed=9):
         self.rng = random.Random(seed)
         self.phase = 0.0
@@ -207,9 +207,9 @@ class SyntheticSource:
     def chunk(self, samples=320):
         out = array("h")
         for _ in range(samples):
-            # Triangle sweep of log-frequency with a 24 s period.
+            # Triangle sweep of log-frequency, 24 s per round trip.
             position = abs((self.t / 24 % 1.0) * 2 - 1)
-            frequency = 110 * 8 ** position
+            frequency = 110 * (700 / 110) ** position
             self.phase += 2 * math.pi * frequency / RATE
             self.t += 1 / RATE
             out.append(int(3277 * math.sin(self.phase) + self.rng.uniform(-16, 16)))

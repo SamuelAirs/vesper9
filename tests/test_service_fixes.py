@@ -825,7 +825,8 @@ class FixedKiosk(unittest.TestCase):
         def fake_exec(path, argv):
             launched.append(argv)
             raise Launched()
-        with patch("shutil.which", return_value="/usr/bin/chromium"), \
+        with tempfile.TemporaryDirectory() as scratch, patch("tempfile.tempdir", scratch), \
+             patch("shutil.which", return_value="/usr/bin/chromium"), \
              patch("urllib.request.urlopen", refuse), patch("time.sleep"), patch("os.execv", fake_exec):
             try:
                 runpy.run_path(str(ROOT / "scripts/kiosk.py"))

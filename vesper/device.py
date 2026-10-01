@@ -93,6 +93,10 @@ class SimulatedDevice:
             self.pressed = pressed
             await self.emit({"type": "button", "pressed": pressed, "at_us": time.monotonic_ns() // 1000, "source": "simulator", "generation": self.generation})
 
+    def status_age(self):
+        """Seconds since the last status record (None before the first)."""
+        return None if self.status_at is None else time.monotonic() - self.status_at
+
     async def close(self):
         await self.command(Kind.CANCEL)
 
@@ -318,6 +322,10 @@ class SerialDevice:
             # A failure while handling one packet (storage, a listener) is that packet's failure,
             # not a reason to drop the link.
             log.exception("Node packet handling failed")
+
+    def status_age(self):
+        """Seconds since the last HELLO/STATUS from the node (None before the first)."""
+        return None if self.status_at is None else time.monotonic() - self.status_at
 
     async def close(self):
         if self.serial and self.connected:

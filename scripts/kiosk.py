@@ -3,8 +3,8 @@
 import os
 import shutil
 import sys
+import tempfile
 import time
-import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -25,11 +25,16 @@ for attempt in range(720):  # three minutes: a slow SD-card check or a restart a
 else:
     # Do not leave a blank desktop: say so on the screen and keep trying from inside the browser.
     print("VESPER service did not answer for three minutes; check: journalctl --user -u vesper.service", file=sys.stderr)
+    # no-cors: from this opaque page any answer from the service resolves the promise.
     page = ("<!doctype html><meta charset=utf-8><title>VESPER-9</title><body style=\"background:#000;color:#fb3;"
             "font:24px monospace;padding:40px\"><h1>VESPER-9 SERVICE NOT RESPONDING</h1><p>Retrying every 3 seconds.</p>"
             "<p>Check: journalctl --user -u vesper.service</p><script>setInterval(()=>fetch('" + URL +
-            "/api/state',{mode:'no-cache'}).then(r=>{if(r.ok)location.href='" + URL + "'}).catch(()=>{}),3000)</script>")
-    target = "data:text/html;charset=utf-8," + urllib.parse.quote(page)
+            "/api/state',{mode:'no-cors',cache:'no-store'}).then(()=>{location.href='" + URL + "'}).catch(()=>{}),3000)</script>")
+    # A file page, not a data: URL: Chromium blocks fetches from a data: page to localhost.
+    handle, path = tempfile.mkstemp(prefix="vesper9-waiting-", suffix=".html")
+    with os.fdopen(handle, "w") as out:
+        out.write(page)
+    target = Path(path).as_uri()
 profile = Path.home() / ".config/vesper9/chromium"
 os.execv(chromium, [chromium, "--kiosk", "--no-first-run", "--autoplay-policy=no-user-gesture-required",
                    "--user-data-dir=" + str(profile), target])

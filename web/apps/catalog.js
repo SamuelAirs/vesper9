@@ -377,6 +377,7 @@ export const CARTRIDGES = [
     "controls": "TAP NEXT · HOLD TO CHOOSE",
     "category": "INSTRUMENT / LIGHT",
     "glyph": 4,
+    "icon": "<path d=\"M19 11q5-8 10 0\"/><path d=\"M17 12h14l4 7v15l-4 6H17l-4-6V19z\"/><path d=\"M13 19h22M13 34h22M15 43h18\"/><circle cx=\"18\" cy=\"27\" r=\"1.6\" fill=\"currentColor\"/><circle cx=\"24\" cy=\"27\" r=\"1.6\" fill=\"currentColor\"/><circle cx=\"30\" cy=\"27\" r=\"1.6\" fill=\"currentColor\"/>",
     "factory": "Lantern",
     "voice": [
       "lamp"

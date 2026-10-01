@@ -12,7 +12,6 @@ export const CARTRIDGES = [
     "voice": [
       "orbit"
     ],
-    "escape": "adaptive",
     "capabilities": [
       "button",
       "lights",
@@ -32,7 +31,6 @@ export const CARTRIDGES = [
     "voice": [
       "runner"
     ],
-    "escape": "adaptive",
     "capabilities": [
       "button",
       "lights",
@@ -52,7 +50,6 @@ export const CARTRIDGES = [
     "voice": [
       "drift"
     ],
-    "escape": "adaptive",
     "capabilities": [
       "button",
       "lights",
@@ -72,7 +69,6 @@ export const CARTRIDGES = [
     "voice": [
       "echo"
     ],
-    "escape": "hold",
     "capabilities": [
       "button",
       "lights",
@@ -92,7 +88,6 @@ export const CARTRIDGES = [
     "voice": [
       "lights"
     ],
-    "escape": "adaptive",
     "capabilities": [
       "button",
       "lights",
@@ -112,7 +107,6 @@ export const CARTRIDGES = [
     "voice": [
       "glyphs"
     ],
-    "escape": "adaptive",
     "capabilities": [
       "button",
       "lights",
@@ -132,7 +126,6 @@ export const CARTRIDGES = [
     "voice": [
       "rhythm"
     ],
-    "escape": "hold",
     "capabilities": [
       "button",
       "lights",
@@ -159,7 +152,6 @@ export const CARTRIDGES = [
     "voice": [
       "swing"
     ],
-    "escape": "adaptive",
     "capabilities": [
       "button",
       "lights",
@@ -191,7 +183,6 @@ export const CARTRIDGES = [
     "voice": [
       "lander"
     ],
-    "escape": "adaptive",
     "capabilities": [
       "button",
       "lights",
@@ -211,7 +202,6 @@ export const CARTRIDGES = [
     "voice": [
       "breakout"
     ],
-    "escape": "hold",
     "capabilities": [
       "button",
       "lights",
@@ -238,7 +228,6 @@ export const CARTRIDGES = [
     "voice": [
       "snake"
     ],
-    "escape": "hold",
     "capabilities": [
       "button",
       "lights",
@@ -272,7 +261,6 @@ export const CARTRIDGES = [
     "voice": [
       "launcher"
     ],
-    "escape": "adaptive",
     "capabilities": [
       "button",
       "lights",
@@ -292,7 +280,6 @@ export const CARTRIDGES = [
     "voice": [
       "fishing"
     ],
-    "escape": "adaptive",
     "capabilities": [
       "button",
       "lights",
@@ -325,7 +312,6 @@ export const CARTRIDGES = [
     "voice": [
       "station"
     ],
-    "escape": "hold",
     "capabilities": [
       "button",
       "lights",
@@ -345,7 +331,6 @@ export const CARTRIDGES = [
     "voice": [
       "morse"
     ],
-    "escape": "hold",
     "capabilities": [
       "button",
       "lights",
@@ -362,10 +347,7 @@ export const CARTRIDGES = [
     "category": "INSTRUMENT / TIME",
     "glyph": 0,
     "factory": "Timers",
-    "voice": [
-      "timer"
-    ],
-    "escape": "adaptive",
+    "voice": [],
     "capabilities": [
       "timers",
       "progress"
@@ -383,7 +365,6 @@ export const CARTRIDGES = [
     "voice": [
       "notes"
     ],
-    "escape": "adaptive",
     "capabilities": [
       "microphone",
       "notes"
@@ -401,7 +382,6 @@ export const CARTRIDGES = [
     "voice": [
       "environment"
     ],
-    "escape": "adaptive",
     "capabilities": [
       "sensor"
     ]
@@ -418,7 +398,6 @@ export const CARTRIDGES = [
     "voice": [
       "diagnostics"
     ],
-    "escape": "adaptive",
     "capabilities": [
       "button",
       "lights",
@@ -438,7 +417,6 @@ export const CARTRIDGES = [
     "voice": [
       "settings"
     ],
-    "escape": "adaptive",
     "capabilities": [
       "settings"
     ]
@@ -456,7 +434,6 @@ export const CARTRIDGES = [
     "voice": [
       "lamp"
     ],
-    "escape": "adaptive",
     "capabilities": [
       "lights",
       "progress"
@@ -472,9 +449,9 @@ export const CARTRIDGES = [
     "glyph": 3,
     "factory": "Cadence",
     "voice": [
-      "metronome"
+      "metronome",
+      "timer"
     ],
-    "escape": "adaptive",
     "capabilities": [
       "button",
       "lights",
@@ -493,10 +470,7 @@ export const CARTRIDGES = [
     "glyph": 0,
     "factory": "Ephemeris",
     "icon": "<path d=\"M4 34h40\"/><path d=\"M12 34a12 12 0 0 1 24 0\"/><path d=\"M24 16v-5M10 22l-3-3M38 22l3-3\"/><path d=\"M38 5a6 6 0 1 0 5 9 5 5 0 0 1-5-9z\"/><circle cx=\"8\" cy=\"42\" r=\"1.5\" fill=\"currentColor\"/><circle cx=\"24\" cy=\"42\" r=\"1.5\" fill=\"currentColor\"/><circle cx=\"40\" cy=\"42\" r=\"1.5\" fill=\"currentColor\"/>",
-    "voice": [
-      "moon"
-    ],
-    "escape": "adaptive",
+    "voice": [],
     "capabilities": [
       "progress"
     ]
@@ -514,7 +488,6 @@ export const CARTRIDGES = [
     "voice": [
       "sound"
     ],
-    "escape": "adaptive",
     "capabilities": [
       "microphone",
       "lights"
@@ -533,7 +506,6 @@ export const CARTRIDGES = [
     "voice": [
       "dice"
     ],
-    "escape": "adaptive",
     "capabilities": [
       "button",
       "lights",
@@ -554,13 +526,13 @@ export const CARTRIDGES = [
     "voice": [
       "system"
     ],
-    "escape": "adaptive",
     "capabilities": [
       "sensor"
     ]
   }
 ];
-export const SECTORS = ["PLAY", "PLAY II", "PLAY III", "INSTRUMENTS", "INSTRUMENTS II"];
+export const SECTORS = [{"name": "PLAY", "apps": ["perihelion", "orbit", "runner", "pulsar", "tideline"]}, {"name": "PLAY II", "apps": ["drift", "descent", "ballista", "ricochet", "helix"]}, {"name": "PLAY III", "apps": ["outpost", "reaction", "echo", "glyphs"]}, {"name": "INSTRUMENTS", "apps": ["morse", "cadence", "transcribe", "environment"]}, {"name": "INSTRUMENTS II", "apps": ["lantern", "resonance", "oracle"]}];
+export const SYSTEM_APPS = ["settings", "diagnostics", "telemetry"];
 export const DEFAULT_SETTINGS = {
   "sound": true,
   "volume": 0.25,
@@ -568,7 +540,6 @@ export const DEFAULT_SETTINGS = {
   "reducedMotion": false,
   "morseWpm": 10,
   "holdMs": 650,
-  "menuClicks": 4,
   "gesturePace": "standard",
   "scanMs": 850,
   "tempUnit": "F",

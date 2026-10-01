@@ -4,12 +4,12 @@ This release implements the next pass in source, rather than only supplying an i
 
 ## Controls and engine
 
-- Four quick clicks open the game menu by default. Calibration offers three clicks, legacy hold, and three timing presets. Long game holds remain available in the default profile.
-- Signal School and Echo Vault reserve a three-second hold because repeated short presses are valid answers. Dashboard/utility menus retain hold-to-select and a three-second system-menu hold. The actual rule is shown in the control deck.
-- Raw game edges remain immediate. Earlier clicks and the final down may already affect play before a multi-click escape is recognized. Identical button streams cannot reveal intent; the app-specific policy addresses the most obvious collisions.
+- (Superseded after the owner's first week of use: the menu is now opened by one gesture everywhere, tap, tap, hold; see docs/OPERATOR.md. The four-click, three-click and per-app hold policies below no longer exist.) Four quick clicks open the game menu by default. Calibration offers three clicks, legacy hold, and three timing presets. Long game holds remain available in the default profile.
+- (Superseded.) Signal School and Echo Vault reserve a three-second hold because repeated short presses are valid answers. Dashboard/utility menus retain hold-to-select and a three-second system-menu hold. The actual rule is shown in the control deck.
+- Raw game edges remain immediate. Earlier taps and the start of the hold may already affect play before the gesture is recognized; every app now puts back what they changed when the host cancels it.
 - A shared light director serializes effects and cleanup, invalidates cached values after ownership/reconnect changes, and prevents an old ACK from certifying a newer state.
 - App-context actions are lifetime guarded. Cleanup exceptions are contained. Reported button state unblocks an idle reconnect; presses held across a reset remain suppressed until release.
-- A single JSON cartridge catalog feeds generated frontend metadata, backend IDs, defaults, escape policies and voice aliases. The Pulse Garden example was exercised as an added cartridge in both hosts.
+- A single JSON cartridge catalog feeds generated frontend metadata, backend IDs, defaults, dashboard sectors and voice aliases. The Pulse Garden example was exercised as an added cartridge in both hosts.
 - A compact appliance layout keeps status and the switch visible; the full game view, including the control deck, fits the tested 1280×720 viewport.
 
 ## Activities

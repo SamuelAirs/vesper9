@@ -1,6 +1,7 @@
 // Menu-gesture tolerance, run recording and the smaller game fixes beyond the audit's F-tests
-// (tests/games.test.mjs). Each game remembers its state at every press; cancel() right after a
-// click gesture restores the state from just before the gesture's first tap.
+// (tests/games.test.mjs). Each game remembers its state at every press; cancel() right after the
+// menu gesture (tap, tap, hold) restores the state from just before the gesture's first tap.
+// tests/gesture-apps.test.mjs does the same for every registered game and for Signal School and Cadence.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { OrbitLock, Moonrunner, Undertow, EchoVault, LightTrial, GlyphVault } from "../web/apps/games.js";
@@ -36,19 +37,12 @@ const gestureCases = {
   },
 };
 for (const [name, { keys, make }] of Object.entries(gestureCases)) {
-  for (const [clicks, pace, tapMs, gapMs] of [[4, "standard", 67, 50], [4, "quick", 60, 40], [4, "relaxed", 140, 200], [3, "standard", 67, 50]]) {
-    test(`gesture ${name}: ${clicks} clicks at ${pace} pace leave the run as it was before the first tap`, () => {
-      const settings = { menuClicks: clicks, gesturePace: pace };
-      const c = makeCtx(21, { settings }), g = make(c), rig = makeRig(g, c, { clicks, pace });
+  for (const [pace, tapMs, gapMs] of [["standard", 67, 50], ["standard", 140, 200], ["quick", 60, 40], ["relaxed", 140, 200], ["relaxed", 210, 310]]) {
+    test(`gesture ${name}: tap, tap, hold at ${pace} pace (taps ${tapMs} ms, pauses ${gapMs} ms) leaves the run as it was before the first tap`, () => {
+      const settings = { gesturePace: pace };
+      const c = makeCtx(21, { settings }), g = make(c), rig = makeRig(g, c, { pace });
       const before = snap(g, keys), saves = c.log.saves.length;
-      for (let i = 0; i < clicks; i++) {
-        rig.router.down({ source: "node", generation: 1, at_us: rig.now() * 1000 });
-        for (let f = 0; f < Math.round(tapMs / 16.7); f++) g.update(DT);
-        rig.wait(tapMs);
-        rig.router.up({ source: "node", generation: 1, at_us: rig.now() * 1000 });
-        if (i < clicks - 1) for (let f = 0; f < Math.round(gapMs / 16.7); f++) g.update(DT);
-        rig.wait(gapMs);
-      }
+      gestureWithUpdates(g, rig, () => {}, { tapMs, gapMs });
       assert.equal(rig.menuOpen, 1, "the gesture opened the menu");
       assert.ok(sameRun(g, before, keys), "run differs from the state before the gesture");
       assert.equal(c.log.saves.length, saves, "a finished run was recorded");
@@ -92,7 +86,7 @@ test("gesture: ordinary misses spread over several seconds are never undone by c
   assert.equal(g.lives, 1, "an ordinary mistake was undone by a later cancel");
 });
 
-test("gesture: a deliberate quick four-tap burst only ever rewinds to its own first tap", () => {
+test("gesture: a deliberate quick tap, tap, hold only ever rewinds to its own first tap", () => {
   const c = makeCtx(40), g = new OrbitLock(c), rig = makeRig(g, c);
   g.down(); g.target = 0; g.angle = 3;
   g.down(); g.up();                        // an earlier miss, 2 s before the burst

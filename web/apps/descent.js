@@ -7,6 +7,7 @@ import { C, space, text, line, circle, diamond, banner } from "../engine/draw.js
 import { clamp, lerp } from "../engine/math.js";
 import { LAMP, lamps, fill, dim, blend, pulse, blink, chase, lightsOff } from "../engine/lightshow.js";
 import { recordRun } from "../engine/kit.js";
+import { AppGuard } from "../engine/input.js";
 
 const W = 480; // world width in metres; it wraps, and one metre is two logical pixels across
 const PX = 2;
@@ -166,6 +167,7 @@ function buildSite(n, rng) {
 export class Descent {
   constructor(ctx) {
     this.ctx = ctx;
+    this.guard = new AppGuard(this, ctx); // takes back a menu gesture that reached the game (docs/ENGINE.md)
     this.t = 0;
     this.phase = "title";
     this.pt = 0;
@@ -206,6 +208,7 @@ export class Descent {
 
   // ---- input ----
   down() {
+    this.guard.mark();
     this.btn = true;
     if (this.phase === "title" || (this.phase === "over" && this.pt > 1)) {
       this.newRun();
@@ -219,18 +222,21 @@ export class Descent {
     }
   }
   up() {
+    this.guard.release();
     this.btn = false;
     this.latched = false;
   }
   cancel() {
+    this.guard.rewind();
     this.btn = false;
     this.latched = false;
     this.stopEngine();
     this.ctx.leds(lightsOff());
   }
-  pause() { this.stopEngine(); this.ctx.leds(lightsOff()); }
+  pause() { this.guard.settle(); this.stopEngine(); this.ctx.leds(lightsOff()); }
   resume() { this.burning = false; }
   dispose() {
+    this.guard.settle();
     this.stopEngine();
     this.ctx.leds(lightsOff());
   }
@@ -281,6 +287,7 @@ export class Descent {
   // ---- simulation ----
   update(dt) {
     const step = dt > 0 && dt < 0.1 ? dt : STEP;
+    this.guard.tick(step);
     this.t += step;
     this.pt += step;
     if (this.phase === "play") this.play(step);

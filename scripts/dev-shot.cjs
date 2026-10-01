@@ -18,6 +18,8 @@
          hold:MS            press, wait, release
          down | up          separate edges
          clicks:N[:GAP]     N quick taps, GAP ms apart (default 60)
+         gesture[:MS]       the menu gesture: tap, tap, then hold until the menu opens (at most MS, default 3000), then release
+         gesture:hold       tap, tap, then press and leave the button down (look at it with shot/eval, then `up`)
          shot:NAME          save DIR/<app>-NAME.png
          launch:ID | home   change app
          key:NAME           press a keyboard key, e.g. key:Escape
@@ -112,6 +114,23 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
             await pause(gap);
           }
         }, [count, gap || 60]);
+      } else if (name === "gesture") {
+        // Timed inside the page so a busy machine cannot stretch the taps past the gesture's limits.
+        const limit = value === "hold" ? 0 : Number(value) || 3000;
+        const seen = await page.evaluate(async ([limit, leave]) => {
+          const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+          const key = (type) => document.dispatchEvent(new KeyboardEvent(type, { code: "Space", key: " ", bubbles: true }));
+          for (let i = 0; i < 2; i++) { key("keydown"); await pause(60); key("keyup"); await pause(60); }
+          key("keydown");
+          const start = performance.now(), hint = document.getElementById("escape-hint").textContent;
+          if (leave) return { held: true, hintAtHold: hint };
+          while (performance.now() - start < limit && !vesper.menu) await pause(20);
+          const opened = !!vesper.menu, after = Math.round(performance.now() - start);
+          key("keyup");
+          await pause(120);
+          return { opened, holdMs: after, hintAtHold: hint };
+        }, [limit, value === "hold"]);
+        console.log("gesture", JSON.stringify(seen));
       } else if (name === "shot") {
         const file = path.join(out, `${app || "dashboard"}-${value || "view"}.png`);
         await page.screenshot({ path: file });

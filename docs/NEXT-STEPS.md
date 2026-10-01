@@ -14,7 +14,7 @@ The largest remaining uncertainty is the physical appliance. The source, simulat
 
 ## Honest design limits
 
-- Four-click escape can still collide with gameplay in games that use rapid taps. The Morse/Echo overrides prevent the clearest collisions, but timing presets need human testing. Software tests establish state behavior, not comfort.
+- Tap, tap, hold can still be typed by accident in a game played with rapid taps followed by a held press (Pulsar's long signals after two eighth notes); the hold only counts after exactly two quick taps and the game then puts back what the gesture changed. The thresholds (taps up to 150 ms, pauses up to 220 ms, hold 1000 ms at the standard pace) are a best guess and need human testing on the real button. Software tests establish state behavior, not comfort.
 - The new review scheduler uses per-character attempt counts and streaks. It is not a calendar-based spaced-repetition curriculum or an educationally validated course. Word/digit lessons and free-key mode remain useful future additions.
 - Game progression is deeper but still compact. Physics checks validate representative obstacle profiles and seeded flight, not every conceivable run or every player's ability. Human play-testing should guide further difficulty changes.
 - Reaction numbers use the node clock for physical trials. Electrical/PWM/optical onset and debounce have not been calibrated; keyboard measurements remain approximate.

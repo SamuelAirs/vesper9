@@ -1,7 +1,7 @@
 // What a recognised voice command asks the host to do. Pure functions, so the decisions (including the
 // refusals for a context where a command makes no sense) are testable without a DOM; web/main.js `voice()`
 // performs the plan with the host's own functions. The phrases themselves live in vesper/commands.py.
-import { formatTime, formatTemp, comfortBand } from "./math.js";
+import { formatTime, formatSensorTemp, comfortBand } from "./math.js";
 import { LAMP, fill, meter, dim, ramp } from "./lightshow.js";
 
 export const LAMP_LEVELS = ["off", "low", "medium", "full"];
@@ -118,7 +118,7 @@ export function answer(about, c) {
   if (about === "temperature" || about === "humidity") {
     if (!sensor || !Number.isFinite(sensor.temperature) || !Number.isFinite(sensor.humidity)) return none("NO SENSOR READING YET");
     const old = stale ? " / STALE READING" : "";
-    if (about === "temperature") return reply("TEMPERATURE / " + formatTemp(sensor.temperature, unit) + old, stale ? null : temperatureLamps(sensor.temperature));
+    if (about === "temperature") return reply("TEMPERATURE / " + formatSensorTemp(sensor.temperature, unit, 1, c.settings) + old, stale ? null : temperatureLamps(sensor.temperature));
     const band = comfortBand(sensor.humidity);
     return reply(`HUMIDITY / ${sensor.humidity.toFixed(0)} % RH / ${band ? band.label : ""}${old}`, stale || !band ? null : fill(COMFORT[band.id], 0.35));
   }

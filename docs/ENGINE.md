@@ -51,7 +51,15 @@ Canvas state is normalized at the start of each frame, but app drawing should st
 
 The input router records the source, current navigation epoch, and mode at press-down. A release from another source is ignored. A release after an app change cannot accidentally select an item in the new app.
 
-Menus use short-release to advance and hold-release to select. The default selection threshold is 650 ms. Games receive edges immediately and interpret duration themselves. Four quick short clicks normally open the system menu; triple-click and legacy hold are settings. Ordinary game holds remain available. Morse and Echo declare `escape: "hold"` to protect their pulse input. Menus always retain the three-second hold escape. Games must tolerate `cancel()` after earlier gesture inputs have already reached them; the terminal release is consumed. Source, epoch and connection-generation changes discard partial sequences. Node timestamps determine click spacing even when USB delivers events in a burst.
+Menus use short-release to advance and hold-release to select. The default selection threshold is 650 ms. Games receive edges immediately and interpret duration themselves.
+
+One gesture opens the system menu, identically in every app and on the dashboard: **tap, tap, hold**. The router (`InputRouter`, `web/engine/input.js`) recognises it from three presses: two taps (each 8 ms to `tapMs` long), each press following the previous release within `gapMs`, and a third press that is still down when it has been held for the pace's `holdMs`. `GESTURE_PACES` holds the three presets of the `gesturePace` setting: quick 120/180/900 ms, standard 150/220/1000 ms, relaxed 220/320/1100 ms (tap, gap, hold). Exactly two taps arm the hold; a third quick tap in a row, or a slow tap, or a long pause breaks the sequence. A hold in a game is otherwise an ordinary hold of any length and never opens the menu on its own. `escape` in the catalog no longer changes anything.
+
+Input stays immediate: the two taps arrive in the app as taps and the third press arrives as a press being held. When the hold reaches the threshold the host calls `requestMenu("gesture", { focus })`, which cancels the held press (the app's `cancel()`, then `pause()`), consumes the release that follows, and opens the system menu. Every way into the menu goes through `Vesper.requestMenu(source, options)`: the gesture, the Escape key, the on-screen PAUSE button, the voice command, an interruption (link loss, a hidden page) and any future trigger (a knock on the case) get the same guarantees. If the node's timestamps show the hold was long enough but the host only learns it at the release (a burst of events, a stalled frame), the gesture completes on the release instead.
+
+In navigation contexts (the dashboard, instruments and menus) the same three presses are also tap, tap, choose: a tap advances, a release at or past the selection threshold chooses. The gesture arms only when both taps met the pace's tap and gap limits, and its hold must be at least `holdMs` of the pace and at least 350 ms (`SELECT_MARGIN_MS`) past the selection threshold, so choosing after two quick steps (a release between 650 ms and just under the gesture threshold) still chooses. When the gesture completes the host puts the highlight back where it stood before the first tap (`focusMark()`/`restoreFocus()`), opens the menu, and the release chooses nothing. Navigation contexts also keep a plain three-second hold as a silent fallback (`FALLBACK_HOLD_MS`); games do not.
+
+Games and instruments must tolerate `cancel()` after the two taps and the first second of a third press have reached them. The helpers in `web/engine/input.js`: `GestureTimeline` recognises the presses (an app calls `mark()` in its down handler, `release()` in its up handler); `AppGuard` copies every plain-data property of an app at each press and puts it all back when `cancel()` follows the gesture, and it holds back `ctx.score()` and `ctx.saveProgress()` only while a gesture that began at an earlier press could still complete, dropping what the gesture made. `GestureGuard` in `web/apps/games.js` does the same with a list of fields for the original games, and also delays recording a finished run. `tests/gesture-apps.test.mjs` plays every registered game, performs the gesture and checks that state, score, lives and saves are as before the first tap. Source, epoch and connection-generation changes discard partial sequences. Node timestamps determine tap and pause spacing even when USB delivers events in a burst. `ctx.menuGesture()` tells an app whether a third press is being counted (Signal School and Echo Vault stop their sidetone and say so).
 
 Button events contain `source` (`node`, `simulator`, or `keyboard`) and `at_us`. ESP32 times are monotonic microseconds since node boot. They are not comparable to Pi, browser, or Unix clocks. Light Trial compares cue and button events only within the same clock domain. A keyboard action in hardware mode uses approximate screen timing.
 
@@ -61,11 +69,13 @@ The keyboard and mouse are additional ways to operate the same navigation. `Spac
 
 | Context member | Purpose |
 | --- | --- |
-| `rng` | Seedable PRNG helper: `next()`, `range(a,b)`, `int(a,b)`. |
+| `rng` | PRNG helper: `next()`, `range(a,b)`, `int(a,b)`. The host seeds it from `Random.warm()` (a hashed seed and a few discarded draws), so the first draws after launch are unbiased. |
 | `settings()` / `state()` | Current settings and console state. Treat returned state as read-only. |
 | `simulated()` | Whether this is a simulator. |
 | `alive()` | Whether this app instance is still mounted; check after async work. |
 | `hud([[label,value], ...])` | Small persistent game readouts. |
+| `silentTicks(true/false)` | Silence the host's own short "advance" tick tone while taps are musical (Cadence's tap tempo and stopwatch). Reset when the app is left. |
+| `menuGesture()` | `{ armed, elapsedMs, thresholdMs, progress }`: whether a third press of the menu gesture is being counted now. |
 | `hint(text)` | App-specific status/readout text above the control deck. |
 | `controls(text)` | Update the persistent control deck when a cartridge changes mode. |
 | `tone(hz, seconds, waveform)` | Short synthesized tone. |
@@ -75,7 +85,7 @@ The keyboard and mouse are additional ways to operate the same navigation. `Spac
 | `best(metric?)` / `score(number, metric?)` | Persisted high score; higher is better. Reaction uses physical/keyboard/simulator classes; Glyph uses scan interval classes. |
 | `progress()` / `saveProgress(object)` | This app's small JSON progress object, at most 8 KiB. |
 | `content(html)` | Set instrument-panel markup; escape variable/user text. |
-| `actions([{label, run}, ...])` | Render actions and make them navigable with the switch. |
+| `actions([{id?, label, run}, ...], { focus }?)` | Render actions and make them navigable with the switch. `focus` names the action (by `id`, else label) to highlight after this render. A freshly launched app starts on its first action. |
 | `command(name, data)` | Validated service command; returns a Promise. |
 | `get(path)` | JSON GET under `/api/`, for history or saved notes. |
 | `setMic(mode)` | Central microphone mode transition. |
@@ -93,20 +103,21 @@ An implemented expansion example is provided in `examples/pulse-app.js`. To inst
 
 1. Copy `examples/pulse-app.js` to `web/apps/pulse-app.js`.
 2. Add `import { PulseGarden } from "./pulse-app.js";` and `PulseGarden` to `FACTORIES` in `web/apps/registry.js`.
-3. Add a declarative entry to the `apps` array in `vesper/catalog.json`:
+3. Add a declarative entry to the `apps` array in `vesper/catalog.json`. (An older `"escape": "adaptive" | "hold"` field is still accepted and ignored: the menu gesture is the same for every app.)
 
 ```json
 {
   "id": "garden", "name": "PULSE GARDEN", "subtitle": "Plant signals in the dark.",
   "description": "An ambient instrument that turns each press into an expanding signal.",
   "controls": "PRESS TO PLANT", "category": "EXPANSION / AMBIENT", "glyph": 4,
-  "factory": "PulseGarden", "escape": "adaptive", "voice": ["garden"],
+  "factory": "PulseGarden", "voice": ["garden"],
   "capabilities": ["button", "lights", "audio", "progress"]
 }
 ```
 
 4. Run `python3 scripts/build-demo.py`. It regenerates the catalog and standalone simulator. `python3 scripts/build-catalog.py --check` detects a stale browser catalog.
-5. Restart the service and reload the browser. The catalog automatically supplies backend validation and the `computer open garden` alias. A third dashboard sector appears.
+5. List the app in a sector so it appears on the dashboard: `"sectors"` in `vesper/catalog.json` is a list of named groups, `{ "name": "PLAY", "apps": ["orbit", ...] }`, each page at most six cards, in order. Add `{ "name": "EXPANSION", "apps": ["garden"] }` or append to an existing group. An app in no sector is not on the dashboard but stays launchable by id and by voice. `"system"` lists the apps offered under SYSTEM TOOLS in the system menu.
+6. Restart the service and reload the browser. The catalog automatically supplies backend validation and the `computer open garden` alias.
 
 The example persists its signal count. `tests/extension-smoke.cjs` installs it in an isolated copy and checks button launch, state, exit, alias registration, the service and the generated HTML. Capability metadata documents intent; it does not sandbox trusted JavaScript.
 
@@ -117,7 +128,7 @@ The included bundler supports the project's named imports/exports. It is intenti
 - `math.js`: deterministic random numbers, clamp/lerp, angle wrapping, axis-aligned rectangle collision, text escaping, duration formatting.
 - `draw.js`: phosphor palette, text, lines, circles, diamonds, procedural glyphs, a star field, grids, and title/result banners.
 - `audio.js`: oscillator envelopes, short tones, sustained sidetone, chimes; optional simulator microphone resampling.
-- `input.js`: source ownership, gestures, release suppression, global escape, cancellation.
+- `input.js`: source ownership, the tap, tap, hold gesture and its timing presets, `GestureTimeline` and `AppGuard` for apps, release suppression, cancellation.
 - `bridge.js`: local WebSocket transport, request correlation, reconnect, microphone PCM forwarding in server simulation.
 - `demo.js`: standalone node, timers, fake environment readings, and browser-local persistence.
 

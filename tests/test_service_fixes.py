@@ -768,7 +768,7 @@ class VerifiedService(ServiceCase):
             try:
                 self.assertEqual(console.settings["volume"], 0.9)
                 self.assertIn("tempUnit", console.settings)
-                self.assertIn("menuClicks", console.settings)
+                self.assertNotIn("menuClicks", console.settings)
             finally:
                 console.store.close()
 
@@ -784,7 +784,7 @@ class FixedUpgradeAndStorage(unittest.TestCase):
             store.close()
             console = Console(make_args(directory))
             try:
-                self.assertIn(console.settings["menuClicks"], (0, 3, 4))
+                self.assertNotIn("menuClicks", console.settings)
                 self.assertIsInstance(console.settings["volume"], (int, float))
                 self.assertIn(console.settings["scanMs"], (600, 850, 1200, 1600))
             finally:

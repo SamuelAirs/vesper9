@@ -13,11 +13,14 @@ Preserve the retro/alien field-instrument identity and the one-button/voice
 interface. Keyboard and mouse are useful fallbacks. No additional hardware,
 cloud speech, paid services, or unrelated home-AI integration is assumed.
 
-Four quick game clicks are the default menu gesture, with a triple-click
-option and timing presets. Normal long game holds must remain available.
-Morse and Echo use an explicit three-second hold to protect valid repeated
-short presses. Menu navigation remains short-release next, hold-release
-select. Do not add a universal hold that silently interrupts Undertow.
+The system menu opens with one gesture everywhere, in every game, instrument
+and on the dashboard: tap, tap, hold (two quick taps, then a press held for
+about a second), with timing presets in Calibration. Normal long game holds
+must remain available: the gesture needs exactly two quick taps first, and no
+plain hold opens the menu inside a game. Menu navigation remains short-release
+next, hold-release select, with a silent three-second plain hold as a fallback
+there. Every app tolerates "two taps and a hold, then cancel()": see
+`AppGuard` in `web/engine/input.js` and the Input contract in `docs/ENGINE.md`.
 
 ## Architecture and contracts
 

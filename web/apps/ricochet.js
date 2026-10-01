@@ -1,7 +1,7 @@
 // RICOCHET — a one-button breakout. A signal (the ball) bounces through a lattice
 // of cells. The paddle never stops: it glides left and right and bounces off the
 // walls by itself. A tap REVERSES it; that is the whole control scheme (a hold
-// longer than a tap freezes the world, so the three-second menu hold is harmless).
+// longer than a tap freezes the world, so the long press of the menu gesture is harmless).
 // Where the ball meets the paddle sets its rebound angle. A bracket under the chamber marks where the
 // ball will next reach paddle height (found by running the same collision code on
 // a scratch copy of the ball, so it is exact until something changes the path).
@@ -16,6 +16,7 @@ import { clamp } from "../engine/math.js";
 import { C, text, line, circle, diamond, space, banner } from "../engine/draw.js";
 import { LAMP, lamps, spot, ramp, dim, pulse, chase, lightsOff } from "../engine/lightshow.js";
 import { recordRun } from "../engine/kit.js";
+import { AppGuard } from "../engine/input.js";
 
 // Chamber geometry in the 960 x 540 logical space.
 const L = 120, R = 840, TOP = 40; // side walls and ceiling
@@ -63,6 +64,7 @@ const emptyBall = () => ({ x: 0, y: 0, vx: 0, vy: 0, pred: null, predN: 0, predC
 export class Ricochet {
   constructor(ctx) {
     this.ctx = ctx;
+    this.guard = new AppGuard(this, ctx); // takes back a menu gesture that reached the game (docs/ENGINE.md)
     this.t = 0; // animation clock, always runs
     this.phase = "title";
     this.endedAt = -9;
@@ -208,6 +210,7 @@ export class Ricochet {
   // ---- input -------------------------------------------------------------
 
   down() {
+    this.guard.mark();
     if (this.phase === "title") return this.begin();
     if (this.phase === "over") {
       if (this.t - this.endedAt > 0.8) this.begin();
@@ -223,11 +226,13 @@ export class Ricochet {
   }
 
   up() {
+    this.guard.release();
     this.pressing = false;
     this.heldTime = 0;
   }
 
   cancel() {
+    this.guard.rewind();
     // Menu or focus change: drop held input and go dark. If a ball was lost in the
     // moment the gesture began (during or just before its last press), give it back.
     this.pressing = false;
@@ -243,8 +248,9 @@ export class Ricochet {
     this.ctx.synth?.stopTone?.();
     this.ctx.leds(lightsOff());
   }
-  pause() { this.cancel(); }
+  pause() { this.guard.settle(); this.cancel(); }
   dispose() {
+    this.guard.settle();
     this.pressing = false;
     this.ctx.synth?.stopTone?.();
     this.ctx.leds(lightsOff());
@@ -442,6 +448,7 @@ export class Ricochet {
 
   update(dt) {
     if (!(dt > 0)) return;
+    this.guard.tick(dt);
     this.t += dt;
     this.frame++;
     if (this.phase === "play") this.step(dt);
@@ -460,7 +467,7 @@ export class Ricochet {
 
   step(dt) {
     // A long hold is never a tap: the world freezes until release, so the hold that
-    // opens the system menu (three seconds) cannot cost a ball.
+    // opens the system menu cannot cost a ball.
     if (this.pressing) this.heldTime += dt;
     if (this.frozen) return;
     this.clock += dt;

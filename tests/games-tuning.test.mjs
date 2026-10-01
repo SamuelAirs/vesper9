@@ -7,6 +7,7 @@ import { OrbitLock, Moonrunner, Undertow, EchoVault, LightTrial, GlyphVault, Lam
 import { MorseSchool } from "../web/apps/morse.js";
 import { Random } from "../web/engine/math.js";
 import { makeCtx, makeRig, step, DT } from "./audit/harness.mjs";
+import { gestureWithUpdates } from "./audit/bots.mjs";
 
 // A context that remembers every lamp write.
 function lit(seed = 1, opts = {}) {
@@ -520,17 +521,10 @@ const guarded = {
 };
 for (const [name, { keys, make }] of Object.entries(guarded)) {
   test(`gesture rewind restores every new field in ${name}`, () => {
-    const c = lit(41, { settings: { menuClicks: 4, gesturePace: "standard" } }), g = make(c), rig = makeRig(g, c);
+    const c = lit(41, { settings: { gesturePace: "standard" } }), g = make(c), rig = makeRig(g, c);
     const before = Object.fromEntries(keys.map((k) => [k, structuredClone(g[k])]));
-    // Four quick clicks with the game running between them; the game is paused once the menu opens.
-    for (let i = 0; i < 4; i++) {
-      rig.router.down({ source: "node", generation: 1, at_us: rig.now() * 1000 });
-      for (let f = 0; f < 4; f++) g.update(DT);
-      rig.wait(67);
-      rig.router.up({ source: "node", generation: 1, at_us: rig.now() * 1000 });
-      if (i < 3) for (let f = 0; f < 3; f++) g.update(DT);
-      rig.wait(50);
-    }
+    // Tap, tap, hold with the game running throughout; the game is paused once the menu opens.
+    gestureWithUpdates(g, rig);
     assert.equal(rig.menuOpen, 1);
     for (const k of keys) assert.deepEqual(g[k], before[k], `${name}.${k} was not restored`);
     assert.ok(dark(c.ledsNow), "lamps are lit while the menu is open");

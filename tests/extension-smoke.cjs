@@ -8,6 +8,8 @@ const python=process.env.PYTHON||'python3';const port=require('./free-port.cjs')
  fs.copyFileSync(path.join(copy,'examples/pulse-app.js'),path.join(copy,'web/apps/pulse-app.js'));
  const catalogPath=path.join(copy,'vesper/catalog.json'),catalog=JSON.parse(fs.readFileSync(catalogPath));
  catalog.apps.push({id:'garden',name:'PULSE GARDEN',subtitle:'Plant signals.',description:'An ambient instrument.',controls:'PRESS TO PLANT',category:'EXPANSION / AMBIENT',glyph:4,factory:'PulseGarden',escape:'adaptive',voice:['garden'],capabilities:['button','lights','audio','progress']});
+ // An app is on the dashboard only if a sector lists it. (The old per-app "escape" field above is still accepted and ignored.)
+ catalog.sectors.push({name:'EXPANSION',apps:['garden']});
  fs.writeFileSync(catalogPath,JSON.stringify(catalog));
  const registry=path.join(copy,'web/apps/registry.js');
  fs.writeFileSync(registry,'import { PulseGarden } from "./pulse-app.js";\n'+fs.readFileSync(registry,'utf8').replace('const FACTORIES = {','const FACTORIES = { PulseGarden,'));
@@ -19,7 +21,7 @@ const python=process.env.PYTHON||'python3';const port=require('./free-port.cjs')
  const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
  for(const url of [origin,'file://'+path.join(copy,'VESPER-9-Simulator.html')]){
   await page.goto(url);await page.waitForFunction(()=>vesper.loaded);
-  await page.evaluate(()=>{vesper.page=Math.floor((vesper.cartridges-1)/6);vesper.buildHome((vesper.cartridges-1)%6);});
+  await page.evaluate(()=>{for(let p=0;p<12;p++){vesper.page=p;vesper.buildHome(0);if(document.querySelector('.app-card[data-app="garden"]'))break;}});
   assert.equal(await page.locator('.app-card[data-app="garden"]').count(),1);
   await page.keyboard.down('Space');await page.waitForTimeout(760);await page.keyboard.up('Space');
   await page.waitForFunction(()=>vesper.meta?.id==='garden');

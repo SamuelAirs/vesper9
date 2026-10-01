@@ -14,15 +14,14 @@ The project includes a custom 2D game engine, a dashboard, six original games, s
 
 Open **`VESPER-9-Simulator.html`** in a desktop browser. It is self-contained and needs no installation or internet connection. Use **Space** or the circular on-screen button. Click a card for direct access.
 
-| Gesture | Dashboard and utility menus | Inside a game |
+| Gesture | Dashboard, instruments and menus | Inside a game |
 | --- | --- | --- |
 | Short press | Next item | The game's action |
 | Hold about 0.65 s, then release | Select item | The game's held action |
-| Four quick clicks | Ordinary navigation; no click escape | Pause/menu (three-click option in Calibration) |
-| Hold 3 s | System menu | Reserved for Signal School/Echo Vault, or selected legacy profile |
-| Escape on the keyboard | System menu / close menu | Pause menu |
+| **Tap, tap, hold** (two quick taps, then press and hold for about a second) | System menu | System menu |
+| Escape on the keyboard, or the PAUSE button | System menu / close menu | Pause menu |
 
-Signal School and Echo Vault protect Morse dots and pulse answers with their explicit hold escape. Other games keep ordinary sustained holds. Earlier clicks can affect play before a rapid menu gesture completes; the control deck shows the active rule.
+Tap, tap, hold is the same in every game, instrument and on the dashboard. The two taps and the start of the hold reach a game as ordinary presses; when the menu opens, the game puts back anything they changed. Calibration sets how quick the taps must be (quick, standard, relaxed). A plain three-second hold also opens the menu from the dashboard, instruments and menus, silently.
 
 The standalone file simulates the lights and environmental sensor. It does **not** access the ESP32 or perform speech recognition. Its scores and settings stay in that browser. The full Pi service supplies real hardware and local speech.
 
@@ -79,9 +78,9 @@ For automatic service startup and a full-screen kiosk at desktop login:
 | **Field Notes** | Local dictation, older-note/text paging, selected-session export and explicit start/stop. |
 | **Atmosphere** | Freshness-aware SHT3x readings, 24-hour charts and 30-day retention. |
 | **Node Scope** | Button state, individual RGB checks, mic meter, transport counters, audio test. |
-| **Calibration** | Sound, texture, Morse/scan speed, click-menu profiles/timing and selection hold. |
+| **Calibration** | Sound, texture, Morse/scan speed, menu-gesture timing and selection hold. Under SYSTEM TOOLS in the system menu, with Node Scope and Telemetry. |
 
-The dashboard has six cards per sector and automatically adds sectors when applications are registered. [Game and operator notes](docs/OPERATOR.md) explain the controls and scoring.
+The dashboard shows the sectors named in `vesper/catalog.json` (at most six cards each): the fourteen games first, then the instruments. Calibration, Node Scope and Telemetry are under SYSTEM TOOLS in the system menu; Ephemeris is retired from the dashboard. [Game and operator notes](docs/OPERATOR.md) explain the controls and scoring.
 
 ## Voice and sound
 

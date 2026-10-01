@@ -41,7 +41,8 @@ export class DemoBridge extends EventTarget {
       timers: saved.timers || [],
       scores: saved.scores || {},
       progress: saved.progress || {},
-      settings: { ...DEFAULT_SETTINGS, ...saved.settings },
+      // Like the service: a saved setting this version no longer has (menuClicks) is dropped.
+      settings: Object.fromEntries(Object.entries({ ...DEFAULT_SETTINGS, ...saved.settings }).filter(([key]) => key in DEFAULT_SETTINGS)),
     };
   }
   emit(event) {

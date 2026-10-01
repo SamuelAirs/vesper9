@@ -113,7 +113,7 @@ cd ~/vesper9
 
 Open `http://localhost:8799` in Chromium on the Pi. The link should read **NODE LINK ACTIVE**, and the microphone starts **OFF**. The server binds only `127.0.0.1`; this is a local appliance, not a network remote-control server. Keep one controlling tab. Additional tabs are monitors and cannot change the node.
 
-Choose **Next sector → Node Scope**, then:
+Open the system menu (tap, tap, hold) and choose **System tools → Node Scope**, then:
 
 1. Tap and release the arcade button. Confirm the focus advances once per press. Hold and release to select.
 2. Select each light and cycle red, green, blue, white, and off. Confirm left/middle/right match the labels.

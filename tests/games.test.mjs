@@ -9,15 +9,15 @@ import { makeCtx, makeRig, step, DT } from "./audit/harness.mjs";
 const dark = (v) => v.every((x) => x === 0);
 
 // ---------------------------------------------------------------------------
-// F1: the 4-click menu gesture destroys a run in Orbit Lock and Glyph Archive.
-// All four downs reach the game; with a miss costing a life, three taps end the
-// run (score recorded) and the fourth silently starts a fresh one.
-test("F1a Orbit Lock: opening the menu with four quick clicks must not end the run", () => {
+// F1: the menu gesture used to destroy a run in Orbit Lock and Glyph Archive (it was four clicks then;
+// it is tap, tap, hold now). All three presses reach the game; with a miss costing a life, the taps cost
+// lives and the third press would end the run (score recorded) or start a fresh one.
+test("F1a Orbit Lock: opening the menu with tap, tap, hold must not end the run", () => {
   const c = makeCtx(5), g = new OrbitLock(c), rig = makeRig(g, c);
   g.down();                               // leave the title screen
   g.points = 12;                          // a run with some progress
   g.target = 0; g.angle = 3;              // satellite on the far side of the dial
-  rig.tap(); rig.tap(); rig.tap(); rig.tap();
+  rig.gesture();
   assert.equal(rig.menuOpen, 1, "the gesture opened the menu");
   // Opening the menu submits the score reached so far (F4), which is 12; nothing else is recorded.
   assert.deepEqual(c.log.scores.map((x) => x.n), [12], "run was ended and its score recorded by the gesture");
@@ -27,13 +27,13 @@ test("F1a Orbit Lock: opening the menu with four quick clicks must not end the r
   assert.equal(g.lives, 3, "the gesture's taps cost lives");
 });
 
-test("F1b Glyph Archive: opening the menu with four quick clicks must not end the run", () => {
+test("F1b Glyph Archive: opening the menu with tap, tap, hold must not end the run", () => {
   const c = makeCtx(5, { settings: { scanMs: 1e9 } }), g = new GlyphVault(c), rig = makeRig(g, c);
   g.down();
   step(g, 4);                             // inscription hidden, cursor frozen on glyph 0
   g.sequence = [4, 4, 4]; g.focus = 0;
   g.round = 6; g.points = 900;
-  rig.tap(); rig.tap(); rig.tap(); rig.tap();
+  rig.gesture();
   assert.equal(rig.menuOpen, 1);
   assert.deepEqual(c.log.scores.map((x) => x.n), [900], "run was ended and its score recorded by the gesture");
   assert.equal(c.log.saves.length, 0, "a run was recorded as finished");

@@ -29,7 +29,7 @@ function harness() {
     rawDown: (e) => events.push(["down", e]),
     rawUp: (e) => events.push(["up", e]),
     rawCancel: () => events.push("cancel"),
-    systemMenu() {
+    requestMenu(via) {
       events.push("menu");
       this.epoch++;
     },
@@ -214,6 +214,7 @@ test("reaction ignores stale cues, measures node time, cancels on pause", () => 
   g.event({ type: "cue", trial: g.trial, at_us: 1000000 });
   g.down({ source: "node", at_us: 1234000 });
   assert.equal(g.last, 234);
+  ticks(g, 0.5); // the result is held back until no menu gesture could still include this press
   assert.equal(c.records[0], 766);
   g.down({});
   g.pause();
@@ -262,34 +263,44 @@ function rapid(h, count, duration = 60, gap = 55, source = 'node', generation = 
     h.router.down({ source, generation }); h.advance(duration); h.router.up({ source, generation }); h.advance(gap);
   }
 }
-function rapidHarness(clicks = 4) {
+// Tap, tap, then a third press held for `hold` ms (to completion of the gesture when long enough).
+function gesture(h, hold = 1100, tap = 60, gap = 55, source = 'node', generation = 1) {
+  rapid(h, 2, tap, gap, source, generation);
+  h.router.down({ source, generation }); h.advance(hold); h.router.up({ source, generation });
+}
+function rapidHarness(pace = 'standard') {
   const h = harness(); h.host.mode = 'raw';
-  h.host.escapePolicy = () => ({ clicks, pace: 'standard' });
+  h.host.escapePolicy = () => ({ pace });
   return h;
 }
-test('quadruple menu delivers raw downs immediately and consumes only terminal release', () => {
-  const h = rapidHarness(); rapid(h, 4);
-  assert.equal(h.events.filter(e => Array.isArray(e) && e[0] === 'down').length, 4);
-  assert.equal(h.events.filter(e => Array.isArray(e) && e[0] === 'up').length, 3);
+test('tap, tap, hold delivers raw downs immediately and consumes only the terminal release', () => {
+  const h = rapidHarness(); gesture(h);
+  assert.equal(h.events.filter(e => Array.isArray(e) && e[0] === 'down').length, 3, 'all three presses reached the game at once');
+  assert.equal(h.events.filter(e => Array.isArray(e) && e[0] === 'up').length, 2, 'only the two taps released into the game');
   assert.equal(h.events.filter(e => e === 'menu').length, 1);
   assert.equal(h.events.at(-1), 'menu');
 });
-test('triple profile and long-hold exception are explicit', () => {
-  const h = rapidHarness(3); rapid(h, 3); assert.ok(h.events.includes('menu'));
-  const hold = rapidHarness(0); rapid(hold, 4); assert.ok(!hold.events.includes('menu'));
-  hold.router.down(); hold.advance(3001); hold.router.up(); assert.equal(hold.events.at(-1), 'menu');
+test('four quick clicks, a plain long hold and three taps then a hold are not the menu gesture in a game', () => {
+  const four = rapidHarness(); rapid(four, 4); assert.ok(!four.events.includes('menu'));
+  const hold = rapidHarness(); hold.router.down(); hold.advance(3001); hold.router.up(); assert.ok(!hold.events.includes('menu'), 'a game has no plain-hold escape');
+  const three = rapidHarness(); rapid(three, 3); three.router.down(); three.advance(1500); three.router.up(); assert.ok(!three.events.includes('menu'));
+  const one = rapidHarness(); rapid(one, 1); one.router.down(); one.advance(1500); one.router.up(); assert.ok(!one.events.includes('menu'));
 });
 test('sustained gameplay holds remain ordinary holds in click profile', () => {
   const h = rapidHarness(); h.router.down(); h.advance(6500); h.router.up();
   assert.ok(!h.events.includes('menu')); assert.equal(h.events[1][1].durationMs, 6500);
 });
 test('partial, overlong, mixed-source, repeated-key and expired gestures do not escape', () => {
-  for (const scenario of ['gap','hold','source','generation','epoch']) {
-    const h = rapidHarness(); rapid(h, 2);
+  for (const scenario of ['gap','tap','source','generation','epoch','short']) {
+    const h = rapidHarness(); rapid(h, 1);
     if (scenario === 'gap') h.advance(300);
-    if (scenario === 'hold') rapid(h, 1, 300);
+    if (scenario === 'tap') rapid(h, 1, 300);
+    else rapid(h, 1);
     if (scenario === 'epoch') h.host.epoch++;
-    rapid(h, 2, 60, 55, scenario === 'source' ? 'keyboard' : 'node', scenario === 'generation' ? 2 : 1);
+    const hold = scenario === 'short' ? 600 : 1500;
+    h.router.down({ source: scenario === 'source' ? 'keyboard' : 'node', generation: scenario === 'generation' ? 2 : 1 });
+    h.advance(hold);
+    h.router.up({ source: scenario === 'source' ? 'keyboard' : 'node', generation: scenario === 'generation' ? 2 : 1 });
     assert.ok(!h.events.includes('menu'), scenario);
   }
   const h = rapidHarness();
@@ -298,16 +309,14 @@ test('partial, overlong, mixed-source, repeated-key and expired gestures do not 
 });
 test('node timestamps determine timing even if packets arrive together', () => {
   const h = rapidHarness();
-  for(let i=0;i<4;i++) {
-    h.router.down({source:'node',at_us:i*1000000,generation:1});
-    h.router.up({source:'node',at_us:i*1000000+60000,generation:1});
-  }
-  assert.ok(!h.events.includes('menu'), 'one-second real gaps are not rapid');
+  const press = (at, ms) => { h.router.down({source:'node',at_us:at*1000,generation:1}); h.router.up({source:'node',at_us:(at+ms)*1000,generation:1}); };
+  for(let i=0;i<3;i++) press(i*1000, 60);
+  h.advance(1500);
+  assert.ok(!h.events.includes('menu'), 'one-second real gaps are not a gesture');
   h.router.cancel();
-  for(let i=0;i<4;i++) {
-    h.router.down({source:'node',at_us:i*130000,generation:1});
-    h.router.up({source:'node',at_us:i*130000+60000,generation:1});
-  }
+  // Two taps 130 ms apart on the node's clock arrive in one burst, then the third press is held for real.
+  press(10000, 60); press(10130, 60);
+  h.router.down({source:'node',at_us:10260*1000,generation:1}); h.advance(1100);
   assert.ok(h.events.includes('menu'));
 });
 test('reconnect reconciles an already released button without swallowing a fresh press', () => {
@@ -319,7 +328,7 @@ test('reconnect reconciles an already released button without swallowing a fresh
   h.router.up({source:'node'}); assert.equal(h.router.blocked,false);
 });
 test('cancelling a partial gesture removes it from the resumed scene', () => {
-  const h=rapidHarness(); rapid(h,3);h.router.cancel();rapid(h,1);
+  const h=rapidHarness(); rapid(h,2);h.router.cancel();h.router.down();h.advance(1500);h.router.up();
   assert.ok(!h.events.includes('menu'));
 });
 test('light effect release writes off even when the previous ordinary value was off', async () => {
@@ -390,8 +399,8 @@ test('reaction classes stay separate and a reboot invalidates a pending trial', 
   assert.equal(g.phase,'title');assert.equal(scores.length,1);
   assert.deepEqual(reactionSummary([200,400,300,100]),{count:4,mean:250,median:250,best:100});
 });
-test('Morse and Echo catalogs protect legitimate repeated taps', () => {
-  for(const id of ['morse','echo'])assert.equal(CARTRIDGES.find(a=>a.id===id).escape,'hold');
+test('Morse and Echo are not special in the catalog any more, and repeated taps still work', () => {
+  for(const id of ['morse','echo'])assert.equal(CARTRIDGES.find(a=>a.id===id).escape,undefined,'the per-app escape policy is gone');
   const g=new EchoVault(context());g.phase='listen';g.sequence=[0,0,0,0];
   for(let i=0;i<4;i++){g.down();g.up({durationMs:60});}assert.equal(g.round,1);
 });

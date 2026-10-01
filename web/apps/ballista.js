@@ -8,6 +8,7 @@ import { C, space, text, line, circle, diamond, banner } from "../engine/draw.js
 import { clamp, lerp, TAU, Random } from "../engine/math.js";
 import { LAMP, lamps, fill, dim, blink, pulse, chase, spot, lightsOff } from "../engine/lightshow.js";
 import { recordRun } from "../engine/kit.js";
+import { AppGuard } from "../engine/input.js";
 
 const STEP = 1 / 60;
 const GY = 450; // screen y of the datum (height 0)
@@ -261,6 +262,7 @@ const GREENISH = LAMP.green, AMBERISH = LAMP.amber, REDDISH = LAMP.red;
 export class Ballista {
   constructor(ctx) {
     this.ctx = ctx;
+    this.guard = new AppGuard(this, ctx); // takes back a menu gesture that reached the game (docs/ENGINE.md)
     this.t = 0;
     this.st = 0;
     this.sweepT = 0;
@@ -332,6 +334,7 @@ export class Ballista {
 
   // ---- input ----
   down() {
+    this.guard.mark();
     this.btn = true;
     if (this.phase === "title" || (this.phase === "over" && this.pt > 1)) this.newRun();
     else if (this.phase === "brief" && this.pt > 0.5 && !this.applyPending) this.startPlay();
@@ -348,6 +351,7 @@ export class Ballista {
     }
   }
   up() {
+    this.guard.release();
     this.btn = false;
     this.latched = false;
     if (!this.charging) return;
@@ -360,12 +364,14 @@ export class Ballista {
     }
   }
   cancel() {
+    this.guard.rewind();
     this.btn = false;
     this.latched = false;
     this.cancelCharge();
     this.ctx.leds(lightsOff());
   }
   pause() {
+    this.guard.settle();
     this.cancelCharge();
     this.ctx.leds(lightsOff());
   }
@@ -374,6 +380,7 @@ export class Ballista {
     this.latched = false;
   }
   dispose() {
+    this.guard.settle();
     this.cancelCharge();
     this.ctx.leds(lightsOff());
   }
@@ -559,6 +566,7 @@ export class Ballista {
   // ---- simulation ----
   update(dt) {
     const step = dt > 0 && dt < 0.1 ? dt : STEP;
+    this.guard.tick(step);
     this.t += step;
     this.pt += step;
     this.sweepT += step;

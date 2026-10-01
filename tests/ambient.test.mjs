@@ -33,8 +33,8 @@ test("values are always nine whole numbers 0-255", () => {
       level: ["full", "medium", "low", "off", 0.33, "bogus"][Math.floor(rnd() * 6)],
       ambient: rnd() < 0.5, reducedMotion: rnd() < 0.3, mic: rnd() < 0.5,
       focus: rnd() < 0.8 ? { index: Math.floor(rnd() * count), count } : null,
-      press: rnd() < 0.3 ? { kind: rnd() < 0.5 ? "select" : "escape", elapsedMs: rnd() * 4000, holdMs: 650 } : null,
-      clicks: rnd() < 0.2 ? { count: Math.floor(rnd() * 5), total: 4 } : null,
+      press: rnd() < 0.3 ? { kind: rnd() < 0.5 ? "select" : "gesture", elapsedMs: rnd() * 4000, holdMs: rnd() < 0.5 ? 650 : 1000 } : null,
+      clicks: rnd() < 0.2 ? { count: Math.floor(rnd() * 5) } : null,
       timerRemaining: rnd() < 0.3 ? rnd() * 14 - 2 : null,
     });
     assert.ok(nine(v), JSON.stringify(v));
@@ -58,7 +58,8 @@ test("lamp level scales everything, off yields zeros, default is not full", () =
   // The same holds for acknowledgements, hold progress, clicks and the countdown.
   const extras = [
     { press: { kind: "select", elapsedMs: 400, holdMs: 650 } },
-    { clicks: { count: 2, total: 4 } },
+    { clicks: { count: 2 } },
+    { press: { kind: "gesture", elapsedMs: 500, holdMs: 1000 } },
     { timerRemaining: 8 },
   ];
   for (const extra of extras) {
@@ -118,10 +119,17 @@ test("hold progress fills amber left to right, then shows the menu hold in white
   assert.ok(lamp(late, 0)[2] > 100, "white at the left");
   assert.deepEqual(lamp(done, 2), lamp(done, 0), "all lamps white at three seconds");
   assert.ok(lamp(done, 1)[2] > 100);
-  // A game's long hold only starts counting toward the menu after a delay.
-  const game = (elapsedMs) => lampFrame({ scene: "game", seconds: 0, scale: 1, rest: 1, press: { kind: "escape", elapsedMs } });
-  assert.deepEqual(game(300), Array(9).fill(0));
-  assert.ok(lit(game(1200), 0));
+});
+
+test("the third press of tap, tap, hold keeps the two tap lamps lit and fills the right lamp white", () => {
+  const gesture = (elapsedMs) => lampFrame({ scene: "game", seconds: 0, scale: 1, rest: 1, press: { kind: "gesture", elapsedMs, holdMs: 1000 } });
+  const start = gesture(0), half = gesture(500), full = gesture(1000), over = gesture(5000);
+  for (const v of [start, half, full]) assert.ok(lit(v, 0) && lit(v, 1) && lit(v, 2), "all three lit: two taps and the hold");
+  assert.deepEqual(lamp(start, 0), lamp(full, 0), "the tap lamps do not change");
+  assert.ok(lamp(start, 0)[1] > lamp(start, 2)[1], "the hold lamp starts dimmer than a tap lamp");
+  assert.ok(sum(lamp(half, 2)) > sum(lamp(start, 2)) && sum(lamp(full, 2)) > sum(lamp(half, 2)), "the right lamp fills");
+  assert.ok(lamp(full, 2)[0] > 200 && lamp(full, 2)[2] > 100, "white (not the cyan of the taps) at the threshold");
+  assert.deepEqual(over, full, "it does not run past full");
 });
 
 test("selection fires a short flash that ends, menu open and acknowledgements differ", () => {
@@ -151,12 +159,12 @@ test("selection fires a short flash that ends, menu open and acknowledgements di
   void h;
 });
 
-test("each click of the menu gesture lights one more lamp", () => {
-  const clicks = (count, total = 4) => lampFrame({ scene: "game", seconds: 0, scale: 1, rest: 1, clicks: { count, total } });
-  assert.deepEqual([1, 2, 3].map((n) => [0, 1, 2].filter((i) => lit(clicks(n), i)).length), [1, 2, 3]);
+test("each tap of the menu gesture lights one lamp, left to right; the hold is the third", () => {
+  const clicks = (count) => lampFrame({ scene: "game", seconds: 0, scale: 1, rest: 1, clicks: { count } });
+  assert.deepEqual([1, 2].map((n) => [0, 1, 2].filter((i) => lit(clicks(n), i)).length), [1, 2]);
   assert.deepEqual([0, 1, 2].map((i) => lit(clicks(1), i)), [true, false, false]);
-  assert.deepEqual(clicks(4), Array(9).fill(0), "the last click opens the menu (its own flash)");
-  assert.deepEqual([1, 2].map((n) => [0, 1, 2].filter((i) => lit(clicks(n, 3), i)).length), [1, 2]);
+  assert.deepEqual([0, 1, 2].map((i) => lit(clicks(2), i)), [true, true, false], "the third lamp waits for the hold");
+  assert.deepEqual(clicks(0), Array(9).fill(0));
 });
 
 test("ambient breathes dimly on the dashboard, and only there", () => {
@@ -224,7 +232,7 @@ test("the microphone lamp is steady and survives ambient off, idle fade and leve
   assert.deepEqual(lamp(mic(2010), MIC_LAMP), expected("full"));
   h.note("error", 2100);
   assert.deepEqual(lamp(mic(2110), MIC_LAMP), expected("full"));
-  for (const extra of [{ press: { kind: "select", elapsedMs: 2900, holdMs: 650 } }, { clicks: { count: 2, total: 4 } }, { timerRemaining: 2 }])
+  for (const extra of [{ press: { kind: "select", elapsedMs: 2900, holdMs: 650 } }, { press: { kind: "gesture", elapsedMs: 900, holdMs: 1000 } }, { clicks: { count: 2 } }, { timerRemaining: 2 }])
     assert.deepEqual(lamp(mic(5000, extra), MIC_LAMP), expected("full"));
   // The microphone lamp is dim (never the brightest thing the lamps do) and absent when not capturing.
   assert.ok(Math.max(...lamp(mic(1000), MIC_LAMP)) < 200);

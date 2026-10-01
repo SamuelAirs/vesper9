@@ -399,7 +399,7 @@ test("two quick taps and a hold taken as the menu gesture leave no lap, tempo or
   r.hand.tap(1, 250); r.hand.tap(1, 250); // two quick taps: two laps
   assert.equal(r.app.sw.laps.length, 2);
   r.app.event({ type: "button", pressed: true, source: "node", at_us: 9e6 }); // the hold begins
-  r.app.cancel(); // the host took it as the menu gesture
+  r.advance(1000); r.app.cancel(); // the host took it as the menu gesture
   assert.equal(r.app.sw.laps.length, 0, "the laps made by the gesture are undone");
   assert.equal(r.app.sw.running, true, "the stopwatch itself is untouched");
 
@@ -408,7 +408,7 @@ test("two quick taps and a hold taken as the menu gesture leave no lap, tempo or
   r.hand.hold(); r.hand.hold(); r.advance(2000);
   r.hand.tap(1, 250); r.advance(5000); // a lap, then a pause of five seconds
   r.app.event({ type: "button", pressed: true, source: "node", at_us: 9e6 });
-  r.app.cancel();
+  r.advance(1000); r.app.cancel();
   assert.equal(r.app.sw.laps.length, 1, "an old lap is not part of the gesture");
 
   // tap tempo: the tempo goes back
@@ -418,7 +418,7 @@ test("two quick taps and a hold taken as the menu gesture leave no lap, tempo or
   r.hand.tap(1, 300); r.hand.tap(1, 300); r.hand.tap(1, 300);
   assert.notEqual(r.app.bpm, before, "three taps set a tempo");
   r.app.event({ type: "button", pressed: true, source: "node", at_us: 9e6 });
-  r.app.cancel();
+  r.advance(1000); r.app.cancel();
   assert.equal(r.app.bpm, before, "the gesture's taps are taken back");
 
   // the dial: minutes go back
@@ -427,7 +427,7 @@ test("two quick taps and a hold taken as the menu gesture leave no lap, tempo or
   r.hand.tap(2, 250);
   assert.equal(r.app.tm.dial.units, 2);
   r.app.event({ type: "button", pressed: true, source: "node", at_us: 9e6 });
-  r.app.cancel();
+  r.advance(1000); r.app.cancel();
   assert.equal(r.app.tm.dial.units, 0);
   assert.equal(r.svc.commands.length, 0, "no timer was created");
 });
@@ -435,19 +435,20 @@ test("two quick taps and a hold taken as the menu gesture leave no lap, tempo or
 test("a gesture cannot start, pause, add to or remove a service timer", () => {
   const r = openTimer(rig({ progress: { tool: "timer", lastTimer: 600 } }));
   r.hand.hold();
-  const commands = r.svc.commands.length, snapshot = JSON.stringify(r.ctx.state().timers);
+  const steady = () => JSON.stringify(r.ctx.state().timers.map(({ remaining, ...rest }) => rest));
+  const commands = r.svc.commands.length, snapshot = steady();
   for (const row of [0, 1, 2]) {
     r.hand.tap(1, 250); r.hand.tap(1, 250);
     r.app.event({ type: "button", pressed: true, source: "node", at_us: 9e6 + row });
-    r.app.cancel();
+    r.advance(1000); r.app.cancel();
   }
   assert.equal(r.svc.commands.length, commands);
-  assert.equal(JSON.stringify(r.ctx.state().timers), snapshot);
+  assert.equal(steady(), snapshot);
 });
 
 test("cancel with nothing to take back, or after the system menu, does nothing and never throws", () => {
   const r = openTimer(rig());
-  r.app.cancel(); r.app.cancel();
+  r.advance(1000); r.app.cancel(); r.app.cancel();
   r.app.pause(); r.app.cancel(); r.app.resume();
   r.app.dispose(); r.app.cancel();
   assert.deepEqual(r.ctx.calls.leds.at(-1) || Array(9).fill(0), Array(9).fill(0));

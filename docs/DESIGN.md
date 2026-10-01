@@ -24,7 +24,7 @@ All icons, glyphs, game scenery, and orbital visuals are procedural Canvas/SVG a
 
 Three lights are addressed as **I / II / III**, from left to right. They repeat useful information already shown on screen: Morse key state, Echo Vault pulse position, reaction cue, success/failure, or timer completion. The microphone gets a persistent text status rather than silently borrowing one of the three gameplay lights.
 
-The switch handles advance, choose, act, and escape through an explicit per-app policy. Four rapid clicks normally open the game menu without delaying raw input or interrupting ordinary holds. Signal School and Echo Vault reserve a three-second hold because repeated taps are valid answers. Show the active rule. Earlier game inputs may already occur before a click escape completes; this ambiguity is documented rather than hidden. Menus retain short-release next and hold-release select.
+The switch handles advance, choose, act, and escape with one gesture that is the same everywhere: tap, tap, hold. It opens the system menu without delaying raw input or interrupting ordinary holds (a hold only counts after exactly two quick taps). The control deck and the lamps show it being counted. The two taps and the start of the hold reach a game before the menu opens; every app takes back what they changed when the host calls `cancel()`. Menus retain short-release next and hold-release select; in a menu the gesture's hold must run clearly past the selection threshold, so choosing after two quick steps still works.
 
 ## Sound
 

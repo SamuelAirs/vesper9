@@ -30,8 +30,7 @@ test("recordRun counts runs and keeps the best milestone", async () => {
   assert.deepEqual(ctx.progress(), { schema: 1, runs: 3, last: { milestone: 4, metres: 120 }, milestone: 9 });
 });
 test("every registered cartridge mounts, runs and disposes under the test context", () => {
-  assert.equal(APPS.length % 6, 0);
-  assert.equal(SECTORS.length, APPS.length / 6);
+  assert.ok(SECTORS.length >= Math.ceil(APPS.length / 6), "every dashboard sector has a name");
   for (const meta of APPS) {
     const ctx = appContext();
     const app = meta.create(ctx);

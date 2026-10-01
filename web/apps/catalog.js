@@ -281,6 +281,46 @@ export const CARTRIDGES = [
     ]
   },
   {
+    "id": "tideline",
+    "name": "TIDELINE",
+    "subtitle": "Something is on the line.",
+    "description": "Cast, wait for the bite, then keep the line tense without snapping it. Every water holds different catches.",
+    "controls": "HOLD TO REEL · RELEASE TO GIVE LINE",
+    "category": "PLAY / ANGLING",
+    "glyph": 2,
+    "factory": "Tideline",
+    "voice": [
+      "fishing"
+    ],
+    "escape": "adaptive",
+    "capabilities": [
+      "button",
+      "lights",
+      "audio",
+      "progress"
+    ]
+  },
+  {
+    "id": "outpost",
+    "name": "OUTPOST",
+    "subtitle": "Build something that runs without you.",
+    "description": "Tap to gather signal, spend it on machines that gather for you, and grow a station that keeps working while you are away.",
+    "controls": "TAP TO GATHER · MENU TO BUILD",
+    "category": "PLAY / INCREMENTAL",
+    "glyph": 5,
+    "factory": "Outpost",
+    "voice": [
+      "station"
+    ],
+    "escape": "adaptive",
+    "capabilities": [
+      "button",
+      "lights",
+      "audio",
+      "progress"
+    ]
+  },
+  {
     "id": "morse",
     "name": "SIGNAL SCHOOL",
     "subtitle": "Speak in dots and dashes.",
@@ -507,7 +547,7 @@ export const CARTRIDGES = [
     ]
   }
 ];
-export const SECTORS = ["PLAY", "PLAY II", "INSTRUMENTS", "INSTRUMENTS II"];
+export const SECTORS = ["PLAY", "PLAY II", "PLAY III", "INSTRUMENTS", "INSTRUMENTS II"];
 export const DEFAULT_SETTINGS = {
   "sound": true,
   "volume": 0.25,

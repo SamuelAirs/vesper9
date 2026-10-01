@@ -218,13 +218,20 @@
       "voice": [
         "breakout"
       ],
-      "escape": "adaptive",
+      "escape": "hold",
       "capabilities": [
         "button",
         "lights",
         "audio",
         "progress"
-      ]
+      ],
+      "icon": "<path d=\"M5 6h10v6H5zM19 6h10v6H19zM33 6h10v6H33zM12 15h10v6H12zM26 15h10v6H26z\"/><path d=\"M31 42l-6-11\" stroke-dasharray=\"2 3\"/><path d=\"M13 44h19\"/><circle cx=\"24\" cy=\"29\" r=\"2.5\" fill=\"currentColor\"/>",
+      "record": {
+        "score": "Score",
+        "chamber": "Chamber reached",
+        "cells": "Cells broken",
+        "chain": "Best chain (x)"
+      }
     },
     {
       "id": "helix",

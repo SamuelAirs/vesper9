@@ -266,6 +266,28 @@ export class DemoBridge extends EventTarget {
   }
   async get(path) {
     if (path === "history") return this.history;
+    if (path === "system") { // plausible host values for the standalone edition, all marked simulated
+      const t = Date.now() / 1000, wave = (period, phase = 0) => 0.5 + 0.5 * Math.sin((t / period) * 6.2832 + phase);
+      const cores = [0, 1, 2, 3].map((i) => Math.round((18 + 40 * wave(23 + i * 7, i)) * 10) / 10);
+      const total = 8 * 1024 ** 3, disk = 120 * 1000 ** 3;
+      const up = (performance.now() / 1000) | 0;
+      return {
+        schema: 1, at: t, simulated: true,
+        host: {
+          model: "Simulated board", cpuTempC: Math.round((52 + 14 * wave(90)) * 10) / 10,
+          loadAvg: [0.6, 0.5, 0.4], cpuCount: 4, cpuPercent: Math.round(cores.reduce((a, b) => a + b, 0) * 2.5) / 10, cpuPerCore: cores, cpuWindowS: 2,
+          memory: { totalBytes: total, availableBytes: Math.round(total * (0.55 + 0.1 * wave(140))) },
+          disk: { totalBytes: disk, freeBytes: Math.round(disk * 0.62) }, uptimeS: 86400 + up,
+          throttled: { raw: "0x0", underVoltageNow: false, freqCappedNow: false, throttledNow: false, softTempLimitNow: false,
+            underVoltageOccurred: false, freqCappedOccurred: false, throttledOccurred: false, softTempLimitOccurred: false },
+        },
+        service: { version: "simulator", startedAt: t - up, uptimeS: up, rssBytes: null, pid: null, python: null,
+          tasks: { device: true, timers: true }, clients: 1, micMode: this.state.mic?.mode ?? "off" },
+        node: { connected: true, simulated: true, port: "simulated", link: "simulated", firmware: "simulated", statusAgeS: 0.5,
+          capture: false, generation: 1, crcErrors: 0, missingSamples: 0, audioBytes: 0, nodeRxCrc: null, audioDrops: null,
+          sensor: { simulated: true, ok: 1, fail: 0, err: null } },
+      };
+    }
     if (path.startsWith("sessions") || path.startsWith("transcript/")) return [];
     return this.state;
   }

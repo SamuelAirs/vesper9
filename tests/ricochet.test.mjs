@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Ricochet } from "../web/apps/ricochet.js";
+import { Ricochet, RICOCHET_FEATS, CHARGE_FROM, migrateRicochet, ricochetOrder } from "../web/apps/ricochet.js";
 import { appContext, fakeCanvas, run } from "./helpers/app-context.mjs";
 
 const G = Ricochet.GEOM;
@@ -129,6 +129,9 @@ test("at maximum speed the ball never tunnels through a cell, the paddle or a wa
       const b = app.balls[0] || (app.sub === "live" && app.balls[0]);
       if (!b) break;
       b.x = 480 + 200 * Math.cos(k); b.y = 300 + 60 * Math.sin(k);
+      // Bonuses are not under test here: a caught slow-ball bonus (a charge cell can break a bonus
+      // cell next to it) would lower the speed below the maximum this test needs.
+      app.drops.length = 0; app.pw.slow = 0; app.pw.wide = 0;
       const s = app.speedNow();
       assert.equal(s, G.MAX_SPEED);
       b.vx = s * Math.sin(a); b.vy = -s * Math.cos(a);
@@ -580,4 +583,143 @@ test("an idle newcomer lasts well past twenty seconds", () => {
     times.push(n / 60);
   }
   assert.ok(Math.min(...times) > 19, times.join(" "));
+});
+
+// ---------------------------------------------------------------------------------- depth round
+const textOf = (app) => {
+  const painted = [];
+  const g2d = new Proxy({}, { get: (t, k) => (k === "fillText" ? (s) => painted.push({ s: String(s), size: Number(/(\d+)px/.exec(t.font)?.[1]) }) : k === "measureText" ? () => ({ width: 100 }) : k in t ? t[k] : () => {}), set: (t, k, v) => { t[k] = v; return true; } });
+  app.draw(g2d);
+  return painted;
+};
+const cell = (extra = {}) => ({ hp: 1, hard: false, bonus: "", ...extra });
+const dayFor = (kind) => {
+  for (let d = 1; d < 500; d++) {
+    const key = "2027-" + String(1 + (Math.floor(d / 28) % 12)).padStart(2, "0") + "-" + String(1 + (d % 28)).padStart(2, "0");
+    if (ricochetOrder(key).kind === kind) return key;
+  }
+  throw new Error(kind);
+};
+
+test("charge cells: none before chamber 4, then mirrored pairs on plain cells", () => {
+  const { app } = fresh(21);
+  app.down();
+  for (let ch = 1; ch <= 14; ch++) {
+    app.setupChamber(ch);
+    const charges = app.cells.map((c, i) => (c && c.charge ? i : -1)).filter((i) => i >= 0);
+    if (ch < CHARGE_FROM) { assert.equal(charges.length, 0, "chamber " + ch); continue; }
+    assert.ok(charges.length >= 2 && charges.length % 2 === 0, `chamber ${ch}: ${charges.length} charges`);
+    for (const i of charges) {
+      assert.ok(app.cells[Math.floor(i / 12) * 12 + 11 - (i % 12)].charge, "mirrored");
+      assert.ok(!app.cells[i].hard && !app.cells[i].bonus);
+    }
+  }
+});
+
+test("a charge breaks its eight neighbours, sets off another charge, and scores every cell on the chain", () => {
+  const { app } = fresh(22);
+  app.down(); run(app, 1.4);
+  app.cells.fill(0); app.rows = 4;
+  // Row 1: a charge at column 2 with a second charge at column 3; a hard cell at column 1.
+  for (let c = 0; c < 6; c++) for (const r of [0, 1, 2]) app.cells[r * 12 + c] = cell();
+  app.cells[12 + 2] = cell({ charge: true });
+  app.cells[12 + 3] = cell({ charge: true });
+  app.cells[12 + 1] = cell({ hp: 2, hard: true });
+  app.remaining = app.cells.filter(Boolean).length;
+  const before = app.remaining;
+  app.score = 0; app.streak = 0;
+  app.damage(12 + 2);
+  // First charge: 8 neighbours (the hard one only cracks); the second: its new neighbours at column 4.
+  assert.equal(app.R.relay, 1, "the second charge did not go off");
+  assert.equal(app.cells[12 + 1].hp, 1, "a hard cell next to the blast takes one hit");
+  for (const i of [1, 2, 3, 4, 14, 15, 16, 25, 26, 27, 28]) assert.ok(!app.cells[i], "cell " + i + " survived");
+  for (const i of [0, 5, 12, 17, 24, 29]) assert.ok(app.cells[i], "cell " + i + " was out of reach but broke");
+  assert.equal(before - app.remaining, 11);
+  assert.equal(app.R.blast, 10, "cells broken by the blast besides the first");
+  assert.ok(app.score > 11 * 10 * 4, "the chain multiplier counts blast cells too");
+  assert.ok(app.bestChain >= 8);
+  assert.ok(app.sv.ft.includes("blast") && app.sv.ft.includes("relay") && app.sv.ft.includes("chain8"));
+  // The lamps burst red over the blast.
+  app.lampOutput();
+  assert.ok(app.lampNow[0] > 100);
+});
+
+test("feats for clearing chambers: practice, clean sweep, few returns, twin signals and last light", () => {
+  const { app } = fresh(23);
+  app.down(); run(app, 1.4);
+  const clearNow = () => { app.cells.fill(0); app.remaining = 1; app.cells[0] = cell(); app.damage(0); run(app, 0.1); assert.equal(app.sub, "clear"); };
+  clearNow();
+  assert.equal(app.R.practice, 1);
+  assert.equal(app.R.few, 1, "cleared with no paddle touches");
+  run(app, 3); run(app, 1.4);
+  assert.equal(app.chamber, 2);
+  app.R.touchesHere = 7; app.applyBonus("multi");
+  assert.equal(app.balls.length, 2);
+  app.lives = 1;
+  clearNow();
+  for (const id of ["practice", "few", "twin", "sweep", "lastball"]) assert.ok(app.sv.ft.includes(id), id);
+  assert.match(app.news.text, /FEAT/);
+  const words = textOf(app).map((x) => x.s).join(" | ");
+  assert.match(words, /FEAT: /);
+});
+
+test("the daily order is met mid-run and the run is saved once as schema 2, keeping the first release's fields", () => {
+  const key = dayFor("chamber"), o = ricochetOrder(key);
+  const ctx = appContext({ seed: 24, progress: { schema: 1, runs: 12, last: { score: 2000, chamber: 5, cells: 100, chain: 6, milestone: 5 }, milestone: 7 } });
+  const app = new Ricochet(ctx); app.dayKey = () => key;
+  assert.equal(app.sv.runs, 12); assert.equal(app.sv.st.far, 7);
+  app.down(); run(app, 1.4);
+  while (app.chamber < o.n) { app.cells.fill(0); app.remaining = 1; app.cells[0] = cell(); app.damage(0); run(app, 0.1); run(app, 3); }
+  assert.equal(app.orderMet, true);
+  assert.equal(app.sv.dl.d, key);
+  assert.equal(ctx.calls.saved.length, 0);
+  app.lives = 0; app.end();
+  run(app, 3);
+  assert.equal(ctx.calls.saved.length, 1);
+  const save = ctx.calls.saved[0];
+  assert.equal(save.schema, 2);
+  assert.equal(save.runs, 13);
+  assert.equal(save.milestone, 7);
+  assert.deepEqual(Object.keys(save.last).sort(), ["cells", "chain", "chamber", "milestone", "score"]);
+  assert.equal(save.dl.done, 1); assert.equal(save.st.daily, 1);
+  assert.ok(save.ft.includes("daily"));
+  assert.ok(save.st.cells >= o.n - 1);
+  assert.ok(JSON.stringify(save).length < 2048);
+  // The next construction reads it back.
+  const again = new Ricochet(appContext({ progress: save }));
+  assert.deepEqual(again.sv, migrateRicochet(save));
+  assert.ok(textOf(again).some((x) => /RANK /.test(x.s)));
+});
+
+test("migration copes with nothing, junk and repeated or unknown feats", () => {
+  for (const junk of [null, undefined, 7, "x", [], { runs: -3, ft: ["ch5", "ch5", "bogus"], st: { cells: "many" }, dl: { d: 9, streak: -2 } }]) {
+    const m = migrateRicochet(junk);
+    assert.equal(m.schema, 2);
+    assert.ok(m.runs >= 0 && m.st.cells >= 0 && m.dl.streak >= 0);
+    assert.ok(m.ft.every((id) => RICOCHET_FEATS.some((f) => f.id === id)));
+    assert.equal(new Set(m.ft).size, m.ft.length);
+  }
+});
+
+test("leaving mid-run keeps a feat earned on the way; the menu gesture takes it back", () => {
+  const { ctx, app } = fresh(25);
+  app.down(); run(app, 1.4);
+  app.chamber = 5; app.checkGoals();
+  assert.ok(app.sv.ft.includes("ch5"));
+  app.dispose();
+  assert.equal(ctx.calls.saved.length, 1);
+  assert.ok(ctx.calls.saved[0].ft.includes("ch5"));
+});
+
+test("title and result: rank, today's order, a feat at a time; all text at least 16 px", () => {
+  const { app } = fresh(26);
+  app.update(1 / 60);
+  let painted = textOf(app);
+  assert.ok(painted.some((x) => /RANK APPRENTICE/.test(x.s)));
+  assert.ok(painted.some((x) => /TODAY: /.test(x.s)));
+  assert.ok(painted.every((x) => x.size >= 16));
+  app.down(); run(app, 1.4); app.lives = 0; app.end();
+  painted = textOf(app);
+  assert.ok(painted.some((x) => /TODAY: |DAILY ORDER MET/.test(x.s)));
+  assert.ok(painted.every((x) => x.size >= 16));
 });

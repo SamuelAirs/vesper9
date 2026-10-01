@@ -12,11 +12,15 @@
 //
 // The world advances only in update(dt). Collision runs in sub-steps of at most
 // STEP pixels, smaller than the ball radius, so nothing tunnels at MAX_SPEED.
+//
+// Between runs: charge cells from chamber 4 (breaking one breaks its eight neighbours, and a
+// charge can set off another), seventeen feats (two hidden), a daily order with a streak, and a
+// rank from feats, in a versioned save (schema 2) that keeps the first release's fields.
 import { clamp } from "../engine/math.js";
 import { C, text, line, circle, diamond, space, banner } from "../engine/draw.js";
 import { LAMP, lamps, spot, ramp, dim, pulse, chase, lightsOff } from "../engine/lightshow.js";
-import { recordRun } from "../engine/kit.js";
 import { AppGuard } from "../engine/input.js";
+import { num, hashText, dateKey, cleanDaily, meetDaily, dailyDone, liveStreak, cleanFeats, newlyMet, closestFeat, rankOf, nextRank, drawFeatTicker, panel } from "./goals.js";
 
 // Chamber geometry in the 960 x 540 logical space.
 const L = 120, R = 840, TOP = 40; // side walls and ceiling
@@ -42,8 +46,57 @@ const padWidth = (ch) => PAD_WIDTHS[Math.min(PAD_WIDTHS.length - 1, ch - 1)];
 const rowsFor = (ch) => (ch < 3 ? 3 : ch < 5 ? 4 : ch < 7 ? 5 : ch < 10 ? 6 : 7);
 const NEWS = {
   1: "PRACTICE: TWO FREE BALLS", 2: "NEW: BONUS CELLS", 3: "NEW: HARDENED CELLS",
-  4: "FASTER SIGNAL / NARROWER PADDLE",
+  4: "NEW: CHARGE CELLS BREAK THEIR NEIGHBOURS",
 };
+export const CHARGE_FROM = 4;
+
+// ---- feats, ranks and the daily order --------------------------------------------------------
+const life = (a, key) => (a.sv.st[key] || 0) + (a.R[key] || 0);
+export const RICOCHET_FEATS = [
+  { id: "practice", name: "QUICK STUDY", text: "Clear chamber 1 without losing a ball.", n: 1, prog: (a) => a.R.practice },
+  { id: "ch5", name: "FIFTH CHAMBER", text: "Reach chamber 5.", n: 5, prog: (a) => a.chamber },
+  { id: "ch8", name: "DEEP LATTICE", text: "Reach chamber 8.", n: 8, prog: (a) => a.chamber },
+  { id: "ch10", name: "THE CORE", text: "Reach chamber 10.", n: 10, prog: (a) => a.chamber },
+  { id: "chain8", name: "FULL CHAIN", text: "Reach a chain of x8.", n: 8, prog: (a) => a.bestChain },
+  { id: "bonus3", name: "COLLECTOR", text: "Catch 3 bonuses in one run.", n: 3, prog: (a) => a.R.bonuses },
+  { id: "twin", name: "TWIN SIGNALS", text: "Clear a chamber with two balls in play.", n: 1, prog: (a) => a.R.twin },
+  { id: "sweep", name: "CLEAN SWEEP", text: "Clear a chamber after the first without losing a ball.", n: 1, prog: (a) => a.R.sweep },
+  { id: "blast", name: "DEMOLITION", text: "Break 6 cells with one charge.", n: 6, prog: (a) => a.R.blast },
+  { id: "relay", name: "CHAIN REACTION", text: "Set off a charge with another charge.", n: 1, prog: (a) => a.R.relay },
+  { id: "s5k", name: "FIVE THOUSAND", text: "Score 5000 in one run.", n: 5000, prog: (a) => a.score },
+  { id: "s10k", name: "TEN THOUSAND", text: "Score 10000 in one run.", n: 10000, prog: (a) => a.score },
+  { id: "cells", name: "WRECKER", text: "Break 1000 cells in all.", n: 1000, prog: (a) => life(a, "cells") },
+  { id: "daily", name: "ON ORDERS", text: "Meet a daily order.", n: 1, prog: (a) => life(a, "daily") },
+  { id: "streak", name: "ROUTINE", text: "Meet the daily order 3 days running.", n: 3, prog: (a) => a.sv.dl.streak },
+  { id: "few", name: "FEW RETURNS", text: "Clear a chamber in 6 paddle touches or fewer.", hint: "Some chambers fall to a handful of returns.", n: 1, hidden: true, prog: (a) => a.R.few },
+  { id: "lastball", name: "LAST LIGHT", text: "Clear a chamber on the last ball.", hint: "The last ball can still finish the job.", n: 1, hidden: true, prog: (a) => a.R.lastBall },
+];
+const FEAT_IDS = RICOCHET_FEATS.map((f) => f.id);
+export const RICOCHET_RANKS = [[0, "APPRENTICE"], [2, "BREAKER"], [5, "MASON"], [8, "SAPPER"], [11, "DEMOLISHER"], [14, "ARCHITECT"], [17, "LATTICE LORD"]];
+// Today's order, the same for everyone on the same date.
+export function ricochetOrder(key) {
+  const h = hashText("ricochet" + key), kind = h % 5, v = (h >>> 8) % 3;
+  if (kind === 0) return { kind: "chamber", n: 3 + v, text: "Reach chamber " + (3 + v) + "." };
+  if (kind === 1) return { kind: "chain", n: 4 + v, text: "Reach a chain of x" + (4 + v) + "." };
+  if (kind === 2) return { kind: "bonuses", n: 2 + v, text: "Catch " + (2 + v) + " bonuses in one run." };
+  if (kind === 3) return { kind: "cells", n: 60 + 30 * v, text: "Break " + (60 + 30 * v) + " cells in one run." };
+  return { kind: "sweep", n: 1, text: "Clear a chamber after the first without losing a ball." };
+}
+// Bring any stored shape (nothing, schema 1 from recordRun, schema 2) to schema 2.
+export function migrateRicochet(raw) {
+  const r = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  const st = r.st && typeof r.st === "object" ? r.st : {};
+  const n = (v) => Math.max(0, Math.floor(num(v)));
+  return {
+    schema: 2,
+    runs: n(r.runs),
+    last: r.last && typeof r.last === "object" ? r.last : {},
+    milestone: n(r.milestone),
+    ft: cleanFeats(r.ft, FEAT_IDS),
+    st: { cells: n(st.cells), chambers: n(st.chambers), daily: n(st.daily), far: Math.max(n(st.far), n(r.milestone)) },
+    dl: cleanDaily(r.dl),
+  };
+}
 
 // Symmetric lattice patterns over a mirrored column index m (0 = outer edge .. 5).
 const PATTERNS = [
@@ -74,6 +127,7 @@ export class Ricochet {
     this.scratch = emptyBall();
     this.hitIdx = [];
     this.parts = Array.from({ length: 40 }, () => ({ x: 0, y: 0, vx: 0, vy: 0, life: 0 }));
+    this.sv = migrateRicochet(ctx.progress?.());
     this.reset();
     this.setupChamber(1);
     this.setHint("Tap reverses the paddle. Meet the amber bracket.");
@@ -113,8 +167,17 @@ export class Ricochet {
     this.remaining = 0;
     this.announce = null;
     this.lastBonus = 0;
+    this.blastAt = -9;
+    this.blastCol = 1;
+    this.blasts = [];
     for (const p of this.parts) p.life = 0;
+    // This run's tallies, for feats and the daily order.
+    this.R = { practice: 0, bonuses: 0, twin: 0, sweep: 0, blast: 0, relay: 0, few: 0, lastBall: 0, cells: 0, daily: 0, lostHere: 0, touchesHere: 0 };
+    this.fresh = [];
+    this.orderMet = false;
+    this.news = null;
   }
+  dayKey() { return dateKey(); }
 
   get multiplier() {
     return Math.min(8, 1 + this.streak);
@@ -171,6 +234,17 @@ export class Ricochet {
         for (const c of [m, 11 - m]) this.cells[r * COLS + c].bonus = type;
       }
     }
+    // Charge cells, in mirrored pairs, on plain cells with something next to them to break.
+    if (ch >= CHARGE_FROM) {
+      const plain = live.filter(([r, m]) => { const cell = this.cells[r * COLS + m]; return !cell.hard && !cell.bonus && !cell.charge && this.neighbours(r * COLS + m).length >= 2; });
+      for (let i = 0; i < (ch < 7 ? 1 : 2) && plain.length; i++) {
+        const [r, m] = plain.splice(rng.int(0, plain.length - 1), 1)[0];
+        for (const c of [m, 11 - m]) this.cells[r * COLS + c].charge = true;
+      }
+    }
+    this.R.touchesHere = 0;
+    this.R.lostHere = 0;
+    this.checkGoals(); // reaching a chamber can meet the order or a feat
     this.remaining = 0;
     for (const c of this.cells) if (c) this.remaining++;
     this.balls = [];
@@ -251,6 +325,8 @@ export class Ricochet {
   pause() { this.guard.settle(); this.cancel(); }
   dispose() {
     this.guard.settle();
+    // Leaving for good mid-run: a daily order met or a feat earned on the way is kept.
+    if (this.phase === "play" && (this.orderMet || this.fresh.length)) this.persist();
     this.pressing = false;
     this.ctx.synth?.stopTone?.();
     this.ctx.leds(lightsOff());
@@ -342,17 +418,49 @@ export class Ricochet {
     if (!sim) for (const i of this.hitIdx) this.damage(i);
   }
 
+  // Live cells around cell i (eight neighbours, inside the lattice).
+  neighbours(i) {
+    const out = [], c0 = i % COLS, r0 = Math.floor(i / COLS);
+    for (let r = r0 - 1; r <= r0 + 1; r++) for (let c = c0 - 1; c <= c0 + 1; c++) {
+      if (r < 0 || r >= this.rows || c < 0 || c >= COLS || (r === r0 && c === c0)) continue;
+      if (this.cells[r * COLS + c]) out.push(r * COLS + c);
+    }
+    return out;
+  }
+  // Damage one cell. A charge that breaks hits each of its neighbours once; a neighbour that is a
+  // charge itself goes off in turn (a queue, never recursion). The cells one blast breaks count for
+  // DEMOLITION, a charge set off by another for CHAIN REACTION.
   damage(i) {
     const cell = this.cells[i];
-    if (!cell) return;
+    if (!cell || !this.hit(i) || !cell.charge) return;
+    const queue = this.neighbours(i);
+    let broken = 0;
+    while (queue.length) {
+      const j = queue.shift(), next = this.cells[j];
+      if (!next || !this.hit(j)) continue;
+      broken++;
+      if (next.charge) { this.R.relay = 1; queue.push(...this.neighbours(j)); }
+    }
+    this.R.blast = Math.max(this.R.blast, broken);
+    this.blastAt = this.t;
+    this.blastCol = Math.min(2, Math.floor((i % COLS) / 4));
+    this.ctx.tone(110, 0.18, "sawtooth");
+    this.ctx.tone(880, 0.12, "triangle");
+    this.checkGoals();
+  }
+  // One hit on cell i; returns whether it broke.
+  hit(i) {
+    const cell = this.cells[i];
+    if (!cell) return false;
     cell.hp--;
     if (cell.hp > 0) {
       this.ctx.tone(190, 0.05, "square");
-      return;
+      return false;
     }
     this.cells[i] = 0;
     this.remaining--;
     this.cellsBroken++;
+    this.R.cells++;
     this.quiet = 0;
     const col = i % COLS, row = Math.floor(i / COLS);
     const mult = this.multiplier;
@@ -365,12 +473,16 @@ export class Ricochet {
     if (cell.bonus && this.drops.length < 8) {
       this.drops.push({ x: L + (col + 0.5) * CW, y: GY + (row + 0.5) * RH, type: cell.bonus });
     }
+    if (cell.charge) this.burst(L + (col + 0.5) * CW, GY + (row + 0.5) * RH, 10);
     for (const b of this.balls) b.dirty = true;
+    this.checkGoals();
+    return true;
   }
 
   paddleHit(b) {
     this.streak = 0;
     this.touches++;
+    this.R.touchesHere++;
     this.gain = Math.min(60, this.gain + 2);
     const half = this.padW / 2 + BALL_R * 0.7;
     const u = clamp((b.x - this.px) / half, -1, 1);
@@ -544,6 +656,7 @@ export class Ricochet {
   applyBonus(type) {
     this.catchAt = this.t;
     this.score += 50;
+    this.R.bonuses++;
     if (type === "wide") this.pw.wide = WIDE_TIME;
     else if (type === "slow") { this.pw.slow = SLOW_TIME; this.rescale(); }
     else if (type === "multi" && this.balls.length < 3 && this.balls.length) {
@@ -558,6 +671,7 @@ export class Ricochet {
     }
     this.ctx.tone(type === "multi" ? 660 : type === "slow" ? 330 : 495, 0.12, "sine");
     this.ctx.tone(type === "multi" ? 880 : type === "slow" ? 440 : 660, 0.12, "sine");
+    this.checkGoals();
   }
 
   loseBall() {
@@ -565,6 +679,7 @@ export class Ricochet {
     if (this.lostFree) this.free--;
     else this.lives--;
     this.lostAt = this.clock;
+    this.R.lostHere++;
     this.sub = "dying";
     this.timer = 1.2;
     this.streak = 0;
@@ -578,6 +693,11 @@ export class Ricochet {
   }
 
   clearChamber() {
+    const R = this.R;
+    if (!R.lostHere) { if (this.chamber === 1) R.practice = 1; else R.sweep = 1; }
+    if (this.balls.length >= 2) R.twin = 1;
+    if (R.touchesHere <= 6) R.few = 1;
+    if (this.lives === 1 && this.chamber > 1) R.lastBall = 1;
     this.sub = "clear";
     this.timer = 2.6;
     this.clearedAt = this.t;
@@ -589,19 +709,58 @@ export class Ricochet {
     this.ctx.tone(494, 0.12, "triangle");
     this.ctx.tone(659, 0.3, "triangle");
     this.setHint("Chamber cleared.");
+    this.checkGoals();
+  }
+  // The daily order and feats, checked whenever a tally moves. News shows under the clear banner or
+  // in the announcement slot.
+  orderDone() {
+    const o = ricochetOrder(this.dayKey());
+    if (o.kind === "chamber") return this.chamber >= o.n;
+    if (o.kind === "chain") return this.bestChain >= o.n;
+    if (o.kind === "bonuses") return this.R.bonuses >= o.n;
+    if (o.kind === "cells") return this.R.cells >= o.n;
+    return this.R.sweep >= 1;
+  }
+  checkGoals() {
+    if (this.phase !== "play") return;
+    if (!this.orderMet && this.orderDone()) {
+      this.orderMet = true;
+      if (meetDaily(this.sv.dl, this.dayKey())) {
+        this.R.daily = 1;
+        this.tell("DAILY ORDER MET" + (this.sv.dl.streak > 1 ? " / STREAK " + this.sv.dl.streak : ""));
+        this.ctx.tone(784, 0.1, "sine"); this.ctx.tone(1047, 0.18, "sine");
+      }
+    }
+    for (const id of newlyMet(RICOCHET_FEATS, this.sv.ft, this)) {
+      this.sv.ft.push(id); this.fresh.push(id);
+      this.tell("FEAT: " + RICOCHET_FEATS.find((f) => f.id === id).name);
+    }
+  }
+  tell(message) {
+    this.news = { text: message, at: this.clock };
   }
 
   end() {
+    this.checkGoals();
     this.phase = "over";
     this.endedAt = this.t;
     this.pressing = false;
     this.ctx.score(this.score);
-    recordRun(this.ctx, { score: this.score, chamber: this.chamber, cells: this.cellsBroken, chain: this.bestChain,
-      milestone: this.chamber });
+    const sv = this.sv, R = this.R;
+    sv.runs++;
+    sv.st.cells += R.cells; sv.st.chambers += this.chamber - 1; sv.st.daily += R.daily;
+    sv.st.far = Math.max(sv.st.far, this.chamber);
+    R.cells = 0; R.daily = 0; // now in the lifetime tallies
+    sv.last = { score: this.score, chamber: this.chamber, cells: this.cellsBroken, chain: this.bestChain, milestone: this.chamber };
+    sv.milestone = Math.max(sv.milestone, this.chamber);
+    this.persist();
     this.ctx.tone(330, 0.2, "triangle");
     this.ctx.tone(247, 0.3, "triangle");
     this.ctx.tone(165, 0.5, "triangle");
     this.setHint("Signal lost. Press to play again.");
+  }
+  persist() {
+    this.ctx.saveProgress?.(JSON.parse(JSON.stringify(this.sv)))?.catch?.(this.ctx.error);
   }
 
   updateHud() {
@@ -659,6 +818,9 @@ export class Ricochet {
       if (age < 0.28) over(i, dim(LAMP.white, (Math.floor(age * 40) % 2 ? 0.2 : 0.55) * (1 - age / 0.28)));
     }
     if (t - this.catchAt < 0.2) for (let i = 0; i < 3; i++) over(i, dim(LAMP.cyan, 0.35));
+    // A charge going off: a red burst strongest over its third of the lattice, fading in 0.4 s.
+    const blast = t - this.blastAt;
+    if (blast < 0.4) for (let i = 0; i < 3; i++) over(i, dim(blast < 0.08 ? LAMP.white : LAMP.red, (i === this.blastCol ? 0.7 : 0.35) * (1 - blast / 0.4)));
     return out;
   }
 
@@ -675,6 +837,7 @@ export class Ricochet {
     if (this.phase === "title") {
       banner(g, "RICOCHET", "TAP TO REVERSE THE PADDLE / BREAK THE LATTICE");
       text(g, "THE LAMPS FOLLOW THE BALL: GREEN HIGH, RED LOW", 480, 392, 18, C.muted, "center");
+      this.drawGoals(g, 430);
     } else if (this.phase === "play") {
       this.drawPlay(g);
     } else {
@@ -705,6 +868,13 @@ export class Ricochet {
           if (cell.hard) line(g, x + 4, y + h - 4, x + w - 4, y + 4, C.amber, 2);
         }
         if (cell.bonus) diamond(g, x + w / 2, y + h / 2, 6, C.cyan, false);
+        if (cell.charge) {
+          g.fillStyle = "#3a1f18"; g.fillRect(x + 2, y + 2, w - 4, h - 4);
+          g.strokeStyle = C.red; g.lineWidth = 2; g.strokeRect(x, y, w, h);
+          line(g, x + w / 2 - 8, y + h / 2, x + w / 2 + 8, y + h / 2, C.red, 2);
+          line(g, x + w / 2, y + 4, x + w / 2, y + h - 4, C.red, 2);
+          diamond(g, x + w / 2, y + h / 2, 5, C.red, true);
+        }
       }
     }
     g.globalAlpha = 1;
@@ -777,6 +947,12 @@ export class Ricochet {
       g.globalAlpha = 1;
     }
     if (this.frozen) text(g, "HELD: FROZEN UNTIL RELEASE", 480, 104, 22, C.amber, "center");
+    const n = this.news;
+    if (n && this.clock - n.at < 3) {
+      g.globalAlpha = clamp(3 - (this.clock - n.at), 0, 1);
+      text(g, n.text, 480, 72, 22, n.text.startsWith("FEAT") ? C.amber : C.cyan, "center");
+      g.globalAlpha = 1;
+    }
     if (this.sub === "serve" && this.clock > 3.2) text(g, "READY", 480, 400, 22, C.muted, "center");
     if (this.sub === "dying") text(g, this.lives > 0 ? "BALL LOST" : "LAST BALL LOST", 480, 380, 30, C.red, "center");
     if (this.sub === "clear") {
@@ -798,6 +974,23 @@ export class Ricochet {
     });
     text(g, "RECORD " + this.ctx.best(), 480, 378, 18, C.amber, "center");
     if (this.t - this.endedAt > 0.8) text(g, "PRESS TO PLAY AGAIN", 480, 406, 18, C.amber, "center");
+    const lines = [];
+    if (this.orderMet) lines.push(["DAILY ORDER MET" + (this.sv.dl.streak > 1 ? " / STREAK " + this.sv.dl.streak : ""), C.cyan]);
+    else lines.push(["TODAY: " + ricochetOrder(this.dayKey()).text, C.muted]);
+    for (const id of this.fresh.slice(0, 2)) lines.push(["NEW FEAT: " + RICOCHET_FEATS.find((f) => f.id === id).name, C.amber]);
+    if (this.fresh.length > 2) lines.push(["AND " + (this.fresh.length - 2) + " MORE FEATS", C.amber]);
+    const close = closestFeat(RICOCHET_FEATS, this.sv.ft, this);
+    if (close && lines.length < 3) lines.push([close, C.muted]);
+    panel(g, 430, 442 + lines.length * 28);
+    lines.forEach(([s, col], i) => text(g, s, 480, 450 + i * 28, 18, col, "center"));
+  }
+  // Rank, today's order and one feat at a time (title screen).
+  drawGoals(g, y) {
+    const sv = this.sv, n = sv.ft.length, key = this.dayKey(), next = nextRank(RICOCHET_RANKS, n), streak = liveStreak(sv.dl, key);
+    panel(g, y - 20, y + 112);
+    text(g, "RANK " + rankOf(RICOCHET_RANKS, n) + "   FEATS " + n + " / " + RICOCHET_FEATS.length + (next ? "   NEXT RANK AT " + next[0] : ""), 480, y, 18, C.ink, "center");
+    text(g, (dailyDone(sv.dl, key) ? "TODAY'S ORDER MET" : "TODAY: " + ricochetOrder(key).text) + (streak > 1 ? "   STREAK " + streak : ""), 480, y + 28, 18, dailyDone(sv.dl, key) ? C.cyan : C.amber, "center");
+    drawFeatTicker(g, RICOCHET_FEATS, sv.ft, this.t, y + 60);
   }
 }
 

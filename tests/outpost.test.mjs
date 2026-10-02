@@ -625,7 +625,7 @@ test("a save written by the current (schema 2) build loads, keeps everything, an
   const s = app.s;
   assert.deepEqual(s.own.slice(0, 10), old.own); assert.deepEqual(s.own.slice(10), [0, 0]);
   assert.deepEqual([...s.up].map((x, i) => (x ? i : -1)).filter((i) => i >= 0), old.up);
-  assert.equal(s.taps, old.taps); assert.deepEqual(s.tree.slice(0, 10), old.tree); assert.deepEqual(s.tree.slice(10), [0, 0, 0]);
+  assert.equal(s.taps, old.taps); assert.deepEqual(s.tree.slice(0, 10), old.tree); assert.ok(s.tree.slice(10).every((l) => l === 0), "nodes added since start at zero");
   assert.equal(s.relics, old.relics); assert.equal(s.runs, old.runs); assert.equal(s.L, old.L); assert.equal(s.b, old.b);
   assert.equal(s.maxTier, old.maxTier); assert.equal(s.play >= old.play, true); assert.deepEqual(s.last, old.last);
   assert.equal(s.ex.length, 1); assert.equal(s.ex[0].k, 1); assert.equal(s.ex[0].end, old.ex[0][1]);
@@ -765,7 +765,7 @@ test("a schema 3 save (from the previous build) loads with everything kept and t
   const s = app.s;
   assert.deepEqual(s.own, old.own);
   assert.deepEqual([...s.up].map((x, i) => (x ? i : -1)).filter((i) => i >= 0), old.up);
-  assert.deepEqual(s.tree, old.tree);
+  assert.deepEqual(s.tree.slice(0, old.tree.length), old.tree); assert.ok(s.tree.slice(old.tree.length).every((l) => l === 0), "nodes added since start at zero");
   for (const k of ["taps", "b", "L", "runs", "maxTier", "relics", "sg", "sp", "gs", "sm", "ev"]) assert.equal(s[k], old[k], k);
   assert.deepEqual(s.sc.slice(0, old.sc.length), old.sc); assert.deepEqual(s.gl.slice(0, old.gl.length), old.gl); assert.deepEqual(s.rd, old.rd);
   assert.ok(s.sc.length >= old.sc.length && s.sc.slice(old.sc.length).every((c) => c === 0), "tunes added since start unplayed");
@@ -856,6 +856,79 @@ test("easy pace: tapping faster than an easy beat earns no more, a pause restore
   app.c.rng.next = () => 0.6; // the lode
   app.gather();
   assert.ok(app.s.sig - sig >= lode * 0.99, "the lode is not cut by the tapping pace");
+});
+
+// ======================= 0.3: hum =======================
+test("hum: every note of the octave has one machine, and a tune hums the machines on its commonest notes", () => {
+  assert.deepEqual(E.PROD.map((p) => p.pc).sort((a, b) => a - b), [...Array(12).keys()], "each pitch class once");
+  for (const p of E.PROD) assert.ok(p.short && p.short.length <= 10, p.n);
+  for (let pc = 0; pc < 12; pc++) assert.equal(E.PROD[E.PC_PROD[pc]].pc, pc);
+  // Twinkle: G x10, then F and E x8 (F is heard first)
+  assert.deepEqual(E.humNotes(M.MEL[0]), [7, 5, 4]);
+  assert.deepEqual(E.humMachines(M.MEL[0]).map((i) => E.PROD[i].short), ["DRILL", "BOREHOLE", "MAST"]);
+  // the early tunes (C major) hum the early machines; every machine is hummed by some tune or seed
+  for (const k of [1, 3, 6]) assert.ok(E.humMachines(M.MEL[k]).includes(0), M.SONGS[k].name + " hums the dish");
+  const reached = new Set();
+  M.MEL.forEach((m) => E.humMachines(m).forEach((i) => reached.add(i)));
+  for (let seed = 1; seed < 400 && reached.size < 12; seed++) E.humMachines(M.genTune(seed * 7919)).forEach((i) => reached.add(i));
+  assert.equal(reached.size, 12, "every machine can hum");
+});
+
+test("hum: a finished tune makes its machines work harder for a while, longer in full groove, and only while playing", () => {
+  const { app } = begin();
+  const s = app.s;
+  s.own[1] = 20; s.own[2] = 20; s.own[4] = 5; s.own[0] = 30; s.maxTier = 4; app.dirty = true; app.recalc();
+  const quiet = app.rate, out0 = Array.from(app.out);
+  assert.equal(app.baseRate, quiet);
+  // play Twinkle through: drill, borehole and mast hum
+  s.sg = 0; app.loadMelody(); s.sp = app.mel.n.length - 1; app.lastNoteAt = app.clk;
+  app.gather(); advance(app, 0.1);
+  for (const i of [2, 4, 1]) assert.ok(Math.abs(app.hum[i] - E.HUM_SEC) < 0.2, "machine " + i + " hums " + app.hum[i]);
+  assert.equal(app.hum[0], 0, "the dish (C) is not on Twinkle's commonest notes");
+  assert.ok(Math.abs(app.out[2] / out0[2] - E.HUM_MULT) < 1e-9 && Math.abs(app.out[0] / out0[0] - 1) < 1e-9);
+  assert.ok(app.rate > quiet && Math.abs(app.baseRate - quiet) < 1e-9, "the rate rises; the normal rate does not");
+  assert.match(app.noteQ.map((n) => n.text).join(" ") + (app.note?.text || ""), /HUM x1\.5 \+2 MIN: DRILL, BOREHOLE, MAST/);
+  // the ring says so: the machine's tuning and its hum, and the songbook's tunes
+  const drill = app.itemEntry({ type: "p", i: 2, key: "p2", cost: E.costOf(s, 2) }, false);
+  assert.ok(drill.lines.some((l) => /TUNED TO G, HUMMING (2:00|1:5\d)/.test(l)), JSON.stringify(drill.lines));
+  assert.ok(app.itemEntry({ type: "p", i: 0, key: "p0", cost: 1 }, true).lines.includes("TUNED TO C"));
+  app.openRing("songs");
+  assert.ok(app.entries.find((e) => e.key === "s0").lines.includes("HUMS DRILL, BOREHOLE, MAST"));
+  app.closeRing();
+  // a second tune adds time, up to the cap
+  for (let k = 0; k < 6; k++) app.startHum(M.MEL[0]);
+  assert.equal(app.hum[2], E.HUM_MAX);
+  // away, the station makes its normal output: hum is not credited
+  app.save(true);
+  const saved = JSON.parse(JSON.stringify(app.c.calls.saved.at(-1)));
+  wall += 3600e3;
+  const back = boot({ progress: saved }).app;
+  assert.ok(back.hum.every((h) => h === 0), "hum is not saved");
+  assert.ok(Math.abs(back.away.gain - back.baseRate * 3600) / (back.baseRate * 3600) < 1e-6, "away credit at the normal rate");
+  // it runs down, and the rate returns
+  advance(app, E.HUM_MAX + 1);
+  assert.ok(app.hum.every((h) => h === 0));
+  assert.ok(Math.abs(app.rate - app.baseRate) < 1e-9);
+  // in full groove a tune hums twice as long; HARMONICS makes the hum stronger
+  app.groove = E.GROOVE_MAX;
+  app.startHum(M.MEL[0]);
+  assert.ok(Math.abs(app.hum[2] - 2 * E.HUM_SEC) < 1e-9);
+  s.tree[E.HARMONICS] = 2; app.dirty = true; app.recalc();
+  assert.ok(Math.abs(app.humK[2] - (E.HUM_MULT + 0.5)) < 1e-9);
+  // relocating stops the hum (the machines are gone)
+  s.rt = 1e12; s.L = 0; app.relocate();
+  assert.ok(app.hum.every((h) => h === 0));
+});
+
+test("hum: buy-all judges machines on their normal output, not on a passing hum", () => {
+  const { app } = begin();
+  const s = app.s;
+  s.own[0] = 10; s.own[1] = 10; s.maxTier = 1; s.sig = 0; app.dirty = true; app.recalc();
+  const it = app.items.find((x) => x.key === "p1");
+  const g0 = app.gainOf(it);
+  app.hum[1] = 100; app.dirty = true; app.recalc();
+  assert.ok(app.rate > app.baseRate);
+  assert.ok(Math.abs(app.gainOf(it) - g0) < 1e-12, "the same gain per cost while humming");
 });
 
 test("constellations: shown from 1000 bearings, each multiplies all output, costs grow, the sky draws them", () => {

@@ -37,6 +37,13 @@ export const LUMP_SEC = 0.08; // a finished tune pays this many seconds of produ
 export const TAP_EASY = 2.5;
 export const TAP_EASY_FRENZY = 8;
 export const PACE_BURST = 3;
+// Hum: finishing a tune makes the machines tuned to its HUM_NOTES commonest pitch classes hum:
+// their output x HUM_MULT for HUM_SEC (twice as long when the tune ends in full groove), stacking
+// up to HUM_MAX seconds. It lasts while the station is open (not saved, not credited away).
+export const HUM_MULT = 1.5;
+export const HUM_SEC = 120;
+export const HUM_MAX = 480;
+export const HUM_NOTES = 3;
 // Groove: a tap within GROOVE_TOL of the recent beat adds a step; GROOVE_MAX steps add GROOVE_BONUS
 // (half again) to every tap and phrase.
 export const GROOVE_BONUS = 0.5;
@@ -53,22 +60,28 @@ export const CHART_GROWTH = 1.45;
 export const CHART_MULT = 1.3;
 export const CHART_MAX = 200;
 
+// Machines: name, short name, the pitch class the machine is tuned to (0 = C .. 11 = B: each one
+// once, so every note of the octave belongs to one machine; see HUM), base cost, base output.
+// The tunings follow the songbook: the early tunes are in C major, so the first machines sit on
+// C, E, G, D and F; later machines take the notes of the later tunes; the last one waits on G#.
 export const PROD = [
-  { n: "RECEIVER DISH", c: 10, r: 0.2, fx: "listens to the sky" },
-  { n: "RELAY MAST", c: 100, r: 1.2, fx: "boosts weak carriers" },
-  { n: "CORE DRILL", c: 1100, r: 8, fx: "taps the buried hum" },
-  { n: "ARRAY FIELD", c: 12000, r: 47, fx: "phased dishes in rows" },
-  { n: "BOREHOLE", c: 130000, r: 260, fx: "listens through rock" },
-  { n: "OBSERVATORY", c: 1.4e6, r: 1400, fx: "long watches of the sky" },
-  { n: "ARCHIVE VAULT", c: 2e7, r: 7800, fx: "mines old recordings" },
-  { n: "ECHO CHAMBER", c: 3.3e8, r: 44000, fx: "makes silence speak" },
-  { n: "PHASE LATTICE", c: 5.1e9, r: 260000, fx: "steers the whole survey" },
-  { n: "DEEP-SKY ARRAY", c: 7.5e10, r: 1.6e6, fx: "hears the far dark" },
+  { n: "RECEIVER DISH", short: "DISH", pc: 0, c: 10, r: 0.2, fx: "listens to the sky" },
+  { n: "RELAY MAST", short: "MAST", pc: 4, c: 100, r: 1.2, fx: "boosts weak carriers" },
+  { n: "CORE DRILL", short: "DRILL", pc: 7, c: 1100, r: 8, fx: "taps the buried hum" },
+  { n: "ARRAY FIELD", short: "ARRAY", pc: 2, c: 12000, r: 47, fx: "phased dishes in rows" },
+  { n: "BOREHOLE", short: "BOREHOLE", pc: 5, c: 130000, r: 260, fx: "listens through rock" },
+  { n: "OBSERVATORY", short: "DOME", pc: 11, c: 1.4e6, r: 1400, fx: "long watches of the sky" },
+  { n: "ARCHIVE VAULT", short: "VAULT", pc: 6, c: 2e7, r: 7800, fx: "mines old recordings" },
+  { n: "ECHO CHAMBER", short: "ECHO", pc: 9, c: 3.3e8, r: 44000, fx: "makes silence speak" },
+  { n: "PHASE LATTICE", short: "LATTICE", pc: 3, c: 5.1e9, r: 260000, fx: "steers the whole survey" },
+  { n: "DEEP-SKY ARRAY", short: "DEEP-SKY", pc: 10, c: 7.5e10, r: 1.6e6, fx: "hears the far dark" },
   // schema 3: two late machines, each unlocked by a research project
-  { n: "ZERO-POINT LISTENER", c: 1.4e12, r: 1.1e7, fx: "hears between the quanta" },
-  { n: "SILENT ARRAY", c: 2.6e13, r: 8e7, fx: "answers what nobody sent" },
+  { n: "ZERO-POINT LISTENER", short: "ZERO-POINT", pc: 1, c: 1.4e12, r: 1.1e7, fx: "hears between the quanta" },
+  { n: "SILENT ARRAY", short: "SILENT", pc: 8, c: 2.6e13, r: 8e7, fx: "answers what nobody sent" },
 ];
 export const NP = PROD.length;
+export const PC_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+export const PC_PROD = Array.from({ length: 12 }, (_, pc) => PROD.findIndex((p) => p.pc === pc)); // the machine on each note
 export const NP0 = 10; // machines that existed before schema 3 (their upgrade indices must never move)
 export const PROD_UPG_NAMES = [
   ["LOW-NOISE FEED", "PARABOLIC TRIM", "CRYO RECEIVER"],
@@ -156,7 +169,10 @@ export const TREE = [
   { n: "PERFECT PITCH", max: 4, req: 3, cost: (l) => 2 * 2 ** l, eff: () => "PHRASE AND TUNE BONUSES +50%" },
   { n: "SECOND BENCH", max: 2, req: 12, cost: (l) => 6 * 4 ** l, eff: () => "ONE MORE RESEARCH PROJECT AT A TIME" },
   { n: "DEEP LISTENING", max: 4, req: 20, cost: (l) => 5 * 3 ** l, eff: () => "+25% DATA FROM EVERY SOURCE" },
+  // 0.3
+  { n: "HARMONICS", max: 3, req: 5, cost: (l) => 3 * 3 ** l, eff: (l) => "HUMMING MACHINES x" + (HUM_MULT + 0.25 * (l + 1)).toFixed(2) + " (WAS x" + (HUM_MULT + 0.25 * l).toFixed(2) + ")" },
 ];
+export const HARMONICS = 13; // the tree node that strengthens hum
 export const NT = TREE.length;
 export const KIT = [[], [10, 4], [25, 15, 5, 2], [40, 30, 18, 10, 4], [60, 45, 30, 20, 10, 3], [80, 60, 45, 32, 20, 8, 2]];
 export const KIT_SIGNAL = [0, 1000, 30000, 600000, 1.2e7, 3e8];
@@ -264,6 +280,18 @@ export const chartName = (k) => (k < CONST.length ? CONST[k % CONST.length][0] :
 export const chartsOpen = (s) => s.L >= CHART_REQ || s.cn > 0;
 export const stageOf = (s) => { const n = tiersOwned(s); return n < 1 ? 0 : n < 3 ? 1 : n < 5 ? 2 : n < 7 ? 3 : n < 9 ? 4 : n < 11 ? 5 : 6; };
 
+// ---- hum ----------------------------------------------------------------------------------
+// The pitch classes a melody hums: its commonest ones (ties go to the one heard first).
+export function humNotes(mel, k = HUM_NOTES) {
+  const count = Array(12).fill(0), first = Array(12).fill(Infinity);
+  mel.n.forEach((m, i) => { const pc = ((m % 12) + 12) % 12; count[pc]++; if (i < first[pc]) first[pc] = i; });
+  return [...count.keys()].filter((pc) => count[pc] > 0).sort((a, b) => count[b] - count[a] || first[a] - first[b]).slice(0, k);
+}
+// The machines a melody hums, in the order of its notes.
+export const humMachines = (mel, k = HUM_NOTES) => humNotes(mel, k).map((pc) => PC_PROD[pc]);
+export const humMultOf = (s) => HUM_MULT + 0.25 * s.tree[HARMONICS];
+export const humSecOf = (s, full) => HUM_SEC * (full ? 2 : 1);
+
 // ---- pure economy ------------------------------------------------------------
 export const num = (x, hi = BIG) => (Number.isFinite(x) ? clamp(x, 0, hi) : x > 0 ? hi : 0);
 export const int = (x, hi) => Math.floor(num(Number(x), hi));
@@ -312,12 +340,13 @@ export function prodMult(s, i) {
   for (const y of SYN_BY_DST[i]) if (s.up[y.idx]) add += 0.02 * s.own[y.src] * (1 + 0.5 * s.tree[8]);
   return num(m * (1 + add));
 }
-// Fills out[i] with each machine's output per second and returns the total.
-export function evaluate(s, out) {
+// Fills out[i] with each machine's output per second and returns the total. `hum`, when given,
+// holds a multiplier per machine (1 for a quiet one).
+export function evaluate(s, out, hum) {
   const g = globalMult(s);
   let total = 0;
   for (let i = 0; i < NP; i++) {
-    const v = num(s.own[i] * PROD[i].r * prodMult(s, i) * g);
+    const v = num(s.own[i] * PROD[i].r * prodMult(s, i) * g * (hum ? hum[i] : 1));
     if (out) out[i] = v;
     total += v;
   }

@@ -62,3 +62,10 @@ The long integrated run was started while final review continued. The final held
 - Browser workflow and extension tests pass on this Pi with Playwright 1.63 driving the system Chromium 151 (32 s). Tests now take a free port each and mute audio so several checkouts can run them at once.
 - Project placed under local git: `v0.2.0-as-delivered`, then bring-up commits. The generated simulator is no longer tracked.
 - Sam's feedback after playing: fun; the lamps are underused; dictation a little inaccurate; wants more games and instruments. Plan for the overnight agent fleet: `../fleet/PLAN.md`.
+
+## 2026-10-02 — new game: Relay, a call-and-answer rhythm game on the lamps (desktop, not verified on the device)
+
+- The rhythm game pitched with Meridian on 2026-10-01: the lamps play a bar of a real rhythm, go dark, and the player taps it back; the next call follows on the beat, so a run is one groove. Built on the lessons of Sam's playtests: lamp-focused, one button, flowing pace, a warm-up answer and forgiving early stages.
+- `web/apps/relay.js`: 25 rhythms in seven stages (pulse, eighths, syncopation, clave, waltz, swing, odd time) then cycles to 160 BPM with narrowing windows; AGAIN answers from memory from the waltz on; notation shown until a rhythm is learned. Songbook: daily, studio (practice, no shields), accelerando (4 feats), sound kits, a rhythm book (learned at 1 clean answer, mastered at 5), 15 feats, log. Save schema 1 with `migrateSave`, tested.
+- Catalog: one entry (voice name "relay"; "rhythm" is Pulsar's) on PLAY III after Light Trial; registry import; `gesture-apps.test.mjs` and `test_catalog_sectors.py` game lists include it.
+- Bots (4 seeds, 15 min cap; timing error sd): 30 ms plays on into cycle 25; 50 ms reaches cycles 5 to 8 in six to eight minutes; 75 ms reaches stages V to cycle 2 in three to five minutes; 100 ms loses in stages II to V within three minutes; idle ends in about 26 s. Not verified on the device: the lamps update about 17 times a second, so the tones carry the exact timing.

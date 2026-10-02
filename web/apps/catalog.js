@@ -96,6 +96,32 @@ export const CARTRIDGES = [
     ]
   },
   {
+    "id": "relay",
+    "name": "RELAY",
+    "subtitle": "Hear the rhythm. Carry it on.",
+    "description": "The lamps play a bar of a real rhythm, then go dark: tap it back in time, and the next call follows on the beat. Seven stages of rhythms from the pulse through tresillo, clave, waltz, swing and odd time, then faster cycles. New rhythms show their notation; learned ones are played by heart. Hold on the title for the songbook: daily run, studio practice, accelerando, sound kits, the rhythm book, feats.",
+    "controls": "WATCH AND LISTEN · TAP THE RHYTHM BACK · HOLD ON TITLE: SONGBOOK",
+    "category": "PLAY / RHYTHM",
+    "glyph": 3,
+    "factory": "Relay",
+    "voice": [
+      "relay"
+    ],
+    "capabilities": [
+      "button",
+      "lights",
+      "audio",
+      "progress"
+    ],
+    "icon": "<circle cx=\"10\" cy=\"24\" r=\"5\" fill=\"currentColor\"/><circle cx=\"24\" cy=\"24\" r=\"5\"/><circle cx=\"38\" cy=\"24\" r=\"5\" fill=\"currentColor\"/><path d=\"M6 38H42\"/><path d=\"M6 34V42M18 36V40M24 34V42M30 36V40M42 34V42\"/><path d=\"M10 12L16 8L22 12L28 8L34 12\" stroke-dasharray=\"2 3\"/>",
+    "record": {
+      "score": "Score",
+      "clean": "Clean answers",
+      "stage": "Reached",
+      "mode": "Mode"
+    }
+  },
+  {
     "id": "glyphs",
     "name": "GLYPH ARCHIVE",
     "subtitle": "Remember a forgotten language.",
@@ -533,7 +559,7 @@ export const CARTRIDGES = [
     ]
   }
 ];
-export const SECTORS = [{"name": "PLAY", "apps": ["perihelion", "orbit", "runner", "pulsar", "tideline"]}, {"name": "PLAY II", "apps": ["drift", "descent", "ballista", "ricochet", "helix"]}, {"name": "PLAY III", "apps": ["outpost", "reaction", "echo", "glyphs"]}, {"name": "INSTRUMENTS", "apps": ["morse", "cadence", "transcribe", "environment"]}, {"name": "INSTRUMENTS II", "apps": ["lantern", "resonance", "oracle"]}];
+export const SECTORS = [{"name": "PLAY", "apps": ["perihelion", "orbit", "runner", "pulsar", "tideline"]}, {"name": "PLAY II", "apps": ["drift", "descent", "ballista", "ricochet", "helix"]}, {"name": "PLAY III", "apps": ["outpost", "reaction", "relay", "echo", "glyphs"]}, {"name": "INSTRUMENTS", "apps": ["morse", "cadence", "transcribe", "environment"]}, {"name": "INSTRUMENTS II", "apps": ["lantern", "resonance", "oracle"]}];
 export const SYSTEM_APPS = ["settings", "diagnostics", "telemetry"];
 export const DEFAULT_SETTINGS = {
   "sound": true,

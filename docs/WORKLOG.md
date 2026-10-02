@@ -69,3 +69,9 @@ The long integrated run was started while final review continued. The final held
 - `web/apps/relay.js`: 25 rhythms in seven stages (pulse, eighths, syncopation, clave, waltz, swing, odd time) then cycles to 160 BPM with narrowing windows; AGAIN answers from memory from the waltz on; notation shown until a rhythm is learned. Songbook: daily, studio (practice, no shields), accelerando (4 feats), sound kits, a rhythm book (learned at 1 clean answer, mastered at 5), 15 feats, log. Save schema 1 with `migrateSave`, tested.
 - Catalog: one entry (voice name "relay"; "rhythm" is Pulsar's) on PLAY III after Light Trial; registry import; `gesture-apps.test.mjs` and `test_catalog_sectors.py` game lists include it.
 - Bots (4 seeds, 15 min cap; timing error sd): 30 ms plays on into cycle 25; 50 ms reaches cycles 5 to 8 in six to eight minutes; 75 ms reaches stages V to cycle 2 in three to five minutes; 100 ms loses in stages II to V within three minutes; idle ends in about 26 s. Not verified on the device: the lamps update about 17 times a second, so the tones carry the exact timing.
+
+## 2026-10-02 — Relay after the platform review (desktop, not verified on the device)
+
+- Latency: every tap is judged at its arrival minus the console calibration `settings.latencyMs` (clamped to -150..300 ms, 0 when absent); misses and the end of an answer wait for the same delay. A test bot whose taps arrive 60 ms late loses most PERFECTs uncalibrated and plays as with no delay when calibrated. An answer that has already lost when the next round begins is called again at once.
+- Resume: opening the menu mid-run drops the round in progress unjudged and calls it again after a four-beat count-in (`gesture-apps.test.mjs` lists Relay as rebuilding on resume).
+- Scores: the multiplier steps every 12 notes up to x4 (was 8 and x8) and the clean bonus is 20 a note; scores are about half what they were. Daily score goals are 8000 to 20000.

@@ -1,7 +1,7 @@
 // RELAY: the rhythms, the call and answer timeline, the judging, the stages, the songbook, the save, the lamps.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Relay, RHYTHMS, MODES, migrateSave, stageSpec, dailyGoal, voice, byId, WIN, LEARNED, MASTERED } from "../web/apps/relay.js";
+import { Relay, RHYTHMS, MODES, migrateSave, stageSpec, dailyGoal, voice, byId, latency, WIN, LEARNED, MASTERED } from "../web/apps/relay.js";
 import { appContext, fakeCanvas, run } from "./helpers/app-context.mjs";
 import { Random } from "../web/engine/math.js";
 
@@ -104,6 +104,53 @@ test("an answer is graded note by note; a wide tap is an extra, a note let by is
   assert.ok(s.notes.slice(2).every((n) => n.miss), "the notes let by are missed");
   assert.equal(app.shields, 3, "the first answer is the warm-up");
   assert.equal(app.segs.find((x) => x.kind === "call" && x.t0 > s.t0).r.id, s.r.id, "a lost answer is called again");
+});
+
+test("latency: with the console's calibration a late-arriving tap is judged where it was meant, and a miss waits for it", () => {
+  // Every tap arrives 60 ms late. Uncalibrated, a steady player slips; calibrated, it plays as with no delay.
+  const play = (latencyMs) => {
+    const { app } = mount({ settings: { latencyMs } });
+    app.start("relay");
+    const r = new Random(5), plan = new Map();
+    for (let i = 0; i < 150 * 60 && app.phase === "play"; i++) {
+      for (const s of app.segs) if (s.kind === "answer") for (const n of s.notes) {
+        if (!plan.has(n)) plan.set(n, { at: n.t + 0.06 + (r.next() + r.next() + r.next() - 1.5) * 0.06, done: false });
+        const p = plan.get(n);
+        if (!p.done && !n.done && app.rt + 1 / 120 >= p.at) { p.done = true; tap(app); }
+      }
+      app.update(1 / 60);
+    }
+    return [app.R.perfects + app.sv.st.perfects, (app.R.offSum + 0) / Math.max(1, app.R.offN), app.stage];
+  };
+  const [rawP, rawT] = play(0), [calP, calT] = play(60);
+  assert.ok(calP > rawP * 1.5, "calibration restores the perfects: " + rawP + " -> " + calP);
+  assert.ok(rawT > 40 && Math.abs(calT) < 20, "timing reads late uncalibrated, centred calibrated: " + rawT + " / " + calT);
+  assert.equal(latency({ settings: () => ({ latencyMs: "x" }) }), 0);
+  assert.equal(latency({ settings: () => ({ latencyMs: 900 }) }), 0.3);
+  assert.equal(latency({}), 0);
+});
+
+test("resuming mid-run counts in four beats and calls the interrupted rhythm again, unjudged", () => {
+  const { app } = mount();
+  app.start("relay");
+  const s = toAnswer(app);
+  run(app, 0.3);
+  const shields = app.shields, id = s.r.id;
+  app.pause(); app.resume();
+  assert.ok(!app.segs.includes(s), "the interrupted answer is dropped");
+  run(app, 0.4);
+  assert.deepEqual(app.segs.map((x) => x.kind).slice(0, 2), ["count", "call"]);
+  assert.equal(app.segs[1].r.id, id);
+  assert.equal(app.shields, shields);
+  assert.equal(app.combo, 0);
+});
+
+test("scores stay in proportion: the multiplier tops out at x4", () => {
+  const { app } = mount();
+  app.start("relay");
+  bot(app, 6, 0.01, 120);
+  assert.ok(app.R.maxMult <= 4 && app.R.maxMult === 4);
+  assert.ok(app.score < 120000, "two minutes of near-perfect play: " + app.score);
 });
 
 test("a clean answer scores a bonus and goes in the songbook; a lost one costs a shield and repeats", () => {

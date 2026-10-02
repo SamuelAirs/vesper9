@@ -18,6 +18,9 @@ import { AppGuard } from "../engine/input.js";
 import { LampBus } from "./game-kit.js";
 
 const HOLD_PICK = 0.5; // a press this long on a menu screen chooses instead of tapping
+// The console-wide latency calibration (settings.latencyMs, positive when taps register late) is
+// taken off every tap, so the judging matches what the player heard; clamped, 0 when absent.
+export const latency = (ctx) => { const v = Number(ctx.settings?.()?.latencyMs); return Number.isFinite(v) ? clamp(v, -150, 300) / 1000 : 0; };
 // Timing windows in seconds either side of a note: PERFECT, GOOD, CLOSE. The tones carry the exact
 // time; the lamps update about 17 times a second, so they show the rhythm rather than the instant.
 export const WIN = [0.05, 0.095, 0.14];
@@ -26,6 +29,7 @@ const BASE = [100, 60, 25];
 const SHIELDS = 3;
 const REGEN = 4; // clean answers in a row restore a shield
 const STUDIO_ROUNDS = 10;
+const MULT_MAX = 4, MULT_STEP = 12; // the multiplier: one step per twelve notes in a row, up to x4
 
 // ---- the rhythms --------------------------------------------------------------------------------
 // `spb`: grid steps per beat (4: sixteenths, 3: triplets, 2: eighths), `steps`: the length of the
@@ -110,7 +114,7 @@ const FEATS = [
   { id: "first", name: "FIRST ANSWER", text: "Answer a rhythm cleanly.", n: 1, prog: (a) => life(a, "clean") },
   { id: "pocket", name: "IN THE POCKET", text: "10 clean answers in one run.", n: 10, prog: (a) => a.R.clean },
   { id: "combo40", name: "LOCKED IN", text: "Reach a combo of 40.", n: 40, prog: (a) => a.bestCombo },
-  { id: "mult8", name: "FULL BAND", text: "Reach the x8 multiplier.", n: 8, prog: (a) => a.R.maxMult },
+  { id: "mult8", name: "FULL BAND", text: "Reach the x4 multiplier.", n: MULT_MAX, prog: (a) => a.R.maxMult },
   { id: "sync", name: "OFF THE BEAT", text: "Reach SYNCOPATION.", n: 2, prog: (a) => Math.max(a.sv.far, a.R.far) },
   { id: "clave", name: "THE KEY", text: "Reach CLAVE.", n: 3, prog: (a) => Math.max(a.sv.far, a.R.far) },
   { id: "swing", name: "IT DON'T MEAN A THING", text: "Reach SWING.", n: 5, prog: (a) => Math.max(a.sv.far, a.R.far) },
@@ -134,7 +138,7 @@ const dailyRng = new Random(1);
 // Today's goal, the same for everyone on the same date.
 export function dailyGoal(key) {
   const h = hashText("relay" + key), kind = h % 4, v = (h >>> 8) % 5;
-  if (kind === 0) return { kind: "score", n: 3000 + 1000 * v, text: "Score " + (3000 + 1000 * v) + "." };
+  if (kind === 0) return { kind: "score", n: 8000 + 3000 * v, text: "Score " + (8000 + 3000 * v) + "." };
   if (kind === 1) return { kind: "combo", n: 20 + 5 * v, text: "Reach a combo of " + (20 + 5 * v) + "." };
   if (kind === 2) return { kind: "clean", n: 5 + v, text: "Answer " + (5 + v) + " rhythms cleanly." };
   return { kind: "stage", n: 2 + (v % 3), text: "Reach " + STAGES[2 + (v % 3)].name + "." };
@@ -203,6 +207,7 @@ export class Relay {
     this.segs = []; // the timeline: count-in, calls and answers, each { kind, r, t0, dur, sd, notes, ... }
     this.nextT = 0.6; // when the next round starts
     this.repeat = null; // a rhythm to call again after a lost answer
+    this.countIn = false; // the next round starts with a count-in (after a pause)
     this.lastId = "";
     this.introduced = []; // rhythms of this run's stage already called once
     this.glow = [0, 0, 0]; // lamp flashes, decaying
@@ -238,7 +243,7 @@ export class Relay {
     if (this.mode === "studio") return { name: "STUDIO", label: "STUDIO " + Math.min(this.rounds, STUDIO_ROUNDS) + " / " + STUDIO_ROUNDS, bars: 999, b0: 80, b1: 80, carry: 0, click: "beat", note: "", cycle: 0, win: 1 };
     return stageSpec(this.stage);
   }
-  mult() { return Math.min(8, 1 + Math.floor(this.combo / 8)); }
+  mult() { return Math.min(MULT_MAX, 1 + Math.floor(this.combo / MULT_STEP)); }
   kit() { const k = KITS[this.sv.sel.kit] || KITS[0]; return this.sv.ft.length >= k.need ? k : KITS[0]; }
   bestRef() {
     if (this.mode === "daily") return this.sv.dl.d === this.dayKey() ? this.sv.dl.best : 0;
@@ -254,6 +259,10 @@ export class Relay {
   // Choose the next rhythm. A lost answer is called again once. A stage calls its own rhythms in order
   // the first time, then mixes in earlier ones; cycles and accelerando draw on everything met so far.
   pick() {
+    // An answer still being judged (its last notes wait out the console's latency) that has already
+    // lost is called again now; one that might still pass is let go.
+    const open = this.segs.find((s) => s.kind === "answer" && !s.judged && !s.carry);
+    if (!this.repeat && open && this.slips(open) > this.allow(open)) { this.repeat = open.r; open.repeated = true; }
     if (this.repeat) { const r = this.repeat; this.repeat = null; return r; }
     const pickFrom = (list) => {
       const pool = list.length > 1 ? list.filter((r) => r.id !== this.lastId) : list;
@@ -283,7 +292,8 @@ export class Relay {
     this.bpm = this.tempo();
     const sd = 60 / this.bpm / r.spb, dur = r.steps * sd;
     let t = this.nextT;
-    if (!this.rounds) {
+    if (!this.rounds || this.countIn) {
+      this.countIn = false;
       const beat = 60 / this.bpm;
       this.segs.push({ kind: "count", r, t0: t, dur: beat * 4, sd: beat, notes: [] });
       t += beat * 4;
@@ -306,7 +316,7 @@ export class Relay {
     this.lastId = r.id;
     this.rounds++;
   }
-  seg() { return this.segs.find((s) => this.rt >= s.t0 && this.rt < s.t0 + s.dur) || null; }
+  seg(at = this.rt) { return this.segs.find((s) => at >= s.t0 && at < s.t0 + s.dur) || null; }
 
   // ---- input ------------------------------------------------------------------------------------
   // On the title, result and songbook screens a press is decided when it ends: a tap is the main
@@ -333,7 +343,20 @@ export class Relay {
     this.lamps.clear();
   }
   pause() { this.guard.settle(); this.armed = false; this.lamps.sleep(); }
-  resume() { this.lamps.wake(); }
+  // Back from the menu mid-run: the groove was broken, so the round in progress is dropped unjudged and
+  // called again after a four-beat count-in.
+  resume() {
+    this.lamps.wake();
+    if (this.phase !== "play") return;
+    const cur = this.segs.find((s) => s.kind !== "count" && s.t0 + s.dur > this.rt);
+    if (!cur) return;
+    this.segs = this.segs.filter((s) => s.t0 + s.dur <= this.rt && (s.kind !== "answer" || s.judged));
+    this.repeat = cur.r;
+    this.nextT = this.rt + 0.3;
+    this.countIn = true;
+    this.fb = null;
+    this.announce("COUNT IN", 1.6);
+  }
   dispose() { this.guard.settle(); this.lamps.sleep(); }
 
   menuPress(dur) {
@@ -392,21 +415,21 @@ export class Relay {
   // A tap in play: judged against the nearest note of an answer still open. A tap during a call is
   // free (tapping along is how a rhythm is learned); a tap in an answer that matches no note is a slip.
   strike() {
-    const k = this.spec().win;
+    const k = this.spec().win, at = this.rt - latency(this.c);
     let best = null, bs = null;
     for (const s of this.segs) {
       if (s.kind !== "answer" || s.judged) continue;
       for (const n of s.notes) {
         if (n.done) continue;
-        if (!best || Math.abs(this.rt - n.t) < Math.abs(this.rt - best.t)) { best = n; bs = s; }
+        if (!best || Math.abs(at - n.t) < Math.abs(at - best.t)) { best = n; bs = s; }
       }
     }
-    const err = best ? Math.abs(this.rt - best.t) : Infinity;
-    if (best && err <= WIN[2] * k) { this.hit(bs, best, err <= WIN[0] * k ? 0 : err <= WIN[1] * k ? 1 : 2); return; }
-    const s = this.seg();
-    if (s && s.kind === "answer") {
+    const err = best ? Math.abs(at - best.t) : Infinity;
+    if (best && err <= WIN[2] * k) { this.hit(bs, best, err <= WIN[0] * k ? 0 : err <= WIN[1] * k ? 1 : 2, at); return; }
+    const s = this.seg(at);
+    if (s && s.kind === "answer" && !s.judged) {
       s.extras++;
-      s.taps.push({ t: this.rt, g: 3 });
+      s.taps.push({ t: at, g: 3 });
       this.slip("EXTRA", s.practice);
       return;
     }
@@ -414,11 +437,11 @@ export class Relay {
     this.glow[1] = Math.max(this.glow[1], 0.25);
     this.glowCol[1] = LAMP.cyan;
   }
-  hit(s, n, grade) {
+  hit(s, n, grade, at = this.rt) {
     n.done = true;
     n.g = grade;
-    const ms = Math.round((this.rt - n.t) * 1000);
-    s.taps.push({ t: this.rt, g: grade });
+    const ms = Math.round((at - n.t) * 1000);
+    s.taps.push({ t: at, g: grade });
     this.offs.push(ms);
     if (this.offs.length > 12) this.offs.shift();
     this.R.offSum += ms; this.R.offN++;
@@ -463,7 +486,7 @@ export class Relay {
   }
   step(dt) {
     this.rt += dt;
-    const k = this.kit(), late = WIN[2] * this.spec().win;
+    const k = this.kit(), lag = latency(this.c), late = WIN[2] * this.spec().win + lag;
     for (const s of this.segs) {
       if (s.t0 > this.rt) break;
       // The call sounds and lights its notes.
@@ -479,7 +502,7 @@ export class Relay {
         n.miss = true;
         this.slip("MISS", s.practice);
       }
-      if (s.kind === "answer" && !s.judged && this.rt >= s.t0 + s.dur) this.judge(s);
+      if (s.kind === "answer" && !s.judged && this.rt >= s.t0 + s.dur + Math.max(0, lag)) this.judge(s);
       if (this.phase !== "play") return;
     }
     this.metronome();
@@ -513,12 +536,11 @@ export class Relay {
   // of three or more) loses the answer: a shield goes and the rhythm is called again.
   judge(s) {
     s.judged = true;
-    const n = s.notes.length, misses = s.notes.filter((x) => x.miss).length, slips = misses + s.extras;
-    const allow = n >= 3 ? Math.max(1, Math.floor(n / 4)) : 0;
+    const n = s.notes.length, slips = this.slips(s), allow = this.allow(s);
     const clean = slips === 0 && s.notes.every((x) => x.g >= 0 && x.g <= 1);
     this.R.answers++;
     if (clean) {
-      const m = this.mult(), bonus = this.mode === "studio" ? 0 : 30 * n * m * (s.carry ? 2 : 1);
+      const m = this.mult(), bonus = this.mode === "studio" ? 0 : 20 * n * m * (s.carry ? 2 : 1);
       this.score += bonus;
       this.R.clean++;
       if (s.carry) this.R.carry++;
@@ -540,7 +562,9 @@ export class Relay {
     if (!lost) this.pass();
     else {
       this.fb = { word: s.practice ? "AGAIN / WARM-UP" : "ANSWER LOST", pts: 0, col: C.red, t: 1.1 };
-      if (!this.repeat && !s.carry) this.repeat = s.r;
+      // Called again, unless a later round is already laid out (then it was decided as the round began).
+      const queued = this.segs.some((x) => x.kind === "call" && x.t0 >= s.t0 + s.dur - 1e-6);
+      if (!this.repeat && !s.carry && !s.repeated && !queued) this.repeat = s.r;
       if (!s.practice && this.mode !== "studio") {
         this.stageClean = false;
         this.shields--;
@@ -550,6 +574,8 @@ export class Relay {
     }
     this.checkFeats();
   }
+  slips(s) { return s.notes.filter((x) => x.miss).length + s.extras; }
+  allow(s) { const n = s.notes.length; return n >= 3 ? Math.max(1, Math.floor(n / 4)) : 0; }
   pass() {
     if (this.mode === "studio" || this.mode === "accel") return;
     this.stagePass++;
@@ -684,9 +710,9 @@ export class Relay {
   drawPlay(g) {
     const s = this.seg() || this.segs[0], sp = this.spec();
     // The multiplier in a ring that fills toward the next step, top left; shields, top right.
-    const m = this.mult(), frac = m >= 8 ? 1 : (this.combo % 8) / 8;
+    const m = this.mult(), frac = m >= MULT_MAX ? 1 : (this.combo % MULT_STEP) / MULT_STEP;
     circle(g, 70, 50, 32, C.line, false, 4);
-    if (frac > 0) { g.strokeStyle = m >= 8 ? C.cyan : C.amber; g.lineWidth = 4; g.beginPath(); g.arc(70, 50, 32, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2); g.stroke(); }
+    if (frac > 0) { g.strokeStyle = m >= MULT_MAX ? C.cyan : C.amber; g.lineWidth = 4; g.beginPath(); g.arc(70, 50, 32, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2); g.stroke(); }
     text(g, "x" + m, 70, 51, 26, m > 1 ? C.amber : C.muted, "center");
     if (this.combo > 1) text(g, this.combo + " IN A ROW", 116, 50, 18, C.muted);
     if (this.mode !== "studio") for (let i = 0; i < SHIELDS; i++) diamond(g, 856 + i * 34, 44, 12, i < this.shields ? C.cyan : C.line, i < this.shields);

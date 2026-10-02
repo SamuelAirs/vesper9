@@ -43,6 +43,24 @@ Outpost:
 - **Taps ripple.** Each gathering tap sends a pulse out along the ground from the middle, amber normally and cyan in full groove, so the beat is visible as well as heard. Drawn only; it uses no random numbers, so the game's sequences are unchanged.
 - A busy late frame is about 1,290 canvas calls, roughly 70 more than before (Outpost has no 400 cap; its line check passes).
 
+## Follow-up: the independent review (2026-10-02) scored Tideline 5.5
+
+The review found a cliff at landing 40: once the help faded, a 200 ms player landed only 2-47% of uncommons, while full gear landed everything. It reproduced: with the old fish, the review's 200 ms bot at no gear landed commons 79% (lowest 55%), uncommons 50% and rares 12%. From gear 2 it landed every non-legend.
+
+What changed (model only, with the save unchanged):
+- **Tells.** Darters, bolters and fighters' big lunges (0.2 or more of the gauge) are told first. The fish stops and shivers for 0.5 - 0.2 x difficulty seconds (about 0.3-0.45 s), the screen says IT WILL RISE or IT WILL DIVE with an arrow by the fish, two notes rise or fall, and the lamps shimmer. Only the direction is given, not the spot. A learner gets the hint once: "It shivers before it darts". Reading the fish now replaces reflexes as the skill.
+- **Gear flattened.** Zone 0.09 / 0.10 / 0.11 / 0.12 (was up to 0.15), reel x1 / 1.15 / 1.3 / 1.45 (was up to 1.75). Rares fill at x0.85, very rares x0.7, legends x0.45. Faster fish move faster (speed 0.22 + 1.3 d^1.3) and drain more (0.06 + 0.45 d^2). Easy fish give a little more room (+0.03 (1-d)^3 on the zone).
+- **Bots.** Three human-like bots: they see the fish 180-250 ms late, partly know their own zone, decide about every 100 ms, and either read the tell's direction or not. Novice: 250 ms, no tells. Practiced: 230 ms, tells. Sharp: 180 ms, tells. The review's bot is kept as the harshest case.
+
+After the change, at the lasting quarter of help (the `bot results by species, gear and skill` table in `tests/tideline.test.mjs`):
+- Novice, no gear: commons and uncommons 100%, rares 0-31%. With gear 2: rares 100%, very rares 25-44%, legends 0. Full gear alone never lands a legend.
+- Practiced, no gear: everything up to very rare 81-100%, legends 0. Full gear: legends 69-100%.
+- Sharp: legends 13-94% at gear 2. Skill counts for more than a gear level at the top.
+- The review's 200 ms bot, no gear: commons 63-100%, uncommons 25-100%. Before, it was 55-100% and 15-100%.
+- A practiced player completes the catalogue in about 82 minutes over nine visits (24 of 30 at 63 minutes).
+
+Not addressed here: the console-wide latency calibration and the menu gesture belong to the platform polish thread. Tells make Tideline much less sensitive to latency in any case.
+
 ## Shared code touched
 
 `web/engine/audio.js`: `Synth.tone(hz, seconds, type, gain = 1)`; one multiplication, default unchanged for every other app. `docs/ENGINE.md` row updated. `docs/WORKLOG.md` entry. Nothing else outside the two games, their tests, `tests/helpers/outpost-bot.mjs` and a new fixture.
@@ -60,4 +78,5 @@ Outpost:
 3. Outpost: open your save, read the update card, then tap a steady beat for ten seconds or so and watch GROOVE climb to x1.50 at the top right. Buy or check the voice upgrades: are they now quiet enough under the tune?
 4. Constellations appear only at 1,000 bearings held, so they may be a while away on your save.
 5. Tideline: does the new shore (sky, pier, angler, shadows in the water) read well on the 7" screen? Look for TODAY'S CATCH on the shore and try to land it.
+7. Tideline (after the review): hook anything but a steady fish and watch for it to shiver, with IT WILL RISE or IT WILL DIVE at the top and two notes. Move the zone that way before it goes. Does that make the harder fish feel fair rather than twitchy?
 6. Outpost: tap a beat and watch the ripple run along the ground; it turns cyan in full groove. Do the rising signal pulses look busy or just alive?

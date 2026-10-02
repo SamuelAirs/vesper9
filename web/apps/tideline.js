@@ -31,8 +31,9 @@ const RARITY_POINTS = [0, 1, 2, 4, 7, 15];
 
 // Gear: levels 0..3. The catch zone's half height, the meter fill multiplier, the longest cast
 // and the multiplier on rare bites.
-const ZONE_H = [0.09, 0.11, 0.13, 0.15];
-const REEL_MULT = [1, 1.22, 1.45, 1.75];
+const ZONE_H = [0.09, 0.1, 0.11, 0.12];
+const REEL_MULT = [1, 1.15, 1.3, 1.45];
+const RAR_FILL = [1, 1, 1, 0.85, 0.7, 0.45];
 const CAST_MAX = [45, 65, 85, 105];
 const LURE_MULT = [1, 1.6, 2.2, 2.8];
 const GEAR = [
@@ -121,14 +122,14 @@ const CHEST_FILL = 0.5, CHEST_DECAY = 0.25, CHEST_LIFE = 9;
 // meter that drains more slowly. The game tapers it off over the first ASSIST_LANDINGS fish.
 function newCatch(sp, gear, rng, assist) {
   const a = assist === true ? 1 : clamp(Number(assist) || 0, 0, 1);
-  const h = ZONE_H[gear.zone] + 0.04 * a;
+  const h = ZONE_H[gear.zone] + 0.04 * a + 0.03 * Math.pow(1 - sp.d, 3); // easy fish give room
   const d = sp.d * (1 - 0.5 * a);
   const rank = gear.rank || 1;
   return {
-    kind: sp.kind, d, h, z: 0.5, zv: 0, f: 0.55, fv: 0, tgt: 0.55, timer: 0.4, mode: 0, t: 0,
+    kind: sp.kind, d, h, z: 0.5, zv: 0, f: 0.55, fv: 0, tgt: 0.55, timer: 0.4, mode: 0, t: 0, tell: 0, next: -1,
     meter: 0.32 + 0.1 * a,
-    fill: 0.17 * REEL_MULT[gear.reel] * (1 + 0.25 * a) * (1 + 0.02 * (rank - 1)),
-    drain: (0.06 + 0.24 * d * d) * (1 - 0.4 * a),
+    fill: 0.17 * RAR_FILL[sp.rar] * REEL_MULT[gear.reel] * (1 + 0.25 * a) * (1 + 0.02 * (rank - 1)),
+    drain: (0.06 + 0.45 * d * d) * (1 - 0.4 * a),
     grace: 0.8, seed: rng.next() * 6.28, out: 0,
     chest: gear.chest ? { at: rng.range(1.2, 3.5), y: rng.range(0.2, 0.85), y0: 0, p: 0, on: false, got: false, gone: false, ph: rng.next() * 6.28 } : null,
   };
@@ -161,9 +162,23 @@ function stepZone(c, held, dt) {
   if (c.z > hi) { c.z = hi; c.zv = c.zv > 0.12 ? -c.zv * BOUNCE : 0; }
 }
 // Each species moves in its own way. `fight` raises a fighter's aggression as the meter fills.
+// Darts, bolts and big lunges are told first: the fish stops and shivers for tellFor(d) seconds
+// with its next spot marked, so reading the fish matters more than reacting to it.
+const tellFor = (d) => 0.5 - 0.2 * d;
+const TELL_MIN_MOVE = 0.2; // smaller fighter tugs are not told
 function stepFish(c, rng, dt) {
   const fight = c.kind === "fighter" ? 0.8 + 1.0 * c.meter : 1;
-  let speed = (0.22 + 0.75 * Math.pow(c.d, 1.3)) * fight;
+  let speed = (0.22 + 1.3 * Math.pow(c.d, 1.3)) * fight;
+  if (c.tell > 0) { // holding still before the move; the timer waits until it is made
+    c.tell -= dt;
+    c.tgt = c.f;
+    if (c.tell <= 0) { c.tell = 0; c.tgt = c.next; c.next = -1; }
+    const want = clamp((c.tgt - c.f) * 5, -speed, speed);
+    c.fv += (want - c.fv) * Math.min(1, dt * 12);
+    c.f = clamp(c.f + c.fv * dt, FISH_LO, FISH_HI);
+    return;
+  }
+  const told = (to) => { c.next = to; c.tell = tellFor(c.d); c.tgt = c.f; };
   c.timer -= dt;
   switch (c.kind) {
     case "steady":
@@ -179,7 +194,7 @@ function stepFish(c, rng, dt) {
       break;
     case "darter":
       if (c.timer <= 0) {
-        c.tgt = rng.range(0.16, 0.9);
+        told(rng.range(0.16, 0.9));
         c.timer = rng.range(0.45, 1.0) / (0.6 + c.d);
       }
       speed *= 1.5;
@@ -188,7 +203,7 @@ function stepFish(c, rng, dt) {
       if (c.timer <= 0) {
         if (c.mode === 0) {
           c.mode = 1;
-          c.tgt = c.f > 0.55 ? rng.range(0.16, 0.38) : rng.range(0.7, 0.9);
+          told(c.f > 0.55 ? rng.range(0.16, 0.38) : rng.range(0.7, 0.9));
           c.timer = 0.7;
         } else {
           c.mode = 0;
@@ -199,8 +214,9 @@ function stepFish(c, rng, dt) {
       break;
     default: // fighter
       if (c.timer <= 0) {
-        c.tgt = c.f + rng.range(-0.38, 0.38) * fight;
-        if (c.tgt < 0.2 || c.tgt > 0.9) c.tgt = rng.range(0.3, 0.8);
+        let to = c.f + rng.range(-0.38, 0.38) * fight;
+        if (to < 0.2 || to > 0.9) to = rng.range(0.3, 0.8);
+        if (Math.abs(to - c.f) >= TELL_MIN_MOVE) told(to); else c.tgt = to;
         c.timer = rng.range(0.7, 1.3) / fight;
       }
       speed *= 1.25;
@@ -922,7 +938,14 @@ export class Tideline {
     if (!c) { this.toShore(); return; }
     const g = this.gesture;
     if (g.shield > 0) { g.shield -= dt; c.grace = Math.max(c.grace, 0.2); }
+    const wasTell = c.tell > 0;
     const r = stepCatch(c, this.held, this.c.rng, dt);
+    // The tell is heard as well as seen: two quick notes rising or falling with the coming move.
+    if (!wasTell && c.tell > 0) {
+      const up = c.next > c.f;
+      this.tone(up ? 523 : 784, 0.045, "sine"); this.tone(up ? 784 : 523, 0.06, "sine", 0.06);
+      if (this.sv.landed < 60 && !this.toldHint) { this.toldHint = true; this.setHint("It shivers before it darts: the arrow and the notes say which way. Move first."); }
+    }
     this.updateTension(c);
     const k = c.chest;
     if (k?.on && !k.heard) { k.heard = true; this.tone(1320, 0.05, "sine"); this.tone(1760, 0.07, "sine", 0.07); }
@@ -956,7 +979,8 @@ export class Tideline {
     const e = c.f - c.z, inside = Math.abs(e) <= c.h;
     const base = 0.18 + 0.22 * c.meter;
     const danger = c.meter < 0.22;
-    const flick = danger ? (blink(this.t, 8) ? 1 : 0.5) : 1;
+    // A fast shimmer while the fish tells a move; the slower blink warns of a failing line.
+    const flick = danger ? (blink(this.t, 8) ? 1 : 0.5) : c.tell > 0 ? (blink(this.t, 14) ? 1 : 0.55) : 1;
     const side = e >= 0 ? 2 : 0;
     const out = Array(9).fill(0);
     const set = (lamp, rgb, level) => { const v = dim(rgb, level); for (let k = 0; k < 3; k++) out[lamp * 3 + k] = v[k]; };
@@ -1288,8 +1312,14 @@ export class Tideline {
       g.fillStyle = C.amber; g.fillRect(cx - 11, cy + 11, 22 * k.p, 4);
       g.globalAlpha = 1;
     }
-    const fy = yOf(c.f);
-    this.drawShape(g, this.fishSp.shape, GX, fy, 1 / Math.max(1, this.fishSp.shape.len, this.fishSp.shape.hgt), inside ? C.ink : C.red, 3);
+    const fy = yOf(c.f), telling = c.tell > 0;
+    const sx = telling ? 3 * Math.sin(this.t * 70) : 0; // it shivers before a dart
+    this.drawShape(g, this.fishSp.shape, GX + sx, fy, 1 / Math.max(1, this.fishSp.shape.len, this.fishSp.shape.hgt), telling ? C.amber : inside ? C.ink : C.red, 3);
+    if (telling) { // an arrow beside the fish shows which way it is about to go
+      const dir = c.next > c.f ? -1 : 1, ax = GX + GW / 2 + 12, ay = fy + dir * 10;
+      g.fillStyle = C.amber; g.beginPath();
+      g.moveTo(ax, ay + dir * 22); g.lineTo(ax - 11, ay); g.lineTo(ax + 11, ay); g.closePath(); g.fill();
+    }
     // Progress meter.
     const mx = GX + 52;
     g.strokeStyle = C.muted; g.lineWidth = 3; g.strokeRect(mx, Y0, 20, len);
@@ -1302,7 +1332,8 @@ export class Tideline {
       circle(g, GX - 30 + i * 30, Y1 + 30, 11, "#233929", false, 2);
       circle(g, GX - 30 + i * 30, Y1 + 30, 8, col, true);
     }
-    text(g, c.meter < 0.22 ? "LINE FAILING" : inside ? "ON IT" : c.f > c.z ? "FISH ABOVE" : "FISH BELOW", 400, 60, 28, c.meter < 0.22 ? C.red : inside ? C.ink : C.amber, "center");
+    const head = c.meter < 0.22 ? "LINE FAILING" : telling ? (c.next > c.f ? "IT WILL RISE" : "IT WILL DIVE") : inside ? "ON IT" : c.f > c.z ? "FISH ABOVE" : "FISH BELOW";
+    text(g, head, 400, 60, 28, c.meter < 0.22 ? C.red : telling ? C.amber : inside ? C.ink : C.amber, "center");
     text(g, "HOLD LIFTS THE ZONE", 400, 96, 20, C.muted, "center");
     if (!this.beginner()) text(g, perfectCatch(c) ? "PERFECT SO FAR" : "SLIPPED", 400, 128, 18, perfectCatch(c) ? C.cyan : C.line, "center");
     if (k?.got) text(g, "CHEST SALVAGED", 400, 156, 18, C.amber, "center");

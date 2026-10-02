@@ -65,6 +65,7 @@ export const CUES = {
   researchDone: [[5, 8, 9, 10, 12], 0.07, 0.24, "sine", LAMP.blue],
   relocate: [[1, 5, 8, 10, 12, 15], 0.11, 0.35, "sine", LAMP.white],
   pocket: [[8, 12, 15], 0.04, 0.1, "sine", LAMP.cyan], // the groove has just filled
+  hum: [[1, 5, 8], 0.12, 0.4, "sine", LAMP.green], // a finished tune sets the machines in its notes humming
 };
 
 // The player's beat (seconds) while they are keeping one, else 0.

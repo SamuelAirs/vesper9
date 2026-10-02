@@ -194,3 +194,13 @@ test("full groove adds a quiet bell to every note, and a sparkle once when it fi
   for (let i = 0; i + 3 <= cues.length; i++) if (cues.slice(i, i + 3).join() === sparkle) found++;
   assert.equal(found, 1, "the sparkle plays once, not on every tap");
 });
+
+test("the songbook keeps growing through the long game", () => {
+  const late = M.SONGS.filter((sg) => sg.at >= 1e14);
+  assert.ok(late.length >= 5, "tunes still to find after 100 T: " + late.length);
+  assert.ok(M.SONGS.at(-1).at >= 1e18, "the last arrives at " + M.SONGS.at(-1).at);
+  const first = (id, n) => M.MEL[M.SONGS.findIndex((x) => x.id === id)].n.slice(0, n).map(M.noteName).join(" ");
+  assert.equal(first("saints", 8), "C4 E4 F4 G4 C4 E4 F4 G4");
+  assert.equal(first("largo", 6), "E4 G4 G4 E4 D4 C4");
+  assert.equal(first("danube", 5), "D4 D4 F#4 A4 A4");
+});

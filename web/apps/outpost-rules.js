@@ -3,13 +3,14 @@
 // time formatting, and the save format (serialize and migrate). No game state lives here: every
 // function takes the saved state `s` (see freshState) and returns a value.
 //
-// Indices into PROD, UPG, TREE, RES and GOALS are stored in saves: append, never reorder or remove.
+// Indices into PROD, UPG, TREE, RES, GOALS, SITES and FEATS are stored in saves: append, never
+// reorder or remove.
 // The scene, lamps and music modules read from here; nothing here reads them or the cartridge.
 import { clamp } from "../engine/math.js";
-import { SONGS, NS } from "./outpost-songs.js";
+import { SONGS, NS, makeMelody } from "./outpost-songs.js";
 
 // ---- constants ---------------------------------------------------------------
-export const SCHEMA = 4;
+export const SCHEMA = 5;
 export const BIG = 1e150; // every growing number is clamped here
 export const GROWTH = 1.15; // cost growth per machine owned
 export const MAX_OWN = 1500;
@@ -64,20 +65,21 @@ export const CHART_MAX = 200;
 // once, so every note of the octave belongs to one machine; see HUM), base cost, base output.
 // The tunings follow the songbook: the early tunes are in C major, so the first machines sit on
 // C, E, G, D and F; later machines take the notes of the later tunes; the last one waits on G#.
+// `sky` machines listen up, the others listen down into the ground (some sites favour one kind).
 export const PROD = [
-  { n: "RECEIVER DISH", short: "DISH", pc: 0, c: 10, r: 0.2, fx: "listens to the sky" },
-  { n: "RELAY MAST", short: "MAST", pc: 4, c: 100, r: 1.2, fx: "boosts weak carriers" },
-  { n: "CORE DRILL", short: "DRILL", pc: 7, c: 1100, r: 8, fx: "taps the buried hum" },
-  { n: "ARRAY FIELD", short: "ARRAY", pc: 2, c: 12000, r: 47, fx: "phased dishes in rows" },
-  { n: "BOREHOLE", short: "BOREHOLE", pc: 5, c: 130000, r: 260, fx: "listens through rock" },
-  { n: "OBSERVATORY", short: "DOME", pc: 11, c: 1.4e6, r: 1400, fx: "long watches of the sky" },
-  { n: "ARCHIVE VAULT", short: "VAULT", pc: 6, c: 2e7, r: 7800, fx: "mines old recordings" },
-  { n: "ECHO CHAMBER", short: "ECHO", pc: 9, c: 3.3e8, r: 44000, fx: "makes silence speak" },
-  { n: "PHASE LATTICE", short: "LATTICE", pc: 3, c: 5.1e9, r: 260000, fx: "steers the whole survey" },
-  { n: "DEEP-SKY ARRAY", short: "DEEP-SKY", pc: 10, c: 7.5e10, r: 1.6e6, fx: "hears the far dark" },
+  { n: "RECEIVER DISH", short: "DISH", pc: 0, sky: true, c: 10, r: 0.2, fx: "listens to the sky" },
+  { n: "RELAY MAST", short: "MAST", pc: 4, sky: true, c: 100, r: 1.2, fx: "boosts weak carriers" },
+  { n: "CORE DRILL", short: "DRILL", pc: 7, sky: false, c: 1100, r: 8, fx: "taps the buried hum" },
+  { n: "ARRAY FIELD", short: "ARRAY", pc: 2, sky: true, c: 12000, r: 47, fx: "phased dishes in rows" },
+  { n: "BOREHOLE", short: "BOREHOLE", pc: 5, sky: false, c: 130000, r: 260, fx: "listens through rock" },
+  { n: "OBSERVATORY", short: "DOME", pc: 11, sky: true, c: 1.4e6, r: 1400, fx: "long watches of the sky" },
+  { n: "ARCHIVE VAULT", short: "VAULT", pc: 6, sky: false, c: 2e7, r: 7800, fx: "mines old recordings" },
+  { n: "ECHO CHAMBER", short: "ECHO", pc: 9, sky: false, c: 3.3e8, r: 44000, fx: "makes silence speak" },
+  { n: "PHASE LATTICE", short: "LATTICE", pc: 3, sky: false, c: 5.1e9, r: 260000, fx: "steers the whole survey" },
+  { n: "DEEP-SKY ARRAY", short: "DEEP-SKY", pc: 10, sky: true, c: 7.5e10, r: 1.6e6, fx: "hears the far dark" },
   // schema 3: two late machines, each unlocked by a research project
-  { n: "ZERO-POINT LISTENER", short: "ZERO-POINT", pc: 1, c: 1.4e12, r: 1.1e7, fx: "hears between the quanta" },
-  { n: "SILENT ARRAY", short: "SILENT", pc: 8, c: 2.6e13, r: 8e7, fx: "answers what nobody sent" },
+  { n: "ZERO-POINT LISTENER", short: "ZERO-POINT", pc: 1, sky: false, c: 1.4e12, r: 1.1e7, fx: "hears between the quanta" },
+  { n: "SILENT ARRAY", short: "SILENT", pc: 8, sky: true, c: 2.6e13, r: 8e7, fx: "answers what nobody sent" },
 ];
 export const NP = PROD.length;
 export const PC_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
@@ -204,8 +206,8 @@ export const NR = RES.length;
 export const hasRes = (s, k) => s.rd.includes(k);
 export const resSlots = (s) => 1 + s.tree[11];
 export const tiersOwned = (s) => { let n = 0; for (let i = 0; i < NP; i++) if (s.own[i] > 0) n++; return n; };
-export const dataRate = (s) => 0.004 * tiersOwned(s) * (1 + 0.25 * s.tree[12]);
-export const dataBonus = (s) => 1 + 0.25 * s.tree[12];
+export const dataRate = (s) => 0.004 * tiersOwned(s) * (1 + 0.25 * s.tree[12]) * siteFx(s).data;
+export const dataBonus = (s) => (1 + 0.25 * s.tree[12]) * siteFx(s).data;
 export const unlockedN = (s) => { let n = 0; for (const sg of SONGS) if (s.lt >= sg.at) n++; return n; };
 export const masteredN = (s) => { let n = 0; for (const c of s.sc) if (c >= 5) n++; return n; };
 
@@ -258,7 +260,7 @@ export const NG = GOALS.length;
 export const goalFrac = (s, g) => clamp(g.v(s) / g.t, 0, 1);
 
 // ---- sense of place ------------------------------------------------------------------------
-export const STAGES = ["LANDING SITE", "FIELD STATION", "SURVEY CAMP", "DEEP BASE", "LISTENING CAMPUS", "DEEP-SKY COMPLEX", "SILENT COAST"];
+export const STAGES = ["A LANDER", "FIELD STATION", "SURVEY CAMP", "DEEP BASE", "LISTENING CAMPUS", "DEEP-SKY COMPLEX", "GREAT ARRAY"];
 // Twelve named constellations (star positions in a 0..1 box, then the lines between them); later
 // charts reuse the shapes, brighter, as "deep" charts.
 export const CONST = [
@@ -289,8 +291,142 @@ export function humNotes(mel, k = HUM_NOTES) {
 }
 // The machines a melody hums, in the order of its notes.
 export const humMachines = (mel, k = HUM_NOTES) => humNotes(mel, k).map((pc) => PC_PROD[pc]);
-export const humMultOf = (s) => HUM_MULT + 0.25 * s.tree[HARMONICS];
-export const humSecOf = (s, full) => HUM_SEC * (full ? 2 : 1);
+export const humMultOf = (s) => HUM_MULT + 0.25 * s.tree[HARMONICS] + siteFx(s).hum + (s.ans > 0 ? 0.5 : 0);
+export const humSecOf = (s, full) => HUM_SEC * (full ? 2 : 1) * siteFx(s).humT;
+export const humMaxOf = (s) => HUM_MAX * siteFx(s).humT;
+
+// ---- sites, surveys and the call --------------------------------------------------------
+// Relocating offers three SITES. Each changes the next run's rules (`fx`, a trade-off that suits a
+// way of playing) and holds two SOUNDINGS to take, objectives for the visit (called surveys in the
+// code: `sv.k` is what counts and `sv.t` the targets of sounding I and II). Soundings are kept for
+// ever: each is +SURVEY_BONUS output and decodes a fragment of THE CALL (a relic once the call is
+// whole). A site is known once the outpost has held `req` bearings in all (and `need`, when
+// given, holds; `hint` says what it takes). `terrain` is a key for drawing.
+// fx: mach (all machines), sky / ground (machines of that kind), tap (a tap's whole worth), tune
+// (phrase and tune bonuses), hum (added to the hum multiplier), humT (hum time), flare (how
+// often), exp (expedition speed), relic (relic chance), data, res (research speed), cap (away
+// hours added), groove (groove fill speed and bonus), growth (machine price growth), upg
+// (upgrade prices), silent (the silent array).
+const FX0 = { mach: 1, sky: 1, ground: 1, tap: 1, tune: 1, hum: 0, humT: 1, flare: 1, exp: 1, relic: 1, data: 1, res: 1, cap: 0, groove: 1, growth: GROWTH, upg: 1, silent: 1 };
+export const SITES = [
+  { n: "LANDING SITE", terrain: "plain", req: 0, fx: {}, rule: ["NO SPECIAL RULES"], lore: "WHERE THE OUTPOST CAME DOWN.", sv: { k: "tunes", t: [5, 20] } },
+  { n: "HIGH RIDGE", terrain: "ridge", req: 0, fx: { sky: 1.5, ground: 0.75 }, rule: ["SKY MACHINES x1.5", "GROUND MACHINES x0.75"], lore: "THIN AIR AND A CLEAR SKY.", sv: { k: "sky", t: [60, 150] } },
+  { n: "SINK BASIN", terrain: "basin", req: 0, fx: { sky: 0.75, ground: 1.5 }, rule: ["GROUND MACHINES x1.5", "SKY MACHINES x0.75"], lore: "THE GROUND HERE LISTENS BACK.", sv: { k: "ground", t: [60, 150] } },
+  { n: "SALT FLATS", terrain: "flats", req: 0, fx: { tap: 3, tune: 3, mach: 0.8 }, rule: ["TAPS x3, TUNE BONUSES x3", "MACHINES x0.8"], lore: "SOUND CARRIES FOR MILES.", sv: { k: "taps", t: [1200, 3600] } },
+  { n: "GLACIER", terrain: "glacier", req: 8, hint: "AT 8 BEARINGS IN ALL", fx: { mach: 1.4, cap: 8, tap: 0.5 }, rule: ["MACHINES x1.4, AWAY +8 H", "TAPS x0.5"], lore: "COLD ELECTRONICS RUN QUIET.", sv: { k: "watch", t: [3600, 14400] } },
+  { n: "ECHO CANYON", terrain: "canyon", req: 20, hint: "AT 20 BEARINGS IN ALL", fx: { hum: 0.5, humT: 2, tune: 2, mach: 0.9 }, rule: ["HUM +0.5, TWICE AS LONG", "TUNE BONUSES x2", "MACHINES x0.9"], lore: "EVERY NOTE COMES BACK.", sv: { k: "tunes", t: [15, 45] } },
+  { n: "CRATER RIM", terrain: "crater", req: 40, hint: "AT 40 BEARINGS IN ALL", fx: { flare: 2, mach: 0.7 }, rule: ["FLARES TWICE AS OFTEN", "MACHINES x0.7"], lore: "THE SKY FEELS CLOSE ENOUGH TO TOUCH.", sv: { k: "flares", t: [6, 18] } },
+  { n: "RUST COAST", terrain: "coast", req: 6, hint: "AT 6 BEARINGS, WITH A SURVEY TEAM", need: (s) => s.tree[5] > 0, fx: { exp: 2, relic: 1.5 }, rule: ["EXPEDITIONS TWICE AS FAST", "RELICS 50% MORE LIKELY"], lore: "OLD WRECKS ALONG THE TIDE LINE.", sv: { k: "exp", t: [3, 9] } },
+  { n: "FUMAROLE FIELD", terrain: "fumaroles", req: 60, hint: "AT 60 BEARINGS, AFTER ONE RESEARCH", need: (s) => s.rd.length > 0, fx: { data: 3, res: 2, mach: 0.9 }, rule: ["DATA x3", "RESEARCH TWICE AS FAST", "MACHINES x0.9"], lore: "WARM GROUND, BUSY INSTRUMENTS.", sv: { k: "data", t: [25, 75] } },
+  { n: "AURORA SHELF", terrain: "shelf", req: 150, hint: "AT 150 BEARINGS IN ALL", fx: { groove: 2, tune: 2 }, rule: ["GROOVE FILLS TWICE AS FAST", "FULL GROOVE x2 (NOT x1.5)", "TUNE BONUSES x2"], lore: "THE SKY HERE KEEPS TIME.", sv: { k: "groove", t: [400, 1200] } },
+  { n: "DRIFT DUNES", terrain: "dunes", req: 400, hint: "AT 400 BEARINGS IN ALL", fx: { growth: 1.14, upg: 2 }, rule: ["MACHINE PRICES RISE SLOWER", "UPGRADES COST x2"], lore: "THE SAND NEVER STOPS MOVING.", sv: { k: "buys", t: [300, 900] } },
+  { n: "THE SILENT COAST", terrain: "silent", req: 0, hint: "WHERE THE CALL LEADS, ONCE IT IS WHOLE", need: (s) => s.cf >= CALL_FRAGS, fx: { silent: 3 }, rule: ["WHERE THE CALL COMES FROM", "SILENT ARRAYS x3"], lore: "NOTHING HERE MAKES A SOUND.", sv: { k: "answer", t: [1, 3] } },
+].map((x, k) => ({ ...x, k, fx: { ...FX0, ...x.fx } }));
+export const NSITE = SITES.length;
+export const SILENT = 11; // the silent coast: where the call is answered
+export const SURVEY_BONUS = 0.1; // all output, per survey done
+export const SURVEY_LEVELS = 2;
+// What a survey asks, from its kind and target.
+export const SURVEY = {
+  tunes: (t) => "PLAY " + t + " TUNES THROUGH HERE",
+  sky: (t) => "OWN " + t + " OF ONE SKY MACHINE",
+  ground: (t) => "OWN " + t + " OF ONE GROUND MACHINE",
+  taps: (t) => "TAP " + fmtInt(t) + " TIMES HERE",
+  watch: (t) => "LEAVE IT RUNNING " + t / 3600 + " H HERE",
+  flares: (t) => "CATCH " + t + " FLARES HERE",
+  exp: (t) => "BRING BACK " + t + " EXPEDITIONS",
+  data: (t) => "GATHER " + t + " DATA HERE",
+  groove: (t) => "TAP " + fmtInt(t) + " TIMES IN FULL GROOVE",
+  buys: (t) => "MAKE " + fmtInt(t) + " PURCHASES HERE",
+  answer: (t) => (t > 1 ? "ANSWER THE CALL " + t + " TIMES" : "ANSWER THE CALL HERE"),
+};
+export function siteOf(s) { return SITES[s.site] || SITES[0]; }
+export function siteFx(s) { return siteOf(s).fx; }
+export function siteMach(s, i) { const f = siteFx(s); return f.mach * (PROD[i].sky ? f.sky : f.ground) * (i === NP - 1 ? f.silent : 1); }
+export const siteKnown = (s, k) => { const x = SITES[k]; return !!x && s.L >= x.req && (!x.need || x.need(s)); };
+export const surveysDone = (s) => { let n = 0; for (const v of s.sv) n += v; return n; };
+// The sounding to take where the outpost stands: kind, level, target (null once both are taken), progress.
+export function surveyOf(s) {
+  const x = siteOf(s), lvl = s.sv[x.k] || 0, t = lvl < SURVEY_LEVELS ? x.sv.t[lvl] : null;
+  let v = s.sx;
+  if (x.sv.k === "sky" || x.sv.k === "ground") { v = 0; for (let i = 0; i < NP; i++) if (PROD[i].sky === (x.sv.k === "sky")) v = Math.max(v, s.own[i]); }
+  return { k: x.sv.k, lvl, t, v, frac: t ? clamp(v / t, 0, 1) : 1, text: t ? SURVEY[x.sv.k](t) : "BOTH SOUNDINGS TAKEN" };
+}
+// The three sites offered at the next relocation (never the current one): the silent coast while
+// the call waits for an answer, then a site with its first sounding still to take, the rest at random.
+// `rnd` returns numbers in [0, 1).
+export function offerSites(s, rnd) {
+  const pool = [];
+  for (let k = 0; k < NSITE; k++) if (k !== s.site && siteKnown(s, k)) pool.push(k);
+  for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+  const out = [];
+  if (pool.includes(SILENT) && !s.ans) out.push(SILENT);
+  const fresh = pool.find((k) => !s.sv[k] && !out.includes(k));
+  if (fresh !== undefined) out.push(fresh);
+  for (const k of pool) if (out.length < 3 && !out.includes(k)) out.push(k);
+  return out;
+}
+
+// THE CALL: a melody hidden in the signal, decoded four notes at a time, a fragment per sounding
+// (CALL_ORDER says which group each fragment opens), with a log line per fragment. Undecoded notes play as a low drone
+// on its tonic. Once answered, it gains its answer: a closing phrase that comes home.
+export const CALL_ID = 101; // the save's s.sg value for THE CALL (a saved value: never change it)
+export const CALL_FRAGS = 11;
+export const CALL = "G#4 G#4 C#5 B4 G#4 E4 F#4 G#4 B4 A4 G#4 | G#4 G#4 C#5 B4 G#4 E5 D#5 C#5 B4 A4 B4 | E5 D#5 C#5 B4 C#5 D#5 E5 F#5 E5 D#5 C#5 | G#4 G#4 C#5 B4 A4 G#4 F#4 E4 D#4 E4 G#4";
+export const CALL_ANSWER = "C#5 B4 G#4 A4 F#4 G#4 E4 D#4 C#4";
+export const CALL_ORDER = [0, 5, 2, 8, 10, 3, 6, 1, 9, 4, 7];
+export const CALL_DRONE = 61; // C#4
+export const CALL_LOG = [
+  "A PATTERN UNDER THE NOISE. IT REPEATS.",
+  "IT IS NOT NATURAL. IT IS IN C SHARP MINOR.",
+  "IT REPEATS EVERY ELEVEN MINUTES, TO THE SECOND.",
+  "IT IS A MELODY. SOMEONE IS PLAYING IT.",
+  "THE SOURCE IS ON THIS WORLD, NOT IN THE SKY.",
+  "IT CHANGES WHEN WE PLAY. IT IS LISTENING.",
+  "THE MACHINES HUM ALONG WITHOUT BEING TOLD.",
+  "A BEARING AT LAST: A COAST WHERE NOTHING SOUNDS.",
+  "IT IS NOT A WARNING. IT IS AN INVITATION.",
+  "IT ENDS ON AN OPEN NOTE. A PLACE FOR A REPLY.",
+  "THE CALL IS WHOLE. THE SILENT COAST IS ON THE MAP.",
+];
+export const CALL_ANSWERED = "WE ANSWERED. THE COAST IS SILENT NO MORE.";
+export const CHORUS_MULT = 2; // all output, once the call is answered
+// The call as far as `cf` fragments have decoded it (answered: with its closing phrase).
+// `hidden[i]` marks a note still undecoded (it plays the drone).
+export function callMelody(cf, answered = false) {
+  const open = new Set(CALL_ORDER.slice(0, clamp(Math.floor(cf), 0, CALL_FRAGS)));
+  let at = 0;
+  const hidden = [];
+  const phrases = CALL.split("|").map((p) => p.trim().split(/\s+/).map((name) => {
+    const i = at++, shut = !open.has(Math.floor(i / 4));
+    hidden.push(shut);
+    return shut ? CALL_DRONE : noteOf(name);
+  }));
+  if (answered) phrases.push(CALL_ANSWER.split(" ").map((name) => { hidden.push(false); return noteOf(name); }));
+  const m = makeMelody(answered ? "THE CALL AND ANSWER" : cf >= CALL_FRAGS ? "THE CALL" : "THE CALL " + Math.floor(cf) + "/" + CALL_FRAGS, phrases, "C#", "min");
+  m.hidden = hidden;
+  return m;
+}
+const NOTE_PC = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+function noteOf(name) {
+  const m = /^([A-G])([#b]?)(-?\d)$/.exec(name);
+  return 12 * (Number(m[3]) + 1) + NOTE_PC[m[1]] + (m[2] === "#" ? 1 : m[2] === "b" ? -1 : 0);
+}
+
+// Feats for the console logbook (ctx.feat), each reported once (bit k of s.fe).
+export const FEATS = [
+  ["first-relocation", "FIRST RELOCATION", (s) => s.runs >= 1],
+  ["full-groove", "FULL GROOVE", (s) => !!(s.ev & EV.groove)],
+  ["perfect", "A PERFECT PERFORMANCE", (s) => !!(s.ev & EV.perfect)],
+  ["first-sounding", "FIRST SOUNDING", (s) => surveysDone(s) >= 1],
+  ["deep-sky", "DEEP-SKY ARRAY BUILT", (s) => s.maxTier >= 9],
+  ["silent-array", "THE SILENT ARRAY BUILT", (s) => s.maxTier >= 11],
+  ["first-constellation", "FIRST CONSTELLATION", (s) => s.cn >= 1],
+  ["call-decoded", "THE CALL DECODED", (s) => s.cf >= CALL_FRAGS],
+  ["call-answered", "THE CALL ANSWERED", (s) => s.ans >= 1],
+  ["every-site", "EVERY SITE SOUNDED", (s) => s.sv.every((v) => v >= 1)],
+  ["whole-sky", "THE WHOLE SKY CHARTED", (s) => s.cn >= 12],
+];
 
 // ---- pure economy ------------------------------------------------------------
 export const num = (x, hi = BIG) => (Number.isFinite(x) ? clamp(x, 0, hi) : x > 0 ? hi : 0);
@@ -325,11 +461,13 @@ const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "
 export const fmtDate = (ms) => { const d = new Date(ms); return Number.isFinite(d.getTime()) ? d.getDate() + " " + MONTHS[d.getMonth()] + " " + d.getFullYear() : "?"; };
 export const clock = (sec) => { sec = Math.max(0, Math.ceil(sec)); return Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0"); };
 
-export const costOf = (s, i, n = s.own[i]) => Math.ceil(PROD[i].c * Math.pow(GROWTH, Math.min(n, MAX_OWN)) * Math.pow(0.94, s.tree[2]));
+export const costOf = (s, i, n = s.own[i]) => Math.ceil(PROD[i].c * Math.pow(siteFx(s).growth, Math.min(n, MAX_OWN)) * Math.pow(0.94, s.tree[2]));
+export const upgCost = (s, u) => u.cost * siteFx(s).upg;
 export const milestonesAt = (n) => MILESTONES.filter((m) => n >= m).length;
 export const nextMilestone = (n) => MILESTONES.find((m) => n < m) || 0;
 export const globalMult = (s) => {
-  let g = (1 + s.L * (0.2 + 0.04 * s.tree[6])) * (1 + 0.25 * s.tree[9]) * (1 + 0.03 * s.relics) * (1 + 0.01 * s.gl.length) * (1 + 0.02 * masteredN(s)) * Math.pow(CHART_MULT, s.cn);
+  let g = (1 + s.L * (0.2 + 0.04 * s.tree[6])) * (1 + 0.25 * s.tree[9]) * (1 + 0.03 * s.relics) * (1 + 0.01 * s.gl.length) * (1 + 0.02 * masteredN(s)) * Math.pow(CHART_MULT, s.cn)
+    * (1 + SURVEY_BONUS * surveysDone(s)) * (s.ans > 0 ? CHORUS_MULT : 1);
   for (const k of GRID_IDX) if (s.up[k]) g *= 1.3;
   return num(g);
 };
@@ -338,7 +476,7 @@ export function prodMult(s, i) {
   for (const k of PROD_UPG[i]) if (s.up[k]) m *= 2;
   let add = 0;
   for (const y of SYN_BY_DST[i]) if (s.up[y.idx]) add += 0.02 * s.own[y.src] * (1 + 0.5 * s.tree[8]);
-  return num(m * (1 + add));
+  return num(m * (1 + add) * siteMach(s, i));
 }
 // Fills out[i] with each machine's output per second and returns the total. `hum`, when given,
 // holds a multiplier per machine (1 for a quiet one).
@@ -358,7 +496,7 @@ export function tapParts(s) {
   return { mult, frac };
 }
 export const capHours = (s) => {
-  let h = BASE_CAP_H + 4 * s.tree[3];
+  let h = BASE_CAP_H + 4 * s.tree[3] + siteFx(s).cap;
   for (const u of UPG) if (u.kind === "cap" && s.up[u.idx]) h += u.hours;
   return h;
 };
@@ -373,7 +511,7 @@ export const slotsOf = (s) => (s.tree[5] ? s.tree[5] : 0);
 export function upgradeVisible(s, u) {
   if (s.up[u.idx]) return false;
   const rtNeed = u.rt ?? 0;
-  if (s.rt < Math.max(rtNeed, 0.2 * u.cost)) return false;
+  if (s.rt < Math.max(rtNeed, 0.2 * upgCost(s, u))) return false;
   if (u.kind === "voice") return hasRes(s, 1) && (u.lvl === 0 || !!s.up[VOICE[u.lvl - 1]]);
   if (u.kind === "prod") return s.own[u.i] >= u.need;
   if (u.kind === "syn") return s.own[u.src] >= u.need && s.own[u.dst] >= u.need;
@@ -393,7 +531,8 @@ export const freshStats = () => Object.fromEntries(ST_KEYS.map((k) => [k, 0]));
 export function freshState() {
   return { sig: 0, rt: 0, lt: 0, own: Array(NP).fill(0), up: new Uint8Array(NUP), taps: 0, b: 0, L: 0, tree: Array(NT).fill(0),
     relics: 0, runs: 0, maxTier: 0, ex: [], play: 0, last: {}, milestone: 0, extra: null,
-    st: freshStats(), f: Date.now(), fk: 1, sg: 0, sp: 0, gs: 1, sm: 0, sc: Array(NS).fill(0), gl: [], ev: 0, rd: [], rs: [], dat: 0, cn: 0 };
+    st: freshStats(), f: Date.now(), fk: 1, sg: 0, sp: 0, gs: 1, sm: 0, sc: Array(NS).fill(0), gl: [], ev: 0, rd: [], rs: [], dat: 0, cn: 0,
+    site: 0, sx: 0, sv: Array(NSITE).fill(0), of: [], cf: 0, ans: 0, fe: 0 };
 }
 export function applyKit(s) {
   const l = s.tree[0], kit = KIT[l] || [];
@@ -404,12 +543,13 @@ export function applyKit(s) {
 
 // ---- saving -------------------------------------------------------------------
 const KNOWN = new Set(["v", "t", "sig", "rt", "lt", "own", "up", "taps", "b", "L", "tree", "relics", "runs", "maxTier", "ex", "play", "last", "milestone",
-  "st", "f", "fk", "sg", "sp", "gs", "sm", "sc", "gl", "ev", "rd", "rs", "dat", "cn"]);
+  "st", "f", "fk", "sg", "sp", "gs", "sm", "sc", "gl", "ev", "rd", "rs", "dat", "cn", "site", "sx", "sv", "of", "cf", "ans", "fe"]);
 export function serialize(s, t) {
   const out = { v: SCHEMA, t, sig: num(s.sig), rt: num(s.rt), lt: num(s.lt), own: s.own.slice(), up: [], taps: s.taps, b: s.b, L: s.L,
     tree: s.tree.slice(), relics: s.relics, runs: s.runs, maxTier: s.maxTier, ex: s.ex.map((e) => [e.k, e.end]), play: Math.floor(s.play),
     last: s.last, milestone: s.milestone, st: Object.fromEntries(Object.entries(s.st).map(([k, v]) => [k, Math.round(v * 100) / 100])), f: s.f, fk: s.fk, sg: s.sg, sp: s.sp, gs: s.gs, sm: s.sm, sc: s.sc.slice(), gl: s.gl.slice(),
-    ev: s.ev, rd: s.rd.slice(), rs: s.rs.map((e) => [e.k, e.end]), dat: Math.round(s.dat * 100) / 100, cn: s.cn };
+    ev: s.ev, rd: s.rd.slice(), rs: s.rs.map((e) => [e.k, e.end]), dat: Math.round(s.dat * 100) / 100, cn: s.cn,
+    site: s.site, sx: Math.round(s.sx * 100) / 100, sv: s.sv.slice(), of: s.of.slice(), cf: s.cf, ans: s.ans, fe: s.fe };
   for (let i = 0; i < NUP; i++) if (s.up[i]) out.up.push(i);
   if (s.extra && JSON.stringify(s.extra).length < 1500) Object.assign(out, s.extra);
   return out;
@@ -449,7 +589,7 @@ export function migrate(raw) {
     const rs = r.st && typeof r.st === "object" && !Array.isArray(r.st) ? r.st : {};
     for (const k of ST_KEYS) s.st[k] = num(Number(rs[k]), 1e15);
     s.f = num(Number(r.f), 1e15) || Date.now(); s.fk = r.fk ? 1 : 0;
-    s.sg = Number(r.sg) === GEN_ID ? GEN_ID : int(r.sg, NS - 1);
+    s.sg = Number(r.sg) === GEN_ID || Number(r.sg) === CALL_ID ? Number(r.sg) : int(r.sg, NS - 1);
     s.sp = int(r.sp, 5000); s.gs = (Number(r.gs) >>> 0) || 1; s.sm = int(r.sm, 2);
     if (Array.isArray(r.sc)) for (let i = 0; i < NS; i++) s.sc[i] = int(r.sc[i], 1e9);
     if (Array.isArray(r.gl)) for (const k of r.gl) { const i = Math.floor(Number(k)); if (i >= 0 && i < NG && !s.gl.includes(i)) s.gl.push(i); }
@@ -458,6 +598,15 @@ export function migrate(raw) {
     if (Array.isArray(r.rs)) for (const e of r.rs.slice(0, 3)) if (Array.isArray(e) && e[0] >= 0 && e[0] < NR) s.rs.push({ k: Math.floor(e[0]), end: num(Number(e[1]), 1e15) });
     s.dat = num(Number(r.dat), 1e12);
     s.cn = int(r.cn, CHART_MAX); // schema 4 (a schema 3 save has none: 0)
+  }
+  // schema 5: sites, surveys and the call (an older save stands at the landing site, nothing surveyed)
+  if (v >= 5) {
+    const site = Math.floor(Number(r.site));
+    s.site = site >= 0 && site < NSITE ? site : 0; s.sx = num(Number(r.sx), 1e15);
+    if (Array.isArray(r.sv)) for (let k = 0; k < NSITE; k++) s.sv[k] = int(r.sv[k], SURVEY_LEVELS);
+    s.cf = int(r.cf, CALL_FRAGS); s.ans = int(r.ans, 1e6); s.fe = int(r.fe, 2 ** 30);
+    if (Array.isArray(r.of)) for (const x of r.of.slice(0, 3)) { const k = Math.floor(Number(x)); if (k >= 0 && k < NSITE && k !== s.site && !s.of.includes(k)) s.of.push(k); }
+    if (s.ans && s.cf < CALL_FRAGS) s.cf = CALL_FRAGS;
   }
   if (v > SCHEMA) {
     const extra = {};

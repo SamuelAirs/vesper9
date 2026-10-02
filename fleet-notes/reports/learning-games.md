@@ -10,8 +10,7 @@ Perihelion bot test that also fails on `main` in this environment. **Nothing her
 
 ## Second pass: depth and visuals (Sam, 2026-10-01 23:05: "their own game that you can sink time into")
 
-- Both games: a rank from experience (Echo CADET to LEGEND OF THE BAND, Glyph NOVICE to LOREMASTER), one
-  daily contract (same all day, +150 XP) and feats (13 Echo, 12 Glyph). Shared helpers `rankOf`, `dayIndex`,
+- (Superseded by the fourth pass.) Both games: a rank from experience, one daily contract and feats. Shared helpers `rankOf`, `dayIndex`,
   `dailyFor`, `award` in `learning.js`. New save fields (xp, contracts, feats, daily; Echo stations; Glyph
   plates) migrate inside schema 2, with tests; full saves stay well under 8 KiB.
 - Echo Vault: the last word of each 30-word shift is a far station's call sign (contact, double points);
@@ -22,6 +21,15 @@ Perihelion bot test that also fails on `main` in this environment. **Nothing her
   restored (+100 XP) when every entry on it reaches strength 3. New hall backdrop, slabs slide in, verdict
   stamp, combo pips, wax seals. Holding past the last wing opens the archivist's desk (rank, all plates,
   feats); a tap goes back.
+
+## Fourth pass: the console logbook (PR #16)
+
+PR #16 moves daily goals, the streak and feats into one console-wide logbook. Following its cut list:
+ranks, XP, daily contracts and day streaks are gone from both games (the old save fields are dropped on
+load, with tests); Glyph Archive's desk page is gone (hold cycles the four wings again); Echo's logbook
+page is now a station log only. Feats are reported with `ctx.feat(id, name)` (called as `ctx.feat?.`, so
+the games run without #16, but feats only show once #16 is in). The titles now show what is due for
+practice (Echo) and the next plate to restore (Glyph). **Merge #16 first.**
 
 ## Third pass: the platform review (2026-10-02)
 

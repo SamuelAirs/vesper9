@@ -1,9 +1,9 @@
 // Echo Vault (web/apps/echo.js): the Morse sending game, its spaced practice and its save.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { EchoVault, migrateEcho, schoolLetters, callSign, ORDER, WORDS, SHIELDS, SHIFT, FIRST_LETTERS, STATIONS, CONTRACTS, FEATS, RANKS } from "../web/apps/echo.js";
+import { EchoVault, migrateEcho, schoolLetters, callSign, ORDER, WORDS, SHIELDS, SHIFT, FIRST_LETTERS, STATIONS, FEATS } from "../web/apps/echo.js";
 import { MORSE } from "../web/apps/morse.js";
-import { credit, fault, need, practiseDay, SPACING, rankOf, dailyFor, dayIndex, award, tally, settle } from "../web/apps/learning.js";
+import { need, SPACING, tally, settle } from "../web/apps/learning.js";
 import { appContext, fakeCanvas } from "./helpers/app-context.mjs";
 
 const DT = 1 / 60;
@@ -111,19 +111,6 @@ test("Echo Vault: hints fade with strength; strength 4 shows the code only after
   assert.equal(at(2, 2.9), false); assert.equal(at(2, 3.1), true);
   assert.equal(at(4, 60), false);
   g.shown = true; assert.equal(g.hintVisible(), true);
-});
-
-test("Echo Vault spacing: strength rises once a session, only when due or weak, and a miss drops one step once", () => {
-  const t = {}, raised = {}, dropped = {};
-  assert.equal(credit(t, "E", 1, raised), true); assert.deepEqual(t.E, [1, 1 + SPACING[1], 1, 0]);
-  assert.equal(credit(t, "E", 1, raised), false, "twice in one session");
-  assert.equal(credit(t, "E", 2, {}), true); assert.equal(t.E[0], 2); assert.equal(t.E[1], 2 + SPACING[2]);
-  assert.equal(credit(t, "E", 3, {}), false, "strength 2 is not due again until session 4");
-  assert.equal(credit(t, "E", 4, {}), true); assert.equal(t.E[0], 3);
-  assert.equal(fault(t, "E", 5, {}, dropped), true); assert.equal(t.E[0], 2); assert.equal(t.E[1], 5);
-  assert.equal(fault(t, "E", 5, {}, dropped), false); assert.equal(t.E[0], 2, "a second miss in a session costs nothing more");
-  assert.equal(t.E[3], 2, "both misses are counted");
-  assert.ok(need(t, "E", 5) > need({ X: [5, 99, 9, 0] }, "X", 5), "a due, missed letter wants practice more than a mastered one");
 });
 
 test("Echo Vault: a new letter opens after a run once every letter in play is strong enough, one at a time", () => {
@@ -234,19 +221,15 @@ test("Echo Vault: leaving mid-run scores and saves the run; leaving an idle titl
   assert.equal(d.calls.saved.length, 0); assert.equal(d.calls.score.length, 0);
 });
 
-test("Echo Vault: days practised make a streak; a full save stays small", () => {
-  let d = practiseDay(undefined, "2026-10-01");
-  assert.deepEqual(d, { last: "2026-10-01", streak: 1, total: 1 });
-  d = practiseDay(d, "2026-10-01"); assert.equal(d.total, 1);
-  d = practiseDay(d, "2026-10-02"); assert.equal(d.streak, 2);
-  d = practiseDay(d, "2026-10-05"); assert.equal(d.streak, 1); assert.equal(d.total, 3);
+test("Echo Vault: a full save stays small", () => {
   const full = migrateEcho({ schema: 2, pool: 26, letters: Object.fromEntries([...ORDER].map((k) => [k, [5, 999, 9999, 9999]])) });
   assert.ok(JSON.stringify(full).length < 2048);
   assert.ok(WORDS.every((w) => /^[A-Z]+$/.test(w)), "every word is plain letters");
 });
 
-test("Echo Vault depth: the last word of a shift is a station's call sign; keying it logs the station and earns experience", () => {
-  const c = appContext({ seed: 21 }), g = new EchoVault(c);
+test("Echo Vault depth: the last word of a shift is a station's call sign; keying it logs the station and reports feats to the console", () => {
+  const c = appContext({ seed: 21 }), g = new EchoVault(c), feats = [];
+  c.feat = (id, name) => feats.push([id, name]);
   begin(g);
   let sign = "", pool = [];
   for (let i = 0; i < 400 * 60 && g.phase === "play"; i++) {
@@ -258,33 +241,25 @@ test("Echo Vault depth: the last word of a shift is a station's call sign; keyin
   assert.equal(g.result.reason, "opened");
   assert.equal(sign, callSign(0, pool), "the call sign is built from open letters");
   assert.equal(g.result.station, STATIONS[0]); assert.equal(g.sv.stations, 1);
-  assert.ok(g.result.xp >= SHIFT * 5 + 50, "xp " + g.result.xp); assert.equal(g.sv.xp, g.result.xp);
-  assert.ok(g.sv.feats.includes("first")); assert.ok(g.result.feats.includes("FIRST CONTACT"));
-  assert.equal(g.sv.daily.day, g.today());
+  assert.deepEqual(feats.find(([id]) => id === "first"), ["first", "FIRST CONTACT"], "the console's logbook hears of the feat");
+  assert.ok(feats.every(([id, name]) => FEATS.some((f) => f.id === id && f.name === name)));
   step(g, 2); const saved = c.calls.saved.at(-1);
-  assert.equal(saved.stations, 1); assert.equal(saved.xp, g.sv.xp); assert.ok(JSON.stringify(saved).length < 8192);
+  assert.equal(saved.stations, 1); assert.ok(JSON.stringify(saved).length < 8192);
+  for (const gone of ["xp", "contracts", "feats", "daily", "days"]) assert.equal(gone in saved, false, gone + " belongs to the console now");
 });
 
-test("Echo Vault depth: ranks, one contract a day and feats earned once", () => {
-  assert.equal(rankOf(0, RANKS).name, "CADET"); assert.equal(rankOf(299, RANKS).name, "CADET");
-  assert.equal(rankOf(300, RANKS).name, "LISTENER"); assert.equal(rankOf(1e9, RANKS).fraction, 1);
-  const a = dailyFor(null, "2026-10-01", CONTRACTS.length);
-  assert.deepEqual(dailyFor({ ...a, done: true }, "2026-10-01", CONTRACTS.length), { ...a, done: true }, "kept all day");
-  assert.equal(dailyFor({ ...a, done: true }, "2026-10-02", CONTRACTS.length).done, false, "a new day, a new contract");
-  const ids = new Set(); for (let d = 1; d <= 28; d++) ids.add(dayIndex(`2026-02-${String(d).padStart(2, "0")}`, CONTRACTS.length));
-  assert.ok(ids.size >= 4, "contracts vary across days");
-  const feats = []; assert.deepEqual(award(feats, FEATS, (id) => id === "first"), ["FIRST CONTACT"]);
-  assert.deepEqual(award(feats, FEATS, (id) => id === "first"), [], "a feat is earned once");
+test("Echo Vault save: ranks, contracts, streaks and feats from the last build are dropped; stations stay", () => {
   const old = migrateEcho({ schema: 1, runs: 3 });
-  assert.equal(old.xp, 0); assert.equal(old.stations, 0); assert.deepEqual(old.feats, []); assert.equal(old.daily, null);
-  const odd = migrateEcho({ schema: 2, xp: -5, stations: 99, feats: ["first", "nope", 3], daily: { day: "2026-10-01", id: 2, done: 1 } });
-  assert.equal(odd.xp, 0); assert.equal(odd.stations, STATIONS.length); assert.deepEqual(odd.feats, ["first"]);
-  assert.deepEqual(odd.daily, { day: "2026-10-01", id: 2, done: true });
+  assert.equal(old.stations, 0);
+  const odd = migrateEcho({ schema: 2, xp: 900, stations: 99, feats: ["first"], contracts: 4, daily: { day: "2026-10-01", id: 2, done: 1 }, days: { streak: 3 } });
+  assert.equal(odd.stations, STATIONS.length);
+  for (const gone of ["xp", "contracts", "feats", "daily", "days"]) assert.equal(gone in odd, false, gone);
+  const g = new EchoVault(appContext({ seed: 30 })); begin(g); g.dispose(); // no ctx.feat (no console logbook): still fine
 });
 
-test("Echo Vault: a hold on the title shows the code card, a second the logbook, a third goes back; every page draws", () => {
+test("Echo Vault: a hold on the title shows the code card, a second the station log, a third goes back; every page draws", () => {
   const c = appContext({ seed: 22 }), g = new EchoVault(c);
-  g.sv.stations = 5; g.sv.feats = ["first", "ten"]; g.sv.xp = 1200;
+  g.sv.stations = 5;
   const hold = () => { g.down(); step(g, 0.6); g.up({ durationMs: 600 }); };
   hold(); assert.equal(g.phase, "card"); assert.equal(g.page, "code"); g.draw(fakeCanvas());
   hold(); assert.equal(g.page, "log"); g.draw(fakeCanvas());

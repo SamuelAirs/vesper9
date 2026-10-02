@@ -152,9 +152,7 @@ test("Glyph Archive: entries grow stronger across sessions, and reverse cards co
 test("Glyph Archive: a hold on the title changes the wing; the hold that ends a session does not", () => {
   const c = appContext({ seed: 8 }), g = new GlyphVault(c);
   hold(g); assert.equal(g.wing().id, "greek"); assert.equal(g.phase, "title");
-  hold(g); hold(g); assert.equal(g.wing().id, "phonetic");
-  hold(g); assert.equal(g.desk, true, "after the last wing comes the desk"); assert.equal(g.phase, "title");
-  hold(g); assert.equal(g.desk, false); assert.equal(g.wing().id, "braille", "the wings wrap around");
+  hold(g); hold(g); hold(g); assert.equal(g.wing().id, "braille", "the wings wrap around");
   hold(g); begin(g); assert.equal(g.wing().id, "greek");
   g.seals = 1; g.card.truth = true;
   g.down(); step(g, 0.45); assert.equal(g.phase, "over");
@@ -207,28 +205,27 @@ test("Glyph Archive depth: every wing's plates cover its entries; a plate is res
     assert.equal(r[0].from, 0); assert.equal(r.at(-1).to, wing.entries.length, wing.id);
     for (let i = 1; i < r.length; i++) assert.equal(r[i].from, r[i - 1].to, wing.id);
   }
-  const c = appContext({ seed: 23 }), g = new GlyphVault(c);
+  const c = appContext({ seed: 23 }), g = new GlyphVault(c), feats = [];
+  c.feat = (id, name) => feats.push(id);
   const deck = g.sv.decks.braille; deck.open = 10;
   for (const e of WINGS[0].entries.slice(0, 10)) deck.items[e.k] = [PLATE_STRENGTH, 99, 5, 0];
   begin(g); bot(g, { accuracy: 1 });
   assert.equal(g.result.reason, "complete");
   assert.deepEqual(g.result.plates, [WINGS[0].plates[0][1]]); assert.deepEqual(g.sv.plates, ["braille:0"]);
-  assert.ok(g.result.xp >= 100 + 40); assert.ok(g.sv.feats.includes("plate") && g.sv.feats.includes("first"));
-  assert.ok(g.result.feats.length >= 2);
+  assert.ok(feats.includes("plate") && feats.includes("first"), "feats go to the console's logbook: " + feats);
   step(g, 2); g.down(); step(g, 0.1); g.up({ durationMs: 60 }); begin(g); bot(g, { accuracy: 1 });
   assert.deepEqual(g.result.plates, [], "a restored plate is not restored twice"); assert.equal(g.sv.plates.length, 1);
 });
 
-test("Glyph Archive depth: new fields migrate safely, the desk draws, and a tap on the desk goes back", () => {
+test("Glyph Archive save: ranks, contracts, streaks and feats from the last build are dropped; plates stay", () => {
   const old = migrateGlyphs({ schema: 1, runs: 2 });
-  assert.equal(old.xp, 0); assert.deepEqual(old.plates, []); assert.deepEqual(old.feats, []); assert.equal(old.daily, null);
-  const odd = migrateGlyphs({ schema: 2, xp: 50.7, plates: ["braille:0", 7, ...Array(40).fill("greek:1")], feats: ["first", "zzz"] });
-  assert.equal(odd.xp, 50); assert.equal(odd.plates.length, 32); assert.deepEqual(odd.feats, ["first"]);
+  assert.deepEqual(old.plates, []);
+  const odd = migrateGlyphs({ schema: 2, xp: 50, plates: ["braille:0", 7, ...Array(40).fill("greek:1")], feats: ["first"], contracts: 2, daily: {}, days: {} });
+  assert.equal(odd.plates.length, 32);
+  for (const gone of ["xp", "contracts", "feats", "daily", "days"]) assert.equal(gone in odd, false, gone);
   assert.ok(FEATS.every((f) => f.name.length <= 24));
-  const c = appContext({ seed: 24 }), g = new GlyphVault(c);
-  g.sv.wing = WINGS.length - 1; g.sv.plates = ["braille:0", "greek:2"]; g.sv.feats = ["first", "plate"];
-  hold(g); assert.equal(g.desk, true); g.draw(fakeCanvas());
-  tap(g); assert.equal(g.desk, false); assert.equal(g.phase, "title"); assert.equal(g.wing().id, "phonetic");
+  const g = new GlyphVault(appContext({ seed: 24 }));
+  g.sv.plates = ["braille:0"]; g.draw(fakeCanvas());
 });
 
 test("Glyph Archive: which-of-two cards; a tap picks the upper meaning, a hold the lower; both draw", () => {

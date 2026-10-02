@@ -4,8 +4,7 @@ import { AppGuard } from "../engine/input.js";
 import { LAMP, fill, only, meter, spot, dim, pulse, lightsOff } from "../engine/lightshow.js";
 import { LampBus, LOCKOUT, announce, drawNote } from "./game-kit.js";
 import { MORSE } from "./morse.js";
-import { validRecord, tally, settle, need, strength, weightedPick, localDay, practiseDay, MASTERED,
-  rankOf, dayIndex, dailyFor, award } from "./learning.js";
+import { validRecord, tally, settle, need, strength, weightedPick, MASTERED, dayIndex } from "./learning.js";
 
 // ---------------------------------------------------------------------------------------------
 // Echo Vault: a Morse sending game. Words approach the vault as transmissions; key each letter
@@ -50,37 +49,16 @@ export const WORDS = (
   "CQ SOS DE QTH QSL QRZ TNX RST WX RIG HI OM ES"
 ).split(" ");
 
-// A rank from experience: two points a letter, five a word, fifty for opening the vault, 150 a contract.
-export const RANKS = [[0, "CADET"], [300, "LISTENER"], [1000, "OPERATOR"], [2500, "SPARKS"], [5000, "CHIEF OPERATOR"],
-  [9000, "RADIO OFFICER"], [15000, "SIGNALMASTER"], [25000, "LEGEND OF THE BAND"]];
 // The far stations. Every shift ends with a station's call sign; key it and the station is in the log.
 export const STATIONS = ["KESTREL RIDGE", "TIDEWATCH", "CINDER FLATS", "ORRERY NINE", "GLASS HARBOR", "DUSKWELL",
   "FAR LANTERN", "HOLLOW MOON", "SALT MERIDIAN", "QUIET RELAY", "AMBER DEEP", "NORTH CAIRN", "VESPER TWO",
   "ASH COLONY", "DRIFT STATION", "LONG ECHO", "MIRROR BASIN", "OLD BEACON", "SKYE ARRAY", "THE LAST OUTPOST"];
-// One contract a day (the same all day), checked when a shift ends.
-export const CONTRACTS = [
-  { text: "OPEN THE VAULT WITHOUT LOSING A SHIELD", met: (r) => r.reason === "opened" && r.shieldsLost === 0 },
-  { text: "REACH A COMBO OF 20 LETTERS", met: (r) => r.bestCombo >= 20 },
-  { text: "CLEAR 5 ECHO WORDS IN ONE SHIFT", met: (r) => r.echoes >= 5 },
-  { text: "KEY 70 LETTERS IN ONE SHIFT", met: (r) => r.letters >= 70 },
-  { text: "OPEN THE VAULT 90% CLEAN", met: (r) => r.reason === "opened" && r.accuracy >= 90 },
-  { text: "CLEAR 3 PRIORITY WORDS IN ONE SHIFT", met: (r) => r.priority >= 3 },
-  { text: "MAKE CONTACT WITH A NEW STATION", met: (r) => r.contact },
-];
+// Feats go to the console's logbook (ctx.feat), which keeps one list for every game and shows each once.
 export const FEATS = [
-  { id: "first", name: "FIRST CONTACT", about: "open the vault" },
-  { id: "untouched", name: "UNTOUCHED", about: "open it, no shield lost" },
-  { id: "carrier", name: "LONG CARRIER", about: "a combo of 30 letters" },
-  { id: "ears", name: "GOOD EARS", about: "8 echo words in a shift" },
-  { id: "ten", name: "TEN LETTERS", about: "10 letters open" },
-  { id: "most", name: "MOST OF THE CODE", about: "18 letters open" },
-  { id: "all", name: "THE WHOLE ALPHABET", about: "all 26 letters open" },
-  { id: "master", name: "FIRST MASTERY", about: "a letter fully strong" },
-  { id: "master10", name: "TEN MASTERED", about: "10 letters fully strong" },
-  { id: "fast", name: "FAST HANDS", about: "45 letters a minute" },
-  { id: "week", name: "A WEEK ON THE AIR", about: "7 days in a row" },
-  { id: "stations", name: "TWELVE STATIONS", about: "12 stations in the log" },
-  { id: "contracts", name: "CONTRACTOR", about: "5 daily contracts" },
+  { id: "first", name: "FIRST CONTACT" }, { id: "untouched", name: "UNTOUCHED" }, { id: "carrier", name: "LONG CARRIER" },
+  { id: "ears", name: "GOOD EARS" }, { id: "ten", name: "TEN LETTERS" }, { id: "most", name: "MOST OF THE CODE" },
+  { id: "all", name: "THE WHOLE ALPHABET" }, { id: "master", name: "FIRST MASTERY" }, { id: "master10", name: "TEN MASTERED" },
+  { id: "fast", name: "FAST HANDS" }, { id: "stations", name: "TWELVE STATIONS" },
 ];
 // A station's call sign: four open letters, the same for that station while the open letters stay the same.
 export function callSign(station, pool) {
@@ -108,12 +86,7 @@ export function migrateEcho(raw) {
     session: v.schema === 2 ? Math.max(0, v.session | 0) : 0,
     letters,
     best: { score: Math.max(0, best.score | 0), words: Math.max(0, best.words | 0), cpm: Math.max(0, best.cpm | 0) },
-    days: v.schema === 2 && v.days ? { last: String(v.days.last || ""), streak: v.days.streak | 0, total: v.days.total | 0 } : { last: "", streak: 0, total: 0 },
-    xp: v.schema === 2 ? Math.max(0, v.xp | 0) : 0,
     stations: v.schema === 2 ? clamp(v.stations | 0, 0, STATIONS.length) : 0,
-    contracts: v.schema === 2 ? Math.max(0, v.contracts | 0) : 0,
-    feats: v.schema === 2 && Array.isArray(v.feats) ? v.feats.filter((id) => FEATS.some((f) => f.id === id)) : [],
-    daily: v.schema === 2 && v.daily && typeof v.daily === "object" ? { day: String(v.daily.day || ""), id: v.daily.id | 0, done: !!v.daily.done } : null,
   };
 }
 // Letters Signal School has taught: its guided lesson position counts letters in the same order.
@@ -144,12 +117,6 @@ export class EchoVault {
   poolSize() { return clamp(Math.max(this.sv.pool, schoolLetters(this.c)), FIRST_LETTERS, ORDER.length); }
   pool() { return ORDER.slice(0, this.poolSize()).split(""); }
   mastered() { return ORDER.split("").filter((k) => strength(this.sv.letters, k) >= MASTERED).length; }
-  contract() {
-    const today = this.today();
-    if (this.sv.daily?.day !== today) this.sv.daily = dailyFor(this.sv.daily, today, CONTRACTS.length);
-    return this.sv.daily;
-  }
-  rank() { return rankOf(this.sv.xp, RANKS); }
   title() {
     this.phase = "title";
     this.page = "";
@@ -159,7 +126,6 @@ export class EchoVault {
   // ------------------------------------------------------------------------------------- a run
   start() {
     this.sv.session += 1;
-    this.sv.days = practiseDay(this.sv.days, this.today());
     const pool = this.pool();
     // Letters never answered yet are introduced before the first transmission.
     this.fresh = pool.filter((k) => { const r = this.sv.letters[k]; return !r || r[2] + r[3] === 0; }).slice(0, 4);
@@ -175,7 +141,6 @@ export class EchoVault {
     this.result = null;
     if (this.fresh.length) this.introduce(0); else this.nextWord();
   }
-  today() { return localDay(); }
   // The new letter card: the letter, its code drawn and played twice on the sidetone and the lamps.
   introduce(i) {
     this.phase = "intro";
@@ -372,22 +337,16 @@ export class EchoVault {
     sv.runs += 1;
     sv.milestone = Math.max(sv.milestone, run.cleared);
     sv.last = { words: run.cleared, letters: run.letters, accuracy, cpm, score: run.points, milestone: run.cleared, reason };
-    // The longer game: experience and rank, the station log, today's contract and feats.
-    const before = this.rank().index;
-    let xp = run.letters * 2 + run.cleared * 5 + (reason === "opened" ? 50 : 0);
+    // The station log, and feats for the console's logbook (it keeps each once and announces new ones).
     let station = "";
     if (run.contact && sv.stations < STATIONS.length) { station = STATIONS[sv.stations]; sv.stations += 1; }
-    const daily = this.contract(), facts = { ...run, reason, accuracy };
-    let contract = false;
-    if (!daily.done && reason !== "left" && CONTRACTS[daily.id].met(facts)) { daily.done = true; contract = true; sv.contracts += 1; xp += 150; }
-    sv.xp = Math.min(1e9, sv.xp + xp);
     const mastered = this.mastered(), open = this.poolSize();
-    const feats = award(sv.feats, FEATS, (id) => ({
+    const earned = {
       first: reason === "opened", untouched: reason === "opened" && run.shieldsLost === 0, carrier: run.bestCombo >= 30,
       ears: run.echoes >= 8, ten: open >= 10, most: open >= 18, all: open >= 26, master: mastered >= 1, master10: mastered >= 10,
-      fast: reason === "opened" && cpm >= 45, week: sv.days.streak >= 7, stations: sv.stations >= 12, contracts: sv.contracts >= 5 })[id]);
-    const promoted = this.rank().index > before ? this.rank().name : "";
-    this.result = { reason, cpm, accuracy, unlocked, record, xp, station, contract, feats, promoted };
+      fast: reason === "opened" && cpm >= 45, stations: sv.stations >= 12 };
+    for (const f of FEATS) if (earned[f.id]) this.c.feat?.(f.id, f.name);
+    this.result = { reason, cpm, accuracy, unlocked, record, station };
     if (run.points > 0) this.c.score(run.points);
     this.c.saveProgress?.(JSON.parse(JSON.stringify(sv)))?.catch?.(this.c.error);
     this.c.hint("Tap to open the vault again. Hold for the code card.");
@@ -408,7 +367,7 @@ export class EchoVault {
     // A press that began in play does nothing on the result screen it ended on.
     if (this.downOn !== this.phase && this.phase === "over") return;
     if (this.phase === "title" || this.phase === "over" || this.phase === "card") {
-      // Hold: the code card, then the logbook, then back. Tap on a page goes back to the title.
+      // Hold: the code card, then the station log, then back. Tap on a page goes back to the title.
       if (ms >= HOLD_PICK * 1000) {
         if (this.phase !== "card") { this.phase = "card"; this.page = "code"; }
         else if (this.page === "code") this.page = "log";
@@ -490,7 +449,7 @@ export class EchoVault {
     const run = this.run;
     this.c.hud(this.phase === "play" || this.phase === "intro"
       ? [["SCORE", run.points], ["COMBO", run.combo], ["SHIELDS", this.shields ? "◇".repeat(this.shields) : "0"], ["LETTERS", `${this.poolSize()} / 26`]]
-      : [["LETTERS", `${this.poolSize()} / 26`], ["MASTERED", this.mastered()], ["BEST", this.sv.best.score], ["DAYS", this.sv.days.streak]]);
+      : [["LETTERS", `${this.poolSize()} / 26`], ["MASTERED", this.mastered()], ["BEST", this.sv.best.score]]);
   }
   step(dt) {
     const run = this.run;
@@ -565,27 +524,19 @@ export class EchoVault {
     if (this.phase === "over") return this.drawResult(g);
     this.drawPlay(g);
   }
-  // Rank, experience and the bar to the next rank.
-  drawRank(g, y) {
-    const r = this.rank();
-    text(g, `${r.name}   ${this.sv.xp} XP`, 480, y, 20, C.amber, "center");
-    g.fillStyle = C.dark; g.fillRect(330, y + 16, 300, 6);
-    g.fillStyle = C.amber; g.fillRect(330, y + 16, 300 * r.fraction, 6);
-    if (r.next) text(g, `NEXT RANK AT ${r.next}`, 646, y + 19, 16, C.muted);
-  }
   drawTitle(g) {
     this.drawDoor(g, 480, 300, 250, 0.06, this.t * 0.05, null);
     text(g, "ECHO VAULT", 480, 54, 42, C.ink, "center");
     text(g, "Morse transmissions approach. Key each word before it lands.", 480, 92, 18, C.muted, "center");
-    this.drawRank(g, 124);
-    this.drawWall(g, 186);
-    const s = this.sv, school = schoolLetters(this.c), daily = this.contract();
-    text(g, `LETTERS ${this.poolSize()} / 26   MASTERED ${this.mastered()}   STATIONS ${s.stations}   BEST ${s.best.score}`, 480, 340, 20, C.ink, "center");
-    text(g, (daily.done ? "TODAY'S CONTRACT DONE: " : "TODAY: ") + CONTRACTS[daily.id].text, 480, 374, 18, daily.done ? C.muted : C.cyan, "center");
-    text(g, school > s.pool ? `SIGNAL SCHOOL HAS OPENED ${school} LETTERS` : s.days.streak > 1 ? `${s.days.streak} DAYS IN A ROW` : s.days.total ? `${s.days.total} DAY${s.days.total > 1 ? "S" : ""} OF PRACTICE` : "FIRST CONTACT: FOUR LETTERS TO START",
-      480, 404, 18, C.muted, "center");
+    this.drawWall(g, 160);
+    const s = this.sv, school = schoolLetters(this.c);
+    text(g, `LETTERS ${this.poolSize()} / 26   MASTERED ${this.mastered()}   STATIONS ${s.stations} / ${STATIONS.length}   BEST ${s.best.score}`, 480, 320, 20, C.ink, "center");
+    const due = this.pool().filter((k) => { const r = s.letters[k]; return r && r[1] <= s.session + 1 && r[0] < MASTERED; });
+    text(g, s.runs === 0 ? "FIRST CONTACT: FOUR LETTERS TO START" : due.length ? `DUE FOR PRACTICE: ${due.slice(0, 8).join(" ")}${due.length > 8 ? " …" : ""}` : "EVERY OPEN LETTER IS HOLDING",
+      480, 362, 18, C.cyan, "center");
+    if (school > s.pool) text(g, `SIGNAL SCHOOL HAS OPENED ${school} LETTERS`, 480, 392, 18, C.muted, "center");
     text(g, "TAP TO OPEN THE VAULT", 480, 458, 24, C.amber, "center");
-    text(g, "HOLD FOR THE CODE CARD AND LOGBOOK", 480, 494, 18, C.muted, "center");
+    text(g, "HOLD FOR THE CODE CARD AND STATION LOG", 480, 494, 18, C.muted, "center");
     this.drawHoldRing(g);
   }
   // The 26 letters in learning order; the bar under each is its strength (five steps).
@@ -610,26 +561,19 @@ export class EchoVault {
       text(g, k, x, y, 26, strength(this.sv.letters, k) >= MASTERED ? C.amber : C.ink, "center");
       drawCode(g, MORSE[k], x + 28, y, 0.8, C.cyan);
     }
-    text(g, "TAP TO GO BACK / HOLD FOR THE LOGBOOK", 480, 506, 20, C.amber, "center");
+    text(g, "TAP TO GO BACK / HOLD FOR THE STATION LOG", 480, 506, 20, C.amber, "center");
   }
-  // The logbook: stations worked (left) and feats (right).
+  // The station log: every far station, those already worked by name.
   drawLog(g) {
-    text(g, "LOGBOOK", 480, 44, 30, C.ink, "center");
-    this.drawRank(g, 80);
-    text(g, `STATIONS WORKED ${this.sv.stations} / ${STATIONS.length}`, 50, 130, 20, C.ink);
+    text(g, "STATION LOG", 480, 52, 30, C.ink, "center");
+    text(g, `${this.sv.stations} OF ${STATIONS.length} STATIONS WORKED / ${this.sv.runs} SHIFTS`, 480, 92, 18, C.muted, "center");
     for (let i = 0; i < STATIONS.length; i++) {
-      const x = 50 + Math.floor(i / 10) * 190, y = 162 + (i % 10) * 30, got = i < this.sv.stations;
-      text(g, got ? STATIONS[i] : "· · ·", x, y, 16, got ? C.cyan : C.line);
+      const x = 270 + Math.floor(i / 10) * 260, y = 140 + (i % 10) * 32, got = i < this.sv.stations;
+      diamond(g, x - 22, y, 6, got ? C.cyan : C.line, got);
+      text(g, got ? STATIONS[i] : "· · ·", x, y, 18, got ? C.cyan : C.line);
     }
-    text(g, `FEATS ${this.sv.feats.length} / ${FEATS.length}`, 440, 130, 20, C.ink);
-    FEATS.forEach((f, i) => {
-      const got = this.sv.feats.includes(f.id), y = 160 + i * 24;
-      diamond(g, 448, y, 6, got ? C.amber : C.line, got);
-      text(g, f.name, 464, y, 16, got ? C.amber : C.muted);
-      text(g, f.about, 650, y, 16, got ? C.muted : C.line);
-    });
-    text(g, `${this.sv.contracts} CONTRACTS DONE / ${this.sv.runs} SHIFTS`, 480, 486, 18, C.muted, "center");
-    text(g, "TAP OR HOLD TO GO BACK", 480, 514, 18, C.amber, "center");
+    text(g, "THE LAST WORD OF EVERY SHIFT IS A STATION'S CALL SIGN", 480, 476, 18, C.muted, "center");
+    text(g, "TAP OR HOLD TO GO BACK", 480, 510, 18, C.amber, "center");
   }
   drawIntro(g) {
     const k = this.fresh[this.introAt] || "";
@@ -718,15 +662,12 @@ export class EchoVault {
     const r = this.result || {}, last = this.sv.last, run = this.run || {};
     this.drawDoor(g, 480, 290, 250, 0.08, this.t * 0.05, null);
     text(g, r.reason === "left" ? "TRANSMISSION ENDED" : r.reason === "opened" ? "VAULT OPENED" : "VAULT SEALED", 480, 52, 38, r.reason === "opened" ? C.ink : C.amber, "center");
-    text(g, `${last.score} POINTS${r.record ? "  /  NEW BEST" : ""}   +${r.xp || 0} XP`, 480, 100, 26, C.ink, "center");
+    text(g, `${last.score} POINTS${r.record ? "  /  NEW BEST" : ""}`, 480, 100, 26, C.ink, "center");
     text(g, `${last.words} WORDS   ${last.letters} LETTERS   ${last.accuracy}% CLEAN${r.cpm ? `   ${r.cpm} LETTERS A MINUTE` : ""}`, 480, 138, 20, C.ink, "center");
     text(g, `${run.gained || 0} STRONGER   ${run.lost ? `REVISIT ${(run.revisit || []).slice(0, 6).join(" ")}` : "NOTHING TO REVISIT"}   ${run.helped || 0} WITH THE CODE SHOWN`, 480, 168, 18, C.muted, "center");
     // What this shift added to the longer game, one line each.
     const news = [];
-    if (r.promoted) news.push([`PROMOTED: ${r.promoted}`, C.amber]);
-    if (r.station) news.push([`CONTACT LOGGED: ${r.station}`, C.cyan]);
-    if (r.contract) news.push([`CONTRACT DONE: ${CONTRACTS[this.sv.daily.id].text}  +150 XP`, C.cyan]);
-    for (const name of r.feats || []) news.push([`FEAT: ${name}`, C.amber]);
+    if (r.station) news.push([`CONTACT LOGGED: ${r.station}  (${this.sv.stations} / ${STATIONS.length})`, C.cyan]);
     if (r.unlocked) news.push([`NEXT SHIFT: A NEW LETTER, ${r.unlocked}`, C.cyan]);
     else if (this.poolSize() < ORDER.length) {
       const weak = this.pool().filter((k) => strength(this.sv.letters, k) < 2);
@@ -735,7 +676,7 @@ export class EchoVault {
     this.drawWall(g, 212);
     news.slice(0, 4).forEach(([line_, colour], i) => text(g, line_, 480, 350 + i * 26, 18, colour, "center"));
     text(g, "TAP TO OPEN THE VAULT AGAIN", 480, 470, 24, C.amber, "center");
-    text(g, "HOLD FOR THE CODE CARD AND LOGBOOK", 480, 504, 18, C.muted, "center");
+    text(g, "HOLD FOR THE CODE CARD AND STATION LOG", 480, 504, 18, C.muted, "center");
     this.drawHoldRing(g);
   }
   // On the menu screens, a ring fills while a press becomes a hold.

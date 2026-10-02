@@ -3,8 +3,7 @@ import { C, text, line, circle, diamond, space } from "../engine/draw.js";
 import { AppGuard } from "../engine/input.js";
 import { LAMP, fill, meter, spot, dim, pulse, lightsOff } from "../engine/lightshow.js";
 import { LampBus, LOCKOUT, announce, drawNote } from "./game-kit.js";
-import { validRecord, tally, settle, need, strength, weightedPick, localDay, practiseDay, MASTERED,
-  rankOf, dailyFor, award } from "./learning.js";
+import { validRecord, tally, settle, need, strength, weightedPick, MASTERED } from "./learning.js";
 
 // ---------------------------------------------------------------------------------------------
 // Glyph Archive: learn real symbol systems one card at a time. Each wing of the archive is a deck
@@ -60,31 +59,12 @@ export function plateRanges(wing) {
   let at = 0;
   return wing.plates.map(([n, name]) => { const r = { from: at, to: at + n, name }; at += n; return r; });
 }
-// A rank from experience: three points a right answer, forty for a full session, a hundred a plate,
-// 150 a contract.
-export const RANKS = [[0, "NOVICE"], [300, "READER"], [1000, "SCRIBE"], [2500, "ARCHIVIST"], [5000, "CURATOR"],
-  [9000, "KEEPER OF WINGS"], [15000, "LOREMASTER"]];
-export const CONTRACTS = [
-  { text: "CATALOGUE A WING WITH ALL THREE SEALS", met: (r) => r.reason === "complete" && r.sealsLost === 0 },
-  { text: "REACH A COMBO OF 15", met: (r) => r.bestCombo >= 15 },
-  { text: "ANSWER 5 MEANING-FIRST CARDS RIGHT", met: (r) => r.reverseRight >= 5 },
-  { text: "GET 3 RELIC CARDS RIGHT", met: (r) => r.relics >= 3 },
-  { text: "FINISH A SESSION 95% RIGHT", met: (r) => r.reason === "complete" && r.accuracy >= 95 },
-  { text: "STRENGTHEN 5 ENTRIES IN ONE SESSION", met: (r) => r.gained >= 5 },
-];
+// Feats go to the console's logbook (ctx.feat), which keeps one list for every game and shows each once.
 export const FEATS = [
-  { id: "first", name: "FIRST DIG", about: "a full session of 30 cards" },
-  { id: "unbroken", name: "UNBROKEN SEALS", about: "30 cards without losing a seal" },
-  { id: "steady", name: "STEADY HAND", about: "a combo of 25" },
-  { id: "relics", name: "RELIC HUNTER", about: "every relic card in a session" },
-  { id: "plate", name: "FIRST PLATE", about: "restore a plate" },
-  { id: "plates5", name: "FIVE PLATES", about: "restore five plates" },
-  { id: "wings", name: "ALL FOUR WINGS", about: "a session in every wing" },
-  { id: "braille", name: "FINGERTIPS", about: "all of Braille open" },
-  { id: "master10", name: "TEN MASTERED", about: "10 entries at full strength" },
-  { id: "master50", name: "FIFTY MASTERED", about: "50 entries at full strength" },
-  { id: "week", name: "A WEEK OF DIGGING", about: "7 days in a row" },
-  { id: "contracts", name: "COMMISSIONED", about: "5 daily contracts" },
+  { id: "first", name: "FIRST DIG" }, { id: "unbroken", name: "UNBROKEN SEALS" }, { id: "steady", name: "STEADY HAND" },
+  { id: "relics", name: "RELIC HUNTER" }, { id: "plate", name: "FIRST PLATE" }, { id: "plates5", name: "FIVE PLATES" },
+  { id: "wings", name: "ALL FOUR WINGS" }, { id: "braille", name: "FINGERTIPS" }, { id: "master10", name: "TEN MASTERED" },
+  { id: "master50", name: "FIFTY MASTERED" },
 ];
 
 // Bring any stored shape to schema 2: nothing, the first release's run record ({ schema: 1, runs, last,
@@ -107,12 +87,7 @@ export function migrateGlyphs(raw) {
     wing: v.schema === 2 ? clamp(v.wing | 0, 0, WINGS.length - 1) : 0,
     decks,
     best: { score: Math.max(0, best.score | 0), combo: Math.max(0, best.combo | 0) },
-    days: v.schema === 2 && v.days ? { last: String(v.days.last || ""), streak: v.days.streak | 0, total: v.days.total | 0 } : { last: "", streak: 0, total: 0 },
-    xp: v.schema === 2 ? Math.max(0, v.xp | 0) : 0,
     plates: v.schema === 2 && Array.isArray(v.plates) ? v.plates.filter((id) => typeof id === "string").slice(0, 32) : [],
-    contracts: v.schema === 2 ? Math.max(0, v.contracts | 0) : 0,
-    feats: v.schema === 2 && Array.isArray(v.feats) ? v.feats.filter((id) => FEATS.some((f) => f.id === id)) : [],
-    daily: v.schema === 2 && v.daily && typeof v.daily === "object" ? { day: String(v.daily.day || ""), id: v.daily.id | 0, done: !!v.daily.done } : null,
   };
 }
 
@@ -125,7 +100,7 @@ export class GlyphVault {
     this.t = 0;
     this.phase = "title";
     this.downAt = null; this.downOn = "";
-    this.answered = false; this.cardT = 0; this.desk = false;
+    this.answered = false; this.cardT = 0;
     this.overAt = -LOCKOUT;
     this.note = ""; this.noteT = 0;
     this.result = null;
@@ -134,12 +109,6 @@ export class GlyphVault {
   wing() { return WINGS[this.sv.wing] || WINGS[0]; }
   deck() { return this.sv.decks[this.wing().id]; }
   mastered(wing = this.wing()) { const d = this.sv.decks[wing.id]; return wing.entries.filter((e) => strength(d.items, e.k) >= MASTERED).length; }
-  rank() { return rankOf(this.sv.xp, RANKS); }
-  contract() {
-    const today = this.today();
-    if (this.sv.daily?.day !== today) this.sv.daily = dailyFor(this.sv.daily, today, CONTRACTS.length);
-    return this.sv.daily;
-  }
   // Plates of a wing: how many entries on each have strength 3, and whether it is restored.
   plateState(wing = this.wing()) {
     const d = this.sv.decks[wing.id];
@@ -150,16 +119,13 @@ export class GlyphVault {
   }
   title() {
     this.phase = "title";
-    this.desk = false;
     this.c.hint("Tap to enter this wing. Hold for the next wing. Menu: tap, tap, hold.");
   }
-  today() { return localDay(); }
 
   // ------------------------------------------------------------------------------------- a session
   start() {
     const wing = this.wing(), deck = this.deck();
     deck.session += 1;
-    this.sv.days = practiseDay(this.sv.days, this.today());
     // Open new entries: four to begin with, then two more each session while every open entry has been
     // met (strength 1) and at most four are still weak (under 2).
     const opened = wing.entries.slice(0, deck.open);
@@ -280,26 +246,19 @@ export class GlyphVault {
     sv.runs += 1;
     sv.milestone = Math.max(sv.milestone, run.right);
     sv.last = { wing: wing.name, cards: run.cards, correct: run.right, accuracy, score: run.points, milestone: run.right, reason };
-    // The longer game: experience and rank, plates restored, today's contract and feats.
-    const before = this.rank().index;
-    let xp = run.right * 3 + (reason === "complete" ? 40 : 0);
+    // Plates restored, and feats for the console's logbook (it keeps each once and announces new ones).
     const plates = [];
     this.plateState(wing).forEach((p, i) => {
-      if (!p.restored && p.strong === p.size && sv.plates.length < 32) { sv.plates.push(`${wing.id}:${i}`); plates.push(p.name); xp += 100; }
+      if (!p.restored && p.strong === p.size && sv.plates.length < 32) { sv.plates.push(`${wing.id}:${i}`); plates.push(p.name); }
     });
-    const daily = this.contract();
-    let contract = false;
-    if (!daily.done && reason !== "left" && CONTRACTS[daily.id].met({ ...run, reason, accuracy })) { daily.done = true; contract = true; sv.contracts += 1; xp += 150; }
-    sv.xp = Math.min(1e9, sv.xp + xp);
     const mastered = WINGS.reduce((n, w) => n + this.mastered(w), 0);
-    const feats = award(sv.feats, FEATS, (id) => ({
+    const earned = {
       first: reason === "complete", unbroken: reason === "complete" && run.sealsLost === 0, steady: run.bestCombo >= 25,
       relics: run.relicCards >= 2 && run.relics === run.relicCards && reason === "complete", plate: sv.plates.length >= 1,
       plates5: sv.plates.length >= 5, wings: WINGS.every((w) => sv.decks[w.id].session > 0),
-      braille: sv.decks.braille.open >= WINGS[0].entries.length, master10: mastered >= 10, master50: mastered >= 50,
-      week: sv.days.streak >= 7, contracts: sv.contracts >= 5 })[id]);
-    const promoted = this.rank().index > before ? this.rank().name : "";
-    this.result = { reason, accuracy, best, fresh: this.fresh.length, xp, plates, contract, feats, promoted };
+      braille: sv.decks.braille.open >= WINGS[0].entries.length, master10: mastered >= 10, master50: mastered >= 50 };
+    for (const f of FEATS) if (earned[f.id]) this.c.feat?.(f.id, f.name);
+    this.result = { reason, accuracy, best, fresh: this.fresh.length, plates };
     if (run.points > 0) this.c.score(run.points);
     this.c.saveProgress?.(JSON.parse(JSON.stringify(sv)))?.catch?.(this.c.error);
     this.c.hint("Tap to enter again. Hold for the next wing.");
@@ -320,12 +279,8 @@ export class GlyphVault {
     // A press that began in play (the hold that answered the last card) does nothing on the result screen.
     if (this.downOn !== this.phase) return;
     if (this.phase === "title" || this.phase === "over") {
-      // Hold: the next wing; after the last wing comes the archivist's desk (rank, plates, feats).
-      // A tap on the desk goes back to the wing you were on.
-      if (s >= HOLD_PICK) {
-        if (!this.desk && this.sv.wing === WINGS.length - 1) { this.title(); this.desk = true; }
-        else { if (!this.desk) this.sv.wing = (this.sv.wing + 1) % WINGS.length; else this.sv.wing = 0; this.title(); }
-      } else if (this.desk) this.title();
+      // Hold: the next wing.
+      if (s >= HOLD_PICK) { this.sv.wing = (this.sv.wing + 1) % WINGS.length; this.title(); }
       else this.start();
       return;
     }
@@ -399,7 +354,7 @@ export class GlyphVault {
   draw(g) {
     space(g, this.t, 0.2);
     this.drawHall(g);
-    if (this.phase === "title") return this.desk ? this.drawDesk(g) : this.drawTitle(g);
+    if (this.phase === "title") return this.drawTitle(g);
     if (this.phase === "intro") return this.drawIntro(g);
     if (this.phase === "over") return this.drawResult(g);
     this.drawPlay(g);
@@ -427,20 +382,14 @@ export class GlyphVault {
   drawBack(g, e, x, y, size, colour) {
     text(g, e.back, x, y, e.back.length > 7 ? size * 0.6 : e.back.length > 4 ? size * 0.8 : size, colour, "center");
   }
-  drawRank(g, y) {
-    const r = this.rank();
-    text(g, `${r.name}   ${this.sv.xp} XP`, 480, y, 18, C.amber, "center");
-    g.fillStyle = C.dark; g.fillRect(340, y + 14, 280, 5);
-    g.fillStyle = C.amber; g.fillRect(340, y + 14, 280 * r.fraction, 5);
-  }
   drawWings(g, y) {
-    for (let i = 0; i <= WINGS.length; i++) {
-      const on = this.desk ? i === WINGS.length : i === this.sv.wing;
-      diamond(g, 400 + i * 40, y, 8, on ? C.amber : C.line, on);
+    for (let i = 0; i < WINGS.length; i++) {
+      const on = i === this.sv.wing;
+      diamond(g, 420 + i * 40, y, 8, on ? C.amber : C.line, on);
     }
   }
   drawTitle(g) {
-    const wing = this.wing(), deck = this.deck(), daily = this.contract();
+    const wing = this.wing(), deck = this.deck();
     text(g, "GLYPH ARCHIVE", 480, 44, 34, C.ink, "center");
     this.drawWings(g, 78);
     text(g, `${wing.name} WING`, 480, 110, 28, C.amber, "center");
@@ -448,9 +397,10 @@ export class GlyphVault {
     this.drawBoard(g, 168, 190);
     text(g, `OPEN ${deck.open} / ${wing.entries.length}   MASTERED ${this.mastered()}   PLATES ${this.plateState().filter((p) => p.restored).length} / ${wing.plates.length}   BEST ${this.sv.best.score}`,
       480, 384, 18, C.ink, "center");
-    text(g, (daily.done ? "TODAY'S CONTRACT DONE: " : "TODAY: ") + CONTRACTS[daily.id].text, 480, 414, 18, daily.done ? C.muted : C.cyan, "center");
+    const next = this.plateState().find((p) => !p.restored);
+    text(g, next ? `NEXT PLATE: ${next.name}, ${next.strong} OF ${next.size} ENTRIES AT STRENGTH ${PLATE_STRENGTH}` : "EVERY PLATE OF THIS WING IS RESTORED", 480, 414, 18, C.cyan, "center");
     text(g, deck.open ? "TAP TO ENTER THIS WING" : "TAP TO OPEN THIS WING", 480, 460, 24, C.amber, "center");
-    text(g, wing === WINGS[WINGS.length - 1] ? "HOLD FOR THE ARCHIVIST'S DESK" : "HOLD FOR THE NEXT WING", 480, 494, 18, C.muted, "center");
+    text(g, "HOLD FOR THE NEXT WING", 480, 494, 18, C.muted, "center");
     this.drawHoldRing(g);
   }
   // Every entry of the wing, small, grouped by plate, with a five-step strength bar; entries not yet
@@ -473,31 +423,6 @@ export class GlyphVault {
         }
       }
     });
-  }
-  // The archivist's desk: rank, every wing's plates, feats.
-  drawDesk(g) {
-    text(g, "THE ARCHIVIST'S DESK", 480, 44, 30, C.ink, "center");
-    this.drawWings(g, 78);
-    this.drawRank(g, 104);
-    WINGS.forEach((w, i) => {
-      const y = 158 + i * 34, plates = this.plateState(w), d = this.sv.decks[w.id];
-      text(g, w.name, 70, y, 18, C.ink);
-      text(g, `${d.open}/${w.entries.length}`, 230, y, 16, C.muted, "right");
-      plates.forEach((p, j) => {
-        const x = 250 + j * 50;
-        g.strokeStyle = p.restored ? C.amber : C.line; g.lineWidth = 2; g.strokeRect(x, y - 10, 40, 20);
-        g.fillStyle = p.restored ? C.amber : C.cyan; g.fillRect(x + 2, y - 8, 36 * (p.strong / p.size), 16);
-      });
-    });
-    text(g, `FEATS ${this.sv.feats.length} / ${FEATS.length}`, 520, 134, 18, C.ink);
-    FEATS.forEach((f, i) => {
-      const got = this.sv.feats.includes(f.id), y = 160 + i * 24;
-      diamond(g, 528, y, 6, got ? C.amber : C.line, got);
-      text(g, f.name, 544, y, 16, got ? C.amber : C.muted);
-    });
-    text(g, `${this.sv.contracts} CONTRACTS DONE / ${this.sv.runs} SESSION${this.sv.runs === 1 ? "" : "S"}   A PLATE IS RESTORED WHEN ALL ITS ENTRIES REACH STRENGTH ${PLATE_STRENGTH}`, 480, 470, 16, C.muted, "center");
-    text(g, "TAP TO GO BACK / HOLD FOR THE FIRST WING", 480, 500, 18, C.amber, "center");
-    this.drawHoldRing(g);
   }
   drawIntro(g) {
     const e = this.entry(this.fresh[this.introAt]);
@@ -578,15 +503,14 @@ export class GlyphVault {
   drawResult(g) {
     const r = this.result || {}, last = this.sv.last, run = this.run || {};
     text(g, r.reason === "complete" ? "WING CATALOGUED" : r.reason === "left" ? "ARCHIVE CLOSED" : "ARCHIVE SEALED", 480, 50, 36, r.reason === "complete" ? C.ink : C.amber, "center");
-    text(g, `${last.score} POINTS${r.best ? "  /  NEW BEST" : ""}   +${r.xp || 0} XP`, 480, 94, 26, C.ink, "center");
+    text(g, `${last.score} POINTS${r.best ? "  /  NEW BEST" : ""}`, 480, 94, 26, C.ink, "center");
     text(g, `${last.correct} OF ${last.cards} RIGHT   ${last.accuracy}%   BEST COMBO ${run.bestCombo || 0}`, 480, 130, 20, C.ink, "center");
     text(g, `${r.fresh ? r.fresh + " NEW ENTRIES   " : ""}${run.gained || 0} STRONGER   ${run.lost || 0} TO REVISIT`, 480, 158, 18, C.muted, "center");
     this.drawBoard(g, 180, 170);
     const news = [];
-    if (r.promoted) news.push([`PROMOTED: ${r.promoted}`, C.amber]);
-    for (const name of r.plates || []) news.push([`PLATE RESTORED: ${name}  +100 XP`, C.amber]);
-    if (r.contract) news.push([`CONTRACT DONE: ${CONTRACTS[this.sv.daily.id].text}  +150 XP`, C.cyan]);
-    for (const name of r.feats || []) news.push([`FEAT: ${name}`, C.amber]);
+    for (const name of r.plates || []) news.push([`PLATE RESTORED: ${name}`, C.amber]);
+    const next = this.plateState().find((p) => !p.restored);
+    if (next) news.push([`NEXT PLATE: ${next.name}, ${next.strong} OF ${next.size} ENTRIES AT STRENGTH ${PLATE_STRENGTH}`, C.cyan]);
     news.slice(0, 3).forEach(([msg, colour], i) => text(g, msg, 480, 368 + i * 24, 18, colour, "center"));
     text(g, "TAP TO ENTER AGAIN", 480, 456, 24, C.amber, "center");
     text(g, "HOLD FOR THE NEXT WING", 480, 492, 18, C.muted, "center");

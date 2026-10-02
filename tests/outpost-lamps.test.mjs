@@ -311,3 +311,13 @@ test("answering THE CALL turns the station's colours round the lamps, then fades
   const none = app.lampValues();
   assert.ok(end.every((x, i) => Math.abs(x - none[i]) <= 2), `faded by the end: ${end} vs ${none}`);
 });
+
+test("a fitting waiting in the workshop pulses blue on the right lamp", () => {
+  const { ctx, app } = begin();
+  advance(app, 1);
+  assert.deepEqual(ctx.calls.leds.at(-1).slice(6, 9), [0, 0, 0]);
+  app.fitWaiting = () => true;
+  let best = [0, 0, 0];
+  for (let i = 0; i < 120; i++) { advance(app, 1 / 60); const r = ctx.calls.leds.at(-1).slice(6, 9); if (r[2] > best[2]) best = r; }
+  assert.ok(best[2] > 40 && best[2] > best[0] * 3 && best[2] > best[1] * 3, "blue: " + best);
+});

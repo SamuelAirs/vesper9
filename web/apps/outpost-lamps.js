@@ -1,7 +1,7 @@
 // OUTPOST's three lamps: the status board, the beat guide, the note glow and the event lights.
 // Left breathes with production (brighter and cyan-tinged while machines hum), middle fills toward the next purchase and goes steady green when
-// one is affordable, right shows the timed thing (flare, boost, expedition) or that relocation is
-// worth doing. While the player keeps a beat, the left lamp instead flashes on the next beat they
+// one is affordable, right shows the timed thing (flare, boost, expedition), a fitting waiting in
+// the workshop (a slow blue pulse) or that relocation is worth doing. While the player keeps a beat, the left lamp instead flashes on the next beat they
 // are due to tap (a metronome at their own tempo, white with no groove, cyan when it is full), and
 // a dropped beat shows as a brief red flicker there. On top of that, each tap lights the lamp for
 // where its note sits in the melody's range (a short glow, brighter with groove, cyan when it is
@@ -16,9 +16,9 @@
 // of those frames.
 //
 // Fields used on the cartridge (`app`): c, s, clk, rate, idle, phase_, ring, panel, affordN,
-// goalFrac, flare, boosts, groove, gaps, lastGather, hum, noteFx ({ pos 0..1, t }), accent ({ k, t,
-// dur }), cueFx ({ pos, rgb, t }, set by outpost-music.js), finale ({ t }), and this module's
-// own breath, dimK, grooveSeen and stumble.
+// goalFrac, fitWaiting(), flare, boosts, groove, gaps, lastGather, hum, noteFx ({ pos 0..1, t }),
+// accent ({ k, t, dur }), cueFx ({ pos, rgb, t }, set by outpost-music.js), finale ({ t }), and
+// this module's own breath, dimK, grooveSeen and stumble.
 import { clamp } from "../engine/math.js";
 import { LAMP, lamps, dim, blend, pulse, blink, spot, only, chase, ramp } from "../engine/lightshow.js";
 import { DIM_AFTER, EXPED, FINALE_SEC, GROOVE_MAX, readyOf } from "./outpost-rules.js";
@@ -101,7 +101,8 @@ export function lampFrame(app) {
     const e = s.ex[0], x = EXPED[e.k];
     const frac = clamp(1 - (e.end - Date.now()) / (x.sec * 1000), 0, 1);
     right = dim(LAMP.cyan, (0.04 + 0.26 * frac) * k);
-  } else if (readyOf(s)) right = dim(LAMP.white, (0.08 + 0.22 * pulse(app.clk * 0.5)) * Math.max(k, 0.3));
+  } else if (app.fitWaiting?.()) right = dim(LAMP.blue, (0.08 + 0.24 * pulse(app.clk * 0.7)) * Math.max(k, 0.3)); // a fitting waits in the workshop
+  else if (readyOf(s)) right = dim(LAMP.white, (0.08 + 0.22 * pulse(app.clk * 0.5)) * Math.max(k, 0.3));
   let v = lamps(left, mid, right);
   const over = (layer) => { v = v.map((x, i) => Math.max(x, layer[i])); };
   // the latest note glows on the lamp for its place in the tune's range: low notes left, high right

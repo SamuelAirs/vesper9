@@ -72,6 +72,8 @@ export const CUES = {
   answer: [[1, 3, 5, 8, 5, 8, 10, 12, 15, 12, 15], 0.12, 0.4, "sine", LAMP.white], // THE CALL is answered
   survey: [[5, 8], 0.06, 0.12, "sine", LAMP.violet], // a sounding is taken (a fragment or the answer follows)
   site: [[1, 5, 9, 12], 0.1, 0.3, "sine", LAMP.cyan], // a new site comes onto the map
+  workshop: [[3, 5, 6, 8], 0.07, 0.16, "sine", LAMP.blue], // a fitting is ready to choose
+  fit: [[8, 5, 8, 12], 0.06, 0.18, "sine", LAMP.blue], // one is fitted
 };
 
 // The player's beat (seconds) while they are keeping one, else 0.

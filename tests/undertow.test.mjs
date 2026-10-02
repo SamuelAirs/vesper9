@@ -149,7 +149,7 @@ test("a run ends, banks its pearls, reaches feats and is scored once; only dives
   assert.equal(c2.calls.score.length, 0);
 });
 
-test("the dock: tap moves, hold chooses; crafts are bought with pearls; start zones cycle; feats and log page", () => {
+test("the dock: tap moves, hold chooses; crafts are bought with pearls; start zones cycle; guide and log", () => {
   const ctx = appContext({ seed: 11, progress: { schema: 2, runs: 4, bank: 160, far: 2, ft: [] } });
   const g = new Undertow(ctx);
   hold(g);
@@ -167,22 +167,18 @@ test("the dock: tap moves, hold chooses; crafts are bought with pearls; start zo
   tap(g); tap(g); hold(g); // GUIDE
   assert.equal(g.view, "guide");
   tap(g); assert.equal(g.view, "menu");
-  tap(g); hold(g); // FEATS
-  assert.equal(g.view, "feats");
-  tap(g); assert.equal(g.page, 1);
-  hold(g); assert.equal(g.view, "menu");
-  tap(g); hold(g); // LOG
+  tap(g); hold(g); // LOG (feats are listed by the console logbook now)
   assert.equal(g.view, "log");
   tap(g); assert.equal(g.view, "menu");
   const canvas = fakeCanvas();
-  for (const view of ["menu", "refit", "guide", "feats", "log"]) { g.view = view; g.draw(canvas); }
+  for (const view of ["menu", "refit", "guide", "log"]) { g.view = view; g.draw(canvas); }
   g.view = "menu";
   tap(g); hold(g); // DIVE (from LOG, the last line)
   assert.equal(g.phase, "play");
   assert.ok(ctx.calls.saved.length >= 3);
 });
 
-test("the daily dive is the same for everyone on the same date, uses the skiff, and keeps a streak", () => {
+test("the daily dive is the same for everyone on the same date, uses the skiff, and reports to the console logbook", () => {
   const goal = dailyGoal("2026-10-01");
   assert.deepEqual(goal, dailyGoal("2026-10-01"));
   assert.ok(goal.n > 0 && goal.text.length > 5);
@@ -199,14 +195,26 @@ test("the daily dive is the same for everyone on the same date, uses the skiff, 
   const today = key.getFullYear() + "-" + String(key.getMonth() + 1).padStart(2, "0") + "-" + String(key.getDate()).padStart(2, "0");
   const y = new Date(key.getFullYear(), key.getMonth(), key.getDate() - 1);
   const yesterday = y.getFullYear() + "-" + String(y.getMonth() + 1).padStart(2, "0") + "-" + String(y.getDate()).padStart(2, "0");
+  // The streak lives in the console logbook: the game states the daily goal as its order and says
+  // when it is met, once a day; its own save keeps only today's best and whether it is done.
   const ctx = appContext({ seed: 3, progress: { schema: 2, dl: { d: yesterday, done: 1, streak: 2, last: yesterday, best: 4 } } });
+  const book = { daily: [], met: 0, feats: [] };
+  ctx.daily = (text) => book.daily.push(text);
+  ctx.dailyMet = () => book.met++;
+  ctx.feat = (id, name) => book.feats.push(id + ":" + name);
   const g = new Undertow(ctx);
+  assert.equal(g.sv.dl.streak, undefined, "the game still keeps a streak of its own");
   g.daily = true; g.start();
+  run(g, 1);
+  assert.deepEqual(book.daily, ["Daily dive: " + dailyGoal(today).text]);
   g.goalMet = () => true;
   g.hull = 1; g.y = 600; g.update(DT); run(g, 2);
   assert.equal(g.sv.dl.d, today);
-  assert.equal(g.sv.dl.streak, 3);
-  assert.ok(g.sv.ft.includes("daily"));
+  assert.equal(g.sv.dl.done, 1);
+  assert.equal(book.met, 1);
+  g.daily = true; g.start(); g.goalMet = () => true;
+  g.hull = 1; g.y = 600; g.update(DT); run(g, 2);
+  assert.equal(book.met, 1, "the order was met twice in one day");
   assert.equal(ctx.calls.score.length, 0, "a daily dive set the console best");
 });
 
@@ -238,10 +246,13 @@ test("a first-release save migrates: runs, last result and milestone kept, reach
   assert.equal(saved.milestone, 6);
 });
 
-test("feats: every feat can be reached by its counter, and each pays pearls once", () => {
+test("feats: every feat can be reached by its counter, pays pearls once and goes to the console logbook once", () => {
   const ids = new Set(FEATS.map((f) => f.id));
   assert.equal(ids.size, FEATS.length);
-  const { g } = dive(12);
+  assert.ok(!ids.has("daily"), "the daily feat belongs to the console logbook");
+  const sent = [];
+  const { ctx, g } = dive(12);
+  ctx.feat = (id, name) => sent.push(id + ":" + name);
   const bank = g.sv.bank;
   g.R.zone = 5; g.R.cleanBest = 10; g.R.noHitBest = 25; g.R.pearls = 20; g.sv.st.pearls = 480; g.R.shielded = 1;
   g.sv.runs = 24; g.R.daily = 1; g.R.skims = 5; g.R.lastBest = 15; g.R.found = SPECIES.map((s) => s.id);
@@ -250,6 +261,8 @@ test("feats: every feat can be reached by its counter, and each pays pearls once
   assert.equal(g.sv.bank, bank + 15 * FEATS.length);
   g.checkFeats();
   assert.equal(g.sv.bank, bank + 15 * FEATS.length, "a feat paid twice");
+  run(g, 1);
+  assert.deepEqual(sent, FEATS.map((f) => f.id + ":" + f.name), "feats did not each reach the logbook once");
 });
 
 test("three quick taps then cancel() keep the dive and leave the lamps off; dispose leaves them off", () => {
@@ -299,7 +312,7 @@ test("canvas text is at least 16 px on every screen", () => {
   pilot(g, 20); g.draw(g2d);
   g.hull = 1; g.y = 600; g.update(DT); run(g, 1); g.draw(g2d);
   g.sv.sp = SPECIES.map((s) => s.id);
-  g.openDock(); for (const view of ["menu", "refit", "guide", "feats", "log"]) { g.view = view; g.draw(g2d); }
+  g.openDock(); for (const view of ["menu", "refit", "guide", "log"]) { g.view = view; g.draw(g2d); }
   g.phase = "title"; g.draw(g2d);
   assert.ok(sizes.length > 30);
   assert.ok(Math.min(...sizes) >= 16, "smallest text " + Math.min(...sizes));

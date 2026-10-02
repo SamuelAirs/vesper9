@@ -11,9 +11,11 @@
 // guide (twelve species, two to a zone, pearls for each new one); schools scatter as the craft passes.
 //
 // The dock (hold on the title or result screen) has the craft, refits bought with pearls (magnet,
-// assay, lure, scanner: pearls and sea life, never survival), a start zone, a daily dive seeded by the date, the field guide, feats and
-// a log. The save is versioned (schema 3) and still carries the fields the dashboard's field record
-// reads (runs, last, milestone); first-release and schema-2 saves are migrated.
+// assay, lure, scanner: pearls and sea life, never survival), a start zone, a daily dive seeded by the
+// date, the field guide and a log. Feats pay pearls here but are listed by the console logbook
+// (ctx.feat); the daily dive's goal is Undertow's order there when it is one of today's three, and
+// the logbook keeps the streak. The save is versioned (schema 3) and still carries the fields the
+// dashboard's field record reads (runs, last, milestone); first-release and schema-2 saves are migrated.
 //
 // The lamps are the depth gauge: a cyan spot where the craft is (left = surface, right = floor),
 // an amber spot at the next opening that brightens as it arrives, so the two meet when the craft
@@ -123,7 +125,6 @@ export const FEATS = [
   { id: "hoard", name: "HOARD", text: "Collect 500 pearls in all.", n: 500, prog: (a) => life(a, "pearls") },
   { id: "bubble", name: "SOAP BUBBLE", text: "Let a shield take a hit.", n: 1, prog: (a) => a.R.shielded },
   { id: "regular", name: "REGULAR", text: "Make 25 dives.", n: 25, prog: (a) => a.sv.runs + (a.phase === "play" ? 1 : 0) },
-  { id: "daily", name: "ON THE DAY", text: "Meet a daily goal.", n: 1, prog: (a) => life(a, "daily") },
   { id: "spotter", name: "NATURALIST", text: "Log 6 species in the field guide.", n: 6, prog: (a) => a.sv.sp.length + a.R.found.length },
   { id: "guide", name: "FIELD GUIDE", text: "Log all 12 species.", n: 12, prog: (a) => a.sv.sp.length + a.R.found.length },
   { id: "skim", name: "SKIMMER", text: "", hint: "The edge is closer than it looks.", n: 5, hidden: true, prog: (a) => a.R.skims },
@@ -136,7 +137,6 @@ const FEAT_PEARLS = 15; // banked for each feat
 const dailyRng = new Random(1);
 const hashText = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return h >>> 0; };
 const ymd = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
-const dayBefore = (key) => { const [y, m, d] = key.split("-").map(Number); return ymd(new Date(y, m - 1, d - 1)); };
 // Today's goal, the same for everyone on the same date.
 export function dailyGoal(key) {
   const h = hashText("undertow" + key), kind = h % 3, v = (h >>> 8) % 5;
@@ -174,14 +174,14 @@ export function migrateSave(raw) {
     ft: Array.isArray(r.ft) ? r.ft.filter((id, i) => FEAT_IDS.includes(id) && r.ft.indexOf(id) === i) : [],
     st: { pearls: Math.max(0, num(st.pearls)), daily: Math.max(0, num(st.daily)), passages: Math.max(0, num(st.passages, r.schema >= 2 ? 0 : lastPassages)) },
     sel: { craft: own[craft] ? craft : 0, start: clamp(Math.floor(num(sel.start)), 0, far) },
-    dl: { d: day(dl.d), best: Math.max(0, num(dl.best)), done: dl.done ? 1 : 0, streak: Math.max(0, Math.floor(num(dl.streak))), last: day(dl.last) },
+    dl: { d: day(dl.d), best: Math.max(0, num(dl.best)), done: dl.done ? 1 : 0 },
     up: UPGRADES.map((u, i) => clamp(Math.floor(num(Array.isArray(r.up) ? r.up[i] : 0)), 0, u.costs.length)),
     sp: Array.isArray(r.sp) ? r.sp.filter((id, i) => SPECIES_IDS.includes(id) && r.sp.indexOf(id) === i) : [],
     dm: Math.max(0, Math.floor(num(r.dm))),
   };
 }
 
-const DOCK = ["DIVE", "CRAFT", "REFIT", "START", "DAILY", "GUIDE", "FEATS", "LOG"];
+const DOCK = ["DIVE", "CRAFT", "REFIT", "START", "DAILY", "GUIDE", "LOG"];
 
 // Fixed scenery: plankton in two layers and a rock line, scrolled by the distance travelled.
 const sceneRng = new Random(77);
@@ -207,7 +207,6 @@ export class Undertow {
     this.pt = 0;
     this.view = "menu";
     this.cur = 0;
-    this.page = 0;
     this.rc = 0; // the refit list's cursor
     this.daily = false;
     this.lstate = 1; // the sea life's generator state
@@ -322,8 +321,7 @@ export class Undertow {
       return;
     }
     if (this.view !== "menu") {
-      if (long || this.view !== "feats") { this.view = "menu"; this.page = 0; }
-      else this.page = (this.page + 1) % Math.ceil(FEATS.length / 5);
+      this.view = "menu";
       return;
     }
     if (!long) { this.cur = (this.cur + 1) % DOCK.length; this.c.tone(440, 0.03, "sine"); return; }
@@ -333,14 +331,12 @@ export class Undertow {
     this.phase = "dock";
     this.view = "menu";
     this.cur = 0;
-    this.page = 0;
     this.setHint("Tap: next line. Hold: choose.");
   }
   dockChoose() {
     const row = DOCK[this.cur], s = this.sv.sel;
     if (row === "DIVE") { this.daily = false; this.start(); return; }
     if (row === "DAILY") { this.daily = true; this.start(); return; }
-    if (row === "FEATS") { this.view = "feats"; this.page = 0; return; }
     if (row === "LOG") { this.view = "log"; return; }
     if (row === "GUIDE") { this.view = "guide"; return; }
     if (row === "REFIT") { this.view = "refit"; this.rc = 0; return; }
@@ -380,7 +376,12 @@ export class Undertow {
     this.parked = this.launches++ === 0 ? 3 : 0;
     this.c.tone(330, 0.08, "triangle");
     if (this.startZone > 0) this.announce(ZONES[this.startZone].name, 2.4);
-    else if (this.daily) this.announce("DAILY: " + dailyGoal(ymd(new Date())).text.toUpperCase(), 3);
+    else if (this.daily) {
+      const goal = dailyGoal(ymd(new Date())).text;
+      this.announce("DAILY: " + goal.toUpperCase(), 3);
+      // When Undertow is one of today's three, the daily dive's goal is its order in the logbook.
+      this.guard.hold("daily", () => this.c.daily?.("Daily dive: " + goal));
+    }
     this.setHint("Hold to rise. Release to sink. Pass through the openings.");
   }
   announce(message, seconds = 2.6) { this.note = message; this.noteT = seconds; }
@@ -483,8 +484,8 @@ export class Undertow {
       if (R.daily) {
         sv.dl.done = 1;
         sv.st.daily++;
-        sv.dl.streak = sv.dl.last && dayBefore(key) === sv.dl.last ? sv.dl.streak + 1 : 1;
-        sv.dl.last = key;
+        // The console logbook keeps the streak; it hears that today's order is met.
+        this.guard.hold("dailyMet", () => this.c.dailyMet?.());
       }
     } else if (this.startZone === 0) sv.cb[sv.sel.craft] = Math.max(sv.cb[sv.sel.craft] || 0, passages);
     this.result = { passages, reason: this.reason, milestone: Math.floor(passages / 5), pearls: R.pearls, zone: ZONES[R.zone].name, metres, found: R.found.length };
@@ -502,7 +503,8 @@ export class Undertow {
     if (g.kind === "pearls") return this.R.pearls >= g.n;
     return this.R.cleanBest >= g.n;
   }
-  // Mark feats whose progress has reached its goal. `quiet` skips the announcement (result screen).
+  // Mark feats whose progress has reached its goal: each banks pearls once and goes to the console
+  // logbook, which keeps the one feat list and announces it. `quiet` skips the tone (result screen).
   checkFeats(quiet = false) {
     for (const f of FEATS) {
       if (this.sv.ft.includes(f.id)) continue;
@@ -510,10 +512,8 @@ export class Undertow {
         this.sv.ft.push(f.id);
         this.newFeats.push(f.id);
         this.sv.bank += FEAT_PEARLS;
-        if (!quiet) {
-          this.announce("FEAT: " + f.name, 2.4);
-          this.c.tone(659, 0.1, "sine"); this.c.tone(880, 0.2, "sine");
-        }
+        this.guard.hold("feat", () => this.c.feat?.(f.id, f.name));
+        if (!quiet) { this.c.tone(659, 0.1, "sine"); this.c.tone(880, 0.2, "sine"); }
       }
     }
   }
@@ -1137,7 +1137,7 @@ export class Undertow {
     text(g, "Follow the silent current down through six zones.", 480, 284, 22, C.muted, "center");
     if (sv.runs > 0) {
       text(g, "PEARLS " + sv.bank + "   DEEPEST " + ZONES[sv.far].name + (sv.dm ? " / " + sv.dm + " M" : ""), 480, 326, 18, C.muted, "center");
-      text(g, "FIELD GUIDE " + sv.sp.length + " / " + SPECIES.length + "   FEATS " + sv.ft.length + " / " + FEATS.length, 480, 352, 18, C.muted, "center");
+      text(g, "FIELD GUIDE " + sv.sp.length + " / " + SPECIES.length + "   DIVES " + sv.runs, 480, 352, 18, C.muted, "center");
     }
     text(g, "TAP = DIVE     HOLD = DOCK", 480, 400, 22, C.amber, "center");
   }
@@ -1186,7 +1186,7 @@ export class Undertow {
     line(g, 160, 40, 800, 40, C.line);
     text(g, "DOCK", 480, 76, 34, C.cyan, "center");
     text(g, "PEARLS " + this.sv.bank, 800, 76, 20, C.amber, "right");
-    const sv = this.sv, n = sv.ft.length;
+    const sv = this.sv;
     const key = ymd(new Date());
     if (this.view === "menu") {
       const k = CRAFTS[sv.sel.craft];
@@ -1198,7 +1198,6 @@ export class Undertow {
         START: ["START ZONE", ZONES[Math.min(sv.sel.start, sv.far)].name],
         DAILY: ["DAILY DIVE", sv.dl.d === key && sv.dl.done ? "DONE TODAY" : "SEEDED BY DATE"],
         GUIDE: ["FIELD GUIDE", sv.sp.length + " / " + SPECIES.length],
-        FEATS: ["FEATS", n + " / " + FEATS.length],
         LOG: ["LOG", "DEEPEST " + ZONES[sv.far].name],
       };
       DOCK.forEach((id, i) => {
@@ -1215,9 +1214,8 @@ export class Undertow {
         info = k.text + (nextCraft ? "  NEXT: " + nextCraft.name + " " + nextCraft.cost + " PEARLS" : "");
       } else if (id === "REFIT") info = "Pearl and sea-life gear. It never helps you survive.";
       else if (id === "START") info = "Start in any zone you have reached.";
-      else if (id === "DAILY") info = "Goal: " + dailyGoal(key).text + (sv.dl.streak > 1 ? "  STREAK " + sv.dl.streak : "");
+      else if (id === "DAILY") info = "Goal: " + dailyGoal(key).text + "  The same dive for everyone today.";
       else if (id === "GUIDE") info = "Fly close to sea life to log it. " + SPECIES_PEARLS + " pearls for each new species.";
-      else if (id === "FEATS") info = "Named goals, " + FEAT_PEARLS + " pearls each. Some are not listed.";
       else info = "Zones reached, the deepest dive and best dives by craft.";
       text(g, info, 480, 428, 18, C.muted, "center");
       text(g, "TAP = NEXT LINE     HOLD = CHOOSE", 480, 476, 18, C.cyan, "center");
@@ -1249,17 +1247,6 @@ export class Undertow {
         });
       });
       text(g, "TAP = BACK", 480, 476, 18, C.cyan, "center");
-    } else if (this.view === "feats") {
-      const per = 5, pages = Math.ceil(FEATS.length / per);
-      text(g, "FEATS  " + n + " / " + FEATS.length + "     PAGE " + (this.page + 1) + " / " + pages, 480, 116, 20, C.cyan, "center");
-      FEATS.slice(this.page * per, this.page * per + per).forEach((f, i) => {
-        const y = 158 + i * 58, done = sv.ft.includes(f.id);
-        text(g, (done ? "[X] " : "[ ] ") + (f.hidden && !done ? "????" : f.name), 150, y, 22, done ? C.cyan : C.ink);
-        const prog = f.id === "hoard" ? sv.st.pearls : f.id === "regular" ? sv.runs : f.id === "daily" ? sv.st.daily : f.id === "spotter" || f.id === "guide" ? sv.sp.length : null;
-        text(g, done ? "DONE" : prog !== null ? Math.min(prog, f.n) + " / " + f.n : "", 810, y, 20, done ? C.cyan : C.amber, "right");
-        text(g, f.hidden && !done ? f.hint : f.text, 150, y + 26, 16, C.muted);
-      });
-      text(g, "TAP = NEXT PAGE     HOLD = BACK", 480, 476, 18, C.cyan, "center");
     } else {
       text(g, "LOG   DIVES " + sv.runs + "   PASSAGES " + sv.st.passages + "   PEARLS " + sv.st.pearls, 480, 116, 20, C.cyan, "center");
       ZONES.forEach((zn, i) => {

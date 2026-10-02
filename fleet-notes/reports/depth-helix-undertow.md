@@ -37,6 +37,14 @@ simulator screenshots at 1024 x 600.
   rising to most at 260 by its end (the Deep stays at half the columns, 320). The zone banner moved from a
   dark band across the middle to the top edge. The menu gesture firing mid-dive is left to the platform
   thread.
+- Console logbook (PR #16, so this PR needs #16 merged first): Undertow no longer keeps its own daily
+  streak or feat list. The FEATS dock row and view are gone; each feat still banks 15 pearls once
+  but is sent with `ctx.feat(id, name)` (the host lists and announces it). The ON THE DAY feat is
+  dropped (the logbook covers it). The daily dive stays as a seeded mode: starting it states its goal
+  with `ctx.daily("Daily dive: ...")`, and meeting it calls `ctx.dailyMet()` once a day. The save drops
+  `dl.streak` and `dl.last`. These calls go through AppGuard (held during a possible menu gesture) and
+  are optional, so the game still runs on a host without them. Undertow's own tests pass on #16's branch;
+  `vesper/catalog.json` and `web/apps/catalog.js` conflict with it and need the catalog owner's merge.
 - Field guide (GUIDE row): zones down the side, both species with drawings once logged. Feats 16 now:
   NATURALIST (6 species) and FIELD GUIDE (all 12).
 - Depth gauge in metres (top right), deepest dive kept in the save and shown on title, result and log.

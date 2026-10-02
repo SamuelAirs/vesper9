@@ -18,6 +18,9 @@ export const MILESTONES = [10, 25, 50, 100, 150, 200, 250, 300]; // owned counts
 export const PRESTIGE_K = 1.2e5; // run signal at which one bearing is earned (gain = floor((run / K) ^ 0.25))
 export const READY_MIN = 8; // bearings worth relocating for ...
 export const READY_RATIO = 2; // ... and at least this many times the bearings already held, so later runs do not shrink to sprints
+export const READY_LATE = 20000; // past this many bearings held, the ratio keeps falling (as (READY_LATE / held) ^ READY_FALL) ...
+export const READY_FALL = 0.3;
+export const READY_FLOOR = 0.2; // ... to this, so late runs stay an hour or two instead of growing to a day
 export const BASE_CAP_H = 8; // offline credit cap in hours, before upgrades
 export const AWAY_MIN = 45; // seconds away before a summary is shown
 export const HOLD_OPEN = 0.42; // seconds held (outside the ring) to open the ring
@@ -329,8 +332,8 @@ export const SURVEY_LEVELS = 2;
 // What a survey asks, from its kind and target.
 export const SURVEY = {
   tunes: (t) => "PLAY " + t + " TUNES THROUGH HERE",
-  sky: (t) => "OWN " + t + " OF ONE SKY MACHINE",
-  ground: (t) => "OWN " + t + " OF ONE GROUND MACHINE",
+  sky: (t) => "BUILD " + t + " OF ONE SKY MACHINE",
+  ground: (t) => "BUILD " + t + " OF ONE GROUND MACHINE",
   taps: (t) => "TAP " + fmtInt(t) + " TIMES HERE",
   watch: (t) => "LEAVE IT RUNNING " + t / 3600 + " H HERE",
   flares: (t) => "CATCH " + t + " FLARES HERE",
@@ -346,10 +349,15 @@ export function siteMach(s, i) { const f = siteFx(s); return f.mach * (PROD[i].s
 export const siteKnown = (s, k) => { const x = SITES[k]; return !!x && s.L >= x.req && (!x.need || x.need(s)); };
 export const surveysDone = (s) => { let n = 0; for (const v of s.sv) n += v; return n; };
 // The sounding to take where the outpost stands: kind, level, target (null once both are taken), progress.
+// Sky and ground soundings count machines built here: the HEAD START kit's are not counted.
 export function surveyOf(s) {
   const x = siteOf(s), lvl = s.sv[x.k] || 0, t = lvl < SURVEY_LEVELS ? x.sv.t[lvl] : null;
   let v = s.sx;
-  if (x.sv.k === "sky" || x.sv.k === "ground") { v = 0; for (let i = 0; i < NP; i++) if (PROD[i].sky === (x.sv.k === "sky")) v = Math.max(v, s.own[i]); }
+  if (x.sv.k === "sky" || x.sv.k === "ground") {
+    const kit = KIT[s.tree[0]] || [];
+    v = 0;
+    for (let i = 0; i < NP; i++) if (PROD[i].sky === (x.sv.k === "sky")) v = Math.max(v, s.own[i] - (kit[i] || 0));
+  }
   return { k: x.sv.k, lvl, t, v, frac: t ? clamp(v / t, 0, 1) : 1, text: t ? SURVEY[x.sv.k](t) : "BOTH SOUNDINGS TAKEN" };
 }
 // The three sites offered at the next relocation (never the current one): the silent coast while
@@ -391,6 +399,7 @@ export const CALL_LOG = [
 ];
 export const CALL_ANSWERED = "WE ANSWERED. THE COAST IS SILENT NO MORE.";
 export const CHORUS_MULT = 2; // all output, once the call is answered
+export const FINALE_SEC = 12; // how long app.finale lasts after the call is answered (the scene and lamps draw it)
 // The call as far as `cf` fragments have decoded it (answered: with its closing phrase).
 // `hidden[i]` marks a note still undecoded (it plays the drone).
 export function callMelody(cf, answered = false) {
@@ -503,8 +512,9 @@ export const capHours = (s) => {
 export const pendingOf = (s) => int(Math.pow(s.rt / PRESTIGE_K, 0.25), 1e9);
 export const revealOf = (s) => { const p = pendingOf(s); return p >= 3 || (s.runs > 0 && p >= 1); };
 // How many times the bearings already held a relocation should bring before it is called ready:
-// twice early on, less once the holdings are large (otherwise late runs grow without end).
-export const readyRatio = (L) => (L < 500 ? READY_RATIO : L < 5000 ? 1.6 : L < 20000 ? 1.35 : 1.25);
+// twice early on, less once the holdings are large, and less and less past READY_LATE (a run
+// needs the fourth power of its bearings in signal, so a fixed ratio makes late runs grow without end).
+export const readyRatio = (L) => (L < 500 ? READY_RATIO : L < 5000 ? 1.6 : L < READY_LATE ? 1.35 : Math.max(READY_FLOOR, 1.25 * Math.pow(READY_LATE / L, READY_FALL)));
 export const readyOf = (s) => { const p = pendingOf(s); return p >= READY_MIN && p >= readyRatio(s.L) * s.L; };
 export const slotsOf = (s) => (s.tree[5] ? s.tree[5] : 0);
 
@@ -606,7 +616,13 @@ export function migrate(raw) {
     if (Array.isArray(r.sv)) for (let k = 0; k < NSITE; k++) s.sv[k] = int(r.sv[k], SURVEY_LEVELS);
     s.cf = int(r.cf, CALL_FRAGS); s.ans = int(r.ans, 1e6); s.fe = int(r.fe, 2 ** 30);
     if (Array.isArray(r.of)) for (const x of r.of.slice(0, 3)) { const k = Math.floor(Number(x)); if (k >= 0 && k < NSITE && k !== s.site && !s.of.includes(k)) s.of.push(k); }
-    if (s.ans && s.cf < CALL_FRAGS) s.cf = CALL_FRAGS;
+    // keep the story whole in an odd or hand-edited save: every sounding at an ordinary site
+    // decoded a fragment until the call was whole, and the silent coast's first sounding is the answer
+    let ordinary = 0;
+    for (let k = 0; k < NSITE; k++) if (k !== SILENT) ordinary += s.sv[k];
+    s.cf = Math.max(s.cf, Math.min(CALL_FRAGS, ordinary));
+    if (s.ans) { s.cf = CALL_FRAGS; s.sv[SILENT] = Math.max(1, s.sv[SILENT]); } else s.sv[SILENT] = 0;
+    if (s.site === SILENT && s.cf < CALL_FRAGS) { s.site = 0; s.sx = 0; }
   }
   if (v > SCHEMA) {
     const extra = {};

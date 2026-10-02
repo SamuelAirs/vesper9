@@ -54,6 +54,7 @@ import {
   HUM_MULT, HUM_SEC, HUM_MAX, HUM_NOTES, HARMONICS, PC_NAMES, PC_PROD, humNotes, humMachines, humMultOf, humSecOf, humMaxOf, upgCost,
   SITES, NSITE, SILENT, SURVEY_BONUS, SURVEY_LEVELS, SURVEY, siteOf, siteFx, siteMach, siteKnown, surveysDone, surveyOf, offerSites,
   CALL_ID, CALL_FRAGS, CALL_LOG, CALL_ANSWERED, CHORUS_MULT, FINALE_SEC, callMelody, FEATS,
+  FIT, NFIT, FIT_AT, FIT_OPEN, fitMark, blueprints, workshopOpen, fitsBuilt, fitName, fitLines, fitSummary, offerFits,
   hasRes, resSlots, tiersOwned, dataRate, dataBonus, unlockedN, masteredN, goalFrac, chartCost, chartName, chartsOpen, stageOf,
   num, fmt, fmtRate, dur, fmtInt, fmtDate, clock, costOf, milestonesAt, nextMilestone, globalMult, prodMult, evaluate, tapParts,
   capHours, pendingOf, revealOf, readyRatio, readyOf, slotsOf, upgradeVisible, tierOpen, prodVisible, freshState, applyKit, serialize, migrate,
@@ -147,6 +148,7 @@ export class Outpost {
     this.goalIn = 0;
     this.pvAt = 0;
     this.finale = null; // { t } while the answer to the call is being celebrated (for drawing)
+    this.fitWas = false; // a fitting was waiting to be chosen at the last frame (to announce a new one once)
     this.tunesNow = 0; // tunes finished this visit (for the daily order)
     this.dailyK = null; // the daily order Outpost stated to the console logbook, while unmet
     this.known = this.knownMask(); // the sites on the map (bit k), to announce new ones
@@ -351,6 +353,7 @@ export class Outpost {
     s.play = 0;
     s.site = site;
     s.sx = 0;
+    s.ft = [];
     s.of = this.offer();
     applyKit(s);
     this.hum.fill(0);
@@ -417,11 +420,19 @@ export class Outpost {
       if (x.k === SILENT && sv.lvl === 0) { if (!s.ans) this.answerCall(); }
       else if (x.k !== SILENT && s.cf < CALL_FRAGS) this.decodeFragment();
       else if (s.relics < MAX_RELICS) { s.relics++; this.queueNote("THE SOUNDING TURNED UP A RELIC  +3% OUTPUT", 3.5); }
+      this.blueprintFound(x.k);
     }
     if (!n) return false;
     this.dirty = true;
     this.saveSoon();
     return true;
+  }
+  // A sounding brought back a site's blueprint (the first) or its MK II (the second).
+  blueprintFound(k) {
+    const s = this.s, m = FIT[k] ? fitMark(s, k) : 0;
+    if (!m) return;
+    this.queueNote("BLUEPRINT" + (m > 1 ? " MK II" : "") + ": " + FIT[k].n + ". " + fitSummary(k, m), 4);
+    if (m === 1 && blueprints(s) === FIT_OPEN) this.queueNote("THE WORKSHOP IS OPEN: THREE FITTINGS TO CHOOSE EVERY RUN", 5);
   }
   decodeFragment() {
     const s = this.s;
@@ -692,6 +703,34 @@ export class Outpost {
     this.noteFx = null;
   }
 
+  // ---- the workshop ---------------------------------------------------------------------
+  // The blueprints offered for this run's next fitting: from a generator seeded by the save, so
+  // they do not change on reload.
+  fitOffer() {
+    const s = this.s;
+    return offerFits(s, seeded(((s.f >>> 0) ^ Math.imul(s.runs + 1, 0x27d4eb2f) ^ Math.imul(s.ft.length + 1, 0x165667b1)) >>> 0));
+  }
+  // A fitting has been built and waits to be chosen.
+  fitWaiting() {
+    const s = this.s;
+    if (fitsBuilt(s) <= s.ft.length) return false;
+    for (let k = 0; k < NFIT; k++) if (s.sv[k] > 0 && !s.ft.includes(k)) return true;
+    return false;
+  }
+  // Fits blueprint k (one of those offered) for the rest of this run.
+  fit(k) {
+    const s = this.s;
+    if (!this.fitWaiting() || !this.fitOffer().includes(k)) return false;
+    s.ft = [...s.ft, k];
+    this.setNote(fitName(s, k) + " FITTED: " + fitSummary(k, fitMark(s, k)), 4);
+    this.accent = { k: "event", t: 0, dur: 0.6 };
+    cue(this, "fit");
+    this.dirty = true;
+    this.recalc();
+    this.saveSoon();
+    return true;
+  }
+
   // ---- effects ------------------------------------------------------------------
   // A passing note, shown now over another passing one. During a story note it waits its turn
   // instead (for a few seconds at most: then it is stale and dropped).
@@ -906,6 +945,15 @@ export class Outpost {
       const can = s.rs.length < resSlots(s) && RES.some((r, k) => !hasRes(s, k) && !s.rs.some((e) => e.k === k) && r.need(s) && s.dat >= r.data);
       list.push({ key: "res", kind: "sub", to: "res", label: "RESEARCH", sub: String(Math.floor(s.dat)), aff: can, big: Math.floor(s.dat) + " DATA", lines: ["SLOW PROJECTS THAT UNLOCK", "NEW THINGS. THEY RUN AWAY."] });
     }
+    if (workshopOpen(s)) {
+      const wait = this.fitWaiting(), next = FIT_AT[s.ft.length];
+      const e = { key: "fit", kind: "sub", to: "fit", label: "WORKSHOP", sub: wait ? "CHOOSE" : s.ft.length + "/" + FIT_AT.length, aff: wait,
+        big: wait ? "A FITTING TO CHOOSE" : s.ft.length + " / " + FIT_AT.length + " FITTED",
+        lines: [wait ? "CHOOSE ONE OF THE BLUEPRINTS." : next !== undefined ? "NEXT ONE AT " + next + " MINUTES IN." : "ALL FITTED FOR THIS RUN.",
+          s.ft.length ? s.ft.map((k) => FIT[k].n).join(", ") : "FITTINGS LAST UNTIL YOU MOVE."] };
+      if (wait) list.splice(3, 0, e); // right after the songbook while a choice waits
+      else list.push(e);
+    }
     const sv = surveyOf(s);
     list.push({ key: "site", kind: "sub", to: "site", label: "SOUNDINGS", sub: sv.t === null ? "DONE" : Math.floor(sv.frac * 100) + "%", aff: true, big: siteOf(s).n,
       lines: [sv.t === null ? sv.text : "SOUNDING " + ROMAN[sv.lvl] + ": " + sv.text, s.cf ? "THIS SITE, ITS SOUNDINGS AND THE CALL." : "THIS SITE AND ITS SOUNDINGS."] });
@@ -931,6 +979,24 @@ export class Outpost {
     }
     const u = UPG[it.i];
     return { key: it.key, kind: "upg", i: it.i, label: u.name, sub: "UPG", aff, cost: upgCost(s, u), big: "COST " + fmt(upgCost(s, u)), lines: [u.eff] };
+  }
+  buildFit() {
+    const s = this.s, list = [{ key: "back", kind: "back", label: "BACK", lines: ["TO THE BUILD RING"], hold: HOLD_BUY }];
+    const wait = this.fitWaiting();
+    if (wait) {
+      for (const k of this.fitOffer()) {
+        list.push({ key: "f" + k, kind: "fit", k, label: fitName(s, k), sub: "FIT", aff: true, big: "FIT THIS", lines: [...fitLines(s, k), "UNTIL THE OUTPOST MOVES."] });
+      }
+    }
+    for (const k of s.ft) list.push({ key: "on" + k, kind: "info", label: fitName(s, k), sub: "FITTED", aff: false, big: "FITTED", lines: fitLines(s, k) });
+    const next = FIT_AT[s.ft.length];
+    if (!wait && next !== undefined) {
+      const left = clock(Math.max(0, next * 60 - s.play));
+      list.push({ key: "next", kind: "info", label: "NEXT FITTING", sub: left, aff: false, big: "IN " + left, lines: ["ONE IS BUILT " + FIT_AT.slice(0, -1).join(", ") + " AND " + FIT_AT.at(-1), "MINUTES INTO EACH RUN."] });
+    }
+    list.push({ key: "bp", kind: "info", label: "BLUEPRINTS", sub: blueprints(s) + "/" + NFIT, aff: false, big: blueprints(s) + " / " + NFIT + " KNOWN",
+      lines: ["A SITE'S FIRST SOUNDING GIVES", "ITS BLUEPRINT; THE SECOND,", "ITS MK II."] });
+    return list;
   }
   buildExp() {
     const s = this.s, list = [{ key: "back", kind: "back", label: "BACK", lines: ["TO THE BUILD RING"], hold: HOLD_BUY }];
@@ -1054,6 +1120,12 @@ export class Outpost {
         lines: [sv.text, "+" + Math.round(SURVEY_BONUS * 100) + "% OUTPUT FOR EVER", extra] });
     }
     list.push({ key: "here", kind: "info", label: x.n, sub: "HERE", aff: false, big: "THIS SITE", lines: [...x.rule, x.lore] });
+    const fm = fitMark(s, x.k);
+    if (FIT[x.k]) {
+      list.push({ key: "blue", kind: "info", label: FIT[x.k].n, sub: fm > 1 ? "MK II" : fm ? "MK I" : "BLUEPRINT", aff: false, big: fm ? "BLUEPRINT KNOWN" : "BLUEPRINT HERE",
+        lines: [fm === 0 ? "SOUNDING I BRINGS IT BACK:" : fm === 1 ? "SOUNDING II GIVES ITS MK II:" : "ITS MK II IS KNOWN:", ...FIT[x.k].d[Math.min(fm, 1)],
+          workshopOpen(s) ? "A FITTING FOR THE WORKSHOP." : "THE WORKSHOP OPENS WITH " + FIT_OPEN + " BLUEPRINTS."] });
+    }
     if (s.cf) {
       const whole = s.cf >= CALL_FRAGS;
       list.push({ key: "call", kind: "info", label: "THE CALL", sub: s.ans ? "ANSWERED" : s.cf + "/" + CALL_FRAGS, aff: false, big: s.ans ? "ANSWERED" : whole ? "WHOLE" : s.cf + " / " + CALL_FRAGS + " DECODED",
@@ -1073,10 +1145,10 @@ export class Outpost {
     const old = this.entries[r.idx]?.key;
     const m = r.menu;
     this.entries = m === "exp" ? this.buildExp() : m === "tree" ? this.buildTree() : m === "reloc" ? this.buildReloc() : m === "songs" ? this.buildSongs()
-      : m === "res" ? this.buildRes() : m === "goals" ? this.buildGoals() : m === "site" ? this.buildSite() : this.buildMain();
+      : m === "res" ? this.buildRes() : m === "goals" ? this.buildGoals() : m === "site" ? this.buildSite() : m === "fit" ? this.buildFit() : this.buildMain();
     let idx = this.entries.findIndex((e) => e.key === old);
     if (idx < 0) {
-      idx = m === "main" ? this.entries.findIndex((e) => e.kind === "prod" || e.kind === "upg") : m === "songs" ? this.entries.findIndex((e) => e.cur)
+      idx = m === "main" ? this.entries.findIndex((e) => (e.key === "fit" && e.aff) || e.kind === "prod" || e.kind === "upg") : m === "songs" ? this.entries.findIndex((e) => e.cur)
         : m === "site" ? 1 : this.entries.findIndex((e) => e.aff);
       if (idx < 0 || (initial && m === "main" && !this.entries[idx].aff)) idx = 0;
     }
@@ -1130,6 +1202,7 @@ export class Outpost {
       }
       case "research": ok = this.startResearch(e.k); break;
       case "reloc": this.relocate(e.site); return;
+      case "fit": if (this.fit(e.k)) { this.closeRing(); return; } break;
       default: break;
     }
     if (ok) {
@@ -1250,6 +1323,9 @@ export class Outpost {
     }
     this.wasAfford = aff;
     stepScene(this, dt); // visual-only animation (outpost-scene.js)
+    const fitNow = this.phase_ === "play" && this.fitWaiting();
+    if (fitNow && !this.fitWas) { this.setNote("THE WORKSHOP BUILT A FITTING: HOLD, THEN CHOOSE IT", 4); cue(this, "workshop"); }
+    if (this.phase_ === "play") this.fitWas = fitNow;
     if (this.note?.story && !this.noteSeen() && this.note.t > 0.5) { this.waitNote(this.note, true); this.note = null; } // it waits for the station
     if (!this.note && this.noteQ.length && this.noteSeen()) this.note = this.nextNote();
     // autosave
@@ -1277,12 +1353,19 @@ export class Outpost {
   // The "updated" card after an older save loads: what is new since the schema it came from.
   newsCard() {
     const f = this.newsFrom, s = this.s, lines = [];
+    if (f >= 5) {
+      const n = blueprints(s);
+      lines.push("THE WORKSHOP: SOUNDINGS NOW BRING BLUEPRINTS", "THREE TIMES A RUN, CHOOSE ONE OF THREE FITTINGS", "A SECOND SOUNDING GIVES A BLUEPRINT'S MK II");
+      if (n) lines.push((n === 1 ? "1 BLUEPRINT" : n + " BLUEPRINTS") + " FROM THE SOUNDINGS YOU HAVE TAKEN");
+      lines.push("NOTHING WAS LOST.");
+      return { title: "OUTPOST UPDATED", lines };
+    }
     if (f <= 2) lines.push("TAPS NOW PLAY MELODIES: HOLD, THEN SONGBOOK", "STEADY BEATS BUILD GROOVE; MACHINES HUM TO TUNES");
     else {
       if (f === 3) lines.push("STEADY BEATS BUILD GROOVE; THE SKY CAN BE CHARTED");
       lines.push("AN EASY, STEADY BEAT PAYS AS WELL AS FAST TAPPING", "MACHINES ARE TUNED TO NOTES: TUNES MAKE THEM HUM");
     }
-    lines.push("RELOCATING CHOOSES A SITE, EACH WITH ITS OWN RULES", "SOUNDINGS AT EACH SITE DECODE A CALL IN THE SIGNAL");
+    lines.push("RELOCATING CHOOSES A SITE, EACH WITH ITS OWN RULES", "SOUNDINGS DECODE A CALL AND BRING BLUEPRINTS");
     if (f <= 2 && s.gl.length) lines.push(s.gl.length + " GOALS ALREADY MET: +" + s.gl.length + "% OUTPUT");
     lines.push(f <= 2 ? "NOTHING WAS LOST. COUNTING STARTS " + fmtDate(s.f) : "NOTHING WAS LOST.");
     return { title: "OUTPOST UPDATED", lines };
@@ -1314,6 +1397,7 @@ export class Outpost {
 Outpost.music = { SONGS, MEL, GEN_ID, makeMelody, genTune, genName, scaleUp, midiHz, noteName, noteMidi, seeded, SCALES };
 Outpost.econ = { RES, GOALS, STAGES, VOICE, EV, NR, NG, NS, NT, HUM_MULT, HUM_SEC, HUM_MAX, HUM_NOTES, HARMONICS, PC_NAMES, PC_PROD, humNotes, humMachines, humMultOf, humSecOf, humMaxOf, upgCost,
   SITES, NSITE, SILENT, SURVEY_BONUS, SURVEY_LEVELS, SURVEY, siteOf, siteFx, siteMach, siteKnown, surveysDone, surveyOf, offerSites,
-  CALL_ID, CALL_FRAGS, CALL_LOG, CALL_ANSWERED, CHORUS_MULT, FINALE_SEC, callMelody, FEATS, DAILY, dailyPick, hasRes, tierOpen, tiersOwned, dataRate, masteredN, unlockedN, stageOf, fmtInt, fmtDate, revealOf, fmt, fmtRate, dur, costOf, prodMult, globalMult, evaluate, tapParts, capHours, pendingOf, readyOf, migrate, serialize, freshState, applyKit,
+  CALL_ID, CALL_FRAGS, CALL_LOG, CALL_ANSWERED, CHORUS_MULT, FINALE_SEC, callMelody, FEATS, DAILY, dailyPick,
+  FIT, NFIT, FIT_AT, FIT_OPEN, fitMark, blueprints, workshopOpen, fitsBuilt, fitName, fitLines, fitSummary, offerFits, hasRes, tierOpen, tiersOwned, dataRate, masteredN, unlockedN, stageOf, fmtInt, fmtDate, revealOf, fmt, fmtRate, dur, costOf, prodMult, globalMult, evaluate, tapParts, capHours, pendingOf, readyOf, migrate, serialize, freshState, applyKit,
   PROD, UPG, TREE, EXPED, READY_RATIO, MILESTONES, SCHEMA, BIG, PRESTIGE_K, READY_MIN, KIT, NUP, NP, milestonesAt,
   readyRatio, READY_LATE, READY_FLOOR, chartCost, chartName, chartsOpen, CONST, CHART_REQ, CHART_MULT, CHART_MAX, GROOVE_MAX, VOICE_GAIN };

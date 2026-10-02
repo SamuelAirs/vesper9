@@ -1251,7 +1251,8 @@ test("the soundings view: the sounding here, the site, the call so far, the reco
   press(app, 700);
   assert.equal(app.ring.menu, "site");
   assert.equal(app.ring.idx, 1, "it opens on the sounding");
-  assert.deepEqual(app.entries.map((e) => e.key), ["back", "sv", "here", "codex", "next"]);
+  assert.deepEqual(app.entries.map((e) => e.key), ["back", "sv", "here", "blue", "codex", "next"]);
+  assert.equal(app.entries[3].label, "SPARE PARTS"); assert.equal(app.entries[3].sub, "BLUEPRINT", "the landing site's blueprint, still to find");
   assert.equal(app.entries[1].big, "0 / 5"); assert.equal(app.entries[1].lines[2], "AND A FRAGMENT OF THE CALL");
   assert.equal(app.entries.at(-1).lines[0], E.SITES[7].hint, "the nearest uncharted site and what it takes");
   app.draw(g);
@@ -1259,16 +1260,17 @@ test("the soundings view: the sounding here, the site, the call so far, the reco
   s.cf = 4; s.sv[0] = 1; s.site = 4; s.sx = 2000; s.L = 10;
   app.openRing("site");
   const keys = app.entries.map((e) => e.key);
-  assert.deepEqual(keys, ["back", "sv", "here", "call", "log", "codex", "next"]);
+  assert.deepEqual(keys, ["back", "sv", "here", "blue", "call", "log", "codex", "next"]);
   assert.equal(app.entries[1].big, "0.5 H / 1.0 H");
-  assert.equal(app.entries[3].lines[0], E.CALL_LOG[3]);
-  assert.deepEqual(app.entries[4].lines, [E.CALL_LOG[2], E.CALL_LOG[1]]);
+  assert.equal(app.entries[3].label, "NIGHT BATTERY"); assert.deepEqual(app.entries[3].lines.slice(0, 2), ["SOUNDING I BRINGS IT BACK:", "AWAY CREDIT +6 H"]);
+  assert.equal(app.entries[4].lines[0], E.CALL_LOG[3]);
+  assert.deepEqual(app.entries[5].lines, [E.CALL_LOG[2], E.CALL_LOG[1]]);
   for (const e of app.entries) assert.ok(e.lines.reduce((n, l) => n + Math.min(2, Math.ceil(l.length / 29)), 0) <= 6, e.key);
   for (let i = 0; i < app.entries.length; i++) { app.step(); app.draw(g); }
   finiteDeep(app.s);
 });
 
-test("a schema 4 save (from the previous build) loads at the landing site with nothing sounded, says what is new, and saves as schema 5", () => {
+test("a schema 4 save (from the build before 0.3) loads at the landing site with nothing sounded, says what is new, and saves in the current schema", () => {
   const old = fixture("outpost-save-v4-mid.json");
   assert.equal(old.v, 4);
   wall = old.t + 20 * 1000;
@@ -1286,15 +1288,16 @@ test("a schema 4 save (from the previous build) loads at the landing site with n
   assert.equal(card.title, "OUTPOST UPDATED");
   assert.ok(card.lines.some((l) => /SITE/.test(l)) && card.lines.some((l) => /SOUNDINGS/.test(l)) && card.lines.some((l) => /HUM/.test(l)), card.lines.join(" / "));
   assert.ok(card.lines.length <= 6 && card.lines.every((l) => l.length <= 52));
-  for (const f of [1, 2, 3]) { app.newsFrom = f; const c = app.newsCard(); assert.ok(c.lines.length <= 6 && c.lines.every((l) => l.length <= 52), f + ": " + c.lines.join(" / ")); }
+  for (const f of [1, 2, 3, 5]) { app.newsFrom = f; const c = app.newsCard(); assert.ok(c.lines.length <= 6 && c.lines.every((l) => l.length <= 52), f + ": " + c.lines.join(" / ")); }
   app.newsFrom = 4;
   app.draw(fakeCanvas());
   app.down(); app.up({ durationMs: 50 });
   assert.equal(app.phase_, "play");
   app.save(true);
   const saved = lastSave(ctx);
-  assert.equal(saved.v, 5);
-  for (const k of ["site", "sx", "sv", "of", "cf", "ans", "fe"]) assert.ok(k in saved, k + " saved");
+  assert.equal(saved.v, E.SCHEMA);
+  for (const k of ["site", "sx", "sv", "of", "cf", "ans", "fe", "ft"]) assert.ok(k in saved, k + " saved");
+  assert.deepEqual(saved.ft, []);
   const again = boot({ progress: JSON.parse(JSON.stringify(saved)) }).app;
   assert.equal(again.phase_, "play"); assert.deepEqual(again.s.of, s.of);
   // bad values are cleaned, never trusted
@@ -1487,6 +1490,141 @@ test("today's order: the one stated earlier today is kept (the logbook keeps loc
   }
 });
 
+// ---- the workshop ------------------------------------------------------------------
+test("the workshop: soundings bring blueprints, it opens at three, and a run builds three fittings to choose, one of three each time", () => {
+  const { ctx, app } = begin();
+  const s = app.s;
+  assert.equal(E.blueprints(s), 0); assert.ok(!E.workshopOpen(s));
+  app.openRing("main"); assert.ok(!app.entries.some((e) => e.key === "fit"), "no workshop before its blueprints"); app.closeRing();
+  s.sv[1] = 1; s.sv[3] = 1;
+  assert.ok(!E.workshopOpen(s), "two blueprints are not enough");
+  s.sv[5] = 2; // a third, with its MK II
+  assert.ok(E.workshopOpen(s)); assert.equal(E.blueprints(s), E.FIT_OPEN);
+  // nothing is built until three minutes into the run
+  s.play = 170; app.note = null; advance(app, 0.5);
+  assert.equal(E.fitsBuilt(s), 0); assert.ok(!app.fitWaiting());
+  advance(app, 10.5);
+  assert.equal(E.fitsBuilt(s), 1); assert.ok(app.fitWaiting());
+  assert.match(app.note.text, /WORKSHOP BUILT A FITTING/);
+  const told = app.note; advance(app, 0.5); assert.equal(app.note, told, "said once, not every frame");
+  // three known blueprints are offered, the same each time it is asked
+  const offer = app.fitOffer();
+  assert.deepEqual([...offer].sort(), [1, 3, 5]); assert.deepEqual(app.fitOffer(), offer);
+  // the ring opens on the workshop while a choice waits, right after the songbook
+  app.note = null;
+  app.openRing("main");
+  const w = app.entries[app.ring.idx];
+  assert.equal(w.key, "fit"); assert.equal(w.sub, "CHOOSE"); assert.ok(w.aff); assert.equal(app.entries.indexOf(w), 3);
+  app.ring.hiAt = app.clk - 2; press(app, 700);
+  assert.equal(app.ring.menu, "fit");
+  assert.deepEqual(app.entries.filter((e) => e.kind === "fit").map((e) => e.k), offer);
+  const coil = app.entries.find((e) => e.k === 5), rack = app.entries.find((e) => e.k === 1);
+  assert.equal(coil.label, "HUM COIL II"); assert.equal(coil.lines[0], "HUM +0.5, TWICE AS LONG");
+  assert.equal(rack.label, "SKY RACK"); assert.equal(rack.lines[0], "SKY MACHINES x1.5");
+  for (const e of app.entries) assert.ok(e.label.length <= 21 && e.lines.every((l) => l.length <= 29), e.key);
+  app.draw(fakeCanvas());
+  // holding one fits it for the run and closes the ring
+  app.ring.idx = app.entries.indexOf(rack); app.ring.hiAt = app.clk - 2; press(app, 700);
+  assert.equal(app.ring, null);
+  assert.deepEqual(s.ft, [1]); assert.equal(E.siteFx(s).sky, 1.5); assert.equal(E.siteFx(s).ground, 1);
+  assert.ok(!app.fitWaiting());
+  assert.equal(app.note.text, "SKY RACK FITTED: SKY MACHINES x1.5");
+  assert.equal(app.fit(3), false, "nothing more until the workshop builds the next");
+  app.openRing("main");
+  const w2 = app.entries.find((e) => e.key === "fit");
+  assert.equal(w2.sub, "1/3"); assert.ok(!w2.aff); assert.equal(app.entries[app.entries.indexOf(w2) + 1].key, "site", "with the soundings once nothing waits"); assert.equal(w2.lines[1], "SKY RACK");
+  app.ring.idx = app.entries.indexOf(w2); app.ring.hiAt = app.clk - 2; press(app, 700);
+  assert.deepEqual(app.entries.map((e) => e.key), ["back", "on1", "next", "bp"]);
+  assert.equal(app.entries[2].lines.join(" "), "ONE IS BUILT 3, 10 AND 25 MINUTES INTO EACH RUN.");
+  app.closeRing();
+  // ten minutes in: the next, from what is left
+  s.play = 600; advance(app, 0.1);
+  assert.ok(app.fitWaiting()); assert.deepEqual([...app.fitOffer()].sort(), [3, 5]);
+  assert.equal(app.fit(1), false, "never the same fitting twice");
+  assert.ok(app.fit(5));
+  assert.equal(E.siteFx(s).hum, 0.5); assert.equal(E.siteFx(s).humT, 2); assert.equal(E.humMultOf(s), E.HUM_MULT + 0.5);
+  // twenty-five minutes in: the last of the run
+  s.play = 1500; advance(app, 0.1);
+  assert.ok(app.fit(3)); assert.equal(E.siteFx(s).tap, 2);
+  s.play = 9000; advance(app, 0.1); assert.ok(!app.fitWaiting(), "three a run");
+  // they are saved, and a reload keeps them
+  app.save(true);
+  const saved = lastSave(ctx);
+  assert.deepEqual(saved.ft, [1, 5, 3]);
+  const again = boot({ progress: JSON.parse(JSON.stringify(saved)) }).app;
+  assert.deepEqual(again.s.ft, [1, 5, 3]); assert.equal(E.siteFx(again.s).sky, 1.5);
+  // relocating starts the next run with none, at the new site's own rules
+  s.rt = 1e12; s.lt = Math.max(s.lt, s.rt);
+  assert.ok(app.relocate(s.of[0]));
+  assert.deepEqual(s.ft, []); assert.equal(E.siteFx(s), E.SITES[s.site].fx);
+});
+
+test("fittings: a second sounding gives the MK II, they fold into the site's rules, and saves cannot fit what is not known", () => {
+  const { app } = begin();
+  const s = app.s;
+  for (const k of [0, 1, 2]) s.sv[k] = 1;
+  // every fitting has a MK I and a MK II whose lines fit the ring
+  assert.equal(E.FIT.length, E.SITES.length, "one fitting for each site");
+  E.FIT.forEach((f, k) => {
+    assert.equal(f.fx.length, 2); assert.equal(f.d.length, 2);
+    for (const lines of f.d) assert.ok(lines.length >= 1 && lines.length <= 2 && lines.every((l) => l.length <= 26), f.n);
+    assert.ok(f.n.length <= 18, f.n);
+    for (const m of [1, 2]) {
+      const said = ["BLUEPRINT MK II: " + f.n + ". " + E.fitSummary(k, m), f.n + " II FITTED: " + E.fitSummary(k, m)];
+      for (const text of said) assert.ok(text.length <= 64, text); // a note is one line on the station
+    }
+  });
+  // at High Ridge (sky x1.5, ground x0.75) a sky rack multiplies, and a sounding there makes it MK II at once
+  s.site = 1; s.ft = [1, 2];
+  assert.equal(E.siteFx(s).sky, 1.5 * 1.5); assert.equal(E.siteFx(s).ground, 0.75 * 1.5);
+  s.sv[1] = 2;
+  assert.equal(E.siteFx(s).sky, 1.5 * 2); assert.equal(E.fitName(s, 1), "SKY RACK II");
+  // hum, away hours and price growth add; growth stays above 1
+  for (const k of [4, 5, 10]) s.sv[k] = 2;
+  s.site = 10; s.ft = [4, 5, 10]; // the dunes: prices already rise slower
+  const fx = E.siteFx(s);
+  assert.equal(fx.cap, 12); assert.equal(fx.mach, 1.1); assert.equal(fx.hum, 0.5);
+  assert.ok(Math.abs(fx.growth - (E.SITES[10].fx.growth - 0.01)) < 1e-12 && fx.growth > 1);
+  assert.equal(E.capHours(s) - E.capHours({ ...s, ft: [] }), 12);
+  assert.ok(E.costOf(s, 0, 100) < E.costOf({ ...s, ft: [] }, 0, 100), "machines are cheaper with the sled");
+  // the rules a site shows are its own: fittings never change the table
+  assert.equal(E.SITES[10].fx.cap, 0); assert.equal(E.SITES[1].fx.sky, 1.5);
+  // a save keeps only known blueprints, each once, at most three
+  const raw = JSON.parse(JSON.stringify(E.serialize(s, T0)));
+  const m = (ft, sv = raw.sv) => E.migrate({ ...raw, ft, sv }).s.ft;
+  assert.deepEqual(m([4, 5, 10]), [4, 5, 10]);
+  assert.deepEqual(m([4, 4, 5, "x", -1, 99, 7]), [4, 5], "repeats, junk and unknown blueprints are dropped");
+  assert.deepEqual(m([0, 1, 2, 4, 5]), [0, 1, 2], "at most three");
+  assert.deepEqual(m([4], Array(12).fill(0)), [], "not without its blueprint");
+  assert.deepEqual(E.migrate({ ...raw, v: 5, ft: [4] }).s.ft, [], "a schema 5 save has none");
+  assert.deepEqual(m("x"), []);
+});
+
+test("the workshop in the story: a sounding brings a blueprint, the third opens it, and an update says what is new", () => {
+  const { app } = begin();
+  const s = app.s;
+  s.sv[1] = 1; s.sv[3] = 1; s.cf = 2; s.site = 0; s.sv[0] = 0;
+  // the landing site's first sounding: five tunes
+  s.sx = 4; app.noteQ.length = 0; app.note = null;
+  app.survey("tunes", 1);
+  const said = [app.note?.text, ...app.noteQ.map((n) => n.text)].join(" | ");
+  assert.match(said, /BLUEPRINT: SPARE PARTS\. UPGRADES COST x0\.75/);
+  assert.match(said, /THE WORKSHOP IS OPEN/);
+  assert.ok([app.note, ...app.noteQ].every((n) => !n || n.text.length <= 64), said);
+  assert.ok(E.workshopOpen(s));
+  // the update card for a schema 5 save
+  app.newsFrom = 5;
+  const card = app.newsCard();
+  assert.ok(card.lines.some((l) => /WORKSHOP/.test(l)) && card.lines.some((l) => /3 BLUEPRINTS/.test(l)), card.lines.join(" / "));
+  assert.ok(card.lines.length <= 6 && card.lines.every((l) => l.length <= 52));
+  // and the feat for a full workshop
+  const feats = [];
+  app.c.feat = (id) => { feats.push(id); return true; };
+  s.play = 1600; s.ft = [0, 1, 3];
+  app.checkFeats();
+  assert.ok(feats.includes("fully-fitted"));
+});
+
 test("the long game: a player who stays for each site's sounding hears the whole call and answers it", () => {
   const { res, app } = simulate({ runs: 9, maxMin: 600, sound: true });
   const s = app.s;
@@ -1496,7 +1634,7 @@ test("the long game: a player who stays for each site's sounding hears the whole
   assert.equal(s.site, E.SILENT);
   assert.equal(s.ans, 1, "answered at the ninth site");
   assert.ok(E.surveysDone(s) >= 12);
-  assert.ok(hours < 12, hours.toFixed(1) + " hours of play (a quarter of it tapping)");
+  assert.ok(hours > 4.5 && hours < 12, hours.toFixed(1) + " hours of play (a quarter of it tapping)");
   finiteDeep(s);
   // and play goes on: the runs after the answer stay short (with a fixed ready ratio they took 4 to 10 hours each)
   const after = simulate({ runs: 5, maxMin: 600, sound: true, progress: E.serialize(s, 1.8e12) });

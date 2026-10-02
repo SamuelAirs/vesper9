@@ -3,14 +3,14 @@
 // time formatting, and the save format (serialize and migrate). No game state lives here: every
 // function takes the saved state `s` (see freshState) and returns a value.
 //
-// Indices into PROD, UPG, TREE, RES, GOALS, SITES and FEATS are stored in saves: append, never
+// Indices into PROD, UPG, TREE, RES, GOALS, SITES, FIT and FEATS are stored in saves: append, never
 // reorder or remove.
 // The scene, lamps and music modules read from here; nothing here reads them or the cartridge.
 import { clamp } from "../engine/math.js";
 import { SONGS, NS, makeMelody } from "./outpost-songs.js";
 
 // ---- constants ---------------------------------------------------------------
-export const SCHEMA = 5;
+export const SCHEMA = 6;
 export const BIG = 1e150; // every growing number is clamped here
 export const GROWTH = 1.15; // cost growth per machine owned
 export const MAX_OWN = 1500;
@@ -344,7 +344,17 @@ export const SURVEY = {
   answer: (t) => (t > 1 ? "ANSWER THE CALL " + t + " TIMES" : "ANSWER THE CALL HERE"),
 };
 export function siteOf(s) { return SITES[s.site] || SITES[0]; }
-export function siteFx(s) { return siteOf(s).fx; }
+// The run's rules: the site's, with this run's fittings (see FIT) folded in. The last result is
+// kept, keyed by everything it depends on, as this is asked for on every tap and price.
+let fxKey = "", fxRun = null;
+export function siteFx(s) {
+  const base = siteOf(s).fx;
+  if (!s.ft || !s.ft.length) return base;
+  let key = String(s.site);
+  for (const k of s.ft) key += "," + k + ":" + s.sv[k];
+  if (key !== fxKey) { fxKey = key; fxRun = withFittings(base, s); }
+  return fxRun;
+}
 export function siteMach(s, i) { const f = siteFx(s); return f.mach * (PROD[i].sky ? f.sky : f.ground) * (i === NP - 1 ? f.silent : 1); }
 export const siteKnown = (s, k) => { const x = SITES[k]; return !!x && s.L >= x.req && (!x.need || x.need(s)); };
 export const surveysDone = (s) => { let n = 0; for (const v of s.sv) n += v; return n; };
@@ -422,6 +432,60 @@ function noteOf(name) {
   return 12 * (Number(m[3]) + 1) + NOTE_PC[m[1]] + (m[2] === "#" ? 1 : m[2] === "b" ? -1 : 0);
 }
 
+// ---- the workshop ----------------------------------------------------------------------------
+// Each site's first sounding brings back the blueprint of a fitting, and its second sounding the
+// MK II. Once FIT_OPEN blueprints are known the workshop opens: FIT_AT minutes into each run it
+// builds a fitting, and the player chooses which of (up to) three offered blueprints. A fitting
+// is a share of its site's rule with no drawback, and lasts until the outpost relocates.
+// FIT[k] belongs to SITES[k]; fx[0] is MK I and fx[1] MK II, folded into siteFx: hum, cap and
+// growth add, everything else multiplies. d holds each mark's lines for the ring (at most 26
+// characters each), s each mark's one-line summary for notes (at most 31).
+export const FIT = [
+  { n: "SPARE PARTS", fx: [{ upg: 0.75 }, { upg: 0.5 }], d: [["UPGRADES COST x0.75"], ["UPGRADES COST x0.5"]] },
+  { n: "SKY RACK", fx: [{ sky: 1.5 }, { sky: 2 }], d: [["SKY MACHINES x1.5"], ["SKY MACHINES x2"]] },
+  { n: "GROUND RACK", fx: [{ ground: 1.5 }, { ground: 2 }], d: [["GROUND MACHINES x1.5"], ["GROUND MACHINES x2"]] },
+  { n: "SPRING KEY", fx: [{ tap: 2 }, { tap: 3 }], d: [["TAPS x2"], ["TAPS x3"]] },
+  { n: "NIGHT BATTERY", fx: [{ cap: 6 }, { cap: 12, mach: 1.1 }], d: [["AWAY CREDIT +6 H"], ["AWAY CREDIT +12 H", "MACHINES x1.1"]], s: [null, "AWAY +12 H, MACHINES x1.1"] },
+  { n: "HUM COIL", fx: [{ hum: 0.25, humT: 1.5 }, { hum: 0.5, humT: 2 }], d: [["HUM +0.25, 1.5x AS LONG"], ["HUM +0.5, TWICE AS LONG"]] },
+  { n: "FLARE MAST", fx: [{ flare: 1.5 }, { flare: 2 }], d: [["FLARES 1.5x AS OFTEN"], ["FLARES TWICE AS OFTEN"]] },
+  { n: "FIELD KIT", fx: [{ exp: 1.5 }, { exp: 2, relic: 1.25 }], d: [["EXPEDITIONS 1.5x AS FAST"], ["EXPEDITIONS TWICE AS FAST", "RELICS x1.25 AS LIKELY"]], s: [null, "EXPEDITIONS x2, RELICS x1.25"] },
+  { n: "SPECTROMETER", fx: [{ data: 2 }, { data: 3, res: 1.25 }], d: [["DATA x2"], ["DATA x3", "RESEARCH 1.25x AS FAST"]], s: [null, "DATA x3, RESEARCH x1.25"] },
+  { n: "METRONOME", fx: [{ groove: 2 }, { groove: 2, tune: 1.5 }], d: [["GROOVE FILLS TWICE AS FAST", "FULL GROOVE x2 (NOT x1.5)"], ["GROOVE FILLS TWICE AS FAST", "FULL GROOVE x2, TUNES x1.5"]],
+    s: ["GROOVE TWICE AS FAST AND STRONG", "GROOVE x2, TUNE BONUSES x1.5"] },
+  { n: "SAND SLED", fx: [{ growth: -0.005 }, { growth: -0.01 }], d: [["MACHINE PRICES RISE SLOWER"], ["MACHINE PRICES RISE", "MUCH SLOWER"]], s: [null, "PRICES RISE MUCH SLOWER"] },
+  { n: "QUIET ROOM", fx: [{ silent: 2 }, { silent: 3 }], d: [["SILENT ARRAYS x2"], ["SILENT ARRAYS x3"]] },
+];
+export const NFIT = FIT.length;
+export const FIT_AT = [3, 10, 25]; // minutes into a run when the workshop builds a fitting
+export const FIT_OPEN = 3; // blueprints known before the workshop opens
+const FX_ADD = new Set(["hum", "cap", "growth"]);
+// 0: no blueprint yet, 1: MK I, 2: MK II.
+export const fitMark = (s, k) => Math.min(s.sv[k] || 0, FIT[k].fx.length);
+export const blueprints = (s) => { let n = 0; for (let k = 0; k < NFIT; k++) if (s.sv[k] > 0) n++; return n; };
+export const workshopOpen = (s) => blueprints(s) >= FIT_OPEN;
+// How many fittings the workshop has built this run so far (fitted or waiting to be chosen).
+export const fitsBuilt = (s) => (workshopOpen(s) ? FIT_AT.filter((m) => s.play >= m * 60).length : 0);
+export const fitName = (s, k) => FIT[k].n + (fitMark(s, k) > 1 ? " II" : "");
+export const fitLines = (s, k) => FIT[k].d[Math.max(0, fitMark(s, k) - 1)];
+// One line for a note: what blueprint k does at mark m (1 or 2).
+export const fitSummary = (k, m) => FIT[k].s?.[m - 1] || FIT[k].d[m - 1].join(", ");
+// The blueprints offered for the next fitting: up to three known ones not fitted this run.
+export function offerFits(s, rnd) {
+  const pool = [];
+  for (let k = 0; k < NFIT; k++) if (s.sv[k] > 0 && !s.ft.includes(k)) pool.push(k);
+  for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+  return pool.slice(0, 3);
+}
+function withFittings(base, s) {
+  const fx = { ...base };
+  for (const k of s.ft) {
+    const m = FIT[k] ? fitMark(s, k) : 0;
+    if (!m) continue;
+    for (const [key, v] of Object.entries(FIT[k].fx[m - 1])) fx[key] = FX_ADD.has(key) ? fx[key] + v : fx[key] * v;
+  }
+  return fx;
+}
+
 // Feats for the console logbook (ctx.feat), each reported once (bit k of s.fe).
 export const FEATS = [
   ["first-relocation", "FIRST RELOCATION", (s) => s.runs >= 1],
@@ -435,6 +499,7 @@ export const FEATS = [
   ["call-answered", "THE CALL ANSWERED", (s) => s.ans >= 1],
   ["every-site", "EVERY SITE SOUNDED", (s) => s.sv.every((v) => v >= 1)],
   ["whole-sky", "THE WHOLE SKY CHARTED", (s) => s.cn >= 12],
+  ["fully-fitted", "THREE FITTINGS IN ONE RUN", (s) => s.ft.length >= FIT_AT.length],
 ];
 
 // ---- pure economy ------------------------------------------------------------
@@ -542,7 +607,7 @@ export function freshState() {
   return { sig: 0, rt: 0, lt: 0, own: Array(NP).fill(0), up: new Uint8Array(NUP), taps: 0, b: 0, L: 0, tree: Array(NT).fill(0),
     relics: 0, runs: 0, maxTier: 0, ex: [], play: 0, last: {}, milestone: 0, extra: null,
     st: freshStats(), f: Date.now(), fk: 1, sg: 0, sp: 0, gs: 1, sm: 0, sc: Array(NS).fill(0), gl: [], ev: 0, rd: [], rs: [], dat: 0, cn: 0,
-    site: 0, sx: 0, sv: Array(NSITE).fill(0), of: [], cf: 0, ans: 0, fe: 0 };
+    site: 0, sx: 0, sv: Array(NSITE).fill(0), of: [], cf: 0, ans: 0, fe: 0, ft: [] };
 }
 export function applyKit(s) {
   const l = s.tree[0], kit = KIT[l] || [];
@@ -553,13 +618,13 @@ export function applyKit(s) {
 
 // ---- saving -------------------------------------------------------------------
 const KNOWN = new Set(["v", "t", "sig", "rt", "lt", "own", "up", "taps", "b", "L", "tree", "relics", "runs", "maxTier", "ex", "play", "last", "milestone",
-  "st", "f", "fk", "sg", "sp", "gs", "sm", "sc", "gl", "ev", "rd", "rs", "dat", "cn", "site", "sx", "sv", "of", "cf", "ans", "fe"]);
+  "st", "f", "fk", "sg", "sp", "gs", "sm", "sc", "gl", "ev", "rd", "rs", "dat", "cn", "site", "sx", "sv", "of", "cf", "ans", "fe", "ft"]);
 export function serialize(s, t) {
   const out = { v: SCHEMA, t, sig: num(s.sig), rt: num(s.rt), lt: num(s.lt), own: s.own.slice(), up: [], taps: s.taps, b: s.b, L: s.L,
     tree: s.tree.slice(), relics: s.relics, runs: s.runs, maxTier: s.maxTier, ex: s.ex.map((e) => [e.k, e.end]), play: Math.floor(s.play),
     last: s.last, milestone: s.milestone, st: Object.fromEntries(Object.entries(s.st).map(([k, v]) => [k, Math.round(v * 100) / 100])), f: s.f, fk: s.fk, sg: s.sg, sp: s.sp, gs: s.gs, sm: s.sm, sc: s.sc.slice(), gl: s.gl.slice(),
     ev: s.ev, rd: s.rd.slice(), rs: s.rs.map((e) => [e.k, e.end]), dat: Math.round(s.dat * 100) / 100, cn: s.cn,
-    site: s.site, sx: Math.round(s.sx * 100) / 100, sv: s.sv.slice(), of: s.of.slice(), cf: s.cf, ans: s.ans, fe: s.fe };
+    site: s.site, sx: Math.round(s.sx * 100) / 100, sv: s.sv.slice(), of: s.of.slice(), cf: s.cf, ans: s.ans, fe: s.fe, ft: s.ft.slice() };
   for (let i = 0; i < NUP; i++) if (s.up[i]) out.up.push(i);
   if (s.extra && JSON.stringify(s.extra).length < 1500) Object.assign(out, s.extra);
   return out;
@@ -623,6 +688,10 @@ export function migrate(raw) {
     s.cf = Math.max(s.cf, Math.min(CALL_FRAGS, ordinary));
     if (s.ans) { s.cf = CALL_FRAGS; s.sv[SILENT] = Math.max(1, s.sv[SILENT]); } else s.sv[SILENT] = 0;
     if (s.site === SILENT && s.cf < CALL_FRAGS) { s.site = 0; s.sx = 0; }
+  }
+  // schema 6: this run's fittings (an older save has none). Only known blueprints, each once.
+  if (v >= 6 && Array.isArray(r.ft)) {
+    for (const x of r.ft.slice(0, FIT_AT.length)) { const k = Math.floor(Number(x)); if (k >= 0 && k < NFIT && s.sv[k] > 0 && !s.ft.includes(k)) s.ft.push(k); }
   }
   if (v > SCHEMA) {
     const extra = {};

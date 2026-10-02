@@ -92,3 +92,105 @@ test("the extra voices sit quietly under the lead: a fully voiced tap is about t
   const sum = gains.reduce((a, b) => a + b, 0);
   assert.ok(sum <= 2.2, "the whole band sums to " + sum + " of one note (it was 5)");
 });
+
+// ======================= cues in the tune's key, on the player's beat =======================
+import { CUES, CUE_GAIN, POCKET_GAIN, cue, tick, degreeMidi, cueTiming, liveBeat } from "../web/apps/outpost-music.js";
+
+const hzMidi = (hz) => Math.round(69 + 12 * Math.log2(hz / 440));
+// Keeps a steady beat of `beat` seconds for n taps.
+const keepBeat = (app, beat, n) => {
+  for (let i = 0; i < n; i++) { app.down(); advance(app, 0.05); app.up({ durationMs: 50 }); advance(app, beat - 0.05); }
+};
+
+test("every cue and interface tick is in the key of the tune being played, in a comfortable range", () => {
+  const mels = [...M.MEL, ...Array.from({ length: 60 }, (_, i) => M.genTune(i * 104729 + 7))];
+  const modes = new Set();
+  for (const mel of mels) {
+    modes.add(mel.mode);
+    for (const [name, [deg]] of Object.entries(CUES)) {
+      for (const d of deg) {
+        const m = degreeMidi(mel, d);
+        assert.ok(mel.pcs.has(m % 12), `${name} degree ${d} is ${M.noteName(m)}, outside ${mel.name}`);
+        const hz = M.midiHz(m);
+        assert.ok(hz > 200 && hz < 1800, `${name} at ${hz.toFixed(0)} Hz in ${mel.name}`);
+      }
+    }
+  }
+  assert.ok(["maj", "min", "dor", "pent"].every((x) => modes.has(x)), "checked in every mode: " + [...modes]);
+  // ticks too: played through a game on the minor tune
+  const { ctx, app } = begin();
+  const gs = M.SONGS.findIndex((x) => x.id === "greensleeves");
+  app.s.lt = 1e12; app.s.sg = gs; app.loadMelody();
+  const n = ctx.calls.tone.length;
+  for (let k = 0; k < 6; k++) tick(app, "step", k);
+  tick(app, "page"); tick(app, "close"); tick(app, "afford");
+  for (const c of ctx.calls.tone.slice(n)) assert.ok(app.mel.pcs.has(hzMidi(c[0]) % 12), "tick " + M.noteName(hzMidi(c[0])));
+});
+
+test("the same cue follows the tune's key: a purchase in E minor is not the purchase in C major", () => {
+  const notes = (sid) => {
+    const { app } = begin();
+    app.s.lt = 1e12; app.s.sg = M.SONGS.findIndex((x) => x.id === sid); app.loadMelody();
+    app.queue = []; cue(app, "buy");
+    return app.queue.map((q) => hzMidi(q.hz));
+  };
+  const c = notes("twinkle"), e = notes("greensleeves");
+  assert.equal(c.length, 4); assert.notDeepEqual(c, e);
+  assert.deepEqual(c.map((m) => M.noteName(m)), ["G4", "C5", "E5", "G5"], "C major: fifth, octave, tenth, twelfth");
+  assert.deepEqual(e.map((m) => M.noteName(m)), ["B4", "E5", "G5", "B5"], "E minor: the minor third");
+});
+
+test("cues are bells under the tune: sine, below the lead's level, never mistaken for the melody", () => {
+  for (const [name, [, gap, len, wave]] of Object.entries(CUES)) {
+    assert.equal(wave, "sine", name);
+    assert.ok(gap >= 0.04 && len >= 0.06 && len <= 0.4, name);
+  }
+  const { ctx, app } = begin();
+  advance(app, 1);
+  const n = ctx.calls.tone.length;
+  cue(app, "milestone"); advance(app, 1);
+  const played = ctx.calls.tone.slice(n);
+  assert.equal(played.length, CUES.milestone[0].length);
+  assert.ok(played.every((c) => c[2] === "sine" && c[3] === CUE_GAIN && CUE_GAIN < 1));
+});
+
+test("with no beat a cue keeps its own spacing; while a beat is kept its notes land on the beat", () => {
+  const { app } = begin();
+  advance(app, 3);
+  assert.equal(liveBeat(app), 0);
+  app.queue = []; const t0 = app.clk; cue(app, "buy");
+  assert.deepEqual(app.queue.map((q) => +(q.at - t0).toFixed(4)), [0, 0.055, 0.11, 0.165]);
+  // a steady 0.4 s beat, and a cue that arrives between taps
+  keepBeat(app, 0.4, 8);
+  advance(app, 0.13);
+  const beat = liveBeat(app);
+  assert.ok(Math.abs(beat - 0.4) < 0.03, "beat " + beat);
+  app.queue = []; cue(app, "buy");
+  const ats = app.queue.map((q) => q.at - app.lastGather), step = ats[1] - ats[0];
+  assert.ok(Math.abs(beat / step - Math.round(beat / step)) < 1e-6, `the spacing ${step} divides the beat ${beat}`);
+  assert.ok(Math.abs(step - 0.055) < 0.03, "near the cue's own spacing: " + step);
+  for (const a of ats) assert.ok(Math.abs(a / step - Math.round(a / step)) < 1e-6, "on a subdivision: " + a);
+  assert.ok(ats[0] >= app.clk - app.lastGather - 1e-9, "never in the past");
+  // once the player stops, cues go back to their own timing
+  advance(app, 3);
+  assert.equal(liveBeat(app), 0);
+  assert.equal(cueTiming(app, 0.07).gap, 0.07);
+});
+
+test("full groove adds a quiet bell to every note, and a sparkle once when it fills", () => {
+  const { ctx, app } = begin();
+  app.s.lt = 1e4;
+  const n = ctx.calls.tone.length;
+  keepBeat(app, 0.35, 10);
+  assert.ok(!ctx.calls.tone.slice(n).some((c) => c[3] === POCKET_GAIN), "nothing extra before the groove is full");
+  keepBeat(app, 0.35, 40);
+  assert.ok(app.groove >= E.GROOVE_MAX, "groove filled: " + app.groove);
+  const bells = ctx.calls.tone.slice(n).filter((c) => c[3] === POCKET_GAIN);
+  assert.ok(bells.length >= 10, "a bell with each note in the pocket: " + bells.length);
+  // the sparkle's notes, in order, among the cue tones (other cues, such as goals, can sound too)
+  const sparkle = CUES.pocket[0].map((d) => Math.round(M.midiHz(degreeMidi(app.mel, d)))).join();
+  const cues = ctx.calls.tone.slice(n).filter((c) => c[3] === CUE_GAIN).map((c) => Math.round(c[0]));
+  let found = 0;
+  for (let i = 0; i + 3 <= cues.length; i++) if (cues.slice(i, i + 3).join() === sparkle) found++;
+  assert.equal(found, 1, "the sparkle plays once, not on every tap");
+});

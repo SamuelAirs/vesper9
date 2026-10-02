@@ -91,3 +91,12 @@ The long integrated run was started while final review continued. The final held
 - 824/824 JS tests on Node 22; Perihelion 39/39 on Node 20. Prices unverified in play.
 - Look: each region tints the sky ahead; suns glow (brighter while held, cyan for sling suns); the tether has a soft glow; a catch rings out from the sun; the probe glows and shows a flickering exhaust that lengthens with speed; the trail tapers. Primitive budget test still under 400.
 - Run goals: every non-daily run draws a goal from its own generator seeded by the run count (the world's generator is untouched): loops, stalls, relics, close passes, a chain or a region, three tiers by furthest region reached, paying 3/5/7 bonus shards. 825/825 JS tests on Node 22; Perihelion 40/40 on Node 20.
+
+## 2026-10-02 — Perihelion: fixes from the platform review (`/mnt/project-files/reviews/platform-review-2026-10-02.md`)
+
+- Notices on the screen: the run goal, feats, first-time notes and a lost probe now show in a strip at the foot of the play area (they were only on the shell's hint line, which a full-screen layout may drop). One shows at a time; a new one waits and cuts the current one short, so a feat no longer overwrites a region name. The region name stays in its banner.
+- The goal at the top right now names what it counts ("GOAL  LOOPS 1/3") with a bar that fills toward it.
+- Hangar trimmed: it opens on LAUNCH (hold, hold goes back out), FEATS and LOG are one view (three feat pages, then the log), and rows with nothing to choose are hidden. A fresh save sees five rows: LAUNCH, DAILY RUN, PACE, FEATS AND LOG, GUIDE.
+- Fixes from the earlier Perihelion review: a finished run's relics no longer count twice toward lifetime feats (ARCHIVIST could unlock at 23); the Cluster's lamp colour is sky blue instead of white, so the white relic and catch cues read there; dark bodies in the Binaries clear a binary's whole orbit, not just its centre.
+- Not done here: the menu gesture firing mid-run belongs to the platform polish thread; separating upgrade-boosted scores waits for the console-wide meta decision.
+- Planning bot over 40 seeds: 17 arrive (16 before the orbit clearance), 3 die in the Binaries (5 before). Arrival test seeds now 11, 9, 3, 13, 15 (they arrive both before and after the change). 826/826 JS tests on Node 22; Perihelion 41/41 on Node 20. Not verified on the device.

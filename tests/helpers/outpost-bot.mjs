@@ -6,6 +6,7 @@
 // at the silent coast, plays the call to answer it. With `sound`, it follows the story: once a
 // run is ready it stays for the site's next sounding while that decodes the call (or answers
 // it), but never more than three times as long as the run took to be ready, nor an hour more.
+// With `fits`, it chooses each fitting the workshop builds (see pickFit).
 // Date.now is replaced by a fake clock that advances with the simulation.
 import { Outpost } from "../../web/apps/outpost.js";
 import { appContext } from "./app-context.mjs";
@@ -30,6 +31,22 @@ function chooseTune(app) {
   if (best !== s.sg) { s.sg = best; s.sp = 0; app.loadMelody(); }
 }
 
+// The bot's fitting: the offered blueprint worth most to how it plays here, roughly as a player
+// would judge it: the rack for whichever kind of machine makes more, the key and the metronome
+// while tapping, the battery for a player who is mostly away, and whatever speeds the sounding here.
+function pickFit(app, taps) {
+  const sv = E.surveyOf(app.s).k;
+  let sky = 0, ground = 0, all = 0;
+  for (let i = 0; i < E.NP; i++) { const v = app.out[i] || 0; all += v; if (E.PROD[i].sky) sky += v; else ground += v; }
+  const share = (v) => (all > 0 ? v / all : 0);
+  const want = [0.05, 0.5 * share(sky), 0.5 * share(ground), taps ? 0.35 : 0, taps ? 0.02 : 0.3, taps ? 0.15 : 0.05,
+    0.1 + (sv === "flares" ? 1 : 0), 0.05 + (sv === "exp" ? 1 : 0), 0.05 + (sv === "data" ? 1 : 0),
+    (taps ? 0.2 : 0) + (sv === "groove" ? 1 : 0), 0.25, share(app.out[E.NP - 1] || 0)];
+  let best = null, bestV = -Infinity;
+  for (const k of app.fitOffer()) if ((want[k] ?? 0) > bestV) { bestV = want[k] ?? 0; best = k; }
+  return best;
+}
+
 // `progress`, when given, is a save to start from (its clock is taken as now).
 // The story bot's choice among the offered sites: the silent coast while the call waits, then the
 // site with the fewest soundings taken; a player who taps skips sites that want it to stay away.
@@ -43,7 +60,7 @@ function pickSite(app, taps) {
   return best;
 }
 
-export function simulate({ runs = 3, maxMin = 240, active = 150, cycle = 600, checkin = 150, seed = 1, tapRate = 2, dt = 0.25, tunes = true, ready = (s) => E.readyOf(s), progress, sound = false } = {}) {
+export function simulate({ runs = 3, maxMin = 240, active = 150, cycle = 600, checkin = 150, seed = 1, tapRate = 2, dt = 0.25, tunes = true, ready = (s) => E.readyOf(s), progress, sound = false, fits = true } = {}) {
   let wall = 1.8e12;
   const realNow = Date.now;
   Date.now = () => wall;
@@ -64,6 +81,7 @@ export function simulate({ runs = 3, maxMin = 240, active = 150, cycle = 600, ch
           for (taps += tapRate * dt; taps >= 1; taps--) { if (tunes && app.s.sp === 0) chooseTune(app); app.idle = 0; app.gather(); }
           app.buyAll();
         } else if (checking) { app.buyAll(); nextCheck = t + checkin; }
+        if (fits && (isActive || checking)) while (app.fitWaiting()) { const k = pickFit(app, active > 0); if (k === null || !app.fit(k)) break; }
         if (app.s.tree[5] > 0 && app.s.ex.length < app.s.tree[5] && (isActive || checking)) {
           if (!app.launch(app.s.rt > 3e7 && E.hasRes(app.s, 3) ? 3 : app.s.rt > 3e5 ? 2 : 1)) app.launch(app.s.rt > 3e5 ? 2 : 1);
         }

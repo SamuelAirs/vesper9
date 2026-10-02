@@ -13,7 +13,7 @@ import { C, text, line, circle, diamond, banner, wrapText } from "../engine/draw
 import { TAU, clamp } from "../engine/math.js";
 import { pulse, blink } from "../engine/lightshow.js";
 import {
-  CHART_REQ, CONST, DWELL, EXPED, GOALS, GROOVE_MAX, HOLD_BUY, NG, NP, NR, RES, RING_IDLE, STAGES, UPG, PROD, PC_NAMES,
+  CONST, DWELL, EXPED, GOALS, GROOVE_MAX, HOLD_BUY, NG, NP, NR, RES, RING_IDLE, STAGES, UPG, PROD, PC_NAMES, SITES,
   capHours, clock, dur, fmt, fmtDate, fmtInt, fmtRate, goalFrac, masteredN, pendingOf, prodVisible, readyOf, revealOf, stageOf, unlockedN,
 } from "./outpost-rules.js";
 import { NS } from "./outpost-songs.js";
@@ -62,6 +62,7 @@ export function drawOutpost(g, app) {
   }
   g.globalAlpha = 1;
   if (app.flare) drawFlare(g, app);
+  if (app.finale) drawFinale(g, app);
   drawFooter(g, app);
   if (app.ring) drawRing(g, app);
   else if (app.panel) drawPanel(g, app);
@@ -110,6 +111,8 @@ function drawHeader(g, app) {
 function drawFooter(g, app) {
   const s = app.s;
   if (app.ring || app.panel || app.phase_ !== "play") return;
+  const site = SITES[s.site];
+  if (site) text(g, site.n, 24, 524, 14, C.muted, "left"); // where the outpost stands
   if (app.nextGoal !== null) {
     const gl = GOALS[app.nextGoal];
     text(g, "GOAL  " + gl.n + "  " + Math.floor(goalFrac(s, gl) * 100) + "%", 480, 160, 16, C.cyan, "center");
@@ -138,6 +141,28 @@ const machineX = (i) => 56 + i * (848 / (NP - 1)); // twelve machines across the
 // Fleet copies behind a machine as more are owned: [owned, dx, dy, scale].
 const FLEET = [[10, -26, -3, 0.42], [25, 26, -3, 0.42], [50, -13, -9, 0.32], [100, 13, -9, 0.32]];
 const POLES = [40, 240, 440, 640, 840];
+
+// Each site's look (SITES[k].terrain): the far and near ridge, sky top and horizon colours, the
+// ground, the ridge's lit edge, and what else stands there. A missing field keeps the plain look.
+const prof = (f, step = 30) => { const out = []; for (let x = 0; x <= 960; x += step) out.push([x, Math.round(f(x))]); return out; };
+const sn = (x, p, a) => a * Math.sin((x / 960) * TAU * p);
+const bowl = (x) => ((x - 480) / 480) ** 2;
+const TERRAIN = {
+  plain: {},
+  ridge: { far: prof((x) => 330 - 120 * Math.exp(-(((x - 300) / 110) ** 2)) - 70 * Math.exp(-(((x - 560) / 90) ** 2)) + sn(x, 7, 12), 16), farEdge: "#3a4f44", near: prof((x) => 398 - 70 * Math.exp(-(((x - 640) / 150) ** 2)) + sn(x, 5, 9), 20), top: "#02060a", hz: "#1a2a30", snow: true },
+  basin: { far: prof((x) => 404 - 170 * bowl(x) + sn(x, 9, 6), 20), near: prof((x) => 434 - 90 * bowl(x) + sn(x, 6, 4), 20), hz: "#24221a", ground: ["#161a10", "#050604"], edge: "#3a3a26" },
+  flats: { far: prof((x) => 410 + sn(x, 2, 3)), near: prof((x) => 433 + sn(x, 4, 2)), hz: "#34403a", ground: ["#2b362e", "#111813"], edge: "#4a5c50", cracks: true },
+  glacier: { far: prof((x) => 348 + sn(x, 4, 30) + sn(x, 9, 9), 16), near: prof((x) => 402 + sn(x, 3, 14), 20), hz: "#16302f", ground: ["#14221f", "#050a0a"], edge: "#3d6a66", crevasses: true },
+  canyon: { near: [[0, 214], [60, 228], [110, 296], [150, 376], [190, 426], [260, 434], [700, 434], [770, 426], [810, 376], [850, 296], [900, 228], [960, 214]], hz: "#2a2318", edge: "#3a2f22", ground: ["#18140e", "#060504"], strata: true },
+  crater: { far: prof((x) => 400 - 110 * Math.sqrt(Math.max(0, 1 - ((x - 480) / 400) ** 2)), 20), near: prof((x) => 428 + sn(x, 5, 5)), hz: "#2a2a20" },
+  coast: { far: prof(() => 398), farFill: "#0f2a29", farEdge: "#3d726b", near: prof((x) => 440 - 44 * Math.max(0, 1 - x / 240) - 44 * Math.max(0, (x - 720) / 240), 20), hz: "#173033", sea: true },
+  fumaroles: { near: prof((x) => 414 + sn(x, 4, 12) + sn(x, 11, 5), 16), hz: "#2c2219", ground: ["#1c1a12", "#070604"], vents: true },
+  shelf: { far: prof((x) => 372 + (x % 240 < 130 ? 0 : 12), 10), near: prof((x) => 420 + sn(x, 2, 6)), hz: "#173033", edge: "#2c5550", aurora: true },
+  dunes: { far: prof((x) => 382 + sn(x, 2, 22) + sn(x, 5, 8), 16), near: prof((x) => 416 + sn(x, 3, 16) + sn(x, 7, 5), 16), hz: "#2e2a1c", ground: ["#211e14", "#080705"], edge: "#4a4028" },
+  silent: { far: prof(() => 404), near: prof(() => 436), top: "#000000", hz: "#0d2426", ground: ["#0a1212", "#020404"], edge: "#2a5a58" },
+};
+const VENTS = [170, 330, 610, 790];
+const terrainOf = (app) => { const site = SITES[app.s && app.s.site]; return (site && TERRAIN[site.terrain]) ? site.terrain : "plain"; };
 
 // The star field, the band of faint stars across it and the few bright ones that twinkle, from a
 // fixed local sequence (visual only; ctx.rng is never touched). [x, y, size, alpha, colour]
@@ -199,7 +224,7 @@ function scaleOf(g) {
   const m = typeof g.getTransform === "function" ? g.getTransform() : null;
   return m && m.a > 0 ? clamp(Math.round(m.a * 4) / 4, 0.5, 3) : 1;
 }
-const L = { k: 0, owner: null, stage: -1, cn: -1, back: null, prev: null, fade: 1, glow: null, aurora: null, bodies: [] };
+const L = { k: 0, owner: null, stage: -1, cn: -1, tr: "", back: null, prev: null, fade: 1, glow: null, aurora: null, bodies: [] };
 function layers(g, app, stage) {
   const k = scaleOf(g);
   if (k !== L.k) {
@@ -208,18 +233,18 @@ function layers(g, app, stage) {
     L.aurora = surface(960, 130, k);
     if (L.aurora) { paintAurora(L.aurora.g); freeze(L.aurora); }
   }
-  const cn = app.s.cn;
-  if (stage !== L.stage || cn !== L.cn || app !== L.owner) {
+  const cn = app.s.cn, tr = terrainOf(app);
+  if (stage !== L.stage || cn !== L.cn || tr !== L.tr || app !== L.owner) {
     const v = surface(960, 540, k);
-    if (v) { paintBack(v.g, stage, cn, true); freeze(v); }
+    if (v) { paintBack(v.g, stage, cn, true, tr); freeze(v); }
     // a stage reached in play fades in over the old one; a launch or a new chart just appears
     L.prev = app === L.owner && stage !== L.stage && L.back && v ? L.back : null;
     L.fade = L.prev ? 0 : 1;
-    L.back = v; L.stage = stage; L.cn = cn; L.owner = app;
+    L.back = v; L.stage = stage; L.cn = cn; L.tr = tr; L.owner = app;
   }
 }
 // Forget every cached layer (tests switch OffscreenCanvas on and off; the console never does).
-export function resetSceneCache() { L.k = 0; L.owner = null; L.stage = -1; L.cn = -1; L.back = null; L.prev = null; L.fade = 1; L.glow = null; L.aurora = null; L.bodies = []; }
+export function resetSceneCache() { L.k = 0; L.owner = null; L.stage = -1; L.cn = -1; L.tr = ""; L.back = null; L.prev = null; L.fade = 1; L.glow = null; L.aurora = null; L.bodies = []; }
 function body(i) {
   if (L.bodies[i] === undefined) {
     const v = surface(100, 150, L.k || 1);
@@ -263,20 +288,45 @@ function paintAurora(g) {
 
 // `rich` is false when painting straight onto the frame (no OffscreenCanvas): the faint band of
 // stars and the stones on the ground are left out there to keep that frame cheap.
-function paintBack(g, stage, cn, rich) {
-  const hz = HORIZON[Math.min(stage, HORIZON.length - 1)];
+function paintBack(g, stage, cn, rich, tr = "plain") {
+  const T = TERRAIN[tr] || TERRAIN.plain, hz = T.hz || HORIZON[Math.min(stage, HORIZON.length - 1)];
   // sky: near black overhead, the console green, then the horizon glow that warms as the station grows
-  g.fillStyle = linear(g, "sky" + stage, 0, GY, [[0, "#050a08"], [0.5, C.bg], [1, hz]]);
+  g.fillStyle = linear(g, "sky" + stage + tr, 0, GY, [[0, T.top || "#050a08"], [0.5, C.bg], [1, hz]]);
   g.fillRect(0, 0, 960, GY);
   for (let k = 0, n = rich ? STARS.length : 50; k < n; k++) { const [x, y, s, a, col] = STARS[k]; g.globalAlpha = a; g.fillStyle = col; g.fillRect(x, y, s, s); }
   g.globalAlpha = 1;
   paintWorld(g, stage);
   paintCharts(g, cn);
   // the far ridge in haze, then the near ridge as a silhouette with a lit edge
-  ridge(g, FAR, "#0f1914", "#1a2a20");
-  g.fillStyle = linear(g, "haze" + stage, 370, GY, [[0, hz + "00"], [1, hz + "99"]]);
-  g.fillRect(0, 370, 960, GY - 370);
-  ridge(g, HILLS, "#0a110d", C.dark);
+  ridge(g, T.far || FAR, T.farFill || "#0f1914", T.farEdge || "#1a2a20");
+  if (T.sea) { // the still sea, with long swells
+    g.strokeStyle = "#2a5552"; g.lineWidth = 1; g.beginPath();
+    for (let y = 404; y < GY; y += 7) for (let x = (y * 37) % 90; x < 960; x += 150) { g.moveTo(x, y); g.lineTo(x + 40 + (y % 3) * 14, y); }
+    g.stroke();
+    for (const x of [300, 640]) { // two old wrecks out on the water
+      g.fillStyle = "#081211"; g.beginPath(); g.moveTo(x - 22, 400); g.lineTo(x + 26, 400); g.lineTo(x + 16, 410); g.lineTo(x - 14, 410); g.closePath(); g.fill();
+      line(g, x, 400, x + 3, 372, "#1d3b38", 2);
+    }
+  }
+  if (!T.sea) { // haze over the far ridge (the sea needs none)
+    g.fillStyle = linear(g, "haze" + stage + tr, 370, GY, [[0, hz + "00"], [1, hz + "99"]]);
+    g.fillRect(0, 370, 960, GY - 370);
+  }
+  ridge(g, T.near || HILLS, "#0a110d", T.edge || C.dark);
+  if (T.snow) { // snow on the high peaks
+    const far = T.far; g.beginPath();
+    for (let k = 1; k < far.length; k++) if (far[k][1] < 290 && far[k - 1][1] < 290) { g.moveTo(far[k - 1][0], far[k - 1][1]); g.lineTo(far[k][0], far[k][1]); }
+    g.strokeStyle = "#7d9a90"; g.lineWidth = 3; g.stroke();
+  }
+  if (T.strata) { // bands in the canyon walls
+    g.strokeStyle = "#2a2219"; g.lineWidth = 1; g.beginPath();
+    for (let y = 244; y < 420; y += 16) { const w = 40 + (y - 214) * 0.72; g.moveTo(0, y); g.lineTo(w, y + 4); g.moveTo(960, y); g.lineTo(960 - w, y + 4); }
+    g.stroke();
+  }
+  if (T.vents) for (const x of VENTS) { // low mounds round each vent
+    g.beginPath(); g.moveTo(x - 24, GY); g.quadraticCurveTo(x, GY - 22, x + 24, GY); g.fillStyle = "#14110b"; g.fill();
+    g.strokeStyle = "#3a2f22"; g.lineWidth = 2; g.stroke();
+  }
   if (stage >= 1) { // a fence of posts and one wire
     g.strokeStyle = C.line; g.lineWidth = 2;
     g.beginPath();
@@ -305,8 +355,18 @@ function paintBack(g, stage, cn, rich) {
     g.save(); g.setLineDash([3, 9]); g.translate(480, 212); g.scale(1, 0.18); circle(g, 0, 0, 420, C.line, false, 2); g.restore();
   }
   // the ground: dark falling away, tracks running out from the middle, stones, and the old dashes
-  g.fillStyle = linear(g, "ground", GY, 540, [[0, "#121e16"], [1, "#040706"]]);
+  const gr = T.ground || ["#121e16", "#040706"];
+  g.fillStyle = linear(g, "ground" + tr, GY, 540, [[0, gr[0]], [1, gr[1]]]);
   g.fillRect(0, GY, 960, 540 - GY);
+  if (T.cracks || T.crevasses) { // salt polygons, or long cracks in the ice
+    g.strokeStyle = T.cracks ? "#2a362d" : "#2a4c49"; g.lineWidth = 1; g.beginPath();
+    for (let k = 0; k < 18; k++) {
+      const x = (k * 157) % 960, y = GY + 10 + ((k * 53) % 90);
+      if (T.cracks) { g.moveTo(x, y); g.lineTo(x + 30, y - 6); g.lineTo(x + 58, y + 3); g.moveTo(x + 30, y - 6); g.lineTo(x + 34, y + 14); }
+      else { g.moveTo(x, y); g.lineTo(x + 50 + (k % 4) * 20, y + 2 + (k % 3)); }
+    }
+    g.stroke();
+  }
   g.strokeStyle = "#132017"; g.lineWidth = 1;
   g.beginPath();
   for (let k = -3; k <= 3; k++) if (k) { g.moveTo(480 + k * 36, GY + 2); g.lineTo(480 + k * 250, 540); }
@@ -367,7 +427,13 @@ function paintCharts(g, n) {
 // What moves in the backdrop: twinkling stars, a meteor now and then, pole lamps, hut windows,
 // the radar, the satellites and the aurora's drift. `still` is the Reduced Motion setting.
 function drawLive(g, app, stage, still) {
-  const t = app.t;
+  const t = app.t, T = TERRAIN[terrainOf(app)];
+  if (T.vents) for (let k = 0; k < VENTS.length; k++) { // steam rising from each vent
+    for (let j = 0; j < 2; j++) {
+      const u = ((still ? 0.4 : t * 0.18) + k * 0.31 + j * 0.5) % 1;
+      glow(g, 2, VENTS[k] + Math.sin(u * 5 + k) * 10 * u, GY - 14 - u * 110, 10 + 26 * u, 8 + 20 * u, 0.22 * Math.sin(Math.PI * u));
+    }
+  }
   g.fillStyle = C.ink;
   for (const [x, y, s, ph] of TWINKLE) { g.globalAlpha = 0.3 + 0.6 * pulse(t * 0.23 + ph); g.fillRect(x - s / 2, y - s / 2, s, s); }
   g.globalAlpha = 1;
@@ -392,7 +458,7 @@ function drawLive(g, app, stage, still) {
     diamond(g, x, y, 5, C.cyan, true);
     if (blink(t * 0.5 + k * 0.5, 1)) glow(g, 1, x, y, 10, 10, 0.7);
   }
-  if (stage >= 6) {
+  if (stage >= 6 || T.aurora) {
     const v = L.aurora, breathe = 0.4 + 0.12 * Math.sin(t * 0.37);
     if (v) {
       const o = still ? 0 : (t * 9) % 960, y = 172 + (still ? 0 : 6 * Math.sin(t * 0.21));
@@ -402,6 +468,17 @@ function drawLive(g, app, stage, still) {
   }
 }
 
+// The call answered: a cyan dawn over the horizon and rings leaving the station, for twelve seconds.
+function drawFinale(g, app) {
+  const t = app.finale.t || 0, u = clamp(t / 12, 0, 1), fade = Math.min(1, t * 2) * (1 - u);
+  glow(g, 1, 480, GY, 640, 220, 0.55 * fade);
+  for (let k = 0; k < 3; k++) {
+    const w = (t * 0.5 + k / 3) % 1;
+    g.globalAlpha = 0.6 * fade * (1 - w);
+    g.save(); g.translate(480, GY - 40); g.scale(1, 0.4); circle(g, 0, 0, 40 + w * 560, k === 1 ? C.amber : C.cyan, false, 3); g.restore();
+  }
+  g.globalAlpha = 1;
+}
 function drawFlare(g, app) {
   const f = app.flare, k = f.t / f.life, r = 12 + 10 * Math.sin(app.t * 6);
   glow(g, 0, f.x, f.y, 70 + 20 * Math.sin(app.t * 3), 70 + 20 * Math.sin(app.t * 3), 0.55);
@@ -700,30 +777,26 @@ function drawPanel(g, app) {
   text(g, s.fk ? "FOUNDED " + fmtDate(s.f) : "* COUNTED SINCE " + fmtDate(s.f), 54, 496, 16, C.muted, "left");
   text(g, "TAP: NEXT PAGE   HOLD: CLOSE", 906, 496, 16, C.muted, "right");
 }
+// The "updated" card. The cartridge says what is new (newsCard: a title and up to six lines, each
+// a string or [text, tone]); the first line is bright, the rest alternate so they read as a list.
+const TONES = { ink: C.ink, muted: C.muted, amber: C.amber, cyan: C.cyan, red: C.red };
 function drawNews(g, app) {
-  const s = app.s;
+  const card = typeof app.newsCard === "function" ? app.newsCard() : null;
+  const title = (card && card.title) || "OUTPOST UPDATED", lines = (card && Array.isArray(card.lines) ? card.lines : []).slice(0, 6);
   frame(g, 100, 130, 760, 330, "#0c1511f0");
-  text(g, "OUTPOST UPDATED", 480, 168, 30, C.cyan, "center");
-  if (app.newsFrom >= 3) { // from schema 3: groove and constellations
-    text(g, "KEEP A STEADY BEAT TO BUILD GROOVE", 480, 218, 22, C.ink, "center");
-    text(g, "FULL GROOVE: EVERY TAP AND PHRASE x1.5", 480, 250, 22, C.muted, "center");
-    text(g, "AT " + CHART_REQ + " BEARINGS THE TREE CAN CHART CONSTELLATIONS", 480, 290, 20, C.ink, "center");
-    text(g, "THE EXTRA VOICES ARE QUIETER UNDER THE TUNE", 480, 322, 20, C.muted, "center");
-    text(g, "NOTHING WAS LOST.", 480, 366, 18, C.muted, "center");
-    text(g, "PRESS TO CONTINUE", 480, 424, 22, C.amber, "center");
-    return;
-  }
-  text(g, "TAPS NOW PLAY MELODIES", 480, 218, 22, C.ink, "center");
-  text(g, "HOLD, THEN SONGBOOK, TO CHOOSE THE TUNE", 480, 250, 22, C.muted, "center");
-  text(g, "STATISTICS, GOALS AND RESEARCH ARE NEW", 480, 290, 22, C.ink, "center");
-  if (s.gl.length) text(g, s.gl.length + " GOALS ALREADY MET: +" + s.gl.length + "% OUTPUT", 480, 322, 22, C.amber, "center");
-  text(g, "NOTHING WAS LOST. COUNTING STARTS " + fmtDate(s.f), 480, 366, 18, C.muted, "center");
+  text(g, title, 480, 168, 30, C.cyan, "center");
+  const step = lines.length > 5 ? 30 : 34, y0 = 216;
+  lines.forEach((ln, k) => {
+    const [v, tone] = Array.isArray(ln) ? ln : [ln, null];
+    const last = k === lines.length - 1 && /^NOTHING WAS LOST/.test(String(v));
+    text(g, String(v).slice(0, 56), 480, y0 + k * step + (last ? 8 : 0), last ? 18 : 20, TONES[tone] || (last ? C.muted : k % 2 ? C.muted : C.ink), "center");
+  });
   text(g, "PRESS TO CONTINUE", 480, 424, 22, C.amber, "center");
 }
 function drawRing(g, app) {
   const r = app.ring, es = app.entries, e = es[r.idx];
   frame(g, 30, 140, 900, 372, "#0c1511f2");
-  const title = { exp: "EXPEDITIONS", tree: "BEARING TREE", reloc: "RELOCATE", songs: "SONGBOOK", res: "RESEARCH", goals: "GOALS" }[r.menu] || "BUILD";
+  const title = { exp: "EXPEDITIONS", tree: "BEARING TREE", reloc: "RELOCATE", site: "SOUNDINGS", songs: "SONGBOOK", res: "RESEARCH", goals: "GOALS" }[r.menu] || "BUILD";
   text(g, title, 54, 164, 18, C.amber, "left");
   text(g, r.menu === "res" ? "DATA " + Math.floor(app.s.dat) : "SIGNAL " + fmt(app.s.sig), 906, 164, 18, C.muted, "right");
   // list window of up to 6 rows
@@ -798,6 +871,8 @@ function drawCard(g, app) {
   text(g, "RUN SIGNAL " + fmt(c.run) + "  IN " + dur(c.secs), 480, 282, 22, C.muted, "center");
   text(g, "TOTAL BEARINGS " + c.total, 480, 312, 22, C.amber, "center");
   if (c.taps + c.hand + c.mach > 0) text(g, fmtInt(c.taps) + " TAPS   " + Math.round((100 * c.hand) / Math.max(1e-9, c.hand + c.mach)) + "% BY HAND   " + c.stage, 480, 344, 18, C.muted, "center");
-  text(g, "EVERYTHING ELSE STARTS AGAIN, FASTER.", 480, 382, 22, C.muted, "center");
+  const to = SITES[c.site], from = SITES[c.from];
+  if (to) text(g, "NOW AT " + to.n + (from && c.from !== c.site ? ", FROM " + from.n : ""), 480, 382, 22, C.cyan, "center");
+  else text(g, "EVERYTHING ELSE STARTS AGAIN, FASTER.", 480, 382, 22, C.muted, "center");
   if (app.cardT > 1.2) text(g, app.s.b > 0 ? "PRESS TO SPEND BEARINGS" : "PRESS TO CONTINUE", 480, 424, 22, C.amber, "center");
 }

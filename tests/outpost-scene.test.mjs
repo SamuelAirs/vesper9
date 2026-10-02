@@ -164,3 +164,57 @@ test("a humming machine shows the note it is tuned to beside its count", () => {
   app.hum[0] = 20; said.length = 0; app.draw(g);
   assert.ok(said.includes("x12 C"), said.join("|"));
 });
+
+// fillText arguments, for the tests that read what a screen says
+const sayer = () => {
+  const said = [];
+  const g = new Proxy(fakeCanvas(), { get(o, k) { return k === "fillText" ? (v) => said.push(String(v)) : o[k]; }, set(o, k, v) { o[k] = v; return true; } });
+  return { g, said };
+};
+
+test("every site's terrain draws with finite numbers, and the footer names the site", async () => {
+  const { SITES } = await import("../web/apps/outpost-rules.js");
+  for (const off of [true, false]) {
+    withOffscreen(off);
+    try {
+      const { app } = begin();
+      late(app);
+      for (let k = 0; k < SITES.length; k++) {
+        app.s.site = k; app.dirty = true;
+        const g = strictCanvas();
+        for (let i = 0; i < 10; i++) { app.update(1 / 60); app.draw(g); }
+        assert.deepEqual(g.count.bad, [], SITES[k].terrain);
+      }
+      const { g, said } = sayer();
+      app.s.site = 5; app.draw(g);
+      assert.ok(said.includes(SITES[5].n));
+    } finally { withOffscreen(false); }
+  }
+});
+
+test("the update card draws the cartridge's newsCard, and the relocation card says where the outpost went", async () => {
+  const { SITES } = await import("../web/apps/outpost-rules.js");
+  const { app } = begin();
+  app.newsCard = () => ({ title: "OUTPOST UPDATED", lines: ["FIRST NEWS", ["SECOND NEWS", "amber"], "NOTHING WAS LOST."] });
+  app.phase_ = "news";
+  let { g, said } = sayer();
+  app.draw(g);
+  for (const v of ["OUTPOST UPDATED", "FIRST NEWS", "SECOND NEWS", "NOTHING WAS LOST."]) assert.ok(said.includes(v), v);
+  app.phase_ = "card"; app.cardT = 2;
+  app.card = { gain: 3, run: 1e6, secs: 600, total: 3, taps: 10, hand: 1, mach: 1, stage: "FIELD STATION", site: 5, from: 1 };
+  ({ g, said } = sayer());
+  app.draw(g);
+  assert.ok(said.includes("NOW AT " + SITES[5].n + ", FROM " + SITES[1].n), said.join("|"));
+});
+
+test("the soundings menu is titled, and the finale draws", () => {
+  const { app } = begin();
+  app.ring = { menu: "site", idx: 0, hiAt: 0, last: app.clk };
+  app.entries = [{ key: "back", kind: "back", label: "BACK", lines: ["TO THE BUILD RING"] }];
+  const { g, said } = sayer();
+  app.draw(g);
+  assert.ok(said.includes("SOUNDINGS"));
+  app.ring = null; app.finale = { t: 3 };
+  const h = strictCanvas(); app.draw(h);
+  assert.deepEqual(h.count.bad, []);
+});

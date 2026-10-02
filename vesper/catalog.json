@@ -33,8 +33,16 @@
         "orbit",
         "ricochet",
         "runner",
-        "reaction",
         "descent"
+      ]
+    },
+    {
+      "name": "LAMPS",
+      "tagline": "Played on the three lamps.",
+      "apps": [
+        "meridian",
+        "relay",
+        "reaction"
       ]
     },
     {
@@ -52,7 +60,8 @@
         "lantern",
         "cadence",
         "oracle",
-        "morse"
+        "morse",
+        "library"
       ]
     },
     {

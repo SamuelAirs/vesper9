@@ -11,6 +11,7 @@ import { HostLamps, levelScale } from "./engine/ambient.js";
 import { microphoneStatus } from "./engine/status.js";
 import { planVoice } from "./engine/voice.js";
 import { LOGICAL_W, LOGICAL_H, renderFactor } from "./engine/render.js";
+import * as Log from "./engine/logbook.js";
 
 const $ = (id) => document.getElementById(id);
 // Assigning identical text still replaces the text node and dirties layout, so
@@ -508,6 +509,7 @@ export class Vesper {
     // The new app starts with nothing highlighted from the last screen: its first action is row 0.
     this.nav = { items: [], index: 0 };
     this.meta = meta;
+    if (!SYSTEM_APPS.includes(meta.id)) this.lastApp = meta.id;
     const token = this.token;
     const alive = () => this.token === token;
     let lastContent = null;
@@ -547,7 +549,31 @@ export class Vesper {
       get: (path) => this.bridge.get(path),
       best: (metric = "default") => this.state.scores[metric === "default" ? meta.id : meta.id + ":" + metric] || 0,
       score: (score, metric = "default") => {
-        if (alive()) this.bridge.command("score", { app: meta.id, score, metric }, true);
+        if (!alive()) return;
+        this.bridge.command("score", { app: meta.id, score, metric }, true);
+        const book = this.logbook();
+        if (Log.noteScore(book, meta.id, score, metric)) this.orderMet(meta);
+      },
+      // The console logbook (engine/logbook.js). today(): this game's order for today, or null when
+      // it is not one of today's three. daily(text): state the game's own order (a daily run).
+      // dailyMet(): the game's own order is met. feat(id, name): a feat, kept once.
+      today: () => {
+        const p = Log.pickOf(this.logbook(), meta.id);
+        return p ? { goal: p.goal, done: !!p.done, own: !!p.own } : null;
+      },
+      daily: (text) => {
+        if (alive() && Log.ownOrder(this.logbook(), meta.id, text)) this.saveBook();
+      },
+      dailyMet: () => {
+        if (alive() && Log.meetOrder(this.logbook(), meta.id)) this.orderMet(meta);
+      },
+      feat: (id, name) => {
+        if (!alive()) return false;
+        const book = this.logbook();
+        if (!Log.addFeat(book, meta.id, id, name, book.day)) return false;
+        this.saveBook();
+        this.toast("FEAT · " + String(name || id).toUpperCase() + " · " + meta.name);
+        return true;
       },
       progress: () => this.state.progress?.[meta.id] || {},
       saveProgress: (value) => {
@@ -684,6 +710,47 @@ export class Vesper {
     }
     w.n = w.slow = 0;
   }
+  // The console logbook, started for today (a new date picks a new three).
+  logbook() {
+    this.book ||= Log.cleanLogbook(this.state.progress?.console);
+    const games = PAGES.flatMap((p) => p.apps).filter(isGame).map((a) => a.id);
+    if (Log.ensureDay(this.book, Log.dateKey(), games, (id) => this.state.scores?.[id] || 0)) {
+      this.saveBook();
+      this.todayLine();
+    }
+    return this.book;
+  }
+  saveBook() {
+    if (!this.loaded || this.state.controller === false) return;
+    this.state.progress.console = this.book;
+    this.bridge.command("progress", { app: "console", value: this.book }, true)?.catch?.(() => {});
+  }
+  orderMet(meta) {
+    this.saveBook();
+    this.todayLine();
+    const book = this.book, n = Log.doneCount(book);
+    this.toast("TODAY'S ORDER MET · " + meta.name + (n === Log.PICKS ? " · ALL THREE" : " · " + n + " OF " + Log.PICKS));
+  }
+  // The dashboard's one line for today: the three games and which are done, and the streak.
+  todayLine() {
+    const el = $("today-line");
+    if (!el || !this.book) return;
+    const book = this.book, name = (id) => APPS.find((a) => a.id === id)?.name || id;
+    const days = Log.streak(book, book.day);
+    const value = book.picks.length ? "TODAY · " + book.picks.map((p) => (p.done ? "◆ " : "◇ ") + name(p.a)).join("  ") +
+      (days ? "  · STREAK " + days : "") : "";
+    if (el.textContent !== value) el.textContent = value;
+  }
+  // The logbook in the system menu: today's three (each one launches), the streak, the feats.
+  logbookMenu() {
+    const book = this.logbook(), name = (id) => APPS.find((a) => a.id === id)?.name || id;
+    const days = Log.streak(book, book.day), done = Log.doneCount(book);
+    const recent = book.feats.slice(-6).reverse().map((f) => f.n + " (" + name(f.a) + ")").join(", ");
+    this.openMenu("Logbook", `Today's three: ${done} of ${Log.PICKS} met. ${days ? "Streak: " + days + (days === 1 ? " day." : " days.") : "Meet one order to start a streak."} Feats: ${book.feats.length}${recent ? ". Latest: " + recent + "." : "."}`, [
+      ...book.picks.map((p) => ({ label: (p.done ? "◆ " : "◇ ") + name(p.a) + " / " + p.goal.toUpperCase(), run: () => this.launch(p.a) })),
+      { label: "BACK", run: () => this.systemMenu() },
+    ]);
+  }
   hint(message) {
     $("control-hint").textContent = message;
   }
@@ -767,12 +834,15 @@ export class Vesper {
     const mic = this.state.mic.mode;
     this.openMenu("System channel", "Tap to move. Hold and release to choose. Open it: tap, tap, hold.", [
       {
-        label: this.app ? "RESUME / " + this.meta.name : "RETURN TO DASHBOARD",
+        label: this.app ? "RESUME / " + this.meta.name : "CLOSE MENU",
         run: () => this.closeMenu(),
       },
+      // The last app played, one choice away from the dashboard.
+      ...(!this.app && this.lastApp && APPS.some((a) => a.id === this.lastApp) ? [{ label: "CONTINUE / " + APPS.find((a) => a.id === this.lastApp).name, run: () => this.launch(this.lastApp) }] : []),
       ...(this.app ? [{ label: "RESTART / " + this.meta.name, run: () => this.launch(this.meta.id) }, ...(this.app.menuActions?.() || []),
         ...(this.state.progress?.[this.meta.id]?.runs ? [{ label: 'FIELD RECORD / ' + this.state.progress[this.meta.id].runs + ' ENTRIES', run: () => this.fieldRecord() }] : [])] : []),
-      { label: "DASHBOARD", run: () => this.home() },
+      ...(this.app ? [{ label: "DASHBOARD", run: () => this.home() }] : []),
+      { label: "LOGBOOK / TODAY " + Log.doneCount(this.logbook()) + " OF " + Log.PICKS, run: () => this.logbookMenu() },
       { label: "MICROPHONE / " + mic.toUpperCase(), run: () => this.micMenu() },
       {
         label: this.meta ? "HOW TO PLAY / CONTROLS" : "HOW TO USE VESPER",
@@ -970,6 +1040,8 @@ export class Vesper {
           progress: e.progress || {},
         };
         this.loaded = true;
+        this.book = Log.cleanLogbook(this.state.progress.console);
+        this.logbook();
         this.cardStats();
         this.settings();
         this.lightVisual(e.leds);
@@ -1068,6 +1140,7 @@ export class Vesper {
       case "scores":
         this.state.scores = e.scores;
         this.cardStats();
+        this.todayLine();
         break;
       case "settings":
         this.state.settings = { ...DEFAULT, ...e.settings };

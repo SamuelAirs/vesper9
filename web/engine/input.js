@@ -133,7 +133,7 @@ export class AppGuard {
     this.app = app; this.c = ctx; this.skip = new Set(skip); this.t = 0;
     this.line = new GestureTimeline(settings || (() => ctx.settings?.() || {}));
     this.queue = []; this.open = true;
-    for (const name of ["score", "saveProgress"]) {
+    for (const name of ["score", "saveProgress", "feat", "dailyMet"]) {
       const original = ctx[name];
       if (typeof original !== "function") continue;
       ctx[name] = (...args) => this.hold(name, () => original.apply(ctx, args));

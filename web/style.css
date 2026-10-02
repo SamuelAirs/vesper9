@@ -1444,3 +1444,9 @@ main {
 @media (min-width: 900px) and (max-height: 640px) {
   .diag-item { padding: 2px 0; font-size: 11px; }
 }
+/* The console logbook's line on the dashboard: today's three games and the streak. */
+.today-line { margin: 4px 0 0; font-size: 10px; letter-spacing: 1px; color: var(--amber); min-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* In play the toast sits under the top row, clear of the bottom of the game. */
+@media (min-width: 700px) and (min-height: 400px) {
+  body.playing #toast { top: 42px; bottom: auto; }
+}

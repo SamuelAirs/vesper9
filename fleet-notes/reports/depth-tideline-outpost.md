@@ -78,5 +78,5 @@ Not addressed here: the console-wide latency calibration and the menu gesture be
 3. Outpost: open your save, read the update card, then tap a steady beat for ten seconds or so and watch GROOVE climb to x1.50 at the top right. Buy or check the voice upgrades: are they now quiet enough under the tune?
 4. Constellations appear only at 1,000 bearings held, so they may be a while away on your save.
 5. Tideline: does the new shore (sky, pier, angler, shadows in the water) read well on the 7" screen? Look for TODAY'S CATCH on the shore and try to land it.
-7. Tideline (after the review): hook anything but a steady fish and watch for it to shiver, with IT WILL RISE or IT WILL DIVE at the top and two notes. Move the zone that way before it goes. Does that make the harder fish feel fair rather than twitchy?
 6. Outpost: tap a beat and watch the ripple run along the ground; it turns cyan in full groove. Do the rising signal pulses look busy or just alive?
+7. Tideline (after the review): hook anything but a steady fish and watch for it to shiver, with IT WILL RISE or IT WILL DIVE at the top and two notes. Move the zone that way before it goes. Does that make the harder fish feel fair rather than twitchy?

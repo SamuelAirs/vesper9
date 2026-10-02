@@ -18,6 +18,9 @@ export const MILESTONES = [10, 25, 50, 100, 150, 200, 250, 300]; // owned counts
 export const PRESTIGE_K = 1.2e5; // run signal at which one bearing is earned (gain = floor((run / K) ^ 0.25))
 export const READY_MIN = 8; // bearings worth relocating for ...
 export const READY_RATIO = 2; // ... and at least this many times the bearings already held, so later runs do not shrink to sprints
+export const READY_LATE = 20000; // past this many bearings held, the ratio keeps falling (as (READY_LATE / held) ^ READY_FALL) ...
+export const READY_FALL = 0.3;
+export const READY_FLOOR = 0.2; // ... to this, so late runs stay an hour or two instead of growing to a day
 export const BASE_CAP_H = 8; // offline credit cap in hours, before upgrades
 export const AWAY_MIN = 45; // seconds away before a summary is shown
 export const HOLD_OPEN = 0.42; // seconds held (outside the ring) to open the ring
@@ -503,8 +506,9 @@ export const capHours = (s) => {
 export const pendingOf = (s) => int(Math.pow(s.rt / PRESTIGE_K, 0.25), 1e9);
 export const revealOf = (s) => { const p = pendingOf(s); return p >= 3 || (s.runs > 0 && p >= 1); };
 // How many times the bearings already held a relocation should bring before it is called ready:
-// twice early on, less once the holdings are large (otherwise late runs grow without end).
-export const readyRatio = (L) => (L < 500 ? READY_RATIO : L < 5000 ? 1.6 : L < 20000 ? 1.35 : 1.25);
+// twice early on, less once the holdings are large, and less and less past READY_LATE (a run
+// needs the fourth power of its bearings in signal, so a fixed ratio makes late runs grow without end).
+export const readyRatio = (L) => (L < 500 ? READY_RATIO : L < 5000 ? 1.6 : L < READY_LATE ? 1.35 : Math.max(READY_FLOOR, 1.25 * Math.pow(READY_LATE / L, READY_FALL)));
 export const readyOf = (s) => { const p = pendingOf(s); return p >= READY_MIN && p >= readyRatio(s.L) * s.L; };
 export const slotsOf = (s) => (s.tree[5] ? s.tree[5] : 0);
 

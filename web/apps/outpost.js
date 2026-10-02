@@ -47,7 +47,7 @@
 import { clamp } from "../engine/math.js";
 import { lightsOff } from "../engine/lightshow.js";
 import {
-  SCHEMA, BIG, MAX_OWN, MILESTONES, PRESTIGE_K, READY_MIN, READY_RATIO, AWAY_MIN, HOLD_OPEN, HOLD_BUY, HOLD_BIG, DWELL, DWELL_BIG,
+  SCHEMA, BIG, MAX_OWN, MILESTONES, PRESTIGE_K, READY_MIN, READY_RATIO, READY_LATE, READY_FLOOR, AWAY_MIN, HOLD_OPEN, HOLD_BUY, HOLD_BIG, DWELL, DWELL_BIG,
   RING_IDLE, DIM_AFTER, SAVE_EVERY, SAVE_GAP, FLARE_LIFE, FLOATERS, LUMP_SEC, TAP_EASY, TAP_EASY_FRENZY, PACE_BURST,
   GROOVE_BONUS, GROOVE_MAX, GROOVE_TOL, GROOVE_MIN_GAP, GROOVE_MAX_GAP, GROOVE_FADE, CHART_REQ, CHART_MULT, CHART_MAX,
   PROD, NP, UPG, NUP, VOICE, TREE, NT, KIT, KIT_SIGNAL, AUTO_EVERY, EXPED, MAX_RELICS, GEN_ID, RES, NR, EV, GOALS, NG, STAGES, CONST,
@@ -1282,4 +1282,4 @@ Outpost.econ = { RES, GOALS, STAGES, VOICE, EV, NR, NG, NS, NT, HUM_MULT, HUM_SE
   SITES, NSITE, SILENT, SURVEY_BONUS, SURVEY_LEVELS, SURVEY, siteOf, siteFx, siteMach, siteKnown, surveysDone, surveyOf, offerSites,
   CALL_ID, CALL_FRAGS, CALL_LOG, CALL_ANSWERED, CHORUS_MULT, callMelody, FEATS, hasRes, tierOpen, tiersOwned, dataRate, masteredN, unlockedN, stageOf, fmtInt, fmtDate, revealOf, fmt, fmtRate, dur, costOf, prodMult, globalMult, evaluate, tapParts, capHours, pendingOf, readyOf, migrate, serialize, freshState, applyKit,
   PROD, UPG, TREE, EXPED, READY_RATIO, MILESTONES, SCHEMA, BIG, PRESTIGE_K, READY_MIN, KIT, NUP, NP, milestonesAt,
-  readyRatio, chartCost, chartName, chartsOpen, CONST, CHART_REQ, CHART_MULT, CHART_MAX, GROOVE_MAX, VOICE_GAIN };
+  readyRatio, READY_LATE, READY_FLOOR, chartCost, chartName, chartsOpen, CONST, CHART_REQ, CHART_MULT, CHART_MAX, GROOVE_MAX, VOICE_GAIN };

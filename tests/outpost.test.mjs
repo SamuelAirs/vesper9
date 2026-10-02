@@ -963,11 +963,15 @@ test("constellations: shown from 1000 bearings, each multiplies all output, cost
   finiteDeep(s);
 });
 
-test("relocation is called ready at twice the bearings held early, less once holdings are large", () => {
+test("relocation is called ready at twice the bearings held early, less once holdings are large, and less again late", () => {
   assert.equal(E.readyRatio(10), 2);
   assert.equal(E.readyRatio(800), 1.6);
   assert.equal(E.readyRatio(8000), 1.35);
-  assert.equal(E.readyRatio(50000), 1.25);
+  assert.equal(E.readyRatio(E.READY_LATE), 1.25);
+  assert.ok(E.readyRatio(50000) > 0.9 && E.readyRatio(50000) < 1, "past 20,000 held it keeps falling");
+  assert.ok(E.readyRatio(1e6) > 0.35 && E.readyRatio(1e6) < 0.4);
+  assert.equal(E.readyRatio(1e9), E.READY_FLOOR);
+  for (let L = 1; L < 1e9; L *= 1.07) assert.ok(E.readyRatio(L * 1.07) <= E.readyRatio(L), "it never rises as holdings grow (" + Math.round(L) + ")");
   const s = E.freshState();
   s.L = 8000; s.rt = E.PRESTIGE_K * Math.pow(8000 * 1.36, 4);
   assert.equal(E.readyOf(s), true);
@@ -1327,4 +1331,11 @@ test("the long game: a player who stays for each site's sounding hears the whole
   assert.ok(E.surveysDone(s) >= 12);
   assert.ok(hours < 12, hours.toFixed(1) + " hours of play (a quarter of it tapping)");
   finiteDeep(s);
+  // and play goes on: the runs after the answer stay short (with a fixed ready ratio they took 4 to 10 hours each)
+  const after = simulate({ runs: 5, maxMin: 600, sound: true, progress: E.serialize(s, 1.8e12) });
+  console.log("after the answer: minutes per run", after.res.map((r) => r.minutes).join(" "), "bearings", after.app.s.L);
+  assert.equal(after.res.length, 5);
+  assert.ok(after.res.every((r) => r.minutes !== null && r.minutes < 180), "every run after the answer within three hours");
+  assert.ok(after.app.s.L > 2 * s.L, "and the bearings keep growing");
+  finiteDeep(after.app.s);
 });

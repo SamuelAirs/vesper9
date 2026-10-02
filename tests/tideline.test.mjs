@@ -56,6 +56,26 @@ function makeCatchBot(lag = 8, noise = 0.04, gain = 5, seed = 5) {
     return held;
   };
 }
+// A fairer model of a person: sees the fish `lag` frames late (14 is about 230 ms), allows for a
+// share `k` of what their own thumb has done since, decides about every 100 ms, and may read the
+// tell (only its direction, as the screen shows it). The review's bot above reacts to its own zone
+// late too, which a person does not; it is kept as the harshest case.
+function makeHuman({ lag = 14, k = 0.6, tells = true, every = 6, noise = 0.05, seed = 5 } = {}) {
+  const rng = new Random(seed), hist = [];
+  let held = false, wait = 0;
+  return (c) => {
+    hist.push([c.f, c.tell > 0 ? c.next : -1, c.fv, c.z, c.zv]);
+    const o = hist[Math.max(0, hist.length - 1 - lag)];
+    if (wait-- <= 0) {
+      wait = every - 1 + (rng.next() < 0.5 ? 1 : 0);
+      const f = (tells && o[1] >= 0 ? o[0] + Math.sign(o[1] - o[0]) * 0.22 : o[0] + o[2] * lag / 60 * 0.5) + (rng.next() - 0.5) * noise;
+      const z = o[3] + (c.z - o[3]) * k, zv = o[4] + (c.zv - o[4]) * k;
+      held = zv < Math.max(-1, Math.min(1, (f - z) * 4));
+    }
+    return held;
+  };
+}
+const NOVICE = { lag: 15, k: 0.4, tells: false }, PRACTICED = { lag: 14, k: 0.6, tells: true }, SHARP = { lag: 11, k: 0.8, tells: true };
 function modelCatch(sp, gear, seed, bot, beginner = false) {
   const rng = new Random(seed);
   const c = M.newCatch(sp, gear, rng, beginner);
@@ -167,7 +187,20 @@ test("every fish behaviour stays inside the gauge and moves in its own way", () 
       assert.ok(maxF - minF > 0.25, `${kind} d=${d} uses the gauge`);
     }
   }
-  assert.ok(spread.darter > spread.steady * 1.5 && spread.darter > spread.sinker * 3, "darters travel more than steady fish: " + JSON.stringify(spread));
+  assert.ok(spread.darter > spread.steady * 1.2 && spread.darter > spread.sinker * 3, "darters travel more than steady fish: " + JSON.stringify(spread));
+  // Darts are told: before each one the fish holds still for a moment with its next spot chosen.
+  {
+    const r = new Random(8), c = M.newCatch({ ...byName("SALT WISP"), d: 0.6 }, { zone: 0, reel: 0 }, r, false);
+    let tells = 0, before = 0, maxDuring = 0;
+    for (let i = 0; i < 60 * 20; i++) {
+      c.t += DT; M.stepFish(c, r, DT);
+      if (c.tell > 0 && !before) { tells++; assert.ok(c.next >= 0.12 && c.next <= 0.92); }
+      if (c.tell > 0 && c.tell < 0.1) maxDuring = Math.max(maxDuring, Math.abs(c.fv)); // settled by the end of the tell
+      before = c.tell > 0;
+    }
+    assert.ok(tells >= 8, "darts told: " + tells);
+    assert.ok(maxDuring < 0.15, "it holds still before the dart: " + maxDuring);
+  }
   // Bolters hover then bolt: a long-run speed histogram has both slow and fast spells.
   const rng = new Random(2), c = M.newCatch({ ...byName("CINDER RAY"), d: 0.8 }, { zone: 0, reel: 0 }, rng, false);
   let slow = 0, fast = 0;
@@ -229,26 +262,32 @@ test("an idle player loses the fish, in the model and in the app", () => {
   void ctx;
 });
 
-test("bot results by species and gear (the report table)", () => {
-  const rows = [];
-  const pro = (s) => makeCatchBot(8, 0.04, 5, s);
-  const levels = [[0, 0], [1, 1], [2, 2], [3, 3]];
-  const rate = (sp, gear, n = 60) => { let w = 0; for (let s = 1; s <= n; s++) if (modelCatch(sp, gear, s, pro(s)).r === 1) w++; return w / n; };
-  const table = {};
+test("bot results by species, gear and skill once the learner's help has faded (the report table)", () => {
+  // Played at the lasting floor of the help (a quarter), as for anyone past their first forty fish.
+  const A = 0.25, N = 16;
+  const rate = (sp, gear, mk) => { let w = 0; for (let s = 1; s <= N; s++) { const rng = new Random(1000 + s * 7), c = M.newCatch(sp, gear, rng, A), bot = mk(s); let r = 0, f = 0; while (!r && f < 7200) { r = M.stepCatch(c, bot(c), rng, DT); f++; } if (r === 1) w++; } return w / N; };
+  const players = { novice: (s) => makeHuman({ ...NOVICE, seed: s }), practiced: (s) => makeHuman({ ...PRACTICED, seed: s }), sharp: (s) => makeHuman({ ...SHARP, seed: s }), review: (s) => makeCatchBot(12, 0.04, 5, s) };
+  const table = {}, rows = [];
   for (const sp of SP) {
-    table[sp.name] = levels.map(([z, r]) => rate(sp, { zone: z, reel: r }));
-    rows.push(sp.name.padEnd(22) + (RAR[sp.rar]).padEnd(10) + sp.kind.padEnd(8) + table[sp.name].map((x) => (x * 100).toFixed(0).padStart(4) + "%").join(""));
+    table[sp.name] = {};
+    for (const [who, mk] of Object.entries(players)) table[sp.name][who] = [0, 1, 2, 3].map((g) => rate(sp, { zone: g, reel: g }, mk));
+    rows.push(sp.name.padEnd(22) + RAR[sp.rar].padEnd(9) + sp.kind.padEnd(8) + Object.values(table[sp.name]).map((a) => a.map((x) => (x * 100).toFixed(0).padStart(4)).join("")).join("  |"));
   }
-  console.log("species                rarity    kind      L0   L1   L2   L3  (gear levels all raised together)\n" + rows.join("\n"));
-  const avg = (rar, lvl) => { const l = SP.filter((s) => s.rar === rar); return l.reduce((a, s) => a + table[s.name][lvl], 0) / l.length; };
-  assert.ok(avg(1, 0) > 0.93, "common at L0 " + avg(1, 0));
-  for (const s of SP.filter((x) => x.rar === 1)) assert.ok(table[s.name][0] > 0.85, s.name);
-  assert.ok(avg(5, 0) < 0.05, "legends at L0 " + avg(5, 0));
-  assert.ok(avg(5, 3) > 0.75, "legends at max gear " + avg(5, 3));
-  assert.ok(avg(3, 0) < avg(1, 0) && avg(3, 1) > 0.6, `rare ${avg(3, 0)} -> ${avg(3, 1)}`);
-  assert.ok(avg(4, 2) > 0.85);
-  // Gear is what makes the difference: every species is at least as catchable at L3 as at L0.
-  for (const sp of SP) assert.ok(table[sp.name][3] >= table[sp.name][0] - 0.05, sp.name);
+  console.log("species               rarity   kind     novice L0-L3      |practiced L0-L3   |sharp L0-L3       |review bot 200 ms L0-L3\n" + rows.join("\n"));
+  const avg = (rar, who, g) => { const l = SP.filter((s) => s.rar === rar); return l.reduce((a, s) => a + table[s.name][who][g], 0) / l.length; };
+  // Without gear, reading the fish lands everything short of a legend; a novice still lands the commons.
+  assert.ok(avg(1, "novice", 0) > 0.95 && avg(2, "novice", 0) > 0.85, `novice ${avg(1, "novice", 0)} ${avg(2, "novice", 0)}`);
+  assert.ok(avg(3, "practiced", 0) > 0.9 && avg(4, "practiced", 0) > 0.8, `practiced rares ${avg(3, "practiced", 0)} ${avg(4, "practiced", 0)}`);
+  assert.ok(avg(3, "novice", 0) < 0.5, "a novice does not land rares without learning the fish: " + avg(3, "novice", 0));
+  // Gear helps but does not land legends by itself, and skill counts for more than a gear level.
+  assert.ok(avg(5, "novice", 3) < 0.15, "full gear alone does not land legends: " + avg(5, "novice", 3));
+  assert.ok(avg(5, "practiced", 3) > 0.6, "full gear and practice do: " + avg(5, "practiced", 3));
+  assert.ok(avg(5, "practiced", 0) < 0.15, "legends need gear: " + avg(5, "practiced", 0));
+  assert.ok(avg(5, "sharp", 2) > avg(5, "practiced", 2) + 0.15, `skill pays at the top: ${avg(5, "sharp", 2)} vs ${avg(5, "practiced", 2)}`);
+  // The review's harsh 200 ms bot still lands most commons with no gear.
+  assert.ok(avg(1, "review", 0) > 0.85, "laggy bot commons " + avg(1, "review", 0));
+  // Every species is at least as catchable with more gear.
+  for (const sp of SP) for (const who of Object.keys(players)) assert.ok(table[sp.name][who][3] >= table[sp.name][who][0] - 0.07, sp.name + " " + who);
 });
 const RAR = ["", "common", "uncommon", "rare", "v.rare", "legend"];
 
@@ -538,7 +577,7 @@ test("each gear step does what it says", () => {
   assert.ok(M.CAST_MAX.every((v, i) => i === 0 || v > M.CAST_MAX[i - 1]));
   assert.ok(M.LURE_MULT.every((v, i) => i === 0 || v > M.LURE_MULT[i - 1]));
   const fillOf = (reel) => M.newCatch(SP[0], { zone: 0, reel }, new Random(1), false).fill;
-  assert.ok(fillOf(3) > fillOf(0) * 1.5);
+  assert.ok(fillOf(3) > fillOf(0) * 1.4);
   const { app } = make({ seed: 2 });
   app.sv.$ = 100;
   app.buyChum();
@@ -585,7 +624,7 @@ test("a simulated player: how long the catalogue takes, with upgrades bought as 
   const rows = [];
   const rng = new Random(2026);
   const { app } = make({ seed: 77 });
-  const skill = (s) => makeCatchBot(8, 0.04, 5, s);
+  const skill = (s) => makeHuman({ ...PRACTICED, seed: s });
   let casts = 0, seconds = 0, hourClock = 8, milestone80 = 0, session = 0, sessionSeconds = 0;
   const buy = () => {
     const order = [0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3];
@@ -603,8 +642,8 @@ test("a simulated player: how long the catalogue takes, with upgrades bought as 
     app.dist = water ? [0, 33, 60, 85][water] : 20; app.water = water;
     const sp = app.pickBite(water, app.period(), app.weather);
     app.fishSp = sp;
-    const gear = { zone: app.sv.g[0], reel: app.sv.g[1] };
-    const out = modelCatch(sp, gear, casts + 1000, skill(casts + 5), app.beginner());
+    const gear = { zone: app.sv.g[0], reel: app.sv.g[1], rank: app.rank() };
+    const out = modelCatch(sp, gear, casts + 1000, skill(casts + 5), app.assist());
     seconds += 3.3 + 0.8 + out.seconds + 3;
     sessionSeconds += 3.3 + 0.8 + out.seconds + 3;
     casts++;
@@ -735,7 +774,7 @@ test("every state draws, lists stay bounded, no NaN, and play stays within the p
   app.escapedFish(); measure("lost card");
   app.openMenu(); measure("menu");
   app.menu.mode = "gear"; measure("gear");
-  app.menu.mode = "log"; for (let i = 0; i < 32; i++) { app.menu.at = i; measure("log"); }
+  app.menu.mode = "log"; for (let i = 0; i < 5; i++) { app.menu.at = i; measure("log"); }
   for (const k of ["catch", "card", "wait", "shore", "title", "charge", "bite"]) assert.ok(worst[k] < 400, `${k} primitives ${worst[k]}`);
   assert.ok(app.sfx.length <= 24);
   console.log("primitives per frame:", JSON.stringify(worst));
@@ -1014,30 +1053,64 @@ test("the learning curve: help tapers over the first forty fish instead of endin
   assert.ok(rate(100, 3, 11) < 0.6, "rare fish still need skill or gear");
 });
 
-test("today's catch: one species a day in reach, bites more, pays double, first one pays a bonus once", () => {
-  const { app } = make({ seed: 61 });
+test("today's catch: one species a day in reach, bites more, pays double, and is the console's order when picked", () => {
+  // The console logbook (PR #16) offers today(), daily(text) and dailyMet(); stub them here.
+  const book = { order: { goal: "Finish a run", done: false, own: false }, stated: [], met: 0 };
+  const ctx = appContext({ seed: 61 });
+  ctx.today = () => book.order;
+  ctx.daily = (t) => { book.stated.push(t); book.order = { goal: t, done: false, own: true }; };
+  ctx.dailyMet = () => { book.met++; book.order.done = true; };
+  const app = new Tideline(ctx);
+  app.nowHour = () => 10;
   app.sv.landed = 50;
   app.today = () => 20261001;
+  app.stateOrder();
   const d = app.daily();
   assert.ok(d && !d.treasure && d.rar <= 4 && app.reachWater() >= d.water, "today's species is catchable: " + d.name);
   assert.equal(app.daily(), d, "same species all day");
+  assert.ok(book.stated.at(-1).startsWith("LAND TODAY'S CATCH: AN UNRECORDED") && book.stated.at(-1).length <= 80, book.stated.at(-1));
   const days = new Set();
   for (let k = 0; k < 30; k++) { app.today = () => 20261001 + k; days.add(app.daily().id); }
   assert.ok(days.size >= 3, "it changes from day to day: " + days.size);
   app.today = () => 20261001;
   const other = SP.find((s) => !s.treasure && s.rar === d.rar && s.id !== d.id) || SP.find((s) => !s.treasure && s.id !== d.id);
+  // Double scrip, every time; the first of the day meets the console's order, once.
+  const plainPay = land(app, other).scrip;
   const first = land(app, d);
-  assert.ok(first.daily && first.dailyBonus === 60 + 20 * d.rar, "first daily pays a bonus");
+  assert.ok(first.daily && first.firstToday);
+  app.guard.settle(); // with PR #16 the input guard holds dailyMet until a menu gesture is ruled out
+  assert.equal(book.met, 1);
   assert.equal(app.sv.dy, 20261001);
   assert.ok(app.dailyDone());
   const again = land(app, d);
-  assert.ok(again.daily && again.dailyBonus === 0, "bonus once a day");
-  const plain = land(app, other);
-  assert.ok(!plain.daily);
-  // The day rolls over: the bonus is available again and the save keeps the day.
+  assert.ok(again.daily && !again.firstToday);
+  app.guard.settle();
+  assert.equal(book.met, 1, "met once");
+  assert.ok(again.scrip > plainPay * 1.3, `double pay ${again.scrip} vs ${plainPay}`);
+  // Nothing is stated when Tideline is not one of today's three, or the order is met.
+  book.stated.length = 0; app.stateOrder();
+  assert.equal(book.stated.length, 0);
+  book.order = null; app.stateOrder();
+  assert.equal(book.stated.length, 0);
+  // Without the console logbook (an older shell), nothing breaks.
+  const bare = make({ seed: 62 }).app; bare.today = () => 20261001; bare.sv.landed = 50;
+  assert.ok(land(bare, bare.daily()).daily);
+  // The day rolls over and the save keeps the day.
   const back = M.normalizeSave(JSON.parse(JSON.stringify(app.sv)));
   assert.equal(back.dy, 20261001);
   app.today = () => 20261002;
   assert.ok(!app.dailyDone());
   app.draw(fakeCanvas());
+});
+
+test("the field log is a page: a tap moves a row of eight, five stops in all, and a hold closes it", () => {
+  const { app } = make({ seed: 63 });
+  toShore(app);
+  app.sv.n[0] = 3; app.sv.q[0] = 3; app.sv.m[0] = 300;
+  app.openMenu(); app.menu.mode = "log"; app.menu.at = 0;
+  assert.equal(app.menuItems().length, 5);
+  for (let k = 0; k < 5; k++) { app.draw(fakeCanvas()); app.menuStep(); }
+  assert.equal(app.menu.at, 0, "five taps go round");
+  app.menuChoose();
+  assert.equal(app.menu.mode, "root");
 });

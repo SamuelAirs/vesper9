@@ -113,10 +113,10 @@ const GUIDE = [
     "CHAIN: swings in a row, each next sun caught within",
     "1.2 s of letting go. It earns no points, only feats.",
     "Going back for a sun you used keeps the chain going."],
-  ["DAILY RUN AND STREAK",
+  ["DAILY RUN",
     "One world and one goal for each date.",
-    "STREAK: days in a row you have met the daily goal.",
-    "Miss a day and it starts again at 1.",
+    "When Perihelion is one of the console's TODAY'S THREE,",
+    "meeting the goal meets its order and keeps the streak.",
     "A daily run never changes the console's best."],
   ["SHARDS AND UPGRADES",
     "Every run earns shards: 1 per 200 Mkm, 1 a relic, 5 for arriving.",
@@ -128,26 +128,29 @@ const GUIDE = [
   ["HANGAR",
     "It opens on LAUNCH: hold to fly. New rows appear as you earn them.",
     "PACE: the screen moves by itself; keep up or the run ends.",
-    "START, PROBE, TRAIL: regions reached, and what feats unlock.",
+    "Reaching further regions opens START points, probes and trails.",
     "Only a Standard run from the Approach sets the console best.",
-    "FEATS AND LOG: named goals, then regions and best crossings."],
+    "LOG: regions and best crossings. Feats: the console's LOGBOOK."],
 ];
 // Pentatonic degrees (semitones) for the swing's song and the region motifs.
 const PENT = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21];
 const MOTIFS = [[392, 494, 587], [440, 523, 659], [330, 415, 494], [294, 370, 440], [262, 311, 392], [523, 659, 784]];
 
+// Probes and trails unlock by the furthest region reached (6: an arrival). `feats` is the feat
+// count that unlocked them before feats moved to the console logbook; a save that had it keeps it.
 const PROBES = [
-  { name: "STANDARD", g: 1, need: 0, text: "The probe as it always was." },
-  { name: "BALLAST", g: 0.8, need: 4, text: "Heavy. Flat flights, slow swings." },
-  { name: "WISP", g: 1.25, need: 8, text: "Light. Quick swings, steep arcs." },
+  { name: "STANDARD", g: 1, reg: 0, feats: 0, text: "The probe as it always was." },
+  { name: "BALLAST", g: 0.8, reg: 2, feats: 4, text: "Heavy. Flat flights, slow swings." },
+  { name: "WISP", g: 1.25, reg: 4, feats: 8, text: "Light. Quick swings, steep arcs." },
 ];
 const TRAILS = [
-  { name: "AMBER", col: C.amber, dash: false, need: 0 },
-  { name: "CYAN", col: C.cyan, dash: false, need: 1 },
-  { name: "MOSS", col: C.ink, dash: false, need: 3 },
-  { name: "DASHED", col: C.amber, dash: true, need: 6 },
-  { name: "EMBER", col: C.red, dash: true, need: 10 },
+  { name: "AMBER", col: C.amber, dash: false, reg: 0, feats: 0 },
+  { name: "CYAN", col: C.cyan, dash: false, reg: 1, feats: 1 },
+  { name: "MOSS", col: C.ink, dash: false, reg: 2, feats: 3 },
+  { name: "DASHED", col: C.amber, dash: true, reg: 3, feats: 6 },
+  { name: "EMBER", col: C.red, dash: true, reg: 6, feats: 10 },
 ];
+const unlockAt = (x) => (x.reg >= 6 ? "AN ARRIVAL" : REGIONS[x.reg].name);
 
 // ---- feats: named goals in the console's dry voice -------------------------------
 // prog(app) is the current progress toward n. Hidden feats show only a hint until done.
@@ -172,7 +175,6 @@ const FEATS = [
   { id: "plumb", name: "PLUMB LINE", text: "", hint: "The swing sings at one point. Let go there.", n: 5, hidden: true, prog: (a) => a.R.bottom },
   { id: "thread", name: "THE EYE", text: "", hint: "Some dark bodies stand close together.", n: 1, hidden: true, prog: (a) => a.R.thread },
 ];
-const FEAT_PAGES = Math.ceil(FEATS.length / 6); // six feats a page; the log follows them
 const FEAT_IDS = FEATS.map((f) => f.id);
 
 // ---- helpers ----------------------------------------------------------------------
@@ -234,9 +236,11 @@ export function migrateSave(raw) {
     pb: arr(r.pb, PROBES.length),
     pp: arr(r.pp, PACES.length),
     ft: Array.isArray(r.ft) ? r.ft.filter((id, i) => FEAT_IDS.includes(id) && r.ft.indexOf(id) === i) : [],
+    // Feats held when unlocks moved to regions (a save from before keeps what its feats had opened).
+    fl: Number.isFinite(r.fl) ? Math.max(0, Math.floor(r.fl)) : Array.isArray(r.ft) ? r.ft.filter((id, i) => FEAT_IDS.includes(id) && r.ft.indexOf(id) === i).length : 0,
     st: { relics: Math.max(0, num(st.relics)), near: Math.max(0, num(st.near)), daily: Math.max(0, num(st.daily)), arrivals: Math.max(0, num(st.arrivals)) },
     sel: { probe: clamp(Math.floor(num(sel.probe)), 0, PROBES.length - 1), start: clamp(Math.floor(num(sel.start)), 0, REGIONS.length - 1), trail: clamp(Math.floor(num(sel.trail)), 0, TRAILS.length - 1), pace: clamp(Math.floor(num(sel.pace)), 0, PACES.length - 1) },
-    dl: { d: typeof dl.d === "string" ? dl.d.slice(0, 10) : "", best: Math.max(0, num(dl.best)), done: dl.done ? 1 : 0, streak: Math.max(0, Math.floor(num(dl.streak))), last: typeof dl.last === "string" ? dl.last.slice(0, 10) : "" },
+    dl: { d: typeof dl.d === "string" ? dl.d.slice(0, 10) : "", best: Math.max(0, num(dl.best)), done: dl.done ? 1 : 0 }, // the streak is the console logbook's
     shards: Math.max(0, Math.floor(num(r.shards))),
     up: Object.fromEntries(UPGRADES.map((u) => [u.id, clamp(Math.floor(num(r.up && typeof r.up === "object" ? r.up[u.id] : 0)), 0, u.cost.length)])),
     seen: r.seen && typeof r.seen === "object" ? Object.fromEntries(Object.keys(INTRO).filter((k) => r.seen[k]).map((k) => [k, 1])) : {},
@@ -268,7 +272,10 @@ export class Perihelion {
     this.phase = "title";
     this.setHint("Hold to tether to the marked sun. Release to fly on.");
     this.c.hud([["BEST", this.c.best()]]);
+    this.order();
   }
+  // Today's order for the console logbook, when Perihelion is one of today's three: the daily run's goal.
+  order() { this.c.daily?.("Daily run: " + dailyGoal(this.dayKey()).text); }
 
   // ---- run state ---------------------------------------------------------
   reset() {
@@ -280,7 +287,7 @@ export class Perihelion {
     this.nextId = 0;
     this.decayRun = 0;
     this.probeIx = this.sv.sel.probe;
-    if (this.probeIx > 0 && this.sv.ft.length < PROBES[this.probeIx].need) this.probeIx = 0;
+    if (!this.unlockedProbe(this.probeIx)) this.probeIx = 0;
     this.startReg = this.daily ? 0 : Math.min(this.sv.sel.start, this.sv.far);
     this.pace = this.daily ? 0 : this.sv.sel.pace;
     const up = (id) => (this.daily ? 0 : this.sv.up[id] || 0);
@@ -665,6 +672,7 @@ export class Perihelion {
   }
   startDaily() {
     this.daily = true;
+    this.order();
     this.start();
   }
   // A finished press on the title, result or hangar screen.
@@ -683,7 +691,8 @@ export class Perihelion {
     }
     if (this.view !== "menu") {
       if (long) { this.view = "menu"; this.page = 0; }
-      else this.page = (this.page + 1) % (this.view === "guide" ? GUIDE.length : FEAT_PAGES + 1); // the log is the last page
+      else if (this.view === "guide") this.page = (this.page + 1) % GUIDE.length;
+      else { this.view = "menu"; this.page = 0; }
       return;
     }
     if (!long) { this.cur = (this.cur + 1) % this.rows().length; return; }
@@ -714,13 +723,17 @@ export class Perihelion {
     this.persist();
     return true;
   }
-  unlockedProbe(i) { return i === 0 || this.sv.ft.length >= PROBES[i].need; }
-  unlockedTrail(i) { return i === 0 || this.sv.ft.length >= TRAILS[i].need; }
+  unlocked(x) {
+    const sv = this.sv;
+    return (x.reg >= 6 ? sv.st.arrivals > 0 : sv.far >= x.reg) || (sv.fl || 0) >= x.feats;
+  }
+  unlockedProbe(i) { return i === 0 || this.unlocked(PROBES[i]); }
+  unlockedTrail(i) { return i === 0 || this.unlocked(TRAILS[i]); }
   hangarChoose() {
     const row = this.rows()[this.cur], s = this.sv.sel;
     if (row === "LAUNCH") { this.daily = false; this.start(); return; }
     if (row === "DAILY") { this.startDaily(); return; }
-    if (row === "RECORDS") { this.view = "feats"; this.page = 0; return; }
+    if (row === "LOG") { this.view = "log"; return; }
     if (row === "GUIDE") { this.view = "guide"; this.page = 0; return; }
     if (row === "UPGRADES") { this.view = "shop"; this.page = 0; return; }
     if (row === "PROBE") { let i = s.probe; do i = (i + 1) % PROBES.length; while (!this.unlockedProbe(i)); s.probe = i; }
@@ -1060,7 +1073,7 @@ export class Perihelion {
       if (f.prog(this) >= f.n) {
         this.newFeats.push(f.id);
         this.sv.ft.push(f.id);
-        this.say("FEAT: " + f.name, 4);
+        if (!this.c.feat?.(f.id, f.name)) this.say("FEAT: " + f.name, 4); // the console shows its own
         this.queueNote(0, 659, 0.1, "sine");
         this.queueNote(0.1, 880, 0.2, "sine");
       }
@@ -1140,9 +1153,8 @@ export class Perihelion {
         if (this.goalDone && !sv.dl.done) {
           sv.dl.done = 1;
           sv.st.daily++;
-          sv.dl.streak = sv.dl.last && this.dayBefore(key) === sv.dl.last ? sv.dl.streak + 1 : 1;
-          sv.dl.last = key;
           this.R.daily = 1;
+          this.c.dailyMet?.(); // today's order in the console logbook, if Perihelion is one of the three
         }
       } else if (this.pace) sv.pp[this.pace] = Math.max(sv.pp[this.pace] || 0, score);
       else sv.pb[this.probeIx] = Math.max(sv.pb[this.probeIx] || 0, score);
@@ -1167,19 +1179,10 @@ export class Perihelion {
   persist() {
     this.c.saveProgress?.(JSON.parse(JSON.stringify(this.sv)))?.catch?.(this.c.error);
   }
-  // What is closest to being earned: the next unlock, and the feat nearest its goal.
+  // The next unlock: a probe or a trail, by the region that opens it.
   nextGoal() {
-    const n = this.sv.ft.length, lines = [];
-    const locked = [...PROBES.slice(1).filter((x) => n < x.need).map((x) => [x.need, x.name + " PROBE"]), ...TRAILS.slice(1).filter((x) => n < x.need).map((x) => [x.need, x.name + " TRAIL"])].sort((a, b) => a[0] - b[0]);
-    if (locked.length) lines.push("NEXT: " + locked[0][1] + " AT " + locked[0][0] + " FEATS (" + n + ")");
-    let best = null, bestF = 0;
-    for (const f of FEATS) {
-      if (this.sv.ft.includes(f.id) || f.hidden) continue;
-      const frac = f.prog(this) / f.n;
-      if (frac > bestF && frac < 1) { bestF = frac; best = f; }
-    }
-    if (best) lines.push("CLOSEST: " + best.name + " " + Math.floor(best.prog(this) * 10) / 10 + " / " + best.n);
-    return lines;
+    const locked = [...PROBES.map((x) => [x, " PROBE"]), ...TRAILS.map((x) => [x, " TRAIL"])].filter(([x]) => !this.unlocked(x)).sort((a, b) => a[0].reg - b[0].reg);
+    return locked.length ? ["NEXT: " + locked[0][0].name + locked[0][1] + " AT " + unlockAt(locked[0][0])] : [];
   }
   burst(x, y, n, speed) {
     for (let i = 0; i < n; i++) {
@@ -1331,6 +1334,8 @@ export class Perihelion {
       banner(g, "PERIHELION", "SWING BETWEEN SMALL SUNS");
       text(g, "HOLD = TETHER     RELEASE = FLY ON", 480, 392, 18, C.muted, "center");
       if (this.c.best() > 0) text(g, "BEST " + this.c.best() + " Mkm", 480, 422, 18, C.amber, "center");
+      const today = this.c.today?.();
+      if (today && !today.done) text(g, "ONE OF TODAY'S THREE: " + today.goal.toUpperCase(), 480, 362, 18, C.cyan, "center");
       if (this.sv.runs >= 2) {
         const far = REGIONS[this.sv.far];
         text(g, "FURTHEST: " + far.name, 480, 452, 18, far.ink, "center");
@@ -1680,7 +1685,7 @@ export class Perihelion {
     const record = this.newRecord;
     text(g, record ? "NEW DISTANCE RECORD" : "BEST " + this.bestRef() + " Mkm", 480, y + 4, 18, record ? C.cyan : C.amber, "center");
     y += 36;
-    if (this.daily) { text(g, this.goalDone ? "DAILY GOAL MET   DAYS IN A ROW: " + this.streakNow() : "DAILY: " + dailyGoal(this.dayKey()).text, 480, y, 18, this.goalDone ? C.cyan : C.muted, "center"); y += 28; }
+    if (this.daily) { text(g, this.goalDone ? "DAILY GOAL MET" : "DAILY: " + dailyGoal(this.dayKey()).text, 480, y, 18, this.goalDone ? C.cyan : C.muted, "center"); y += 28; }
     for (const id of this.newFeats.slice(0, 2)) {
       const f = FEATS.find((x) => x.id === id);
       if (f && y < 456) { text(g, "FEAT  " + f.name, 480, y, 20, C.cyan, "center"); y += 28; }
@@ -1693,7 +1698,7 @@ export class Perihelion {
     g.fillRect(110, 36, 740, 470);
     line(g, 160, 46, 800, 46, C.line);
     text(g, "HANGAR", 480, 82, 36, C.amber, "center");
-    const sv = this.sv, n = sv.ft.length;
+    const sv = this.sv;
     if (this.view === "menu") {
       const pr = PROBES[Math.min(sv.sel.probe, PROBES.length - 1)], tr = TRAILS[sv.sel.trail];
       const rows = {
@@ -1704,7 +1709,7 @@ export class Perihelion {
         PACE: ["PACE", PACES[sv.sel.pace].name],
         TRAIL: ["TRAIL", tr.name],
         DAILY: ["DAILY RUN", this.dailyDone() ? "DONE TODAY" : "SEEDED BY DATE"],
-        RECORDS: ["FEATS AND LOG", n + " / " + FEATS.length + " FEATS"],
+        LOG: ["LOG", "REACHED " + REGIONS[sv.far].roman + " / VI"],
         GUIDE: ["GUIDE", "HOW TO PLAY"],
       };
       const list = this.rows();
@@ -1718,28 +1723,16 @@ export class Perihelion {
       const id = list[this.cur];
       let info = "";
       if (id === "LAUNCH") info = sv.sel.pace ? "Paced run: " + PACES[sv.sel.pace].name + "." : "Plain run from the start.";
-      else if (id === "PROBE") { const next = PROBES.find((x, i) => i > 0 && !this.unlockedProbe(i)); info = pr.text + (next ? "  NEXT: " + next.name + " AT " + next.need + " FEATS" : ""); }
+      else if (id === "PROBE") { const next = PROBES.find((x, i) => i > 0 && !this.unlockedProbe(i)); info = pr.text + (next ? "  NEXT: " + next.name + " AT " + unlockAt(next) : ""); }
       else if (id === "START") info = "Begin where you have been. Scored from there.";
       else if (id === "PACE") info = sv.sel.pace ? "The screen moves on by itself. Its left edge ends the run." : "OFF: the dark behind you sets the pace.";
-      else if (id === "TRAIL") { const next = TRAILS.find((x, i) => i > 0 && !this.unlockedTrail(i)); info = next ? "NEXT: " + next.name + " AT " + next.need + " FEATS" : "All trails earned."; }
-      else if (id === "DAILY") { const gl = dailyGoal(this.dayKey()); info = "Goal: " + gl.text + "  Days in a row: " + this.streakNow(); }
-      else if (id === "RECORDS") info = "Named goals, then regions reached and best crossings.";
+      else if (id === "TRAIL") { const next = TRAILS.find((x, i) => i > 0 && !this.unlockedTrail(i)); info = next ? "NEXT: " + next.name + " AT " + unlockAt(next) : "All trails earned."; }
+      else if (id === "DAILY") { const gl = dailyGoal(this.dayKey()); info = "Goal: " + gl.text; }
+      else if (id === "LOG") info = "Regions reached and best crossings. Feats are in the console's LOGBOOK.";
       else if (id === "UPGRADES") info = "Spend shards: spare probes and more. Every run earns some.";
-      else info = "Controls, the chain, the daily streak.";
+      else info = "Controls, tricks, the chain, shards.";
       text(g, info, 480, 450, 18, C.muted, "center");
       text(g, "TAP = NEXT LINE     HOLD = CHOOSE", 480, 480, 18, C.cyan, "center");
-    } else if (this.view === "feats" && this.page < FEAT_PAGES) {
-      const per = 6, pages = FEAT_PAGES + 1;
-      text(g, "FEATS  " + n + " / " + FEATS.length + "     PAGE " + (this.page + 1) + " / " + pages, 480, 118, 20, C.cyan, "center");
-      FEATS.slice(this.page * per, this.page * per + per).forEach((f, i) => {
-        const y = 156 + i * 56, done = sv.ft.includes(f.id);
-        const shown = f.hidden && !done ? "????" : f.name;
-        text(g, (done ? "[X] " : "[ ] ") + shown, 150, y, 22, done ? C.cyan : C.ink);
-        const prog = f.prog(this);
-        text(g, done ? "DONE" : f.hidden ? "" : Math.floor(Math.min(prog, f.n) * 10) / 10 + " / " + f.n, 810, y, 20, done ? C.cyan : C.amber, "right");
-        text(g, f.hidden && !done ? f.hint : f.text, 150, y + 26, 16, C.muted);
-      });
-      text(g, "TAP = NEXT PAGE     HOLD = BACK", 480, 488, 18, C.cyan, "center");
     } else if (this.view === "shop") {
       text(g, "UPGRADES     " + sv.shards + " SHARDS", 480, 120, 20, C.cyan, "center");
       UPGRADES.forEach((u, i) => {
@@ -1759,7 +1752,7 @@ export class Perihelion {
       pg.slice(1).forEach((s, i) => text(g, s, 150, 170 + i * 46, 20, i % 2 ? C.muted : C.ink));
       text(g, "TAP = NEXT PAGE     HOLD = BACK", 480, 488, 18, C.cyan, "center");
     } else {
-      text(g, "LOG   PAGE " + (FEAT_PAGES + 1) + " / " + (FEAT_PAGES + 1) + "   RUNS " + sv.runs + "   RELICS " + sv.st.relics + "   ARRIVALS " + sv.st.arrivals, 480, 118, 20, C.cyan, "center");
+      text(g, "LOG   RUNS " + sv.runs + "   RELICS " + sv.st.relics + "   ARRIVALS " + sv.st.arrivals, 480, 118, 20, C.cyan, "center");
       REGIONS.forEach((r, i) => {
         const y = 164 + i * 44, got = i <= sv.far;
         text(g, r.roman + "  " + r.name.slice(4), 150, y, 22, got ? r.ink : C.line);
@@ -1768,19 +1761,14 @@ export class Perihelion {
       });
       text(g, "PERIHELION", 150, 164 + 6 * 44, 22, sv.st.arrivals ? C.cyan : C.line);
       text(g, sv.st.arrivals ? "ARRIVED " + sv.st.arrivals + "x" : "NOT REACHED", 810, 164 + 6 * 44, 20, sv.st.arrivals ? C.cyan : C.line, "right");
-      text(g, "TAP = FIRST PAGE     HOLD = BACK", 480, 488, 18, C.cyan, "center");
+      text(g, "TAP = BACK", 480, 488, 18, C.cyan, "center");
     }
   }
   dailyDone() { return this.sv.dl.d === this.dayKey() && this.sv.dl.done === 1; }
-  // Days in a row the daily goal was met, counting today or yesterday as the latest; 0 once a day is missed.
-  streakNow() {
-    const dl = this.sv.dl, key = this.dayKey();
-    return dl.last === key || dl.last === this.dayBefore(key) ? dl.streak : 0;
-  }
 }
 
 // The hangar's rows. A row with nothing to choose yet (no shards, one probe, one region) is left out.
-const HANGAR = ["LAUNCH", "DAILY", "UPGRADES", "PACE", "START", "PROBE", "TRAIL", "RECORDS", "GUIDE"];
+const HANGAR = ["LAUNCH", "DAILY", "UPGRADES", "PACE", "START", "PROBE", "TRAIL", "LOG", "GUIDE"];
 const NOTES = [
   [1800, "Dark bodies ahead. Steer clear."],
   [4100, "Amber suns burn out. Do not linger."],

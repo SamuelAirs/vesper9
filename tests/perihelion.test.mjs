@@ -764,8 +764,8 @@ test("the lamps point at relics and dark bodies by side, count down a pulsing su
   assert.equal(mid.size, 2, "the middle lamp blinks while the sun is dark");
 });
 
-test("the hangar: opens on LAUNCH, shows only rows with a choice, taps move, holds choose; locked things stay locked", () => {
-  const ctx = appContext({ seed: 5, progress: { schema: 2, far: 3, runs: 5, ft: ["chain5", "relic1", "near3"] } });
+test("the hangar: opens on LAUNCH, shows only rows with a choice, taps move, holds choose; regions unlock probes", () => {
+  const ctx = appContext({ seed: 5, progress: { schema: 2, far: 1, runs: 5, ft: ["chain5", "relic1", "near3"] } });
   const app = new Perihelion(ctx);
   assert.equal(app.phase, "title");
   app.down(); run(app, 0.7, null); app.up();
@@ -773,30 +773,27 @@ test("the hangar: opens on LAUNCH, shows only rows with a choice, taps move, hol
   const press = (s) => { app.down(); run(app, s, null); app.up(); };
   const go = (id) => { for (let k = 0; k < 12 && app.rows()[app.cur] !== id; k++) press(0.1); assert.equal(app.rows()[app.cur], id); };
   assert.equal(app.cur, 0, "the cursor starts on LAUNCH");
-  assert.deepEqual(app.rows(), ["LAUNCH", "DAILY", "PACE", "START", "TRAIL", "RECORDS", "GUIDE"], "no shards, one probe: no UPGRADES or PROBE row");
+  assert.deepEqual(app.rows(), ["LAUNCH", "DAILY", "PACE", "START", "TRAIL", "LOG", "GUIDE"], "no shards, one probe: no UPGRADES or PROBE row");
   const n = app.rows().length;
   for (let i = 0; i < n; i++) press(0.1);
   assert.equal(app.cur, 0, "taps wrap round the rows");
-  app.sv.ft.push("sling");
-  assert.ok(app.rows().includes("PROBE"), "BALLAST unlocked at 4 feats: the PROBE row appears");
+  app.sv.far = 3;
+  assert.ok(app.rows().includes("PROBE"), "BALLAST opens at THE BINARIES: the PROBE row appears");
   go("PROBE");
   press(0.6);
   assert.equal(app.sv.sel.probe, 1);
   assert.equal(ctx.calls.saved.at(-1).sel.probe, 1, "the choice is saved");
   press(0.6);
-  assert.equal(app.sv.sel.probe, 0, "WISP is locked at 4 feats, so PROBE cycles back");
+  assert.equal(app.sv.sel.probe, 0, "WISP opens at THE DARK FIELD, so PROBE cycles back");
   press(0.6);
   go("START");
   for (let i = 0; i < 6; i++) press(0.6);
   assert.equal(app.sv.sel.start, 2, "start region cycles through 0..3 only");
   const g = fakeCanvas();
   app.draw(g);
-  go("RECORDS");
-  press(0.6); assert.equal(app.view, "feats");
-  for (let i = 0; i < 4; i++) { app.draw(g); press(0.1); }
-  assert.equal(app.page, 0, "three pages of feats and the log wrap");
-  press(0.1); press(0.1); press(0.1); app.draw(g);
-  press(0.6); assert.equal(app.view, "menu");
+  go("LOG");
+  press(0.6); assert.equal(app.view, "log");
+  app.draw(g); press(0.1); assert.equal(app.view, "menu");
   go("GUIDE");
   press(0.6); assert.equal(app.view, "guide");
   for (let i = 0; i < 6; i++) { app.draw(g); press(0.1); }
@@ -935,9 +932,14 @@ test("the daily run is the same world for the same date and a different one for 
   for (let d = 1; d <= 28; d++) kinds.add(dailyGoal("2026-11-" + String(d).padStart(2, "0")).kind);
   assert.equal(kinds.size, 4, "all four goals come up");
   const ctx = appContext({ seed: 2, best: 300, progress: { schema: 2, far: 1, runs: 4 } });
+  const orders = [];
+  let met = 0;
+  ctx.daily = (t) => orders.push(t);
+  ctx.dailyMet = () => met++;
   const app = new Perihelion(ctx);
   app.dayKey = () => "2026-10-01";
   app.startDaily();
+  assert.equal(orders.at(-1), "Daily run: " + dailyGoal("2026-10-01").text, "the daily goal is stated to the console logbook");
   assert.ok(app.daily && app.startReg === 0);
   app.R.relics = 9; app.bestChain = 99; app.catches = 999; app.R.far = 5;
   app.scoreRaw = 500;
@@ -948,7 +950,8 @@ test("the daily run is the same world for the same date and a different one for 
   const saved = ctx.calls.saved.at(-1);
   assert.equal(saved.dl.d, "2026-10-01");
   assert.equal(saved.dl.best, 500);
-  assert.equal(saved.dl.streak, 1);
+  assert.equal(met, 1, "the console logbook hears the order is met; the streak is its");
+  assert.equal(saved.dl.streak, undefined);
   assert.ok(saved.ft.includes("daily"));
 });
 
@@ -1060,4 +1063,26 @@ test("notices queue and draw on the screen, and a finished run counts once in th
   app.crash("fall");
   assert.equal(app.sv.st.relics, 23, "21 before, 2 this run");
   assert.ok(!app.sv.ft.includes("relic25"), "ARCHIVIST (25) is not met by counting the run twice");
+});
+
+test("feats go to the console logbook, and a save from before keeps what its feats unlocked", () => {
+  const ctx = appContext({ seed: 3, progress: { schema: 2, far: 0, runs: 5, ft: ["chain5", "chain12", "relic1", "relic3", "near3", "long", "ceil", "fast1"] } });
+  const sent = [];
+  ctx.feat = (id, name) => { sent.push([id, name]); return true; };
+  const app = new Perihelion(ctx);
+  assert.equal(app.sv.fl, 8);
+  assert.ok(app.unlockedProbe(1) && app.unlockedProbe(2), "eight feats had opened both probes");
+  const fresh = new Perihelion(appContext({ seed: 3, progress: { schema: 2, far: 0, runs: 5 } }));
+  assert.ok(!fresh.unlockedProbe(1), "a new save opens them by region");
+  fresh.sv.far = 2; assert.ok(fresh.unlockedProbe(1) && !fresh.unlockedProbe(2));
+  fresh.c.feat = (id, name) => { sent.push([id, name]); return true; };
+  fresh.launches = 1; fresh.start();
+  fresh.noticeT = 0; fresh.noticeQ.length = 0;
+  fresh.bestChain = 12;
+  fresh.checkFeats();
+  assert.deepEqual(sent, [["chain5", "SURE HANDS"], ["chain12", "ONE BREATH"]]);
+  assert.ok(!/^FEAT/.test(fresh.notice), "the console shows the feat, not a second notice");
+  app.c.today = () => ({ goal: "Daily run: Catch 30 anchors.", done: false, own: true });
+  const g = fakeCanvas();
+  app.draw(g); // the title names today's order
 });

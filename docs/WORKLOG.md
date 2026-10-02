@@ -100,3 +100,11 @@ The long integrated run was started while final review continued. The final held
 - Fixes from the earlier Perihelion review: a finished run's relics no longer count twice toward lifetime feats (ARCHIVIST could unlock at 23); the Cluster's lamp colour is sky blue instead of white, so the white relic and catch cues read there; dark bodies in the Binaries clear a binary's whole orbit, not just its centre.
 - Not done here: the menu gesture firing mid-run belongs to the platform polish thread; separating upgrade-boosted scores waits for the console-wide meta decision.
 - Planning bot over 40 seeds: 17 arrive (16 before the orbit clearance), 3 die in the Binaries (5 before). Arrival test seeds now 11, 9, 3, 13, 15 (they arrive both before and after the change). 826/826 JS tests on Node 22; Perihelion 41/41 on Node 20. Not verified on the device.
+
+## 2026-10-02 — Perihelion on the console logbook (PR #16's cut list, `/mnt/project-files/platform-polish/platform-polish.md`)
+
+- Feats go to the console with `ctx.feat(id, name)`; the hangar's feat pages are gone (the LOG row is back, regions and crossings only). The game still tracks feats in the save so each is reported once, and still shows new ones on the result card.
+- Probes and trails now open by the furthest region reached (Ballast at the Binaries, Wisp at the Dark Field; trails at II, III, IV and an arrival). The save gains `fl`, the feat count when this landed, so nothing a player had opened is locked again.
+- The daily run states its goal with `ctx.daily("Daily run: …")` and calls `ctx.dailyMet()` when met; Perihelion's own streak (`dl.streak`, `dl.last`) is dropped. The title shows ONE OF TODAY'S THREE when Perihelion is picked. Every ctx call is optional, so the game runs on a shell without #16; the PR still needs #16 merged first for the logbook to receive anything.
+- The run goal and notices were already moved into the play area (previous entry).
+- 827/827 JS tests on Node 22; Perihelion 42/42 on Node 20, and 42/42 on PR #16's branch. Merging with #16 conflicts only in this file. Not verified on the device.

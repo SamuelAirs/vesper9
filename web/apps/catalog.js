@@ -99,7 +99,7 @@ export const CARTRIDGES = [
     "id": "relay",
     "name": "RELAY",
     "subtitle": "Hear the rhythm. Carry it on.",
-    "description": "The lamps play a bar of a real rhythm, then go dark: tap it back in time, and the next call follows on the beat. Seven stages of rhythms from the pulse through tresillo, clave, waltz, swing and odd time, then faster cycles. New rhythms show their notation; learned ones are played by heart. Hold on the title for the songbook: daily run, studio practice, accelerando, sound kits, the rhythm book, feats.",
+    "description": "The lamps play a bar of a real rhythm, then go dark: tap it back in time, and the next call follows on the beat. Seven stages of rhythms from the pulse through tresillo, clave, waltz, swing and odd time, then faster cycles. New rhythms show their notation; learned ones are played by heart. Hold on the title for the songbook: daily run, studio practice, accelerando, sound kits and the rhythm book.",
     "controls": "WATCH AND LISTEN · TAP THE RHYTHM BACK · HOLD ON TITLE: SONGBOOK",
     "category": "PLAY / RHYTHM",
     "glyph": 3,

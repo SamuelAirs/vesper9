@@ -10,7 +10,9 @@
 // goes into the SONGBOOK, learned at one clean answer and mastered at five. Three shields: an answer
 // with more slips than a quarter of its notes costs one, and the same rhythm is called again. Holding
 // on the title or result screen opens the songbook: daily run, studio (practice with no shields),
-// accelerando (unlocked by feats), sound kits, the rhythm book, feats and a log. Save schema 1.
+// accelerando (opened by reaching the clave), sound kits (by rhythms learned), the rhythm book and a
+// log. Feats and the daily order go to the console's logbook (ctx.feat, ctx.daily, ctx.dailyMet); the
+// game keeps no streak or feat list of its own. Save schema 2.
 import { C, space, text, line, circle, diamond, banner } from "../engine/draw.js";
 import { clamp, lerp, mixSeed, Random } from "../engine/math.js";
 import { LAMP, lamps, dim } from "../engine/lightshow.js";
@@ -97,17 +99,17 @@ export const MODES = {
   relay: { name: "RELAY", text: "The run. Scores to the console." },
   daily: { name: "DAILY", text: "The same rhythms for everyone today, with a goal." },
   studio: { name: "STUDIO", text: "Practise the rhythms you have not mastered. No shields." },
-  accel: { name: "ACCELERANDO", text: "Every rhythm you have met, three BPM faster each time.", need: 4 },
+  accel: { name: "ACCELERANDO", text: "Every rhythm you have met, three BPM faster each time.", need: 3 }, // stage reached
 };
 // Sound kits: the voice of each lamp's note (low, mid, high) and the wave.
 const KITS = [
   { name: "WOOD", hz: [262, 392, 523], wave: "triangle", need: 0 },
-  { name: "BELL", hz: [523, 784, 1047], wave: "sine", need: 3 },
-  { name: "CHIP", hz: [196, 294, 392], wave: "square", need: 7 },
+  { name: "BELL", hz: [523, 784, 1047], wave: "sine", need: 6 }, // rhythms learned
+  { name: "CHIP", hz: [196, 294, 392], wave: "square", need: 14 },
 ];
-const ROWS = ["RELAY", "DAILY", "STUDIO", "ACCEL", "KIT", "BOOK", "FEATS", "LOG"];
+const ROWS = ["RELAY", "DAILY", "STUDIO", "ACCEL", "KIT", "BOOK", "LOG"];
 
-// ---- feats ----------------------------------------------------------------------------------------
+// ---- feats: reported once each to the console's logbook (ctx.feat) ---------------------------------
 const life = (a, key) => (a.sv.st[key] || 0) + (a.R[key] || 0);
 const learnedCount = (sv, n = LEARNED) => RHYTHM_IDS.filter((id) => (sv.book[id] || 0) >= n).length;
 const FEATS = [
@@ -123,7 +125,6 @@ const FEATS = [
   { id: "learn10", name: "REPERTOIRE", text: "Learn 10 rhythms.", n: 10, prog: (a) => learnedCount(a.sv) },
   { id: "master5", name: "VIRTUOSO", text: "Master 5 rhythms.", n: 5, prog: (a) => learnedCount(a.sv, MASTERED) },
   { id: "accel", name: "PRESTO", text: "Reach 140 BPM in accelerando.", n: 140, prog: (a) => (a.mode === "accel" ? a.bpm : 0) },
-  { id: "daily", name: "ON THE DAY", text: "Meet a daily goal.", n: 1, prog: (a) => life(a, "daily") },
   { id: "metro", name: "METRONOME", text: "", hint: "Twenty in a row, every one exact.", n: 20, hidden: true, prog: (a) => a.R.pRunMax },
   { id: "last", name: "LAST BREATH", text: "", hint: "Some keep time best with nothing to spare.", n: 6, hidden: true, prog: (a) => a.R.lastClean },
 ];
@@ -133,7 +134,6 @@ const FEAT_IDS = FEATS.map((f) => f.id);
 const num = (v, d = 0) => (Number.isFinite(v) ? v : d);
 const hashText = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return h >>> 0; };
 const fmtDay = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
-const dayBefore = (key) => { const [y, m, d] = key.split("-").map(Number); return fmtDay(new Date(y, m - 1, d - 1)); };
 const dailyRng = new Random(1);
 // Today's goal, the same for everyone on the same date.
 export function dailyGoal(key) {
@@ -143,7 +143,8 @@ export function dailyGoal(key) {
   if (kind === 2) return { kind: "clean", n: 5 + v, text: "Answer " + (5 + v) + " rhythms cleanly." };
   return { kind: "stage", n: 2 + (v % 3), text: "Reach " + STAGES[2 + (v % 3)].name + "." };
 }
-// Bring any stored shape (nothing, a stray object, schema 1) to schema 1.
+// Bring any stored shape (nothing, a stray object, schema 1 or 2) to schema 2. Schema 2 drops the
+// daily streak and the daily-goal count, which the console's logbook now keeps.
 export function migrateSave(raw) {
   const r = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
   const o = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : {});
@@ -152,17 +153,17 @@ export function migrateSave(raw) {
   const bk = {};
   for (const id of RHYTHM_IDS) if (id in book) bk[id] = Math.min(999, pos(book[id]));
   return {
-    schema: 1,
+    schema: 2,
     runs: pos(r.runs),
     last: o(r.last),
     milestone: pos(r.milestone),
     far: Math.min(99, pos(r.far)),
     ft: Array.isArray(r.ft) ? r.ft.filter((id, i) => FEAT_IDS.includes(id) && r.ft.indexOf(id) === i) : [],
-    st: { notes: pos(st.notes), perfects: pos(st.perfects), clean: pos(st.clean), answers: pos(st.answers), daily: pos(st.daily) },
+    st: { notes: pos(st.notes), perfects: pos(st.perfects), clean: pos(st.clean), answers: pos(st.answers) },
     best: { relay: pos(best.relay), accel: pos(best.accel), combo: pos(best.combo), bpm: pos(best.bpm) },
     sel: { kit: clamp(pos(sel.kit), 0, KITS.length - 1) },
     book: bk,
-    dl: { d: typeof dl.d === "string" ? dl.d.slice(0, 10) : "", best: pos(dl.best), done: dl.done ? 1 : 0, streak: pos(dl.streak), last: typeof dl.last === "string" ? dl.last.slice(0, 10) : "" },
+    dl: { d: typeof dl.d === "string" ? dl.d.slice(0, 10) : "", best: pos(dl.best), done: dl.done ? 1 : 0 },
   };
 }
 // The notation strip on screen.
@@ -244,14 +245,14 @@ export class Relay {
     return stageSpec(this.stage);
   }
   mult() { return Math.min(MULT_MAX, 1 + Math.floor(this.combo / MULT_STEP)); }
-  kit() { const k = KITS[this.sv.sel.kit] || KITS[0]; return this.sv.ft.length >= k.need ? k : KITS[0]; }
+  kit() { const k = KITS[this.sv.sel.kit] || KITS[0]; return learnedCount(this.sv) >= k.need ? k : KITS[0]; }
   bestRef() {
     if (this.mode === "daily") return this.sv.dl.d === this.dayKey() ? this.sv.dl.best : 0;
     if (this.mode === "relay") return Math.max(this.c.best?.() ?? 0, this.sv.best.relay);
     return this.sv.best[this.mode] || 0;
   }
   bestRefFor(mode) { return mode === "relay" ? Math.max(this.c.best?.() ?? 0, this.sv.best.relay) : this.sv.best[mode] || 0; }
-  unlocked(mode) { return this.sv.ft.length >= (MODES[mode].need || 0); }
+  unlocked(mode) { return this.sv.far >= (MODES[mode].need || 0); }
   known(id) { return (this.sv.book[id] || 0) >= LEARNED; }
   heard(id) { return id in this.sv.book; }
 
@@ -367,9 +368,8 @@ export class Relay {
       return;
     }
     if (this.view !== "menu") {
-      const pages = this.view === "book" ? Math.ceil(RHYTHMS.length / 6) : Math.ceil(FEATS.length / 6);
       if (long || this.view === "log") { this.view = "menu"; this.page = 0; }
-      else this.page = (this.page + 1) % pages;
+      else this.page = (this.page + 1) % Math.ceil(RHYTHMS.length / 6);
       return;
     }
     if (!long) { this.cur = (this.cur + 1) % ROWS.length; this.c.tone(440, 0.03, "sine"); return; }
@@ -384,12 +384,11 @@ export class Relay {
   }
   choose() {
     const row = ROWS[this.cur];
-    if (row === "FEATS") { this.view = "feats"; this.page = 0; return; }
     if (row === "BOOK") { this.view = "book"; this.page = 0; return; }
     if (row === "LOG") { this.view = "log"; return; }
     if (row === "KIT") {
       let i = this.sv.sel.kit;
-      do i = (i + 1) % KITS.length; while (this.sv.ft.length < KITS[i].need);
+      do i = (i + 1) % KITS.length; while (learnedCount(this.sv) < KITS[i].need);
       this.sv.sel.kit = i;
       const k = this.kit();
       k.hz.forEach((hz, j) => this.queue(0.12 * j, hz, 0.1, k.wave));
@@ -404,7 +403,10 @@ export class Relay {
     this.mode = mode;
     this.reset();
     this.phase = "play";
-    if (mode === "daily") this.dseed = mixSeed(hashText("relay-day" + this.dayKey())) || 1;
+    if (mode === "daily") {
+      this.dseed = mixSeed(hashText("relay-day" + this.dayKey())) || 1;
+      this.c.daily?.("Daily run: " + dailyGoal(this.dayKey()).text.toLowerCase().replace(/\.$/, ""));
+    }
     this.best0 = this.bestRef();
     this.announce(mode === "relay" ? this.spec().note : MODES[mode].name + ": " + MODES[mode].text, 3.4);
     this.setHint("Listen and watch the lamps. When they go dark, tap the rhythm back.");
@@ -608,7 +610,9 @@ export class Relay {
       if (f.prog(this) >= f.n) {
         this.sv.ft.push(f.id);
         this.newFeats.push(f.id);
-        this.announce("FEAT: " + f.name, 3);
+        // The console's logbook keeps it and announces it; without one, the game says it.
+        if (!this.c.feat) this.announce("FEAT: " + f.name, 3);
+        else this.c.feat(f.id, f.name);
         this.queue(0, 659, 0.1, "sine");
         this.queue(0.12, 880, 0.18, "sine");
       }
@@ -643,12 +647,8 @@ export class Relay {
       this.goalDone = this.goalMet();
       if (sv.dl.d !== key) { sv.dl.d = key; sv.dl.best = 0; sv.dl.done = 0; }
       sv.dl.best = Math.max(sv.dl.best, score);
-      if (this.goalDone && !sv.dl.done) {
-        sv.dl.done = 1;
-        sv.st.daily++;
-        sv.dl.streak = sv.dl.last && dayBefore(key) === sv.dl.last ? sv.dl.streak + 1 : 1;
-        sv.dl.last = key;
-      }
+      if (this.goalDone && !sv.dl.done) sv.dl.done = 1;
+      if (this.goalDone) this.c.dailyMet?.();
     } else if (this.mode !== "studio") sv.best[this.mode] = Math.max(sv.best[this.mode] || 0, score);
     // Run totals are now in the lifetime counters; leave the run's own values for the feats that read them.
     this.R.notes = 0; this.R.perfects = 0;
@@ -667,18 +667,12 @@ export class Relay {
     this.hudKey = "";
   }
   persist() { this.c.saveProgress?.(JSON.parse(JSON.stringify(this.sv)))?.catch?.(this.c.error); }
-  // The nearest unlock and the open feat nearest its goal.
+  // What the next unlocks need: a mode opened by reaching a stage, a kit by rhythms learned.
   nextGoal() {
-    const n = this.sv.ft.length, lines = [];
-    const locked = [...Object.values(MODES).filter((m) => m.need && n < m.need).map((m) => [m.need, m.name]), ...KITS.filter((k) => n < k.need).map((k) => [k.need, k.name + " KIT"])].sort((a, b) => a[0] - b[0]);
-    if (locked.length) lines.push("NEXT: " + locked[0][1] + " AT " + locked[0][0] + " FEATS (" + n + ")");
-    let best = null, frac = 0;
-    for (const f of FEATS) {
-      if (this.sv.ft.includes(f.id) || f.hidden) continue;
-      const p = f.prog(this) / f.n;
-      if (p > frac && p < 1) { frac = p; best = f; }
-    }
-    if (best) lines.push("CLOSEST: " + best.name + " " + Math.floor(best.prog(this)) + " / " + best.n);
+    const lines = [], mode = Object.values(MODES).find((m) => m.need && this.sv.far < m.need);
+    if (mode) lines.push("REACH " + STAGES[mode.need].name + " TO OPEN " + mode.name);
+    const n = learnedCount(this.sv), kit = KITS.find((k) => n < k.need);
+    if (kit) lines.push(kit.name + " KIT AT " + kit.need + " RHYTHMS LEARNED (" + n + ")");
     return lines;
   }
 
@@ -824,9 +818,9 @@ export class Relay {
     g.fillRect(110, 36, 740, 470);
     line(g, 160, 46, 800, 46, C.line);
     text(g, "SONGBOOK", 480, 82, 34, C.amber, "center");
-    const sv = this.sv, n = sv.ft.length;
+    const sv = this.sv;
     if (this.view === "menu") {
-      const lock = (m) => (this.unlocked(m) ? null : "AT " + MODES[m].need + " FEATS");
+      const lock = (m) => (this.unlocked(m) ? null : "REACH " + STAGES[MODES[m].need].name);
       const rows = {
         RELAY: ["RELAY", "BEST " + this.bestRefFor("relay")],
         DAILY: ["DAILY", sv.dl.d === this.dayKey() && sv.dl.done ? "DONE TODAY" : "SEEDED BY DATE"],
@@ -834,7 +828,6 @@ export class Relay {
         ACCEL: ["ACCELERANDO", lock("accel") || "BEST " + sv.best.accel + (sv.best.bpm ? "  " + sv.best.bpm + " BPM" : "")],
         KIT: ["SOUND KIT", this.kit().name],
         BOOK: ["RHYTHMS", learnedCount(sv) + " / " + RHYTHMS.length + " LEARNED"],
-        FEATS: ["FEATS", n + " / " + FEATS.length],
         LOG: ["LOG", "RUNS " + sv.runs],
       };
       ROWS.forEach((id, i) => {
@@ -846,30 +839,18 @@ export class Relay {
       });
       const id = ROWS[this.cur];
       let info;
-      if (id === "KIT") { const next = KITS.find((k) => n < k.need); info = "The sound of the lamps' notes." + (next ? "  NEXT: " + next.name + " AT " + next.need : ""); }
+      if (id === "KIT") { const next = KITS.find((k) => learnedCount(sv) < k.need); info = "The sound of the lamps' notes." + (next ? "  NEXT: " + next.name + " AT " + next.need + " LEARNED" : ""); }
       else if (id === "BOOK") info = "Every rhythm you have met. Learned at 1 clean answer, mastered at 5.";
-      else if (id === "FEATS") info = "Named goals. Some are not listed.";
       else if (id === "LOG") info = "What you have done so far.";
-      else if (id === "DAILY") info = "Goal: " + dailyGoal(this.dayKey()).text + (sv.dl.streak > 1 ? "  STREAK " + sv.dl.streak : "");
+      else if (id === "DAILY") info = "Goal: " + dailyGoal(this.dayKey()).text;
       else info = MODES[id.toLowerCase()].text;
       text(g, info, 480, 446, 18, C.muted, "center");
       text(g, "TAP = NEXT LINE     HOLD = CHOOSE", 480, 480, 18, C.cyan, "center");
     } else if (this.view === "book") this.drawBook(g);
-    else if (this.view === "feats") {
-      const per = 6, pages = Math.ceil(FEATS.length / per);
-      text(g, "FEATS  " + n + " / " + FEATS.length + "     PAGE " + (this.page + 1) + " / " + pages, 480, 118, 20, C.cyan, "center");
-      FEATS.slice(this.page * per, this.page * per + per).forEach((f, i) => {
-        const y = 156 + i * 52, done = sv.ft.includes(f.id);
-        text(g, (done ? "[X] " : "[ ] ") + (f.hidden && !done ? "????" : f.name), 150, y, 22, done ? C.cyan : C.ink);
-        if (!f.hidden || done) text(g, done ? "DONE" : Math.floor(Math.min(f.prog(this), f.n)) + " / " + f.n, 810, y, 20, done ? C.cyan : C.amber, "right");
-        text(g, f.hidden && !done ? f.hint : f.text, 150, y + 24, 16, C.muted);
-      });
-      text(g, "TAP = NEXT PAGE     HOLD = BACK", 480, 480, 18, C.cyan, "center");
-    } else {
+    else {
       const lines = [
         ["RUNS", sv.runs], ["NOTES STRUCK", sv.st.notes], ["PERFECT", sv.st.perfects], ["CLEAN ANSWERS", sv.st.clean + " / " + sv.st.answers],
         ["BEST COMBO", sv.best.combo], ["FURTHEST", stageSpec(sv.far).label], ["RHYTHMS", learnedCount(sv) + " LEARNED, " + learnedCount(sv, MASTERED) + " MASTERED"],
-        ["DAILY GOALS", sv.st.daily + (sv.dl.streak > 1 ? "  STREAK " + sv.dl.streak : "")],
       ];
       lines.forEach(([k, v], i) => { const y = 130 + i * 42; text(g, k, 150, y, 22, C.ink); text(g, String(v), 810, y, 22, C.amber, "right"); });
       text(g, "TAP = BACK", 480, 480, 18, C.cyan, "center");

@@ -75,3 +75,9 @@ The long integrated run was started while final review continued. The final held
 - Latency: every tap is judged at its arrival minus the console calibration `settings.latencyMs` (clamped to -150..300 ms, 0 when absent); misses and the end of an answer wait for the same delay. A test bot whose taps arrive 60 ms late loses most PERFECTs uncalibrated and plays as with no delay when calibrated. An answer that has already lost when the next round begins is called again at once.
 - Resume: opening the menu mid-run drops the round in progress unjudged and calls it again after a four-beat count-in (`gesture-apps.test.mjs` lists Relay as rebuilding on resume).
 - Scores: the multiplier steps every 12 notes up to x4 (was 8 and x8) and the clean bonus is 20 a note; scores are about half what they were. Daily score goals are 8000 to 20000.
+
+## 2026-10-02 — Relay moves its feats and daily order to the console logbook (desktop, not verified on the device)
+
+- Per PR #16's cut list: feats are reported with `ctx.feat` (announced by the console), the daily run states its goal with `ctx.daily` and calls `ctx.dailyMet`. The songbook loses its FEATS screen, the daily streak and the feat ticker. Without PR #16 the calls are skipped and the game announces feats itself.
+- Unlocks no longer count feats: ACCELERANDO opens on reaching the clave, the BELL and CHIP kits at 6 and 14 rhythms learned. The ON THE DAY feat is retired.
+- Save schema 2: drops the daily streak and the daily-goal count; tested from schema 1.

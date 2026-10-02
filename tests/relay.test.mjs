@@ -230,21 +230,24 @@ test("the lamps carry the call: nine whole numbers, dark after cancel() and disp
   assert.deepEqual(sent.at(-1), Array(9).fill(0));
 });
 
-test("the songbook: a hold opens it, taps move, locked modes refuse, feats unlock accelerando", () => {
+test("the songbook: a hold opens it, taps move, locked modes refuse, the clave opens accelerando, learned rhythms open kits", () => {
   const { app } = mount();
   hold(app);
   assert.equal(app.phase, "menu");
-  const pick = (name) => { while (["RELAY", "DAILY", "STUDIO", "ACCEL", "KIT", "BOOK", "FEATS", "LOG"][app.cur] !== name) tap(app); hold(app); };
+  const pick = (name) => { while (["RELAY", "DAILY", "STUDIO", "ACCEL", "KIT", "BOOK", "LOG"][app.cur] !== name) tap(app); hold(app); };
   pick("ACCEL");
-  assert.equal(app.phase, "menu", "accelerando is locked without feats");
+  assert.equal(app.phase, "menu", "accelerando is locked until the clave is reached");
   pick("BOOK");
   assert.equal(app.view, "book");
   tap(app); assert.equal(app.page, 1);
   hold(app);
   assert.equal(app.view, "menu");
-  app.sv.ft = ["first", "pocket", "sync", "clave"];
+  pick("KIT");
+  assert.equal(app.kit().name, "WOOD", "no other kit before six rhythms are learned");
+  for (const id of ["four", "half", "back", "heart", "eights", "offbeat"]) app.sv.book[id] = LEARNED;
   pick("KIT");
   assert.equal(app.kit().name, "BELL");
+  app.sv.far = 3;
   pick("ACCEL");
   assert.equal(app.phase, "play");
   assert.equal(app.mode, "accel");
@@ -280,7 +283,7 @@ test("only the plain run writes the console score", () => {
   run(app, 60);
   assert.equal(app.phase, "over");
   assert.equal(ctx.calls.score.length, 1);
-  app.sv.ft = ["first", "pocket", "sync", "clave"];
+  app.sv.far = 3;
   app.start("accel");
   run(app, 60);
   assert.equal(ctx.calls.score.length, 1);
@@ -288,26 +291,35 @@ test("only the plain run writes the console score", () => {
   assert.equal(app.mode, "accel", "a tap on the result plays the same mode again");
 });
 
-test("the daily run is the same for everyone on the day and keeps a streak", () => {
+test("the daily run is the same for everyone on the day and reports its order to the console's logbook", () => {
   const a = mount({ seed: 1 }).app, b = mount({ seed: 99 }).app;
   const shape = (app) => { const out = []; for (let i = 0; i < 30; i++) { app.segs = []; app.nextT = app.rt; app.startRound(); out.push(app.segs.map((s) => s.kind + s.r.id).join()); } return out.join("|"); };
   for (const app of [a, b]) { app.dayKey = () => "2026-10-02"; app.start("daily"); app.stage = 7; }
   assert.equal(shape(a), shape(b));
   assert.ok(dailyGoal("2026-10-02").text.length > 5);
-  const { app } = mount();
+  const { ctx, app } = mount();
+  const said = [];
+  ctx.daily = (text) => said.push(["daily", text]);
+  ctx.dailyMet = () => said.push(["met"]);
   app.dayKey = () => "2026-10-02";
-  app.sv.dl = { d: "2026-10-01", best: 10, done: 1, streak: 3, last: "2026-10-01" };
+  app.sv.dl = { d: "2026-10-01", best: 10, done: 1 };
   app.start("daily");
+  assert.equal(said.length, 1);
+  assert.ok(said[0][1].startsWith("Daily run: "));
   app.goalMet = () => true;
   app.finish();
-  assert.deepEqual([app.sv.dl.d, app.sv.dl.done, app.sv.dl.streak, app.sv.dl.last], ["2026-10-02", 1, 4, "2026-10-02"]);
-  assert.ok(app.sv.ft.includes("daily"));
+  assert.deepEqual([app.sv.dl.d, app.sv.dl.done], ["2026-10-02", 1]);
+  assert.deepEqual(said.at(-1), ["met"]);
+  assert.ok(!("streak" in app.sv.dl), "the streak is the console's");
+  const c = mount().app;
+  c.start("daily"); c.goalMet = () => true; c.finish();
+  assert.equal(c.sv.dl.done, 1, "without a logbook the daily run still plays");
 });
 
-test("save schema 1: anything stored loads, a saved game round-trips, unknown feats and rhythms are dropped", () => {
+test("save schema 2: anything stored loads, a saved game round-trips, unknown feats and rhythms are dropped", () => {
   for (const raw of [undefined, null, 7, "x", [], { schema: 1, runs: 2, last: { score: 5 } }, { st: "no", best: [], ft: "first", book: [] }, { book: { four: -3, nope: 4, half: 1e9 } }]) {
     const s = migrateSave(raw);
-    assert.equal(s.schema, 1);
+    assert.equal(s.schema, 2);
     numbers(s);
     assert.ok(Array.isArray(s.ft));
     for (const [id, n] of Object.entries(s.book)) assert.ok(byId(id) && n >= 0 && n <= 999);
@@ -321,13 +333,34 @@ test("save schema 1: anything stored loads, a saved game round-trips, unknown fe
   run(app, s.t0 + s.dur - app.rt + 0.05);
   run(app, 2);
   const saved = ctx.calls.saved.at(-1);
-  assert.ok(saved && saved.schema === 1 && saved.runs === 1);
+  assert.ok(saved && saved.schema === 2 && saved.runs === 1);
   assert.ok(Object.keys(saved.book).length >= 4);
   assert.ok(JSON.stringify(saved).length < 4096);
   assert.deepEqual(migrateSave(JSON.parse(JSON.stringify(saved))), saved);
   const again = new Relay(appContext({ progress: { ...saved, ft: [...saved.ft, "bogus", saved.ft[0]] } }));
   assert.deepEqual(again.sv.ft, saved.ft);
   assert.deepEqual(again.sv.book, saved.book);
+});
+
+test("a schema 1 save migrates to schema 2: the daily streak and the ON THE DAY feat go to the console", () => {
+  const s = migrateSave({ schema: 1, runs: 4, far: 3, ft: ["first", "daily", "clave"], book: { four: 2, son32: 0 }, st: { notes: 90, clean: 12, answers: 15, daily: 3 }, best: { relay: 9000 }, sel: { kit: 1 }, dl: { d: "2026-10-01", best: 800, done: 1, streak: 5, last: "2026-10-01" } });
+  assert.equal(s.schema, 2);
+  assert.deepEqual(s.dl, { d: "2026-10-01", best: 800, done: 1 });
+  assert.deepEqual(s.st, { notes: 90, perfects: 0, clean: 12, answers: 15 });
+  assert.deepEqual(s.ft, ["first", "clave"]);
+  assert.deepEqual(s.book, { four: 2, son32: 0 });
+  assert.deepEqual([s.runs, s.far, s.best.relay, s.sel.kit], [4, 3, 9000, 1]);
+});
+
+test("feats go to the console's logbook once each; the game keeps no list screen", () => {
+  const { ctx, app } = mount();
+  const sent = [];
+  ctx.feat = (id) => { sent.push(id); return true; };
+  app.start("relay");
+  bot(app, 3, 0.01, 60);
+  assert.ok(sent.includes("first"));
+  assert.equal(new Set(sent).size, sent.length);
+  assert.ok(!app.note.startsWith("FEAT"), "the console announces feats, not the game");
 });
 
 test("every screen draws without throwing", () => {

@@ -1,5 +1,5 @@
 // OUTPOST's three lamps: the status board, the beat guide, the note glow and the event lights.
-// Left breathes with production, middle fills toward the next purchase and goes steady green when
+// Left breathes with production (brighter and cyan-tinged while machines hum), middle fills toward the next purchase and goes steady green when
 // one is affordable, right shows the timed thing (flare, boost, expedition) or that relocation is
 // worth doing. While the player keeps a beat, the left lamp instead flashes on the next beat they
 // are due to tap (a metronome at their own tempo, white with no groove, cyan when it is full), and
@@ -15,11 +15,11 @@
 // of those frames.
 //
 // Fields used on the cartridge (`app`): c, s, clk, rate, idle, phase_, ring, panel, affordN,
-// goalFrac, flare, boosts, groove, gaps, lastGather, noteFx ({ pos 0..1, t }), accent ({ k, t,
+// goalFrac, flare, boosts, groove, gaps, lastGather, hum, noteFx ({ pos 0..1, t }), accent ({ k, t,
 // dur }), cueFx ({ pos, rgb, t }, set by outpost-music.js), and this module's own breath, dimK,
 // grooveSeen and stumble.
 import { clamp } from "../engine/math.js";
-import { LAMP, lamps, dim, pulse, blink, spot, only, chase, ramp } from "../engine/lightshow.js";
+import { LAMP, lamps, dim, blend, pulse, blink, spot, only, chase, ramp } from "../engine/lightshow.js";
 import { DIM_AFTER, EXPED, GROOVE_MAX, readyOf } from "./outpost-rules.js";
 import { liveBeat } from "./outpost-music.js";
 
@@ -53,6 +53,14 @@ export function stepLamps(app, dt) {
   app.c.leds(lampFrame(app));
 }
 
+// Whether any owned machine is humming (a finished tune's hum, app.hum in seconds per machine).
+export function isHumming(app) {
+  const h = app.hum, own = app.s?.own;
+  if (!h || !own) return false;
+  for (let i = 0; i < h.length; i++) if (h[i] > 0 && own[i] > 0) return true;
+  return false;
+}
+
 // 0..1: how lit the beat guide is at this moment (0 when the player is not keeping a beat).
 export function beatFlash(app) {
   if (app.phase_ !== "play" || app.ring || app.panel) return 0;
@@ -68,7 +76,9 @@ export function beatFlash(app) {
 export function lampFrame(app) {
   const k = app.dimK, s = app.s, gf = Math.floor(app.groove || 0) / GROOVE_MAX;
   // left: breathing, quicker with production; while a beat is kept, the beat guide instead
-  let left = dim(LAMP.green, (0.06 + 0.2 * pulse(app.breath)) * k);
+  // (while machines hum, the breath is brighter and leans cyan: the station is working harder)
+  const humming = isHumming(app);
+  let left = dim(humming ? blend(LAMP.green, LAMP.cyan, 0.6) : LAMP.green, ((humming ? 0.1 : 0.06) + (humming ? 0.26 : 0.2) * pulse(app.breath)) * k);
   if (liveBeat(app) && app.phase_ === "play" && !app.ring && !app.panel) {
     const f = beatFlash(app);
     left = dim(ramp(gf, [LAMP.white, LAMP.green, LAMP.cyan]), 0.03 + (0.3 + 0.25 * gf) * f);

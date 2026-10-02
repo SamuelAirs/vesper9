@@ -234,12 +234,15 @@ test("each cue note lights the lamp for its pitch in the cue's colour, rising cu
   app.s.rt = 100; app.s.sig = 0; app.dirty = true; app.recalc();
   advance(app, 3);
   app.accent = null;
-  const from = ctx.calls.leds.length;
+  let from = ctx.calls.leds.length;
   cue(app, "teamBack"); // cyan; ends high
+  advance(app, 0.6);
+  assert.ok(ctx.calls.leds.slice(from).some((f) => f[7] > 60 && f[8] > 50 && f[6] < 20), "a cyan light on the right lamp");
+  advance(app, 0.5);
+  from = ctx.calls.leds.length;
   cue(app, "buy"); // green; rises
-  advance(app, 1.2);
+  advance(app, 0.6);
   const frames = ctx.calls.leds.slice(from);
-  assert.ok(frames.some((f) => f[7] > 60 && f[8] > 50 && f[6] < 20), "a cyan light on the right lamp");
   // the green run: the brightest lamp moves rightwards
   const greens = frames.filter((f) => [0, 1, 2].some((i) => f[i * 3 + 1] > 60 && f[i * 3 + 1] > 2 * f[i * 3 + 2]));
   const where = greens.map((f) => [0, 1, 2].reduce((b, i) => (f[i * 3 + 1] > f[b * 3 + 1] ? i : b), 0));
@@ -277,4 +280,17 @@ test("a flare blinks faster and brighter as its catch window closes", () => {
   const late = changes(2);
   assert.ok(late.n > early.n, `blinks ${early.n} early, ${late.n} late`);
   assert.ok(late.peak > early.peak, `peak ${early.peak} early, ${late.peak} late`);
+});
+
+test("while machines hum, the left lamp breathes brighter and leans cyan", () => {
+  const { app } = begin();
+  app.s.own[0] = 2; app.s.rt = 100; app.dirty = true; app.recalc();
+  advance(app, 3);
+  app.accent = null; app.noteFx = null; app.cueFx = null;
+  const peak = () => { let best = [0, 0, 0]; for (let i = 0; i < 400; i++) { app.update(1 / 60); app.cueFx = null; const v = app.lampValues().slice(0, 3); if (v[1] > best[1]) best = v; } return best; };
+  const quiet = peak();
+  app.hum[0] = 300;
+  const hum = peak();
+  assert.ok(hum[1] > quiet[1], `brighter: ${quiet} -> ${hum}`);
+  assert.ok(hum[2] > quiet[2] + 20, `cyan-ish: ${quiet} -> ${hum}`);
 });

@@ -94,7 +94,8 @@ test("the extra voices sit quietly under the lead: a fully voiced tap is about t
 });
 
 // ======================= cues in the tune's key, on the player's beat =======================
-import { CUES, CUE_GAIN, POCKET_GAIN, cue, tick, degreeMidi, cueTiming, liveBeat } from "../web/apps/outpost-music.js";
+import { CUES, CUE_GAIN, POCKET_GAIN, cue, tick, tuneCue, degreeMidi, cueTiming, liveBeat } from "../web/apps/outpost-music.js";
+const tuneCueOf = (app) => tuneCue(app, app.mel);
 
 const hzMidi = (hz) => Math.round(69 + 12 * Math.log2(hz / 440));
 // Keeps a steady beat of `beat` seconds for n taps.
@@ -203,4 +204,26 @@ test("the songbook keeps growing through the long game", () => {
   assert.equal(first("saints", 8), "C4 E4 F4 G4 C4 E4 F4 G4");
   assert.equal(first("largo", 6), "E4 G4 G4 E4 D4 C4");
   assert.equal(first("danube", 5), "D4 D4 F#4 A4 A4");
+});
+
+test("cues wait their turn, and a hum sounds the notes of the machines that are humming", () => {
+  const { ctx, app } = begin();
+  advance(app, 2);
+  app.queue = [];
+  tuneCueOf(app);
+  const flourishEnd = Math.max(...app.queue.map((q) => q.at));
+  const n = app.queue.length;
+  // two machines owned and humming: the dish (C) and the drill (G)
+  app.s.own[0] = 3; app.s.own[2] = 2; app.hum[0] = 100; app.hum[2] = 100;
+  cue(app, "hum");
+  const hum = app.queue.slice(n);
+  assert.ok(hum.length >= 2 && hum[0].at > flourishEnd, "the hum starts after the flourish");
+  assert.deepEqual([...new Set(hum.map((q) => hzMidi(q.hz) % 12))].sort((a, b) => a - b), [E.PROD[0].pc, E.PROD[2].pc].sort((a, b) => a - b));
+  const from = ctx.calls.tone.length;
+  advance(app, 2);
+  assert.equal(app.queue.length, 0);
+  assert.equal(ctx.calls.tone.length - from, n + hum.length, "everything played");
+  // with nothing humming the hum falls back to the tune's own chord
+  app.hum.fill(0); app.queue = []; cue(app, "hum");
+  assert.equal(app.queue.length, CUES.hum[0].length);
 });

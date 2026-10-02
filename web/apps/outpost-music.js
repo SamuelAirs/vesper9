@@ -10,11 +10,11 @@
 // lamps (outpost-lamps.js) at the place its pitch has in the cue's range, in the cue's colour.
 //
 // Fields used on the cartridge (`app`): c (the context), s, mel, clk, idle, queue, lastTapTone,
-// groove, gaps, lastGather, phase_, and the method voices(). This module's own fields: cueFx (the
-// lamp light of the latest cue note) and grooveHeard (the groove at the previous tap).
+// groove, gaps, lastGather, phase_, hum (seconds left per machine), and the method voices().
+// This module's own fields: cueFx (the lamp light of the latest cue note) and grooveHeard (the groove at the previous tap).
 import { clamp } from "../engine/math.js";
 import { LAMP } from "../engine/lightshow.js";
-import { DIM_AFTER, GROOVE_MAX, VOICE } from "./outpost-rules.js";
+import { DIM_AFTER, GROOVE_MAX, PROD, VOICE } from "./outpost-rules.js";
 import { midiHz, scaleUp } from "./outpost-songs.js";
 
 // Voice levels under the lead (ctx.tone's gain): the station's extra voices sit quietly beneath it.
@@ -65,7 +65,9 @@ export const CUES = {
   researchDone: [[5, 8, 9, 10, 12], 0.07, 0.24, "sine", LAMP.blue],
   relocate: [[1, 5, 8, 10, 12, 15], 0.11, 0.35, "sine", LAMP.white],
   pocket: [[8, 12, 15], 0.04, 0.1, "sine", LAMP.cyan], // the groove has just filled
-  hum: [[1, 5, 8], 0.12, 0.4, "sine", LAMP.green], // a finished tune sets the machines in its notes humming
+  hum: [[1, 5, 8], 0.12, 0.4, "sine", LAMP.green], // a finished tune sets machines humming (played in their own notes)
+  fragment: [[5, 6, 5, 2, 8], 0.13, 0.3, "sine", LAMP.violet], // a fragment of THE CALL is decoded
+  answer: [[1, 3, 5, 8, 5, 8, 10, 12, 15, 12, 15], 0.12, 0.4, "sine", LAMP.white], // THE CALL is answered
 };
 
 // The player's beat (seconds) while they are keeping one, else 0.
@@ -76,22 +78,36 @@ export function liveBeat(app) {
   return app.clk - app.lastGather <= 2.5 * beat ? beat : 0;
 }
 // When a cue should start and how far apart its notes go: on its own spacing normally; on the
-// player's beat while they keep one (the subdivision nearest the cue's own gap, starting on the
-// next one).
+// player's beat while they keep one (the subdivision nearest the cue's own spacing, starting on
+// the next one). A cue never talks over one still playing: it starts once the queued cue notes
+// are done (a finished tune's flourish, then its hum).
 export function cueTiming(app, gap) {
+  let busy = -Infinity;
+  for (const q of app.queue) if (!q.pv && q.at > busy) busy = q.at;
   const beat = liveBeat(app);
-  if (!beat) return { start: app.clk, gap };
+  if (!beat) return { start: Math.max(app.clk, busy + gap), gap };
   let best = beat;
   for (let k = 2; k <= 8; k *= 2) if (Math.abs(beat / k - gap) < Math.abs(best - gap)) best = beat / k;
-  const step = clamp(best, 0.04, 0.24), since = app.clk - app.lastGather;
-  return { start: app.lastGather + Math.ceil(since / step - 1e-6) * step, gap: step };
+  const step = clamp(best, 0.04, 0.24), from = Math.max(app.clk, busy + step) - app.lastGather;
+  return { start: app.lastGather + Math.ceil(from / step - 1e-6) * step, gap: step };
+}
+
+// The notes of a hum: the pitch classes of the machines humming now (each machine is tuned to
+// one, PROD[i].pc), low and then an octave up, so the station sounds its own chord. Falls back
+// to the table's degrees when nothing hums (or on a build without hum).
+function humMidis(app) {
+  const pcs = [];
+  if (app.hum && app.s?.own) for (let i = 0; i < app.hum.length; i++) if (app.hum[i] > 0 && app.s.own[i] > 0 && PROD[i]) pcs.push(PROD[i].pc);
+  if (!pcs.length) return null;
+  const base = cueBase(app.mel) - 12, low = pcs.map((pc) => base + ((((pc - base) % 12) + 12) % 12)).sort((a, b) => a - b).slice(0, 4);
+  return [...low, ...low.map((m) => m + 12)];
 }
 
 export function cue(app, name) {
   const q = CUES[name];
   if (!q) return;
   const [deg, gap, len, wave, rgb] = q;
-  const mids = deg.map((d) => degreeMidi(app.mel, d));
+  const mids = (name === "hum" && humMidis(app)) || deg.map((d) => degreeMidi(app.mel, d));
   const lo = Math.min(...mids), hi = Math.max(...mids);
   const at = cueTiming(app, gap);
   mids.forEach((m, i) => {

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   Ballista, migrateSave, dailyGoal, loadout, zoneAt, sweepAngle, powerAt, timeToGround,
-  ZONES, UPGRADES, PODS, FEATS, MODULES, SLOTS, SLOT3_FEATS, M, RISE, MIN_HOLD, SKIP_WIN, EARLY_WIN, LATE_WIN,
+  ZONES, UPGRADES, PODS, FEATS, MODULES, SLOTS, SLOT3_MODS, M, RISE, MIN_HOLD, SKIP_WIN, EARLY_WIN, LATE_WIN,
   contractText, contractProgress, chainMult, salvageFor, upCost, MARK_SPEED,
 } from "../web/apps/ballista.js";
 import { Random } from "../web/engine/math.js";
@@ -47,7 +47,7 @@ test("zones start where they say, and every upgrade level makes the pod better",
   const a = loadout([0, 0, 0, 0, 0], 0), b = loadout([5, 5, 5, 5, 5], 0);
   assert.ok(b.vmax > a.vmax && b.kicks > a.kicks && b.e > a.e && b.drag < a.drag && b.magnet > a.magnet);
   for (const u of UPGRADES) { assert.equal(u.cost.length, 5); u.cost.forEach((c, i) => i && assert.ok(c > u.cost[i - 1])); }
-  assert.deepEqual(PODS.map((p) => p.need), [0, 4, 8, 14]);
+  for (const p of PODS.slice(1)) assert.ok(FEATS.some((f) => f.id === p.need && !f.hidden), p.name + " is earned by a listed feat");
 });
 
 test("time to the ground is right for a falling body", () => {
@@ -370,7 +370,7 @@ test("draw() runs in every phase and view, with the pod high above the screen", 
   app.draw(g);
   hold(app, 0.6);
   for (let i = 0; i < 10; i++) { app.draw(g); tap(app); }
-  app.cur = row(app, "RECORDS"); hold(app, 0.6); for (let i = 0; i < 6; i++) { app.draw(g); tap(app); } app.draw(g); hold(app, 0.6);
+  app.cur = row(app, "LOG"); hold(app, 0.6); app.draw(g); tap(app);
   app.cur = row(app, "CONTRACTS"); hold(app, 0.6); app.draw(g); tap(app);
   app.sv.mods = ["spring"];
   app.cur = row(app, "MODULES"); hold(app, 0.6); for (let i = 0; i < 12; i++) { app.draw(g); tap(app); }
@@ -394,9 +394,11 @@ test("the workshop buys a level with salvage, refuses without it, and saves", ()
   hold(app, 0.6);
   assert.equal(app.sv.up[0], 1, "bought without the salvage");
   assert.match(app.need, /NEED/);
-  // pods are locked until enough feats
+  // pods are locked until their feat
   assert.ok(!app.rows().includes("POD"));
-  app.sv.ft = FEATS.slice(0, 4).map((f) => f.id);
+  app.sv.ft = ["m100", "pad", "skip1", "mine"];
+  assert.ok(!app.rows().includes("POD"), "any four feats used to unlock SKIPPER");
+  app.sv.ft.push(PODS[1].need);
   app.cur = row(app, "POD"); hold(app, 0.6);
   assert.equal(app.sv.pod, 1);
   app.cur = 0; hold(app, 0.6);
@@ -441,19 +443,35 @@ test("the daily run has the same field and loadout for everyone on a date, and d
   assert.equal(a.app.sv.best, 0);
 });
 
-test("daily goals are fixed per date and meeting one counts a streak", () => {
+test("daily goals are fixed per date; meeting one is told to the console's logbook", () => {
   assert.deepEqual(dailyGoal("2026-10-01"), dailyGoal("2026-10-01"));
   const kinds = new Set();
   for (let d = 1; d <= 28; d++) kinds.add(dailyGoal("2026-10-" + String(d).padStart(2, "0")).kind);
   assert.equal(kinds.size, 4);
-  const { app } = mount({ progress: { schema: 2, dl: { d: "2026-09-30", done: 1, streak: 3, last: "2026-09-30", best: 50 } } });
+  const ctx = appContext({ seed: 11, progress: { schema: 2, dl: { d: "2026-09-30", done: 1, streak: 3, last: "2026-09-30", best: 50 } } });
+  const told = { daily: [], met: 0, feats: [] };
+  ctx.today = () => ({ goal: "Score 100 or more", done: false, own: false });
+  ctx.daily = (text) => told.daily.push(text);
+  ctx.dailyMet = () => told.met++;
+  ctx.feat = (id, name) => told.feats.push([id, name]);
+  const app = new Ballista(ctx);
+  assert.equal(told.daily.length, 1, "Ballista states its order when it is one of today's three");
+  assert.match(told.daily[0], /^Daily run: /);
   app.dayKey = () => "2026-10-01";
   app.startRun(true);
   app.goalMet = () => true;
   app.finish("rest");
-  assert.equal(app.sv.dl.streak, 4);
+  run(app, 3); // past the gesture window: the held calls go out
   assert.equal(app.sv.dl.done, 1);
+  assert.equal(told.met, 1);
   assert.ok(app.sv.ft.includes("daily"));
+  assert.ok(told.feats.some(([id, name]) => id === "daily" && name === "ON THE DAY"), "the feat goes to the console");
+  // not one of today's three: no order is stated
+  const quiet = appContext({ seed: 11 });
+  let said = 0;
+  quiet.today = () => null; quiet.daily = () => said++;
+  new Ballista(quiet);
+  assert.equal(said, 0);
 });
 
 test("a good player meets each kind of daily goal on the daily loadout", () => {
@@ -634,8 +652,8 @@ test("modules are built, fitted and removed in the workshop, within the slots", 
   assert.deepEqual(app.mods, ["scanner", "relay"]);
   assert.equal(app.L.scrap, 4);
   assert.equal(app.L.relay, 2);
-  // a third slot at SLOT3_FEATS feats
-  app.sv.ft = FEATS.slice(0, SLOT3_FEATS).map((f) => f.id);
+  // a third slot with SLOT3_MODS built
+  app.sv.mods = MODULES.slice(0, SLOT3_MODS).map((m) => m.id);
   assert.equal(app.slots(), SLOTS + 1);
 });
 

@@ -35,3 +35,17 @@ The review scored Ballista 6.5: "luck outweighs skill", a press near touchdown s
 - Workshop: lines that do nothing yet are hidden (overhaul until every system is at V, modules until 10 levels or one is built, pod until a second is earned); feats and log are one RECORDS line. A new save starts with 9 lines, 12 at most.
 - Bot: it now reads the arc ahead, aims each skip with a spread that grows as skill falls, and presses 0.2 s late like a hand. With the same levels, sharp timing (skill 1) goes 1.5-1.85x as far as loose timing (skill 0.2), up from about 1.25x. Level 0 to level V is about 3x (it was about 8x). A sharp player at level II keeps pace with a loose one at level V. A test now guards this. A middling bot still fills every system in about 36 runs.
 - Tests: 37 in tests/ballista.test.mjs; full suite 833 JS pass, 1 fail (the Perihelion bot test that also fails on main); Python, catalog, demo and the four browser suites pass. Not verified on the device.
+
+## Round 4: the console logbook (PR #16's cut list)
+
+- **Needs PR #16 merged first.** It adds the console calls Ballista now uses: `ctx.today()`, `ctx.daily()`, `ctx.dailyMet()` and `ctx.feat()`. They are called with `?.`, so Ballista still runs without them.
+- The streak and the feat list are gone from the game:
+  - Feats still happen and still pay 30 salvage. Each one is sent to the console with `ctx.feat` and shown on the result screen. They go through the gesture guard, so a run the menu gesture takes back reports nothing.
+  - The workshop's RECORDS line is now LOG (zones and lifetime totals).
+  - The HUD shows MARK where it showed FEATS.
+  - The result's "closest feat" line is now "next pod".
+- **Pods are earned by one named feat:** SKIPPER by 4 perfect skips in one run, DART by 5 pads, boosters or mines in one run, GLIDER by 1000 m. The third module slot comes with 5 modules built (it used to need 12 feats).
+- **Daily run:** it stays as a mode (the same field and a fixed level-III loadout for everyone, the run whose best is not boosted by upgrades), but without its own streak.
+  - When the console picks Ballista as one of today's three, Ballista states its order as "Daily run: <goal>".
+  - It calls `ctx.dailyMet()` when that goal is met.
+- Tests: 37 in tests/ballista.test.mjs, including a test of the logbook calls with stub context functions. Not tested against PR #16's real host or on the device.

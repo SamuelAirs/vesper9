@@ -94,13 +94,13 @@ const UP_MAX = 5;
 export const MARK_MAX = 9, MARK_SPEED = 0.03, MARK_SALVAGE = 0.15, MARK_COST = 0.4;
 export const upCost = (i, level, mark) => Math.round(UPGRADES[i].cost[level] * (1 + MARK_COST * mark) / 5) * 5;
 export const PODS = [
-  { name: "STANDARD", need: 0, e: 0, drag: 1, kick: 1, perfect: 1, text: "The survey pod as issued." },
-  { name: "SKIPPER", need: 4, e: 0.07, drag: 1.15, kick: 0.9, perfect: 1.35, text: "Bouncy; easier perfect skips; more drag." },
-  { name: "DART", need: 8, e: -0.08, drag: 0.72, kick: 1.15, perfect: 0.85, text: "Slips through the air; lands hard." },
-  { name: "GLIDER", need: 14, e: -0.02, drag: 1.1, kick: 0.9, perfect: 1.1, g: 0.86, text: "Light; long hang time; weaker thrusters." },
+  { name: "STANDARD", need: "", e: 0, drag: 1, kick: 1, perfect: 1, text: "The survey pod as issued." },
+  { name: "SKIPPER", need: "skip4", e: 0.07, drag: 1.15, kick: 0.9, perfect: 1.35, text: "Bouncy; easier perfect skips; more drag." },
+  { name: "DART", need: "lift5", e: -0.08, drag: 0.72, kick: 1.15, perfect: 0.85, text: "Slips through the air; lands hard." },
+  { name: "GLIDER", need: "m1000", e: -0.02, drag: 1.1, kick: 0.9, perfect: 1.1, g: 0.86, text: "Light; long hang time; weaker thrusters." },
 ];
 // Modules: one-time purchases for the late game, of which only a few fit in a run (SLOTS, one more
-// at SLOT3_FEATS feats). Choosing which to fit is part of the plan for a run.
+// with SLOT3_MODS built). Choosing which to fit is part of the plan for a run.
 export const MODULES = [
   { id: "spring", name: "SPRING TUNING", cost: 400, text: "Pads throw a fifth higher." },
   { id: "scanner", name: "SCRAP SCANNER", cost: 350, text: "Each scrap is worth 4 salvage, not 2." },
@@ -114,7 +114,7 @@ export const MODULES = [
   { id: "rig", name: "SALVAGE RIG", cost: 1500, text: "A quarter more salvage from every run." },
 ];
 const MOD_IDS = MODULES.map((m) => m.id);
-export const SLOTS = 2, SLOT3_FEATS = 12;
+export const SLOTS = 2, SLOT3_MODS = 5;
 const DAILY_UP = [3, 3, 3, 3, 3];
 // A pod's numbers from the upgrade levels and the pod chosen.
 export function loadout(up, podIx, mods = [], mark = 0) {
@@ -215,6 +215,8 @@ export const FEATS = [
   { id: "kite", name: "KITE", text: "Touch 3 beacons without landing.", hint: "Beacons hang in the air.", n: 3, hidden: true, prog: (a) => a.R.kite },
 ];
 const FEAT_IDS = FEATS.map((f) => f.id);
+// What earns a pod, in words: the text of its feat.
+export const podNeed = (pod) => (FEATS.find((f) => f.id === pod.need)?.text || "").replace(/\.$/, "");
 const FEAT_BOUNTY = 30;
 
 // ---- helpers -------------------------------------------------------------------------------
@@ -312,7 +314,7 @@ function sky(g, z) {
 
 // Every line the workshop can show. Lines that do nothing yet stay hidden (see rows()), so a new
 // save starts with nine; the five systems are always lines 1-5.
-const WORKSHOP = ["LAUNCH", "BARREL", "THRUSTERS", "HULL", "FINS", "MAGNET", "OVERHAUL", "MODULES", "POD", "CONTRACTS", "DAILY", "RECORDS"];
+const WORKSHOP = ["LAUNCH", "BARREL", "THRUSTERS", "HULL", "FINS", "MAGNET", "OVERHAUL", "MODULES", "POD", "CONTRACTS", "DAILY", "LOG"];
 const MODULES_AT = 10; // system levels bought before the modules line appears
 
 export class Ballista {
@@ -321,12 +323,16 @@ export class Ballista {
     this.guard = new AppGuard(this, ctx); // takes back a menu gesture that reached the game (docs/ENGINE.md)
     this.t = 0;
     this.sv = migrateSave(ctx.progress?.());
+    // On a day the console picks Ballista as one of its three, the order is the daily run's goal.
+    if (ctx.today?.()) {
+      ctx.daily?.("Daily run: " + dailyGoal(this.dayKey()).text);
+      if (this.dailyDone()) ctx.dailyMet?.();
+    }
     this.phase = "title";
     this.armed = false; // a press on a menu screen, waiting for its release
     this.pt = 0;
     this.view = "menu";
     this.cur = 0;
-    this.page = 0;
     this.daily = false;
     this.btn = false;
     this.charging = false;
@@ -400,7 +406,7 @@ export class Ballista {
     this.rings = []; // shock rings: { x, y, t, c } in world px
     this.best0 = this.bestRef();
   }
-  slots() { return SLOTS + (this.sv.ft.length >= SLOT3_FEATS ? 1 : 0); }
+  slots() { return SLOTS + (this.sv.mods.length >= SLOT3_MODS ? 1 : 0); }
   // Pads, boosters, mines, beacons and perfect skips add a link; a plain landing ends the chain.
   link() {
     this.chain++;
@@ -418,7 +424,9 @@ export class Ballista {
     this.rings.push({ x, y, t: 0, c });
   }
   dayKey() { return dateKey(); }
-  unlockedPod(i) { return i === 0 || this.sv.ft.length >= (PODS[i]?.need ?? 99); }
+  // A pod is earned by one feat, named on the POD line (the feat list itself is the console's).
+  nextPod() { return PODS.find((x, i) => i > 0 && !this.unlockedPod(i)) || null; }
+  unlockedPod(i) { return i === 0 || (!!PODS[i] && this.sv.ft.includes(PODS[i].need)); }
   bestRef() {
     if (this.daily) return this.sv.dl.d === this.dayKey() ? this.sv.dl.best : 0;
     return this.sv.best;
@@ -662,8 +670,7 @@ export class Ballista {
       return;
     }
     if (this.view !== "menu") {
-      if (long || this.view === "contracts") { this.view = "menu"; this.page = 0; }
-      else this.page = (this.page + 1) % (Math.ceil(FEATS.length / 6) + 1); // the feats' pages, then the log
+      this.view = "menu";
 
       return;
     }
@@ -674,7 +681,6 @@ export class Ballista {
     this.phase = "shop";
     this.view = "menu";
     this.cur = this.affordable() >= 0 ? 1 + this.affordable() : 0;
-    this.page = 0;
     this.need = "";
     this.setHint("SHOP", "TAP: NEXT LINE. HOLD: CHOOSE.");
     this.hudNow();
@@ -700,7 +706,7 @@ export class Ballista {
     const row = this.rows()[this.cur], sv = this.sv;
     if (row === "LAUNCH") { this.startRun(false); return; }
     if (row === "DAILY") { this.startRun(true); return; }
-    if (row === "RECORDS") { this.view = "feats"; this.page = 0; return; }
+    if (row === "LOG") { this.view = "log"; return; }
     if (row === "CONTRACTS") { this.view = "contracts"; return; }
     if (row === "MODULES") { this.view = "mods"; this.mcur = 0; this.need = ""; return; }
     if (row === "OVERHAUL") { this.overhaul(); return; }
@@ -1064,9 +1070,8 @@ export class Ballista {
       if (this.goalDone && !sv.dl.done) {
         sv.dl.done = 1;
         sv.st.daily++;
-        sv.dl.streak = sv.dl.last && this.dayBefore(key) === sv.dl.last ? sv.dl.streak + 1 : 1;
-        sv.dl.last = key;
         this.R.daily = 1;
+        this.guard.hold("dailyMet", () => this.c.dailyMet?.()); // today's order on the console, if Ballista is one
       }
     } else {
       sv.best = Math.max(sv.best, metres);
@@ -1109,6 +1114,7 @@ export class Ballista {
       if (num(f.prog(this)) >= f.n) {
         this.sv.ft.push(f.id);
         this.newFeats.push(f.id);
+        this.guard.hold("feat", () => this.c.feat?.(f.id, f.name)); // the console's logbook keeps the list
         this.note(0.3, 659, 0.1, "sine");
         this.note(0.4, 880, 0.2, "sine");
       }
@@ -1138,13 +1144,8 @@ export class Ballista {
       const cost = upCost(cheap, sv.up[cheap], sv.mark);
       lines.push(cost <= sv.salvage ? "WORKSHOP: " + UPGRADES[cheap].name + " " + roman(sv.up[cheap] + 1) + " IS READY (" + cost + ")" : "NEXT: " + UPGRADES[cheap].name + " " + roman(sv.up[cheap] + 1) + " AT " + cost + " SALVAGE");
     }
-    let best = null, bestF = 0;
-    for (const f of FEATS) {
-      if (sv.ft.includes(f.id) || f.hidden) continue;
-      const frac = num(f.prog(this)) / f.n;
-      if (frac > bestF && frac < 1) { bestF = frac; best = f; }
-    }
-    if (best) lines.push("CLOSEST FEAT: " + best.name + " " + Math.floor(num(best.prog(this))) + " / " + best.n);
+    const pod = this.nextPod();
+    if (pod) lines.push("NEXT POD: " + pod.name + ". " + podNeed(pod).toUpperCase());
     return lines;
   }
 
@@ -1200,7 +1201,7 @@ export class Ballista {
     const run = this.phase === "fly" || this.phase === "aim";
     const items = run
       ? [["DISTANCE", this.metres + " m"], ["THRUST", this.kicks + "/" + this.L.kicks], ["BEST", this.bestRef() + " m"]]
-      : [["BEST", this.sv.best + " m"], ["SALVAGE", this.sv.salvage], ["FEATS", this.sv.ft.length + "/" + FEATS.length]];
+      : [["BEST", this.sv.best + " m"], ["SALVAGE", this.sv.salvage], ["MARK", roman(this.sv.mark + 1)]];
     const key = items.map((x) => x[1]).join("|");
     if (key === this.hudKey) return;
     this.hudKey = key;
@@ -1735,7 +1736,7 @@ export class Ballista {
         else if (id === "OVERHAUL") value = "MARK " + roman(sv.mark + 1) + (sv.up.every((L) => L >= UP_MAX) && sv.mark < MARK_MAX ? "  READY" : "");
         else if (id === "POD") value = PODS[sv.pod].name;
         else if (id === "DAILY") value = this.dailyDone() ? "DONE TODAY" : "BEST " + (sv.dl.d === this.dayKey() ? sv.dl.best : 0) + " m";
-        else if (id === "RECORDS") value = "FEATS " + n + " / " + FEATS.length + "   ZONE " + ZONES[sv.far].roman;
+        else if (id === "LOG") value = "ZONE " + ZONES[sv.far].roman + " / " + ZONES[ZONES.length - 1].roman;
         if (on) diamond(g, 150, y, 8, C.amber, true);
         text(g, label, 176, y, 20, on ? C.amber : C.ink);
         text(g, value, 810, y, 18, on ? C.amber : id === "OVERHAUL" && value.endsWith("READY") ? C.cyan : C.muted, "right");
@@ -1745,12 +1746,12 @@ export class Ballista {
       if (this.need) info = this.need;
       else if (id === "LAUNCH") info = "Fire a pod with this loadout.";
       else if (this.cur <= UPGRADES.length) info = UPGRADES[this.cur - 1].text + (sv.up[this.cur - 1] < UP_MAX ? "  HOLD TO BUY." : "");
-      else if (id === "MODULES") info = "One-time builds. " + this.slots() + " fit in a run" + (this.slots() < SLOTS + 1 ? "; a third slot at " + SLOT3_FEATS + " feats." : ".");
+      else if (id === "MODULES") info = "One-time builds. " + this.slots() + " fit in a run" + (this.slots() < SLOTS + 1 ? "; a third slot with " + SLOT3_MODS + " built." : ".");
       else if (id === "CONTRACTS") info = "Standing jobs. Each pays when a run meets it.";
       else if (id === "OVERHAUL") info = "With every system at V: strip them for a new mark. Launch +" + Math.round(MARK_SPEED * 100) + "%, salvage +" + Math.round(MARK_SALVAGE * 100) + "% a mark.";
-      else if (id === "POD") { const next = PODS.find((x, i) => i > 0 && !this.unlockedPod(i)); info = PODS[sv.pod].text + (next ? "  NEXT: " + next.name + " AT " + next.need + " FEATS" : ""); }
-      else if (id === "DAILY") info = "Same field and kit for everyone today. " + dailyGoal(this.dayKey()).text + (sv.dl.streak > 1 ? "  STREAK " + sv.dl.streak : "");
-      else info = "Feats (" + FEAT_BOUNTY + " salvage each), then zones and lifetime totals.";
+      else if (id === "POD") { const next = this.nextPod(); info = PODS[sv.pod].text + (next ? "  NEXT: " + next.name + ", " + podNeed(next) : ""); }
+      else if (id === "DAILY") info = "Same field and kit for everyone today. " + dailyGoal(this.dayKey()).text;
+      else info = "Zones reached and lifetime totals.";
       text(g, info, 480, 456, 16, this.need ? C.cyan : C.muted, "center");
       text(g, "TAP = NEXT LINE     HOLD = CHOOSE", 480, 492, 18, C.cyan, "center");
     } else if (this.view === "mods") {
@@ -1776,17 +1777,6 @@ export class Ballista {
       });
       text(g, "COMPLETED " + sv.cdone + "     A NEW JOB REPLACES EACH ONE DONE OR WITHDRAWN", 480, 400, 16, C.muted, "center");
       text(g, "PRESS = BACK", 480, 490, 18, C.cyan, "center");
-    } else if (this.view === "feats" && this.page < Math.ceil(FEATS.length / 6)) {
-      const per = 6, pages = Math.ceil(FEATS.length / per) + 1;
-      text(g, "FEATS  " + n + " / " + FEATS.length + "     PAGE " + (this.page + 1) + " / " + pages, 480, 104, 20, C.cyan, "center");
-      FEATS.slice(this.page * per, this.page * per + per).forEach((f, i) => {
-        const y = 144 + i * 52, done = sv.ft.includes(f.id);
-        text(g, (done ? "[X] " : "[ ] ") + (f.hidden && !done ? "????" : f.name), 150, y, 22, done ? C.cyan : C.ink);
-        const prog = num(f.prog(this));
-        text(g, done ? "DONE" : f.hidden ? "" : Math.floor(Math.min(prog, f.n)) + " / " + f.n, 810, y, 20, done ? C.cyan : C.amber, "right");
-        text(g, f.hidden && !done ? f.hint : f.text, 150, y + 24, 16, C.muted);
-      });
-      text(g, "TAP = NEXT PAGE     HOLD = BACK", 480, 490, 18, C.cyan, "center");
     } else {
       text(g, "LOG   RUNS " + sv.runs + "   " + sv.st.metres + " m IN ALL", 480, 104, 20, C.cyan, "center");
       ZONES.forEach((z, i) => {
@@ -1799,7 +1789,7 @@ export class Ballista {
       text(g, "BEST CHAIN " + sv.chain + "   CONTRACTS " + sv.cdone + "   MODULES " + sv.mods.length + " / " + MODULES.length + "   MARK " + roman(sv.mark + 1), 480, y + 26, 16, C.muted, "center");
       text(g, PODS.map((p, i) => p.name + " " + sv.pb[i] + " m").join("   "), 480, y + 52, 16, C.muted, "center");
       if (sv.legacy) text(g, "FIRST RANGE: " + sv.legacy.runs + " SURVEYS, LAST SCORE " + sv.legacy.score, 480, y + 78, 16, C.line, "center");
-      text(g, "TAP = FEATS     HOLD = BACK", 480, 490, 18, C.cyan, "center");
+      text(g, "PRESS = BACK", 480, 490, 18, C.cyan, "center");
     }
   }
   dailyDone() { return this.sv.dl.d === this.dayKey() && this.sv.dl.done === 1; }

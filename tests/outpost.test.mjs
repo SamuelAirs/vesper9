@@ -204,11 +204,12 @@ test("relocation needs the deliberate path and a long hold", () => {
   app.s.rt = 1e9; app.s.sig = 0; app.dirty = true; app.recalc();
   assert.ok(app.pending() >= 8);
   app.openRing("main");
-  const reloc = app.entries.findIndex((e) => e.kind === "sub" && e.sub === "reloc");
+  const reloc = app.entries.findIndex((e) => e.kind === "sub" && e.to === "reloc");
   assert.ok(reloc > 0);
   app.ring.idx = reloc; app.ring.hiAt = app.clk - 2;
-  press(app, 600); // opens the confirmation list
+  press(app, 600); // opens the list of sites
   assert.equal(app.ring.menu, "reloc");
+  assert.equal(app.entries[1].kind, "reloc"); assert.equal(app.entries[1].site, app.s.of[0]);
   assert.equal(app.s.runs, 0);
   advance(app, 1.5);
   app.ring.idx = 1; app.ring.hiAt = app.clk;
@@ -220,6 +221,7 @@ test("relocation needs the deliberate path and a long hold", () => {
   press(app, 1300);
   assert.equal(app.s.runs, 1);
   assert.ok(app.s.b >= 8);
+  assert.equal(app.card.site, app.s.site); assert.equal(app.card.from, 0);
 });
 
 test("relocating keeps bearings, tree and relics, resets the station, and the head start applies at once", () => {
@@ -429,7 +431,7 @@ test("no NaN or Infinity at the top of the range, in state, text, lamps or drawi
   finiteDeep(app.s);
   assert.ok(Number.isFinite(app.rate) && Number.isFinite(app.tapValue()));
   app.buyAll(); app.pending(); app.recalc();
-  for (const menu of ["main", "tree", "exp", "reloc"]) { app.openRing(menu); app.draw(g); app.closeRing(); }
+  for (const menu of ["main", "tree", "exp", "reloc", "site"]) { app.openRing(menu); app.draw(g); app.closeRing(); }
   finiteDeep(lastSave(ctx));
   assert.ok(!/NaN|Infinity|undefined/.test(E.fmt(app.s.sig) + E.fmt(app.rate) + E.fmt(app.tapValue())), E.fmt(app.s.sig));
   for (const f of ctx.calls.leds) for (const v of f) assert.ok(Number.isInteger(v) && v >= 0 && v <= 255);
@@ -449,7 +451,7 @@ test("every screen draws, lists stay bounded, and the lifetime score rises", () 
   app.draw(g);
   app.s.rt = 1e9; app.s.sig = 1e7; app.dirty = true; app.recalc();
   app.s.tree[5] = 1; app.s.L = 4; app.s.b = 4;
-  for (const menu of ["main", "tree", "exp", "reloc"]) { app.openRing(menu); advance(app, 1); app.draw(g); app.closeRing(); }
+  for (const menu of ["main", "tree", "exp", "reloc", "site"]) { app.openRing(menu); advance(app, 1); app.draw(g); app.closeRing(); }
   app.relocate(); app.draw(g);
   assert.ok(g.count.fillText > 50);
   assert.ok(ctx.calls.score.length >= 1);
@@ -746,7 +748,7 @@ test("every menu and view draws, with the late-game state, without NaN", () => {
   s.own.fill(1500); s.up.fill(1); s.tree = E.TREE.map((n) => n.max); s.sig = 1e149; s.rt = 1e149; s.lt = 1e149; s.L = 1e9; s.b = 1e9;
   s.dat = 1e11; s.rd = [0, 1, 2, 3, 4, 5]; s.gl = E.GOALS.map((_, i) => i); s.sc.fill(1e6); s.st.hand = 1e140; s.st.mach = 1e140; s.st.peak = 1e140;
   s.rs = [{ k: 5, end: wall + 1e6 }]; app.dirty = true; app.recalc();
-  for (const menu of ["main", "songs", "res", "goals", "tree", "exp", "reloc"]) { app.openRing(menu); for (let i = 0; i < app.entries.length + 1; i++) { app.step(); advance(app, 0.05); app.draw(g); } app.closeRing(); }
+  for (const menu of ["main", "songs", "res", "goals", "tree", "exp", "reloc", "site"]) { app.openRing(menu); for (let i = 0; i < app.entries.length + 1; i++) { app.step(); advance(app, 0.05); app.draw(g); } app.closeRing(); }
   app.panel = { page: 0 }; for (let p = 0; p < 3; p++) { app.panel.page = p; app.draw(g); }
   app.panel = null; app.phase_ = "news"; app.draw(g); app.phase_ = "play";
   app.s.sg = M.GEN_ID; app.loadMelody(); for (let i = 0; i < 70; i++) { app.gather(); advance(app, 0.1); }
@@ -781,9 +783,9 @@ test("a schema 3 save (from the previous build) loads with everything kept and t
   assert.equal(app.phase_, "play");
   app.save(true);
   const saved = lastSave(ctx);
-  assert.equal(saved.v, 4); assert.equal(saved.cn, 0);
+  assert.equal(saved.v, E.SCHEMA); assert.equal(saved.cn, 0);
   const again = boot({ progress: JSON.parse(JSON.stringify(saved)) }).app;
-  assert.equal(again.phase_, "play", "a schema 4 save shows no update card");
+  assert.equal(again.phase_, "play", "a current save shows no update card");
   assert.deepEqual(again.s.own, s.own); assert.equal(again.s.taps, s.taps);
   assert.equal(E.migrate({ ...saved, cn: 1e9 }).s.cn, E.CHART_MAX);
   assert.equal(E.migrate({ ...saved, cn: "x" }).s.cn, 0);
@@ -980,4 +982,349 @@ test("the late game no longer walls: nine relocations, the eighth within two hou
   assert.ok(res[7].minutes < 120, "the eighth run took " + res[7].minutes + " min (it did not finish in four hours before)");
   assert.ok(app.s.cn >= 3);
   finiteDeep(app.s);
+});
+
+// ======================= schema 5: sites, soundings, THE CALL, the console logbook =======================
+// A context with the console logbook's calls (PR #16): feats once each, today's order.
+const bootLog = (options) => {
+  const ctx = appContext(options);
+  const book = { feats: [], daily: [], met: 0 };
+  ctx.feat = (id, name) => { if (book.feats.some((f) => f[0] === id)) return false; book.feats.push([id, name]); return true; };
+  ctx.today = () => ({ goal: book.daily.at(-1) || "", done: book.met > 0, own: book.daily.length > 0 });
+  ctx.daily = (text) => book.daily.push(text);
+  ctx.dailyMet = () => { book.met++; };
+  const app = new Outpost(ctx);
+  if (app.phase_ !== "play") { app.down(); app.up({ durationMs: 50 }); }
+  return { ctx, app, book };
+};
+const notesOf = (app) => [app.note?.text, ...app.noteQ.map((n) => n.text)].filter(Boolean).join(" | ");
+// Relocates straight to site k (the card skipped), with enough run signal for a bearing.
+const moveTo = (app, k) => {
+  app.s.rt = Math.max(app.s.rt, 1e9);
+  assert.ok(app.relocate(k), "relocate to " + E.SITES[k].n);
+  assert.equal(app.s.site, k);
+  app.phase_ = "play"; app.arrive();
+};
+
+test("sites: three on offer, never the one you stand on, stable across a reload; each site changes the rules", () => {
+  const { ctx, app } = begin();
+  const s = app.s;
+  assert.equal(s.site, 0);
+  assert.deepEqual([...s.of].sort(), [1, 2, 3], "the first offer: the ridge, the basin and the flats");
+  app.save(true);
+  assert.deepEqual(boot({ progress: structuredClone(lastSave(ctx)) }).app.s.of, s.of, "the offer does not change on reload");
+  s.rt = 1e9; app.dirty = true; app.recalc();
+  const pick = s.of[1];
+  assert.ok(app.relocate(pick));
+  assert.equal(s.site, pick); assert.equal(app.card.site, pick); assert.equal(app.card.from, 0); assert.equal(s.sx, 0);
+  assert.equal(s.of.length, 3); assert.ok(!s.of.includes(pick) && s.of.every((k) => E.siteKnown(s, k)));
+  assert.ok(E.siteKnown(s, 4), "the glacier is on the map from 8 bearings");
+  assert.ok(!E.siteKnown(s, 7) && !E.siteKnown(s, E.SILENT), "the rust coast needs a survey team, the silent coast the whole call");
+  // what each site does, on the pure economy
+  const at = (k) => { const t = E.freshState(); t.site = k; return t; };
+  const out = (t) => { const o = new Float64Array(E.NP); E.evaluate(t, o); return o; };
+  const land = at(0), ridge = at(1), basin = at(2);
+  for (const t of [land, ridge, basin]) { t.own[0] = 5; t.own[2] = 5; } // a dish (sky) and a drill (ground)
+  assert.ok(E.PROD[0].sky && !E.PROD[2].sky);
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
+  assert.ok(near(out(ridge)[0] / out(land)[0], 1.5) && near(out(ridge)[2] / out(land)[2], 0.75), "the ridge: sky x1.5, ground x0.75");
+  assert.ok(near(out(basin)[0] / out(land)[0], 0.75) && near(out(basin)[2] / out(land)[2], 1.5), "the basin: ground x1.5, sky x0.75");
+  assert.equal(E.siteFx(at(3)).tap, 3); assert.equal(E.siteFx(at(4)).tap, 0.5);
+  assert.equal(E.capHours(at(4)) - E.capHours(land), 8, "the glacier: away credit +8 h");
+  assert.equal(E.humMultOf(at(5)), E.HUM_MULT + 0.5); assert.equal(E.humSecOf(at(5), false), 2 * E.HUM_SEC);
+  assert.ok(E.costOf(at(10), 0, 100) < E.costOf(land, 0, 100) / 2, "the dunes: prices rise slower");
+  assert.equal(E.upgCost(at(10), E.UPG[0]), 2 * E.UPG[0].cost);
+  const sil = at(E.SILENT), l2 = at(0);
+  sil.own[11] = 1; l2.own[11] = 1;
+  assert.ok(near(E.evaluate(sil, null) / E.evaluate(l2, null), 3), "the silent coast: silent arrays x3");
+  // and in the cartridge: a tap at the flats is worth three
+  const flats = begin().app;
+  flats.s.up[E.UPG.findIndex((u) => u.kind === "tap" && u.frac)] = 1; // a tap worth a share of the rate too
+  flats.s.own[0] = 10; flats.dirty = true; flats.recalc(); advance(flats, 2);
+  const v0 = flats.tapValue();
+  moveTo(flats, 3);
+  for (const k of ["own", "up", "tree"]) flats.s[k] = structuredClone(begin().app.s[k]);
+  flats.s.up[E.UPG.findIndex((u) => u.kind === "tap" && u.frac)] = 1; flats.s.own[0] = 10;
+  flats.s.L = 0; flats.s.gl.length = 0; flats.dirty = true; flats.recalc(); advance(flats, 2);
+  const want = 3 * (flats.tapMult * E.globalMult(flats.s) + flats.tapFrac * flats.rate);
+  assert.ok(near(flats.tapValue() / want, 1), "the whole tap is x3, the part from the rate too");
+  assert.ok(v0 > 0);
+});
+
+test("the relocation list shows the offered sites with their rules and soundings, and a long hold moves there", () => {
+  const { app } = begin();
+  const s = app.s;
+  s.rt = 1e9; app.dirty = true; app.recalc();
+  app.openRing("reloc");
+  const sites = app.entries.filter((e) => e.kind === "reloc");
+  assert.deepEqual(sites.map((e) => e.site), s.of);
+  for (const e of sites) {
+    const x = E.SITES[e.site];
+    assert.equal(e.label, x.n); assert.equal(e.sub, "NEW");
+    assert.ok(e.lines.includes(x.rule[0]) && e.lines.some((l) => l.startsWith("SOUNDING I: ")), e.lines.join(" / "));
+    assert.ok(e.hold > 1 && e.dwell > 0.5, "relocation keeps its long hold");
+    assert.ok(e.lines.reduce((n, l) => n + Math.ceil(l.length / 29), 0) <= 6, "the detail fits: " + e.lines.join(" / "));
+  }
+  assert.ok(app.entries.some((e) => e.key === "keep"));
+  const k = app.entries.indexOf(sites[2]);
+  app.ring.idx = k; app.ring.hiAt = app.clk - 2;
+  press(app, 1300);
+  assert.equal(s.runs, 1);
+  assert.equal(s.site, sites[2].site);
+  // the card, then the station: the arrival note says where and what to sound
+  advance(app, 1.5); tap(app);
+  if (app.ring) { app.closeRing(); }
+  advance(app, 0.1);
+  assert.match(notesOf(app), new RegExp("NOW AT " + E.SITES[s.site].n + "\\.  SOUNDING I: "));
+});
+
+test("soundings: each counts its own kind where it is taken and decodes a fragment of the call; once it is whole, a relic", () => {
+  const { app } = begin();
+  const s = app.s;
+  const sv = E.surveyOf(s);
+  assert.equal(sv.k, "tunes"); assert.equal(sv.t, 5); assert.equal(sv.lvl, 0);
+  for (let i = 0; i < 30; i++) app.gather();
+  assert.equal(s.sx, s.st.md, "at the landing site only tunes count");
+  const base = structuredClone(s);
+  while (s.sv[0] < 1) app.finishTune();
+  assert.equal(s.cf, 1); assert.equal(E.surveysDone(s), 1);
+  base.sv.fill(0); base.cf = 0; Object.assign(base, { sc: s.sc, gl: s.gl, relics: s.relics });
+  assert.ok(Math.abs(E.globalMult(s) / E.globalMult(base) - 1 - E.SURVEY_BONUS) < 1e-9, "a sounding is +10% output for ever");
+  const n = notesOf(app);
+  assert.match(n, /SOUNDING I TAKEN: LANDING SITE  \+10% OUTPUT FOR EVER/);
+  assert.match(n, /THE CALL: FRAGMENT 1 OF 11 DECODED/);
+  assert.ok(n.includes(E.CALL_LOG[0]));
+  const relics = s.relics;
+  while (s.sv[0] < 2) app.finishTune();
+  assert.equal(s.sx, 20); assert.equal(s.cf, 2, "sounding II decodes another fragment"); assert.equal(s.relics, relics);
+  assert.equal(E.surveyOf(s).t, null); assert.equal(E.surveyOf(s).text, "BOTH SOUNDINGS TAKEN");
+  const sx = s.sx; app.finishTune(); assert.equal(s.sv[0], 2); assert.ok(s.sx >= sx);
+  // a long absence at the glacier takes both of its soundings at once
+  s.L = 10;
+  moveTo(app, 4);
+  const cf = s.cf, rel = s.relics;
+  for (let i = 0; i < 30; i++) app.gather();
+  assert.equal(s.sx, 0, "taps count nothing at the glacier");
+  app.creditAway(5 * 3600);
+  assert.equal(s.sv[4], 2); assert.equal(s.cf, cf + 2); assert.equal(s.relics, rel);
+  // with the call whole, a sounding turns up a relic instead
+  s.cf = E.CALL_FRAGS; s.L = 30;
+  moveTo(app, 5);
+  while (s.sv[5] < 1) app.finishTune();
+  assert.equal(s.relics, rel + 1); assert.equal(s.cf, E.CALL_FRAGS);
+  assert.match(notesOf(app), /THE SOUNDING TURNED UP A RELIC/);
+});
+
+test("the long arc: a first sounding at each of eleven sites decodes the call; it leads to the silent coast; playing it there answers it", () => {
+  const { ctx, app, book } = bootLog();
+  const s = app.s;
+  s.L = 500; s.tree[5] = 1; s.rd = [0]; app.dirty = true; app.recalc(); // every site but the silent coast on the map
+  app.update(1); app.checkSites();
+  const act = { // one step of each kind of sounding
+    tunes: () => app.finishTune(),
+    sky: () => { s.own[0]++; app.checkSurvey(); },
+    ground: () => { s.own[2]++; app.checkSurvey(); },
+    taps: () => app.gather(),
+    watch: () => app.creditAway(1800),
+    flares: () => { app.flare = { x: 400, y: 200, t: 9, life: 14 }; app.catchFlare(); },
+    exp: () => { s.ex = [{ k: 0, end: Date.now() - 1 }]; app.collectExpeditions(Date.now(), null); },
+    data: () => app.addData(1),
+    groove: () => { app.gather(); advance(app, 0.45); },
+    buys: () => { s.sig = 1e40; app.buyProd(0); },
+  };
+  const hidden = (m) => m.hidden.filter(Boolean).length;
+  let last = hidden(E.callMelody(0));
+  assert.equal(last, 44, "the call: 44 notes, all hidden at first");
+  for (let k = 0; k < E.NSITE; k++) {
+    if (k === E.SILENT) continue;
+    if (k !== s.site) moveTo(app, k);
+    const kind = E.SITES[k].sv.k, cf = s.cf;
+    for (let guard = 0; s.sv[k] < 1 && guard < 20000; guard++) act[kind]();
+    assert.equal(s.sv[k], 1, E.SITES[k].n + " sounded (" + kind + ")");
+    assert.equal(s.cf, cf + 1, "a fragment decoded at " + E.SITES[k].n);
+    const now = hidden(E.callMelody(s.cf));
+    assert.ok(now < last, "fewer hidden notes"); last = now;
+  }
+  assert.equal(s.cf, E.CALL_FRAGS); assert.equal(last, 0);
+  assert.ok(E.siteKnown(s, E.SILENT)); assert.equal(s.of[0], E.SILENT, "the silent coast is offered first");
+  assert.ok(book.feats.some((f) => f[0] === "call-decoded") || (app.checkFeats(), book.feats.some((f) => f[0] === "call-decoded")));
+  // relocate there through the menu, choose the call in the songbook, and play it through
+  s.rt = 1e9; app.dirty = true; app.recalc();
+  app.openRing("reloc");
+  const e = app.entries.find((x) => x.site === E.SILENT);
+  assert.equal(e.sub, "THE CALL");
+  app.ring.idx = app.entries.indexOf(e); app.ring.hiAt = app.clk - 2;
+  press(app, 1300);
+  assert.equal(s.site, E.SILENT);
+  app.phase_ = "play"; app.ring = null; app.card = null;
+  const before = E.globalMult(s);
+  app.openRing("songs");
+  const call = app.entries.find((x) => x.i === E.CALL_ID);
+  assert.equal(call.label, "THE CALL"); assert.equal(call.sub, "WHOLE");
+  app.ring.idx = app.entries.indexOf(call); app.ring.hiAt = app.clk - 2;
+  press(app, 700);
+  assert.equal(s.sg, E.CALL_ID); assert.equal(app.mel.name, "THE CALL"); assert.equal(app.ring, null);
+  const tunes = s.sc.slice();
+  for (let i = 0; i < 44; i++) { app.gather(); advance(app, 0.45); }
+  assert.equal(s.ans, 1, "answered");
+  assert.equal(s.sv[E.SILENT], 1);
+  assert.ok(app.finale, "the finale plays");
+  assert.deepEqual(s.sc, tunes, "the call is not counted as a songbook tune");
+  assert.ok(Math.abs(E.globalMult(s) / before - E.CHORUS_MULT * (1 + E.SURVEY_BONUS * E.surveysDone(s)) / (1 + E.SURVEY_BONUS * (E.surveysDone(s) - 1))) < 1e-9);
+  assert.equal(E.humMultOf(s), E.HUM_MULT + 0.25 * s.tree[E.HARMONICS] + 0.5);
+  assert.match(notesOf(app), new RegExp(E.CALL_ANSWERED));
+  assert.equal(app.mel.name, "THE CALL AND ANSWER"); assert.equal(app.mel.n.length, 53);
+  assert.ok(book.feats.some((f) => f[0] === "call-answered"));
+  advance(app, 13);
+  assert.equal(app.finale, null);
+  // kept: a reload stands at the silent coast with the call answered
+  app.save(true);
+  const again = boot({ progress: structuredClone(lastSave(ctx)) }).app;
+  for (const k of ["site", "cf", "ans", "sg", "fe"]) assert.equal(again.s[k], s[k], k);
+  assert.deepEqual(again.s.sv, s.sv);
+  assert.equal(again.mel.name, "THE CALL AND ANSWER");
+  assert.ok(!again.s.of.includes(E.SILENT) || again.s.of[0] !== E.SILENT || !again.s.ans, "once answered, the silent coast is no longer pushed first");
+});
+
+test("the call in the songbook: it appears with the first fragment, previews, loops, and an old save cannot play it early", () => {
+  const { ctx, app } = begin();
+  const s = app.s;
+  app.openRing("songs");
+  assert.ok(!app.entries.some((e) => e.i === E.CALL_ID), "no call before a fragment");
+  app.closeRing();
+  s.cf = 3;
+  app.openRing("songs");
+  const call = app.entries.find((e) => e.i === E.CALL_ID);
+  assert.equal(call.sub, "3/11"); assert.match(call.lines[0], /3 OF 11 FRAGMENTS DECODED/); assert.match(call.lines[1], /^HUMS /);
+  app.ring.idx = app.entries.indexOf(call) - 1; app.ring.hiAt = app.clk;
+  const q = app.queue.length;
+  app.step();
+  assert.ok(app.queue.length > q, "the highlighted call is previewed");
+  app.ring.hiAt = app.clk - 2; press(app, 700);
+  assert.equal(s.sg, E.CALL_ID); assert.equal(app.mel.name, "THE CALL 3/11");
+  const m = E.callMelody(3);
+  assert.equal(m.hidden.filter((h) => !h).length, 12); assert.ok(m.n.every((x, i) => !m.hidden[i] || x === m.n[m.hidden.indexOf(true)]));
+  s.sm = 0; app.finishTune();
+  assert.equal(s.sg, E.CALL_ID, "loop mode keeps playing the call");
+  s.sm = 1; for (let i = 0; i < 6; i++) { app.finishTune(); assert.notEqual(s.sg, E.CALL_ID, "shuffle never picks the call"); }
+  // a save that says it plays the call without a fragment falls back to the first tune
+  app.s.sg = E.CALL_ID; app.s.cf = 0; app.save(true);
+  const again = boot({ progress: structuredClone(lastSave(ctx)) }).app;
+  assert.equal(again.s.sg, 0);
+});
+
+test("the soundings view: the sounding here, the site, the call so far, the record, and the next uncharted site", () => {
+  const { app } = begin();
+  const s = app.s, g = fakeCanvas();
+  app.openRing("main");
+  const entry = app.entries.find((e) => e.to === "site");
+  assert.equal(entry.label, "SOUNDINGS"); assert.equal(entry.sub, "0%"); assert.equal(entry.big, "LANDING SITE");
+  for (const e of app.entries.filter((x) => x.kind === "sub")) assert.ok(e.sub && e.sub.length <= 8 && e.to, "a sub-menu shows a short label, not its id: " + e.label);
+  app.ring.idx = app.entries.indexOf(entry); app.ring.hiAt = app.clk - 2;
+  press(app, 700);
+  assert.equal(app.ring.menu, "site");
+  assert.equal(app.ring.idx, 1, "it opens on the sounding");
+  assert.deepEqual(app.entries.map((e) => e.key), ["back", "sv", "here", "codex", "next"]);
+  assert.equal(app.entries[1].big, "0 / 5"); assert.equal(app.entries[1].lines[2], "AND A FRAGMENT OF THE CALL");
+  assert.equal(app.entries.at(-1).lines[0], E.SITES[7].hint, "the nearest uncharted site and what it takes");
+  app.draw(g);
+  app.closeRing();
+  s.cf = 4; s.sv[0] = 1; s.site = 4; s.sx = 2000; s.L = 10;
+  app.openRing("site");
+  const keys = app.entries.map((e) => e.key);
+  assert.deepEqual(keys, ["back", "sv", "here", "call", "log", "codex", "next"]);
+  assert.equal(app.entries[1].big, "0.5 H / 1.0 H");
+  assert.equal(app.entries[3].lines[0], E.CALL_LOG[3]);
+  assert.deepEqual(app.entries[4].lines, [E.CALL_LOG[2], E.CALL_LOG[1]]);
+  for (const e of app.entries) assert.ok(e.lines.reduce((n, l) => n + Math.min(2, Math.ceil(l.length / 29)), 0) <= 6, e.key);
+  for (let i = 0; i < app.entries.length; i++) { app.step(); app.draw(g); }
+  finiteDeep(app.s);
+});
+
+test("a schema 4 save (from the previous build) loads at the landing site with nothing sounded, says what is new, and saves as schema 5", () => {
+  const old = fixture("outpost-save-v4-mid.json");
+  assert.equal(old.v, 4);
+  wall = old.t + 20 * 1000;
+  const { ctx, app } = boot({ progress: structuredClone(old) });
+  const s = app.s;
+  assert.deepEqual(s.own, old.own); assert.equal(s.taps, old.taps); assert.equal(s.b, old.b); assert.equal(s.L, old.L); assert.equal(s.runs, old.runs);
+  assert.deepEqual(s.tree.slice(0, old.tree.length), old.tree); assert.deepEqual(s.sc.slice(0, old.sc.length), old.sc);
+  assert.deepEqual(s.gl.slice(0, old.gl.length), old.gl); assert.deepEqual(s.rd.slice(0, old.rd.length), old.rd); assert.equal(s.cn, old.cn); assert.equal(s.sg, old.sg);
+  assert.ok(s.lt >= old.lt && s.sig >= old.sig, "nothing lost");
+  assert.equal(s.site, 0); assert.ok(s.sv.every((v) => v === 0)); assert.equal(s.cf, 0); assert.equal(s.ans, 0); assert.equal(s.fe, 0); assert.equal(s.sx, 0);
+  assert.equal(s.of.length, 3); assert.ok(s.of.every((k) => k !== 0 && E.siteKnown(s, k)));
+  if (app.phase_ === "away") { assert.ok(app.away.done.length, "a project finished while away"); app.down(); app.up({ durationMs: 50 }); }
+  assert.equal(app.phase_, "news"); assert.equal(app.newsFrom, 4);
+  const card = app.newsCard();
+  assert.equal(card.title, "OUTPOST UPDATED");
+  assert.ok(card.lines.some((l) => /SITE/.test(l)) && card.lines.some((l) => /SOUNDINGS/.test(l)) && card.lines.some((l) => /HUM/.test(l)), card.lines.join(" / "));
+  assert.ok(card.lines.length <= 6 && card.lines.every((l) => l.length <= 52));
+  for (const f of [1, 2, 3]) { app.newsFrom = f; const c = app.newsCard(); assert.ok(c.lines.length <= 6 && c.lines.every((l) => l.length <= 52), f + ": " + c.lines.join(" / ")); }
+  app.newsFrom = 4;
+  app.draw(fakeCanvas());
+  app.down(); app.up({ durationMs: 50 });
+  assert.equal(app.phase_, "play");
+  app.save(true);
+  const saved = lastSave(ctx);
+  assert.equal(saved.v, 5);
+  for (const k of ["site", "sx", "sv", "of", "cf", "ans", "fe"]) assert.ok(k in saved, k + " saved");
+  const again = boot({ progress: JSON.parse(JSON.stringify(saved)) }).app;
+  assert.equal(again.phase_, "play"); assert.deepEqual(again.s.of, s.of);
+  // bad values are cleaned, never trusted
+  const bad = E.migrate({ ...saved, site: 99, sv: [9, -1, "x"], cf: 1e9, ans: -3, of: [0, 0, 11, 5, "x", 99], fe: "x", sx: -5 }).s;
+  assert.equal(bad.site, 0); assert.deepEqual(bad.sv.slice(0, 3), [2, 0, 0]); assert.equal(bad.cf, E.CALL_FRAGS); assert.equal(bad.ans, 0);
+  assert.deepEqual(bad.of, [11], "at most three are read; the current site and repeats are dropped"); assert.equal(bad.fe, 0); assert.equal(bad.sx, 0);
+  const early = boot({ progress: { ...JSON.parse(JSON.stringify(saved)), of: [11, 1, 2] } }).app;
+  assert.ok(!early.s.of.includes(E.SILENT), "a save cannot offer the silent coast before the call is whole");
+  assert.equal(E.migrate({ ...saved, ans: 1, cf: 2 }).s.cf, E.CALL_FRAGS, "an answered call is a whole one");
+});
+
+test("console logbook: milestones become feats once each and are kept; today's order is stated and met once; all optional", () => {
+  wall = T0 + 864e5; // a date whose order is "play three tunes through"
+  const { ctx, app, book } = bootLog();
+  assert.deepEqual(book.daily, ["Play three tunes through"]);
+  app.finishTune(); app.finishTune();
+  assert.equal(book.met, 0);
+  app.finishTune();
+  assert.equal(book.met, 1); app.finishTune(); assert.equal(book.met, 1, "met once");
+  app.s.rt = 1e9; app.dirty = true; app.recalc();
+  app.relocate(); app.phase_ = "play";
+  advance(app, 1.2);
+  assert.ok(book.feats.some((f) => f[0] === "first-relocation" && f[1] === "FIRST RELOCATION"), book.feats.join(" / "));
+  const bit = app.s.fe, n = book.feats.length;
+  assert.ok(bit & 1);
+  advance(app, 3);
+  assert.equal(book.feats.length, n, "reported once");
+  assert.equal(new Set(book.feats.map((f) => f[0])).size, n);
+  app.save(true);
+  const saved = lastSave(ctx);
+  assert.equal(saved.fe, bit);
+  const ctx2 = appContext({ progress: structuredClone(saved) }), seen = [];
+  ctx2.feat = (id) => { seen.push(id); return true; };
+  const again = new Outpost(ctx2);
+  run(again, 2);
+  assert.ok(!seen.includes("first-relocation"), "a feat already reported is not reported again after a reload");
+  // the other orders, and nothing at all without a logbook
+  wall = T0; const f = bootLog(); assert.deepEqual(f.book.daily, ["Catch a signal flare"]);
+  f.app.flare = { x: 400, y: 200, t: 9, life: 14 }; f.app.catchFlare(); assert.equal(f.book.met, 1);
+  wall = T0 + 2 * 864e5; const gr = bootLog(); assert.deepEqual(gr.book.daily, ["Finish a tune in full groove"]);
+  for (let i = 0; i < 80; i++) { gr.app.gather(); advance(gr.app, 0.45); }
+  assert.equal(gr.book.met, 1);
+  const plain = begin().app;
+  plain.s.rt = 1e9; plain.dirty = true; plain.recalc(); plain.relocate(); plain.phase_ = "play";
+  advance(plain, 2);
+  assert.equal(plain.s.fe, 0, "without a logbook nothing is marked as reported");
+});
+
+test("the long game: a player who stays for each site's sounding hears the whole call and answers it", () => {
+  const { res, app } = simulate({ runs: 9, maxMin: 600, sound: true });
+  const s = app.s;
+  const hours = res.reduce((a, r) => a + (r.minutes || 0), 0) / 60;
+  console.log("the call: minutes per run", res.map((r) => r.minutes).join(" "), "fragments", s.cf, "answered", s.ans, "soundings", s.sv.join(""), "hours", hours.toFixed(1));
+  assert.equal(s.cf, E.CALL_FRAGS);
+  assert.equal(s.site, E.SILENT);
+  assert.equal(s.ans, 1, "answered at the ninth site");
+  assert.ok(E.surveysDone(s) >= 12);
+  assert.ok(hours < 12, hours.toFixed(1) + " hours of play (a quarter of it tapping)");
+  finiteDeep(s);
 });

@@ -21,8 +21,16 @@
 // a finished tune makes the machines on its commonest notes HUM (work harder) for a while, so
 // which tune to play is a choice about which machines to push.
 //
+// Relocating means choosing one of three SITES, each with rules that suit a way of playing
+// (taps, idling, flares, music, expeditions, sky or ground machines) and two SOUNDINGS to take
+// (objectives, +10% output each for ever). Each sounding decodes a fragment of THE CALL, a
+// melody hidden in the signal that the songbook can play as far as it is decoded.
+// Once it is whole, it leads to the silent coast, where playing it through answers it: the
+// finale, after which the station plays on. Milestones go to the console logbook as feats, and
+// when Outpost is one of today's three it states a musical order there.
+//
 // Numbers are plain doubles clamped to BIG (1e150) everywhere they can grow, so nothing
-// reaches Infinity or NaN. The save is one small JSON object (schema 4; schemas 1-3 migrate).
+// reaches Infinity or NaN. The save is one small JSON object (schema 5; schemas 1-4 migrate).
 // The three lamps are the status board: left breathes with production, middle fills toward
 // the next purchase and goes steady green when one is affordable, right shows the timed
 // thing (flare, boost, expedition) or that relocation is worth doing. On top of that, each tap
@@ -43,7 +51,9 @@ import {
   RING_IDLE, DIM_AFTER, SAVE_EVERY, SAVE_GAP, FLARE_LIFE, FLOATERS, LUMP_SEC, TAP_EASY, TAP_EASY_FRENZY, PACE_BURST,
   GROOVE_BONUS, GROOVE_MAX, GROOVE_TOL, GROOVE_MIN_GAP, GROOVE_MAX_GAP, GROOVE_FADE, CHART_REQ, CHART_MULT, CHART_MAX,
   PROD, NP, UPG, NUP, VOICE, TREE, NT, KIT, KIT_SIGNAL, AUTO_EVERY, EXPED, MAX_RELICS, GEN_ID, RES, NR, EV, GOALS, NG, STAGES, CONST,
-  HUM_MULT, HUM_SEC, HUM_MAX, HUM_NOTES, HARMONICS, PC_NAMES, PC_PROD, humNotes, humMachines, humMultOf, humSecOf,
+  HUM_MULT, HUM_SEC, HUM_MAX, HUM_NOTES, HARMONICS, PC_NAMES, PC_PROD, humNotes, humMachines, humMultOf, humSecOf, humMaxOf, upgCost,
+  SITES, NSITE, SILENT, SURVEY_BONUS, SURVEY_LEVELS, SURVEY, siteOf, siteFx, siteMach, siteKnown, surveysDone, surveyOf, offerSites,
+  CALL_ID, CALL_FRAGS, CALL_LOG, CALL_ANSWERED, CHORUS_MULT, callMelody, FEATS,
   hasRes, resSlots, tiersOwned, dataRate, dataBonus, unlockedN, masteredN, goalFrac, chartCost, chartName, chartsOpen, stageOf,
   num, fmt, fmtRate, dur, fmtInt, fmtDate, clock, costOf, milestonesAt, nextMilestone, globalMult, prodMult, evaluate, tapParts,
   capHours, pendingOf, revealOf, readyRatio, readyOf, slotsOf, upgradeVisible, tierOpen, prodVisible, freshState, applyKit, serialize, migrate,
@@ -52,6 +62,11 @@ import { SONGS, NS, SCALES, noteMidi, noteName, midiHz, makeMelody, MEL, scaleUp
 import { VOICE_GAIN, cue, tuneCue, tick, voiceNote, previewTune, playQueue } from "./outpost-music.js";
 import { stepLamps, lampFrame } from "./outpost-lamps.js";
 import { drawOutpost, stepScene, addRipple, addFloat } from "./outpost-scene.js";
+
+// Orders Outpost states to the console logbook when it is one of today's three (one per date).
+const DAILY = [["groove", "Finish a tune in full groove"], ["flare", "Catch a signal flare"], ["tunes", "Play three tunes through"]];
+const ROMAN = ["I", "II"];
+const FINALE_SEC = 12; // how long app.finale lasts after the call is answered (for drawing)
 
 // ---- the cartridge -----------------------------------------------------------
 export class Outpost {
@@ -129,6 +144,11 @@ export class Outpost {
     this.nextGoal = null;
     this.goalIn = 0;
     this.pvAt = 0;
+    this.finale = null; // { t } while the answer to the call is being celebrated (for drawing)
+    this.tunesNow = 0; // tunes finished this visit (for the daily order)
+    this.dailyK = null; // the daily order Outpost stated to the console logbook, while unmet
+    this.known = this.knownMask(); // the sites on the map (bit k), to announce new ones
+    if (!this.s.of.length || this.s.of.some((k) => k === this.s.site || !siteKnown(this.s, k))) this.s.of = this.offer();
 
     // Offline credit: wall-clock time since the save, capped; a clock that went backwards
     // (or a save stamped in the future) earns nothing and loses nothing.
@@ -158,6 +178,7 @@ export class Outpost {
     this.updateHud(true);
     this.setHint();
     this.c.leds(this.lampValues());
+    this.startDaily();
   }
 
   // ---- derived state -----------------------------------------------------------
@@ -183,10 +204,10 @@ export class Outpost {
   surge() { let m = 1; for (const b of this.boosts) if (b.k === "surge") m = Math.max(m, b.mult); return m; }
   frenzy() { let m = 1; for (const b of this.boosts) if (b.k === "frenzy") m = Math.max(m, b.mult); return m; }
   effRate() { return num(this.rate * this.surge()); }
-  grooveMult() { return 1 + GROOVE_BONUS * Math.floor(this.groove) / GROOVE_MAX; }
+  grooveMult() { return 1 + GROOVE_BONUS * siteFx(this.s).groove * Math.floor(this.groove) / GROOVE_MAX; }
   // What a tap is worth now. `paced` applies the easy pace (off for rewards that are not taps).
   tapValue(paced = true) {
-    const v = (this.tapMult * globalMult(this.s) + this.tapFrac * this.rate) * this.frenzy() * this.grooveMult();
+    const v = (this.tapMult * globalMult(this.s) + this.tapFrac * this.rate) * siteFx(this.s).tap * this.frenzy() * this.grooveMult();
     return Math.max(1, num(v)) * (paced ? this.paceNow() : 1);
   }
   // The hand's reserve now (it refills between taps), and the share of a full tap the next one gets.
@@ -198,7 +219,7 @@ export class Outpost {
   visibleItems() {
     const s = this.s, list = [];
     for (let i = 0; i < NP; i++) if (prodVisible(s, i)) list.push({ type: "p", i, key: "p" + i, name: PROD[i].n, cost: costOf(s, i) });
-    for (const u of UPG) if (upgradeVisible(s, u)) list.push({ type: "u", i: u.idx, key: "u" + u.idx, name: u.name, cost: u.cost });
+    for (const u of UPG) if (upgradeVisible(s, u)) list.push({ type: "u", i: u.idx, key: "u" + u.idx, name: u.name, cost: upgCost(s, u) });
     return list;
   }
   // Gain per signal spent, judged on the station's normal output (hum comes and goes).
@@ -243,14 +264,16 @@ export class Outpost {
     this.dirty = true;
     this.recalc();
     if (milestonesAt(s.own[i]) > before) this.milestoneFx(PROD[i].n + " x" + s.own[i] + ": OUTPUT DOUBLED");
+    this.survey("buys", 1);
     return true;
   }
   buyUpg(idx) {
     const s = this.s, u = UPG[idx];
-    if (!u || s.up[idx] || s.sig < u.cost) return false;
-    s.sig -= u.cost;
+    if (!u || s.up[idx] || s.sig < upgCost(s, u)) return false;
+    s.sig -= upgCost(s, u);
     s.up[idx] = 1;
     s.st.buys++;
+    this.survey("buys", 1);
     this.dirty = true;
     this.recalc();
     return true;
@@ -302,11 +325,14 @@ export class Outpost {
     s.sig += KIT_SIGNAL[s.tree[0]] - KIT_SIGNAL[Math.max(0, s.tree[0] - 1)];
     applyKit(s);
   }
-  relocate() {
+  // Moves the outpost to `site` (one of the offered sites; by default the first): the station is
+  // traded for bearings, and the new site's rules and soundings apply from now.
+  relocate(site = this.s.of[0]) {
     const s = this.s, p = this.pending();
     if (p < 1) return false;
-    const stats = { signal: fmt(s.lt), bearings: s.L + p, relocations: s.runs + 1 };
-    this.card = { gain: p, run: s.rt, secs: s.play, total: s.L + p, taps: s.st.rtaps, hand: s.st.rhand, mach: s.st.rmach, stage: STAGES[stageOf(s)] };
+    if (!(site >= 0 && site < NSITE) || site === s.site || !siteKnown(s, site)) site = s.of.find((k) => k !== s.site && siteKnown(s, k)) ?? SITES.findIndex((x, k) => k !== s.site && siteKnown(s, k));
+    const stats = { signal: fmt(s.lt), bearings: s.L + p, relocations: s.runs + 1, site: SITES[site].n, call: s.ans ? "ANSWERED" : s.cf + " / " + CALL_FRAGS };
+    this.card = { gain: p, run: s.rt, secs: s.play, total: s.L + p, taps: s.st.rtaps, hand: s.st.rhand, mach: s.st.rmach, stage: STAGES[stageOf(s)], site, from: s.site };
     if (s.st.fr === 0 || s.play < s.st.fr) s.st.fr = Math.max(1, Math.floor(s.play));
     s.st.rtaps = 0; s.st.rhand = 0; s.st.rmach = 0;
     s.b = Math.min(1e9, s.b + p);
@@ -320,6 +346,9 @@ export class Outpost {
     s.rt = 0;
     s.ex = [];
     s.play = 0;
+    s.site = site;
+    s.sx = 0;
+    s.of = this.offer();
     applyKit(s);
     this.hum.fill(0);
     this.boosts.length = 0;
@@ -335,6 +364,108 @@ export class Outpost {
     this.save(true);
     return true;
   }
+  // Says where the outpost now stands and what to sound there (shown once the station is in view).
+  arrive() {
+    const s = this.s, x = siteOf(s), sv = surveyOf(s);
+    this.queueNote("NOW AT " + x.n + ".  " + (sv.t === null ? sv.text : "SOUNDING " + ROMAN[sv.lvl] + ": " + sv.text), 5);
+    if (x.k === SILENT && !s.ans) this.queueNote("CHOOSE THE CALL IN THE SONGBOOK AND PLAY IT THROUGH", 5);
+  }
+  // The sites offered at the next relocation: from a generator seeded by the save, so they do not
+  // change on reload and do not touch the game's own random sequence.
+  offer() {
+    const s = this.s;
+    return offerSites(s, seeded(((s.f >>> 0) ^ Math.imul(s.runs + 1, 0x9e3779b1) ^ Math.imul(s.cf + 7, 0x85ebca6b)) >>> 0));
+  }
+  knownMask() { let m = 0; for (let k = 0; k < NSITE; k++) if (siteKnown(this.s, k)) m |= 1 << k; return m; }
+  // A site that has come onto the map is announced and joins the offer at once.
+  checkSites() {
+    const m = this.knownMask(), fresh = m & ~this.known;
+    if (!fresh) return;
+    this.known = m;
+    const names = SITES.filter((x) => fresh & (1 << x.k) && x.k !== SILENT).map((x) => x.n);
+    if (names.length) { this.queueNote("NEW SITE ON THE MAP: " + names.join(", "), 4); cue(this, "site"); }
+    this.s.of = this.offer();
+  }
+  addData(x) {
+    const s = this.s;
+    if (!(x > 0)) return;
+    s.dat = Math.min(1e12, s.dat + x);
+    this.survey("data", x);
+  }
+
+  // ---- soundings and the call -------------------------------------------------------------------
+  // Something the sounding here may count happened (kind: tunes, taps, watch, flares, exp, data,
+  // groove, buys, answer; the machine counts are read from the station). "Survey" in the code.
+  survey(kind, n) {
+    const s = this.s, x = siteOf(s);
+    if (x.sv.k === kind) s.sx = Math.min(1e15, s.sx + n);
+    if (x.sv.k === kind || kind === "buys") this.checkSurvey();
+  }
+  // Takes every sounding whose target is met (a long absence can meet both at once).
+  checkSurvey() {
+    const s = this.s, x = siteOf(s);
+    let n = 0;
+    for (let sv = surveyOf(s); sv.t !== null && sv.v >= sv.t; sv = surveyOf(s)) {
+      s.sv[x.k] = sv.lvl + 1;
+      n++;
+      this.queueNote("SOUNDING " + ROMAN[sv.lvl] + " TAKEN: " + x.n + "  +" + Math.round(SURVEY_BONUS * 100) + "% OUTPUT FOR EVER", 4.5);
+      this.accent = { k: "event", t: 0, dur: 0.9 };
+      cue(this, "survey");
+      if (x.k === SILENT && sv.lvl === 0) this.answerCall();
+      else if (x.k !== SILENT && s.cf < CALL_FRAGS) this.decodeFragment();
+      else if (s.relics < MAX_RELICS) { s.relics++; this.queueNote("THE SOUNDING TURNED UP A RELIC  +3% OUTPUT", 3.5); }
+    }
+    if (!n) return false;
+    this.dirty = true;
+    this.saveSoon();
+    return true;
+  }
+  decodeFragment() {
+    const s = this.s;
+    s.cf = Math.min(CALL_FRAGS, s.cf + 1);
+    this.queueNote("THE CALL: FRAGMENT " + s.cf + " OF " + CALL_FRAGS + " DECODED", 4);
+    this.queueNote(CALL_LOG[s.cf - 1], 5);
+    cue(this, "fragment");
+    if (s.sg === CALL_ID) this.mel = callMelody(s.cf, s.ans > 0); // what is playing gains its notes
+    if (s.cf >= CALL_FRAGS) s.of = this.offer(); // the silent coast joins the offer at once
+  }
+  // The call is played back at its source: the finale. Every output doubles for ever, the hum
+  // grows, and the songbook's call gains its answer.
+  answerCall() {
+    const s = this.s;
+    s.ans = Math.max(1, s.ans);
+    this.finale = { t: 0 };
+    this.setNote(CALL_ANSWERED, 6);
+    this.noteQ.length = 0;
+    this.queueNote("THE STATION JOINS THE CHORUS: ALL OUTPUT x" + CHORUS_MULT + ", HUM +0.5", 5);
+    this.accent = { k: "prestige", t: 0, dur: 4 };
+    cue(this, "answer");
+    if (s.sg === CALL_ID) this.mel = callMelody(s.cf, true);
+    this.checkFeats();
+    this.save(true);
+  }
+  // Milestones go to the console logbook once each (bit k of s.fe), when the host keeps one.
+  checkFeats() {
+    const s = this.s;
+    FEATS.forEach(([id, name, met], k) => {
+      if (s.fe & (1 << k) || !met(s)) return;
+      const r = this.c.feat?.(id, name);
+      if (typeof r === "boolean") { s.fe |= 1 << k; this.saveSoon(); }
+    });
+  }
+  // When Outpost is one of today's three in the console logbook, it states a musical order.
+  startDaily() {
+    const today = this.c.today?.();
+    if (!today || today.done) return;
+    const k = Math.floor(Date.now() / 864e5) % DAILY.length;
+    this.dailyK = DAILY[k][0];
+    this.c.daily?.(DAILY[k][1]);
+  }
+  dailyEvent(k) {
+    if (this.dailyK !== k) return;
+    this.dailyK = null;
+    this.c.dailyMet?.();
+  }
   // Credit production earned while closed (or paused for long). Returns the summary.
   creditAway(sec) {
     const cap = capHours(this.s) * 3600;
@@ -346,8 +477,9 @@ export class Outpost {
     sum.gain = num(this.baseRate * used);
     this.gain(sum.gain, "o");
     sum.data = dataRate(this.s) * used;
-    this.s.dat = Math.min(1e12, this.s.dat + sum.data);
+    this.addData(sum.data);
     this.s.st.ta = Math.min(1e15, this.s.st.ta + used);
+    this.survey("watch", used);
     this.dirty = true;
     return sum;
   }
@@ -360,9 +492,10 @@ export class Outpost {
       if (now >= e.end) {
         const reward = num(this.baseRate * x.mins * 60);
         this.gain(reward, "b");
-        s.dat = Math.min(1e12, s.dat + x.data * dataBonus(s));
+        this.addData(x.data * dataBonus(s));
         let relic = false;
-        if (s.relics < MAX_RELICS && this.c.rng.next() < x.relic) { s.relics++; relic = true; }
+        if (s.relics < MAX_RELICS && this.c.rng.next() < x.relic * siteFx(s).relic) { s.relics++; relic = true; }
+        this.survey("exp", 1);
         const rec = { name: x.n, reward, relic };
         if (sum) sum.found.push(rec);
         else this.expeditionBack(rec);
@@ -380,7 +513,7 @@ export class Outpost {
   launch(k) {
     const s = this.s, x = EXPED[k];
     if (!x || !s.tree[5] || s.ex.length >= slotsOf(s) || (x.res !== undefined && !hasRes(s, x.res))) return false;
-    s.ex.push({ k, end: Date.now() + x.sec * 1000 });
+    s.ex.push({ k, end: Date.now() + x.sec * 1000 / siteFx(s).exp });
     s.st.ex++;
     cue(this, "teamOut");
     this.save(true);
@@ -392,7 +525,7 @@ export class Outpost {
     const s = this.s, r = RES[k];
     if (!r || hasRes(s, k) || s.rs.some((e) => e.k === k) || s.rs.length >= resSlots(s) || !r.need(s) || s.dat < r.data) return false;
     s.dat -= r.data;
-    s.rs.push({ k, end: Date.now() + r.sec * 1000 });
+    s.rs.push({ k, end: Date.now() + r.sec * 1000 / siteFx(s).res });
     cue(this, "research");
     this.save(true);
     return true;
@@ -418,7 +551,7 @@ export class Outpost {
     let n = 0, last = null;
     for (let i = 0; i < NG; i++) {
       if (s.gl.includes(i)) continue;
-      if (GOALS[i].v(s) >= GOALS[i].t) { s.gl.push(i); s.dat = Math.min(1e12, s.dat + 2 * dataBonus(s)); n++; last = GOALS[i]; }
+      if (GOALS[i].v(s) >= GOALS[i].t) { s.gl.push(i); this.addData(2 * dataBonus(s)); n++; last = GOALS[i]; }
     }
     if (n) {
       this.dirty = true;
@@ -442,7 +575,9 @@ export class Outpost {
   // ---- the song of the outpost --------------------------------------------------------------
   loadMelody() {
     const s = this.s;
+    if (s.sg === CALL_ID && s.cf < 1) s.sg = 0;
     if (s.sg === GEN_ID) this.mel = genTune(s.gs);
+    else if (s.sg === CALL_ID) this.mel = callMelody(s.cf, s.ans > 0);
     else {
       if (!(s.sg >= 0 && s.sg < NS) || s.lt < SONGS[s.sg].at) s.sg = 0;
       this.mel = MEL[s.sg];
@@ -470,25 +605,31 @@ export class Outpost {
   finishPhrase(k = 1) {
     const s = this.s;
     s.st.ph++;
-    this.gain(this.tapValue(false) * k * 2 * (1 + 0.5 * s.tree[10]), "h");
+    this.gain(this.tapValue(false) * k * 2 * (1 + 0.5 * s.tree[10]) * siteFx(s).tune, "h");
     this.accent = { k: "phrase", t: 0, dur: 0.4 };
     this.dirty = true;
   }
   finishTune() {
-    const s = this.s, m = this.mel, st = s.st, len = m.n.length, pp = 1 + 0.5 * s.tree[10];
+    const s = this.s, m = this.mel, st = s.st, len = m.n.length, pp = (1 + 0.5 * s.tree[10]) * siteFx(s).tune;
     // paced by the tune's taps, or playing faster would pay more tunes a minute
     const lump = (this.effRate() * LUMP_SEC * len * (1 + 0.25 * this.voices()) + this.tapValue(false) * len * 0.15) * pp * (this.tuneN ? this.tuneK / this.tuneN : 1);
     this.gain(lump, "h");
     st.md++;
+    this.tunesNow++;
     let first = false, mastered = false;
     if (s.sg === GEN_ID) st.gen++;
-    else { first = s.sc[s.sg] === 0; s.sc[s.sg]++; mastered = s.sc[s.sg] === 5; }
-    s.dat = Math.min(1e12, s.dat + (first ? 1 : 0.2) * dataBonus(s));
+    else if (s.sg !== CALL_ID) { first = s.sc[s.sg] === 0; s.sc[s.sg]++; mastered = s.sc[s.sg] === 5; }
+    this.addData((first ? 1 : 0.2) * dataBonus(s));
     if (this.tuneClean && len >= 16) s.ev |= EV.perfect;
+    const grooved = this.groove >= GROOVE_MAX, answering = s.sg === CALL_ID && s.cf >= CALL_FRAGS && s.site === SILENT;
     this.accent = { k: "tune", t: 0, dur: 1 };
     this.setNote(mastered ? m.name + " MASTERED  +2% OUTPUT" : (first ? "FIRST PLAYING: " : "TUNE COMPLETE: ") + m.name + "  +" + fmt(lump), 4);
     tuneCue(this, m); // a closing flourish on the tune's own triad
     this.startHum(m);
+    this.survey("tunes", 1);
+    if (answering) this.survey("answer", 1);
+    if (grooved) this.dailyEvent("groove");
+    if (this.tunesNow >= 3) this.dailyEvent("tunes");
     this.nextTune();
     this.dirty = true;
     this.saveSoon();
@@ -498,7 +639,7 @@ export class Outpost {
     const s = this.s, full = this.groove >= GROOVE_MAX, secs = humSecOf(s, full), on = [];
     for (const i of humMachines(m)) {
       if (i < 0) continue;
-      this.hum[i] = Math.min(HUM_MAX, this.hum[i] + secs);
+      this.hum[i] = Math.min(humMaxOf(s), this.hum[i] + secs);
       if (s.own[i] > 0) on.push(i);
     }
     if (!on.length) return on;
@@ -537,12 +678,14 @@ export class Outpost {
 
   // ---- effects ------------------------------------------------------------------
   setNote(textValue, secs = 3) { this.note = { text: textValue, t: secs }; }
-  // A note shown once the current one has faded (at most two wait; older ones are dropped).
+  // A note shown once the current one has faded and the station is in view (at most six wait;
+  // older ones are dropped). Notes are drawn only over the station, and their time runs regardless.
   queueNote(textValue, secs = 3) {
-    if (!this.note) { this.setNote(textValue, secs); return; }
+    if (!this.note && this.noteSeen()) { this.setNote(textValue, secs); return; }
     this.noteQ.push({ text: textValue, t: secs });
-    if (this.noteQ.length > 2) this.noteQ.shift();
+    if (this.noteQ.length > 6) this.noteQ.shift();
   }
+  noteSeen() { return this.phase_ === "play" && !this.ring && !this.panel; }
   milestoneFx(label) {
     this.accent = { k: "milestone", t: 0, dur: 0.9 };
     this.setNote("MILESTONE - " + label, 3.5);
@@ -562,6 +705,7 @@ export class Outpost {
     if (this.phase_ === "card") {
       if (this.cardT > 1.2) {
         this.phase_ = "play"; this.consume = true;
+        this.arrive();
         if (this.s.b > 0) this.openRing("tree");
         this.setHint();
       } else this.consume = true;
@@ -641,7 +785,7 @@ export class Outpost {
     if (gap < GROOVE_MIN_GAP) { this.groove = Math.floor(this.groove / 2); return; }
     if (this.gaps.length >= 2) {
       const beat = this.gaps.reduce((a, b) => a + b, 0) / this.gaps.length;
-      if (Math.abs(gap / beat - 1) <= GROOVE_TOL) this.groove = Math.min(GROOVE_MAX, Math.floor(this.groove) + 1);
+      if (Math.abs(gap / beat - 1) <= GROOVE_TOL) this.groove = Math.min(GROOVE_MAX, Math.floor(this.groove) + siteFx(s).groove);
       else this.groove = Math.floor(this.groove / 2);
     }
     this.gaps.push(gap);
@@ -657,6 +801,8 @@ export class Outpost {
     this.gain(v, "h");
     s.taps = Math.min(1e12, s.taps + 1);
     s.st.rtaps++;
+    this.survey("taps", 1);
+    if (this.groove >= GROOVE_MAX) this.survey("groove", 1);
     this.dirty = true;
     this.tapTimes.push(this.clk);
     if (this.tapTimes.length > 12) this.tapTimes.shift();
@@ -670,7 +816,7 @@ export class Outpost {
     const r = this.c.rng.next(), s = this.s;
     if (this.flare.life - this.flare.t < 1.5) s.ev |= EV.quick;
     s.st.fl++;
-    if (hasRes(s, 2)) s.dat = Math.min(1e12, s.dat + 2 * dataBonus(s));
+    if (hasRes(s, 2)) this.addData(2 * dataBonus(s));
     this.flare = null;
     this.accent = { k: "event", t: 0, dur: 0.7 };
     cue(this, "flare");
@@ -685,6 +831,8 @@ export class Outpost {
       this.boosts.push({ k: "frenzy", t: 15, max: 15, mult: 30 });
       this.setNote("FLARE CAUGHT - TAPS x30 FOR 15 S", 4);
     }
+    this.survey("flares", 1);
+    this.dailyEvent("flare");
     if (this.boosts.length > 4) this.boosts.shift();
     this.dirty = true;
     void s;
@@ -714,23 +862,27 @@ export class Outpost {
     aff.sort((a, b) => b.g - a.g);
     // the views come right after CLOSE, so they are one tap away when nothing is affordable
     list.push({ key: "stats", kind: "panel", label: "STATISTICS", aff: true, big: fmt(s.taps) + " TAPS", lines: ["TOTALS, THIS RUN, MUSIC", "AND FIELD RECORDS."] });
-    list.push({ key: "songs", kind: "sub", sub: "songs", label: "SONGBOOK", aff: true, big: unlockedN(s) + " / " + NS + " TUNES", lines: ["NOW: " + this.mel.name, "CHOOSE WHAT YOUR TAPS PLAY."] });
+    list.push({ key: "songs", kind: "sub", to: "songs", label: "SONGBOOK", sub: unlockedN(s) + "/" + NS, aff: true, big: unlockedN(s) + " / " + NS + " TUNES",
+      lines: ["NOW: " + this.mel.name, "HUMS " + this.humList(this.mel), "CHOOSE WHAT YOUR TAPS PLAY."] });
     if (aff.length >= 2) {
       list.push({ key: "all", kind: "all", label: "BUY ALL AFFORDABLE", aff: true, big: aff.length + " ITEMS", lines: ["SPEND SIGNAL ON EVERYTHING", "WORTH BUYING, BEST FIRST"], cost: 0 });
     }
     for (const it of aff.slice(0, 7)) list.push(this.itemEntry(it, true));
-    if (s.tree[5] > 0) list.push({ key: "exp", kind: "sub", sub: "exp", label: "EXPEDITIONS", aff: s.ex.length < slotsOf(s), big: s.ex.length + " / " + slotsOf(s) + " OUT", lines: ["SEND A TEAM OUT ON A TIMER.", "THEY RETURN WITH FINDINGS."] });
+    if (s.tree[5] > 0) list.push({ key: "exp", kind: "sub", to: "exp", label: "EXPEDITIONS", sub: s.ex.length + "/" + slotsOf(s), aff: s.ex.length < slotsOf(s), big: s.ex.length + " / " + slotsOf(s) + " OUT", lines: ["SEND A TEAM OUT ON A TIMER.", "THEY RETURN WITH FINDINGS."] });
     if (s.lt >= 2000 || s.rd.length || s.rs.length) {
       const can = s.rs.length < resSlots(s) && RES.some((r, k) => !hasRes(s, k) && !s.rs.some((e) => e.k === k) && r.need(s) && s.dat >= r.data);
-      list.push({ key: "res", kind: "sub", sub: "res", label: "RESEARCH", aff: can, big: Math.floor(s.dat) + " DATA", lines: ["SLOW PROJECTS THAT UNLOCK", "NEW THINGS. THEY RUN AWAY."] });
+      list.push({ key: "res", kind: "sub", to: "res", label: "RESEARCH", sub: String(Math.floor(s.dat)), aff: can, big: Math.floor(s.dat) + " DATA", lines: ["SLOW PROJECTS THAT UNLOCK", "NEW THINGS. THEY RUN AWAY."] });
     }
-    list.push({ key: "goals", kind: "sub", sub: "goals", label: "GOALS", aff: false, big: s.gl.length + " / " + NG + " DONE", lines: ["EACH ONE IS +1% OUTPUT FOR EVER.", "SOME ARE HIDDEN."] });
+    const sv = surveyOf(s);
+    list.push({ key: "site", kind: "sub", to: "site", label: "SOUNDINGS", sub: sv.t === null ? "DONE" : Math.floor(sv.frac * 100) + "%", aff: true, big: siteOf(s).n,
+      lines: [sv.t === null ? sv.text : "SOUNDING " + ROMAN[sv.lvl] + ": " + sv.text, s.cf ? "THIS SITE, ITS SOUNDINGS AND THE CALL." : "THIS SITE AND ITS SOUNDINGS."] });
+    list.push({ key: "goals", kind: "sub", to: "goals", label: "GOALS", sub: s.gl.length + "/" + NG, aff: false, big: s.gl.length + " / " + NG + " DONE", lines: ["EACH ONE IS +1% OUTPUT FOR EVER.", "SOME ARE HIDDEN."] });
     if (s.L > 0 || s.b > 0 || s.runs > 0) {
       const can = TREE.some((nd, k) => s.L >= nd.req && s.tree[k] < nd.max && s.b >= nd.cost(s.tree[k])) || (chartsOpen(s) && s.cn < CHART_MAX && s.b >= chartCost(s.cn));
-      list.push({ key: "tree", kind: "sub", sub: "tree", label: "BEARING TREE", aff: can, big: s.b + " BEARINGS", lines: ["SPEND BEARINGS ON LASTING", "BONUSES. KEPT FOR EVER."] });
+      list.push({ key: "tree", kind: "sub", to: "tree", label: "BEARING TREE", sub: String(s.b), aff: can, big: s.b + " BEARINGS", lines: ["SPEND BEARINGS ON LASTING", "BONUSES. KEPT FOR EVER."] });
     }
     const p = this.pending();
-    if (revealOf(s)) list.push({ key: "reloc", kind: "sub", sub: "reloc", label: "RELOCATE OUTPOST", aff: readyOf(s), big: "+" + p + " BEARINGS", lines: ["START OVER ELSEWHERE AND", "KEEP PERMANENT BEARINGS."] });
+    if (revealOf(s)) list.push({ key: "reloc", kind: "sub", to: "reloc", label: "RELOCATE OUTPOST", sub: "+" + p, aff: readyOf(s), big: "+" + p + " BEARINGS", lines: ["START OVER AT A NEW SITE AND", "KEEP PERMANENT BEARINGS."] });
     const prev = this.items.filter((it) => it.cost > s.sig).sort((a, b) => a.cost - b.cost).slice(0, 3);
     for (const it of prev) list.push(this.itemEntry(it, false));
     return list;
@@ -745,7 +897,7 @@ export class Outpost {
           "TUNED TO " + PC_NAMES[PROD[i].pc] + (this.hum[i] > 0 ? ", HUMMING " + clock(this.hum[i]) : "")] };
     }
     const u = UPG[it.i];
-    return { key: it.key, kind: "upg", i: it.i, label: u.name, sub: "UPG", aff, cost: u.cost, big: "COST " + fmt(u.cost), lines: [u.eff] };
+    return { key: it.key, kind: "upg", i: it.i, label: u.name, sub: "UPG", aff, cost: upgCost(s, u), big: "COST " + fmt(upgCost(s, u)), lines: [u.eff] };
   }
   buildExp() {
     const s = this.s, list = [{ key: "back", kind: "back", label: "BACK", lines: ["TO THE BUILD RING"], hold: HOLD_BUY }];
@@ -757,8 +909,9 @@ export class Outpost {
     }
     EXPED.forEach((x, k) => {
       const free = s.ex.length < slotsOf(s);
-      list.push({ key: "go" + k, kind: "launch", k, label: x.n, sub: dur(x.sec), aff: free, big: "RETURNS ~" + fmt(this.baseRate * x.mins * 60),
-        lines: [free ? "BACK IN " + dur(x.sec) : "NO FREE TEAM", "WORTH " + x.mins + " MIN OF OUTPUT", x.relic ? Math.round(x.relic * 100) + "% CHANCE OF A RELIC" : "NO RELICS ON SHORT TRIPS"] });
+      const sec = x.sec / siteFx(s).exp, relic = Math.min(1, x.relic * siteFx(s).relic);
+      list.push({ key: "go" + k, kind: "launch", k, label: x.n, sub: dur(sec), aff: free, big: "RETURNS ~" + fmt(this.baseRate * x.mins * 60),
+        lines: [free ? "BACK IN " + dur(sec) : "NO FREE TEAM", "WORTH " + x.mins + " MIN OF OUTPUT", relic ? Math.round(relic * 100) + "% CHANCE OF A RELIC" : "NO RELICS ON SHORT TRIPS"] });
     });
     return list;
   }
@@ -785,6 +938,13 @@ export class Outpost {
     const list = [{ key: "back", kind: "back", label: "BACK", lines: ["TO THE BUILD RING"], hold: HOLD_BUY }];
     const modes = ["LOOP THIS TUNE", "SHUFFLE TUNES", "ENDLESS NEW TUNES"];
     list.push({ key: "mode", kind: "mode", label: "ORDER", sub: ["LOOP", "SHUFFLE", "NEW"][s.sm], aff: true, big: modes[s.sm], lines: ["HOLD TO CHANGE WHAT PLAYS", "AFTER A TUNE IS FINISHED."] });
+    if (s.cf >= 1) { // THE CALL, as far as it is decoded (it is never shuffled in: it is chosen)
+      const whole = s.cf >= CALL_FRAGS, here = s.site === SILENT;
+      list.push({ key: "call", kind: "song", i: CALL_ID, cur: s.sg === CALL_ID, label: s.ans ? "THE CALL AND ANSWER" : "THE CALL", sub: s.ans ? "ANSWERED" : whole ? "WHOLE" : s.cf + "/" + CALL_FRAGS, aff: true,
+        big: s.sg === CALL_ID ? "PLAYING" : "PLAY THIS",
+        lines: [s.ans ? "ANSWERED: IT NOW ENDS ON OUR REPLY." : !whole ? s.cf + " OF " + CALL_FRAGS + " FRAGMENTS DECODED. SOUNDINGS DECODE MORE."
+          : here ? "PLAY IT THROUGH HERE TO ANSWER IT." : "WHOLE. PLAY IT THROUGH AT THE SILENT COAST.", "HUMS " + this.humList(callMelody(s.cf, s.ans > 0))] });
+    }
     for (let i = 0; i < NS; i++) {
       if (s.lt < SONGS[i].at) continue;
       list.push({ key: "s" + i, kind: "song", i, cur: s.sg === i, label: SONGS[i].name, sub: s.sc[i] >= 5 ? "MASTER" : s.sc[i] + "X", aff: true,
@@ -818,7 +978,7 @@ export class Outpost {
       if (hasRes(s, k) || s.rs.some((e) => e.k === k)) return;
       const ok = r.need(s), aff = ok && free && s.dat >= r.data;
       list.push({ key: "r" + k, kind: ok ? "research" : "info", k, label: r.n, sub: ok ? r.data + " DATA" : "LOCKED", aff, big: ok ? "COST " + r.data + " DATA" : "LOCKED",
-        lines: ok ? [r.fx, "TAKES " + dur(r.sec), free ? "YOU HAVE " + Math.floor(s.dat) + " DATA" : "NO FREE BENCH"] : [r.hint] });
+        lines: ok ? [r.fx, "TAKES " + dur(r.sec / siteFx(s).res), free ? "YOU HAVE " + Math.floor(s.dat) + " DATA" : "NO FREE BENCH"] : [r.hint] });
     });
     if (s.rd.length) list.push({ key: "done", kind: "info", label: "COMPLETED", sub: s.rd.length + "/" + NR, aff: false, big: s.rd.length + " / " + NR, lines: s.rd.map((k) => RES[k].n).slice(0, 3) });
     return list;
@@ -836,13 +996,43 @@ export class Outpost {
     list.push({ key: "gdone", kind: "info", label: "COMPLETED", sub: s.gl.length + "/" + NG, aff: false, big: s.gl.length + " / " + NG, lines: ["+" + s.gl.length + "% OUTPUT SO FAR."] });
     return list;
   }
+  // The sites on offer (see offerSites), each with its rules and the sounding it holds, then what
+  // relocating keeps.
   buildReloc() {
-    const p = this.pending(), s = this.s;
-    return [
-      { key: "back", kind: "back", label: "BACK", lines: ["STAY HERE FOR NOW"], hold: HOLD_BUY },
-      { key: "go", kind: "reloc", label: "RELOCATE NOW", aff: true, big: "+" + p + " BEARINGS", hold: HOLD_BIG, dwell: DWELL_BIG,
-        lines: ["MACHINES AND SIGNAL ARE LOST.", "BEARINGS, TREE, RELICS KEPT.", "TOTAL AFTER: " + (s.L + p) + " BEARINGS"] },
-    ];
+    const p = this.pending(), s = this.s, list = [{ key: "back", kind: "back", label: "BACK", lines: ["STAY HERE FOR NOW"], hold: HOLD_BUY }];
+    for (const k of s.of) {
+      const x = SITES[k], lvl = s.sv[k] || 0;
+      list.push({ key: "site" + k, kind: "reloc", site: k, label: x.n, sub: k === SILENT && !s.ans ? "THE CALL" : lvl >= SURVEY_LEVELS ? "DONE" : lvl ? "II" : "NEW",
+        aff: p >= 1, big: "+" + p + " BEARINGS", hold: HOLD_BIG, dwell: DWELL_BIG,
+        lines: [...x.rule, lvl >= SURVEY_LEVELS ? "BOTH SOUNDINGS TAKEN" : "SOUNDING " + ROMAN[lvl] + ": " + SURVEY[x.sv.k](x.sv.t[lvl]), ...(s.runs < 2 ? ["MACHINES AND SIGNAL ARE LOST."] : [])] });
+    }
+    list.push({ key: "keep", kind: "info", label: "WHAT IS KEPT", sub: "+" + p, aff: false, big: s.L + p + " BEARINGS AFTER",
+      lines: ["MACHINES AND SIGNAL ARE LOST.", "BEARINGS, THE TREE, SOUNDINGS,", "RELICS AND THE CALL ARE KEPT."] });
+    return list;
+  }
+  // SOUNDINGS: the one to take here, this site, the call so far, the record, and what is next.
+  buildSite() {
+    const s = this.s, x = siteOf(s), sv = surveyOf(s), list = [{ key: "back", kind: "back", label: "BACK", lines: ["TO THE BUILD RING"], hold: HOLD_BUY }];
+    const amount = (v) => (sv.k === "watch" ? (Math.floor(v / 360) / 10).toFixed(1) + " H" : fmtInt(v));
+    if (sv.t === null) list.push({ key: "sv", kind: "info", label: "SOUNDINGS", sub: "DONE", aff: false, big: "BOTH TAKEN", lines: ["BOTH SOUNDINGS HERE ARE TAKEN.", "RELOCATE TO TAKE MORE."] });
+    else {
+      const extra = sv.lvl === 0 && x.k === SILENT ? "AND THE CALL ANSWERED" : x.k !== SILENT && s.cf < CALL_FRAGS ? "AND A FRAGMENT OF THE CALL" : "AND A RELIC";
+      list.push({ key: "sv", kind: "info", label: "SOUNDING " + ROMAN[sv.lvl], sub: Math.floor(sv.frac * 100) + "%", aff: false, big: amount(Math.min(sv.v, sv.t)) + " / " + amount(sv.t),
+        lines: [sv.text, "+" + Math.round(SURVEY_BONUS * 100) + "% OUTPUT FOR EVER", extra] });
+    }
+    list.push({ key: "here", kind: "info", label: x.n, sub: "HERE", aff: false, big: "THIS SITE", lines: [...x.rule, x.lore] });
+    if (s.cf) {
+      const whole = s.cf >= CALL_FRAGS;
+      list.push({ key: "call", kind: "info", label: "THE CALL", sub: s.ans ? "ANSWERED" : s.cf + "/" + CALL_FRAGS, aff: false, big: s.ans ? "ANSWERED" : whole ? "WHOLE" : s.cf + " / " + CALL_FRAGS + " DECODED",
+        lines: [s.ans ? CALL_ANSWERED : CALL_LOG[s.cf - 1], s.ans ? "ALL OUTPUT x" + CHORUS_MULT + " FOR EVER." : !whole ? "EACH SOUNDING DECODES MORE." : s.site === SILENT ? "PLAY IT THROUGH HERE." : "RELOCATE TO THE SILENT COAST."] });
+      if (s.cf >= 2) list.push({ key: "log", kind: "info", label: "EARLIER IN THE LOG", sub: "LOG", aff: false, big: "THE CALL", lines: CALL_LOG.slice(Math.max(0, s.cf - 3), s.cf - 1).reverse() });
+    }
+    const done = surveysDone(s), known = SITES.filter((y) => siteKnown(s, y.k)).length;
+    list.push({ key: "codex", kind: "info", label: "THE RECORD", sub: done + "/" + NSITE * SURVEY_LEVELS, aff: false, big: "+" + Math.round(done * SURVEY_BONUS * 100) + "% OUTPUT",
+      lines: [done + " OF " + NSITE * SURVEY_LEVELS + " SOUNDINGS TAKEN.", known + " OF " + NSITE + " SITES ON THE MAP.", "EACH SOUNDING IS +" + Math.round(SURVEY_BONUS * 100) + "% FOR EVER."] });
+    const next = SITES.filter((y) => !siteKnown(s, y.k)).sort((a, b) => (a.k === SILENT) - (b.k === SILENT) || a.req - b.req)[0];
+    if (next) list.push({ key: "next", kind: "info", label: "UNCHARTED SITE", sub: "???", aff: false, big: "???", lines: [next.hint] });
+    return list;
   }
   rebuild(initial = false) {
     const r = this.ring;
@@ -850,10 +1040,11 @@ export class Outpost {
     const old = this.entries[r.idx]?.key;
     const m = r.menu;
     this.entries = m === "exp" ? this.buildExp() : m === "tree" ? this.buildTree() : m === "reloc" ? this.buildReloc() : m === "songs" ? this.buildSongs()
-      : m === "res" ? this.buildRes() : m === "goals" ? this.buildGoals() : this.buildMain();
+      : m === "res" ? this.buildRes() : m === "goals" ? this.buildGoals() : m === "site" ? this.buildSite() : this.buildMain();
     let idx = this.entries.findIndex((e) => e.key === old);
     if (idx < 0) {
-      idx = m === "main" ? this.entries.findIndex((e) => e.kind === "prod" || e.kind === "upg") : m === "songs" ? this.entries.findIndex((e) => e.cur) : this.entries.findIndex((e) => e.aff);
+      idx = m === "main" ? this.entries.findIndex((e) => e.kind === "prod" || e.kind === "upg") : m === "songs" ? this.entries.findIndex((e) => e.cur)
+        : m === "site" ? 1 : this.entries.findIndex((e) => e.aff);
       if (idx < 0 || (initial && m === "main" && !this.entries[idx].aff)) idx = 0;
     }
     r.idx = clamp(idx, 0, this.entries.length - 1);
@@ -865,7 +1056,7 @@ export class Outpost {
     r.idx = (r.idx + 1) % this.entries.length;
     r.hiAt = this.clk;
     const e = this.entries[r.idx];
-    if (r.menu === "songs" && e?.kind === "song") previewTune(this, e.i === GEN_ID ? genTune(this.s.gs) : MEL[e.i]);
+    if (r.menu === "songs" && e?.kind === "song") previewTune(this, e.i === GEN_ID ? genTune(this.s.gs) : e.i === CALL_ID ? callMelody(this.s.cf, this.s.ans > 0) : MEL[e.i]);
     else tick(this, "step", r.idx);
   }
   choose(e, held) {
@@ -886,12 +1077,12 @@ export class Outpost {
       case "node": ok = this.buyNode(e.k); break;
       case "chart": ok = this.chartNext(); break;
       case "launch": ok = this.launch(e.k); break;
-      case "sub": r.menu = e.sub; r.idx = 0; this.entries = []; this.rebuild(true); cue(this, "sub"); return;
+      case "sub": r.menu = e.to; r.idx = 0; this.entries = []; this.rebuild(true); cue(this, "sub"); return;
       case "panel": this.ring = null; this.panel = { page: 0 }; cue(this, "panel"); this.setHint(); return;
       case "mode": this.s.sm = (this.s.sm + 1) % (hasRes(this.s, 0) ? 3 : 2); this.rebuild(); cue(this, "mode"); return;
       case "song": {
         const s = this.s;
-        if (e.i === GEN_ID) s.sg = GEN_ID; else if (s.lt >= SONGS[e.i].at) s.sg = e.i; else break;
+        if (e.i === GEN_ID) s.sg = GEN_ID; else if (e.i === CALL_ID) { if (s.cf < 1) break; s.sg = CALL_ID; } else if (s.lt >= SONGS[e.i].at) s.sg = e.i; else break;
         s.sp = 0; this.recent.length = 0; this.loadMelody();
         this.setNote("NOW PLAYING: " + this.mel.name, 3.5);
         this.closeRing();
@@ -905,7 +1096,7 @@ export class Outpost {
         return;
       }
       case "research": ok = this.startResearch(e.k); break;
-      case "reloc": this.relocate(); return;
+      case "reloc": this.relocate(e.site); return;
       default: break;
     }
     if (ok) {
@@ -957,7 +1148,8 @@ export class Outpost {
     const eff = this.effRate();
     this.gain(eff * dt, "m");
     if (eff > s.st.peak) s.st.peak = eff;
-    s.dat = Math.min(1e12, s.dat + this.dataPS * dt);
+    this.addData(this.dataPS * dt);
+    if (this.idle > 60) this.survey("watch", dt); // left running untended
     // boosts and flare
     for (let i = this.boosts.length - 1; i >= 0; i--) { this.boosts[i].t -= dt; if (this.boosts[i].t <= 0) this.boosts.splice(i, 1); }
     if (this.flare) { this.flare.t -= dt; if (this.flare.t <= 0) this.flare = null; }
@@ -967,7 +1159,7 @@ export class Outpost {
         const lvl = s.tree[7];
         const life = FLARE_LIFE * (1 + 0.25 * lvl) * (hasRes(s, 2) ? 1.4 : 1);
         this.flare = { x: this.c.rng.range(160, 800), y: this.c.rng.range(150, 300), t: life, life };
-        this.flareIn = this.c.rng.range(50, 130) * 0.75 ** lvl;
+        this.flareIn = this.c.rng.range(50, 130) * 0.75 ** lvl / siteFx(s).flare;
         cue(this, "flareUp");
       }
     }
@@ -994,6 +1186,7 @@ export class Outpost {
       if (this.autoIn <= 0) { this.autoIn = AUTO_EVERY[s.tree[4]]; this.autoBuild(); }
     }
     if (this.card !== null && this.phase_ === "card") this.cardT += dt;
+    if (this.finale && (this.finale.t += dt) > FINALE_SEC) this.finale = null;
     // timers on the wall clock, about once a second
     this.secIn -= dt;
     if (this.secIn <= 0) {
@@ -1003,6 +1196,9 @@ export class Outpost {
       if (s.ex.length) this.collectExpeditions(now, null);
       if (s.rs.length) this.collectResearch(now, null);
       this.checkGoals(false);
+      this.checkSurvey();
+      this.checkSites();
+      this.checkFeats();
       const un = unlockedN(s);
       if (un > this.unlocked) { this.unlocked = un; this.setNote("NEW MELODY: " + SONGS[un - 1].name, 4.5); cue(this, "newTune"); }
       const sgNow = stageOf(s);
@@ -1021,7 +1217,7 @@ export class Outpost {
     }
     this.wasAfford = aff;
     stepScene(this, dt); // visual-only animation (outpost-scene.js)
-    if (!this.note && this.noteQ.length) this.note = this.noteQ.shift();
+    if (!this.note && this.noteQ.length && this.noteSeen()) this.note = this.noteQ.shift();
     // autosave
     if (this.saveCool > 0) this.saveCool -= dt;
     this.saveIn -= dt;
@@ -1044,6 +1240,19 @@ export class Outpost {
   lampValues() { return lampFrame(this); }
 
   // ---- text readouts ----------------------------------------------------------------------------
+  // The "updated" card after an older save loads: what is new since the schema it came from.
+  newsCard() {
+    const f = this.newsFrom, s = this.s, lines = [];
+    if (f <= 2) lines.push("TAPS NOW PLAY MELODIES: HOLD, THEN SONGBOOK", "STEADY BEATS BUILD GROOVE; MACHINES HUM TO TUNES");
+    else {
+      if (f === 3) lines.push("STEADY BEATS BUILD GROOVE; THE SKY CAN BE CHARTED");
+      lines.push("AN EASY, STEADY BEAT PAYS AS WELL AS FAST TAPPING", "MACHINES ARE TUNED TO NOTES: TUNES MAKE THEM HUM");
+    }
+    lines.push("RELOCATING CHOOSES A SITE, EACH WITH ITS OWN RULES", "SOUNDINGS AT EACH SITE DECODE A CALL IN THE SIGNAL");
+    if (f <= 2 && s.gl.length) lines.push(s.gl.length + " GOALS ALREADY MET: +" + s.gl.length + "% OUTPUT");
+    lines.push(f <= 2 ? "NOTHING WAS LOST. COUNTING STARTS " + fmtDate(s.f) : "NOTHING WAS LOST.");
+    return { title: "OUTPOST UPDATED", lines };
+  }
   updateHud(force) {
     const s = this.s;
     const items = [["SIGNAL", fmt(s.sig)], ["RATE", fmtRate(this.effRate()) + "/S"]];
@@ -1069,6 +1278,8 @@ export class Outpost {
   draw(g) { drawOutpost(g, this); }
 }
 Outpost.music = { SONGS, MEL, GEN_ID, makeMelody, genTune, genName, scaleUp, midiHz, noteName, noteMidi, seeded, SCALES };
-Outpost.econ = { RES, GOALS, STAGES, VOICE, EV, NR, NG, NS, NT, HUM_MULT, HUM_SEC, HUM_MAX, HUM_NOTES, HARMONICS, PC_NAMES, PC_PROD, humNotes, humMachines, humMultOf, humSecOf, hasRes, tierOpen, tiersOwned, dataRate, masteredN, unlockedN, stageOf, fmtInt, fmtDate, revealOf, fmt, fmtRate, dur, costOf, prodMult, globalMult, evaluate, tapParts, capHours, pendingOf, readyOf, migrate, serialize, freshState, applyKit,
+Outpost.econ = { RES, GOALS, STAGES, VOICE, EV, NR, NG, NS, NT, HUM_MULT, HUM_SEC, HUM_MAX, HUM_NOTES, HARMONICS, PC_NAMES, PC_PROD, humNotes, humMachines, humMultOf, humSecOf, humMaxOf, upgCost,
+  SITES, NSITE, SILENT, SURVEY_BONUS, SURVEY_LEVELS, SURVEY, siteOf, siteFx, siteMach, siteKnown, surveysDone, surveyOf, offerSites,
+  CALL_ID, CALL_FRAGS, CALL_LOG, CALL_ANSWERED, CHORUS_MULT, callMelody, FEATS, hasRes, tierOpen, tiersOwned, dataRate, masteredN, unlockedN, stageOf, fmtInt, fmtDate, revealOf, fmt, fmtRate, dur, costOf, prodMult, globalMult, evaluate, tapParts, capHours, pendingOf, readyOf, migrate, serialize, freshState, applyKit,
   PROD, UPG, TREE, EXPED, READY_RATIO, MILESTONES, SCHEMA, BIG, PRESTIGE_K, READY_MIN, KIT, NUP, NP, milestonesAt,
   readyRatio, chartCost, chartName, chartsOpen, CONST, CHART_REQ, CHART_MULT, CHART_MAX, GROOVE_MAX, VOICE_GAIN };

@@ -774,7 +774,7 @@ test("every state draws, lists stay bounded, no NaN, and play stays within the p
   app.escapedFish(); measure("lost card");
   app.openMenu(); measure("menu");
   app.menu.mode = "gear"; measure("gear");
-  app.menu.mode = "log"; for (let i = 0; i < 32; i++) { app.menu.at = i; measure("log"); }
+  app.menu.mode = "log"; for (let i = 0; i < 5; i++) { app.menu.at = i; measure("log"); }
   for (const k of ["catch", "card", "wait", "shore", "title", "charge", "bite"]) assert.ok(worst[k] < 400, `${k} primitives ${worst[k]}`);
   assert.ok(app.sfx.length <= 24);
   console.log("primitives per frame:", JSON.stringify(worst));
@@ -1053,30 +1053,64 @@ test("the learning curve: help tapers over the first forty fish instead of endin
   assert.ok(rate(100, 3, 11) < 0.6, "rare fish still need skill or gear");
 });
 
-test("today's catch: one species a day in reach, bites more, pays double, first one pays a bonus once", () => {
-  const { app } = make({ seed: 61 });
+test("today's catch: one species a day in reach, bites more, pays double, and is the console's order when picked", () => {
+  // The console logbook (PR #16) offers today(), daily(text) and dailyMet(); stub them here.
+  const book = { order: { goal: "Finish a run", done: false, own: false }, stated: [], met: 0 };
+  const ctx = appContext({ seed: 61 });
+  ctx.today = () => book.order;
+  ctx.daily = (t) => { book.stated.push(t); book.order = { goal: t, done: false, own: true }; };
+  ctx.dailyMet = () => { book.met++; book.order.done = true; };
+  const app = new Tideline(ctx);
+  app.nowHour = () => 10;
   app.sv.landed = 50;
   app.today = () => 20261001;
+  app.stateOrder();
   const d = app.daily();
   assert.ok(d && !d.treasure && d.rar <= 4 && app.reachWater() >= d.water, "today's species is catchable: " + d.name);
   assert.equal(app.daily(), d, "same species all day");
+  assert.ok(book.stated.at(-1).startsWith("LAND TODAY'S CATCH: AN UNRECORDED") && book.stated.at(-1).length <= 80, book.stated.at(-1));
   const days = new Set();
   for (let k = 0; k < 30; k++) { app.today = () => 20261001 + k; days.add(app.daily().id); }
   assert.ok(days.size >= 3, "it changes from day to day: " + days.size);
   app.today = () => 20261001;
   const other = SP.find((s) => !s.treasure && s.rar === d.rar && s.id !== d.id) || SP.find((s) => !s.treasure && s.id !== d.id);
+  // Double scrip, every time; the first of the day meets the console's order, once.
+  const plainPay = land(app, other).scrip;
   const first = land(app, d);
-  assert.ok(first.daily && first.dailyBonus === 60 + 20 * d.rar, "first daily pays a bonus");
+  assert.ok(first.daily && first.firstToday);
+  app.guard.settle(); // with PR #16 the input guard holds dailyMet until a menu gesture is ruled out
+  assert.equal(book.met, 1);
   assert.equal(app.sv.dy, 20261001);
   assert.ok(app.dailyDone());
   const again = land(app, d);
-  assert.ok(again.daily && again.dailyBonus === 0, "bonus once a day");
-  const plain = land(app, other);
-  assert.ok(!plain.daily);
-  // The day rolls over: the bonus is available again and the save keeps the day.
+  assert.ok(again.daily && !again.firstToday);
+  app.guard.settle();
+  assert.equal(book.met, 1, "met once");
+  assert.ok(again.scrip > plainPay * 1.3, `double pay ${again.scrip} vs ${plainPay}`);
+  // Nothing is stated when Tideline is not one of today's three, or the order is met.
+  book.stated.length = 0; app.stateOrder();
+  assert.equal(book.stated.length, 0);
+  book.order = null; app.stateOrder();
+  assert.equal(book.stated.length, 0);
+  // Without the console logbook (an older shell), nothing breaks.
+  const bare = make({ seed: 62 }).app; bare.today = () => 20261001; bare.sv.landed = 50;
+  assert.ok(land(bare, bare.daily()).daily);
+  // The day rolls over and the save keeps the day.
   const back = M.normalizeSave(JSON.parse(JSON.stringify(app.sv)));
   assert.equal(back.dy, 20261001);
   app.today = () => 20261002;
   assert.ok(!app.dailyDone());
   app.draw(fakeCanvas());
+});
+
+test("the field log is a page: a tap moves a row of eight, five stops in all, and a hold closes it", () => {
+  const { app } = make({ seed: 63 });
+  toShore(app);
+  app.sv.n[0] = 3; app.sv.q[0] = 3; app.sv.m[0] = 300;
+  app.openMenu(); app.menu.mode = "log"; app.menu.at = 0;
+  assert.equal(app.menuItems().length, 5);
+  for (let k = 0; k < 5; k++) { app.draw(fakeCanvas()); app.menuStep(); }
+  assert.equal(app.menu.at, 0, "five taps go round");
+  app.menuChoose();
+  assert.equal(app.menu.mode, "root");
 });

@@ -61,6 +61,14 @@ After the change, at the lasting quarter of help (the `bot results by species, g
 
 Not addressed here: the console-wide latency calibration and the menu gesture belong to the platform polish thread. Tells make Tideline much less sensitive to latency in any case.
 
+## Follow-up: the console logbook (PR #16) and the cut list
+
+Per the platform cut list (`/mnt/project-files/platform-polish/platform-polish.md`): "Tideline: the daily goal and the 32-entry log as a menu: move the daily to `ctx.daily`."
+- **Today's catch is the console's order.** When Tideline is one of the day's three, it states its order with `ctx.daily("LAND TODAY'S CATCH: ...")` and calls `ctx.dailyMet()` on the first landing of that species that day. The game's own first-of-day bonus (+60 + 20 per rarity step and 1.5x experience) is gone; the console keeps the day and the streak. What changes the fishing stays: today's species bites 2.5x as often and pays double scrip. The shore line and the card still name it. Calls are optional, so this branch still runs on a shell without #16.
+- **The log is a page.** All thirty species sit in a small grid, and a tap moves a whole row of eight into the list below: name, rarity, count, largest and stars, or for an unrecorded one, where and when to look. Five stops (four rows and the summary) instead of 32; a hold closes it.
+- Tideline has no feat list or streak of its own, so nothing else moved. Rank, the notice board, chests and rests stay because they change what and how you fish.
+- Checked merged with #16's branch: Tideline's tests and the browser smoke pass. The only conflict is `docs/WORKLOG.md` (both append lines).
+
 ## Shared code touched
 
 `web/engine/audio.js`: `Synth.tone(hz, seconds, type, gain = 1)`; one multiplication, default unchanged for every other app. `docs/ENGINE.md` row updated. `docs/WORKLOG.md` entry. Nothing else outside the two games, their tests, `tests/helpers/outpost-bot.mjs` and a new fixture.

@@ -46,6 +46,7 @@ const CHUM_COST = 40, CHUM_CASTS = 5, CHUM_MAX = 25;
 const TIDE_CASTS = 5;
 const LEGEND_NEEDS = 4; // species recorded in a water before its legend will rise
 const MAX_SCRIP = 99999;
+const LOG_ROW = 8; // the field log moves a row of species at a time
 // Angler rank: experience needed for ranks 1..10, and what each rank opens.
 const RANK_XP = [0, 30, 90, 200, 400, 750, 1300, 2100, 3300, 5000];
 const RANK_BOARD = 2, RANK_CHEST = 3, RANK_REST = 4;
@@ -100,6 +101,7 @@ const SPECIES = RAW.map((r, id) => {
     shape: { t, len: +len, hgt: +hgt, x: extra || "" }, note: r[10] };
 });
 const N = SPECIES.length;
+const LOG_PAGES = Math.ceil(N / LOG_ROW) + 1; // the rows of species, then the summary
 // Legendary special rules: the Magma Pilgrim only rises in ash or storm weather.
 const LEGEND_WX = { 14: ["ASH-FALL", "STORM"] };
 const TREASURE = [
@@ -350,6 +352,7 @@ export class Tideline {
     this.tip = [205, 345]; // the rod tip, where the line starts
     this.fillBoard();
     this.setHint("Press to begin. Hold to cast.");
+    this.stateOrder();
     this.refreshHud();
   }
 
@@ -383,6 +386,16 @@ export class Tideline {
     return pool[Math.floor(hash01(this.today() % 100000 + 0.5) * pool.length) % pool.length];
   }
   dailyDone() { return this.sv.dy === this.today(); }
+  // Today's catch is the game's own order in the console logbook, when Tideline is one of the
+  // day's three (the console keeps the streak; the game keeps only what changes the fishing).
+  dailyText() {
+    const d = this.daily();
+    return "LAND TODAY'S CATCH: " + (this.sv.n[d.id] > 0 ? d.name : "AN UNRECORDED " + RARITY[d.rar]) + " IN " + WATERS[d.water].name;
+  }
+  stateOrder() {
+    const o = this.c.today?.();
+    if (o && !o.done) this.c.daily?.(this.dailyText());
+  }
   pickWeather() {
     let r = this.c.rng.next() * 100;
     for (let i = 0; i < WEATHER.length; i++) { r -= WEATHER_ODDS[i]; if (r < 0) return WEATHER[i]; }
@@ -759,14 +772,15 @@ export class Tideline {
       sv.n[sp.id] = Math.min(9999, sv.n[sp.id] + 1);
       sv.m[sp.id] = Math.max(sv.m[sp.id], Math.round(size * 10));
       sv.q[sp.id] = Math.max(sv.q[sp.id], q);
-      const isDaily = sp === this.daily(), dailyBonus = isDaily && !this.dailyDone() ? 60 + 20 * sp.rar : 0;
-      const scrip = Math.round(RARITY_VALUE[sp.rar] * (0.7 + 0.6 * frac) * (first ? 1.25 : 1) * QUALITY_PAY[q] * (isDaily ? 2 : 1)) + dailyBonus;
+      const isDaily = sp === this.daily(), firstToday = isDaily && !this.dailyDone();
+      const scrip = Math.round(RARITY_VALUE[sp.rar] * (0.7 + 0.6 * frac) * (first ? 1.25 : 1) * QUALITY_PAY[q] * (isDaily ? 2 : 1));
       sv.$ = Math.min(MAX_SCRIP, sv.$ + scrip);
       if (isDaily) sv.dy = this.today();
+      if (firstToday) this.c.dailyMet?.();
       if (perfect) sv.pf = Math.min(1e6, sv.pf + 1);
-      card = { sp, name: sp.name, size, isNew: first, isRecord: rec, scrip, rar: sp.rar, note: sp.note, q, perfect, better, daily: isDaily, dailyBonus };
+      card = { sp, name: sp.name, size, isNew: first, isRecord: rec, scrip, rar: sp.rar, note: sp.note, q, perfect, better, daily: isDaily, firstToday };
       if (first) this.bag.tideNew++;
-      this.addXp(landXp(sp.rar) * QUALITY_XP[q] * (first ? 1.5 : 1) * (dailyBonus ? 1.5 : 1));
+      this.addXp(landXp(sp.rar) * QUALITY_XP[q] * (first ? 1.5 : 1));
     }
     if (c?.chest?.got) card.chest = this.openChest();
     card.notices = this.progressBoard({ sp: sp.treasure ? null : sp, size: card.size || 0, perfect, chest: !!card.chest });
@@ -833,7 +847,7 @@ export class Tideline {
   }
   menuItems() {
     if (this.menu.mode === "gear") return ["BACK", ...GEAR.map((g) => g.id), "chum"];
-    if (this.menu.mode === "log") return Array.from({ length: N + 2 }, (_, i) => i);
+    if (this.menu.mode === "log") return Array.from({ length: LOG_PAGES }, (_, i) => i);
     if (this.menu.mode === "board") return ["BACK"];
     const out = ["close"];
     if (this.boardOpen()) out.push("board");
@@ -1369,7 +1383,8 @@ export class Tideline {
     } else text(g, "NOT A FISH", 600, 200, 26, C.amber, "center");
     wrapText(k.note, 52).slice(0, 2).forEach((ln, i) => text(g, ln, 480, 330 + i * 26, 20, C.muted, "center"));
     text(g, "+" + k.scrip + " SCRIP" + (k.chest ? "    CHEST: " + k.chest.label + " +" + k.chest.scrip : ""), 480, 394, k.chest ? 20 : 24, C.amber, "center");
-    const extra = k.dailyBonus ? "TODAY'S CATCH: DOUBLE SCRIP AND +" + k.dailyBonus + " FOR THE FIRST" : k.rankUp ? "ANGLER RANK " + k.rankUp + (RANK_UNLOCK[k.rankUp] ? ": " + RANK_UNLOCK[k.rankUp] : "")
+    const extra = k.rankUp ? "ANGLER RANK " + k.rankUp + (RANK_UNLOCK[k.rankUp] ? ": " + RANK_UNLOCK[k.rankUp] : "")
+      : k.daily ? "TODAY'S CATCH: DOUBLE SCRIP" + (k.firstToday ? "  -  LANDED FOR TODAY" : "")
       : k.notices?.length ? "NOTICE DONE: " + this.noticeText(k.notices[0]) + "  +" + k.notices[0].$ : "";
     if (extra) text(g, extra, 480, 422, 18, C.cyan, "center");
     if (k.tide) text(g, "TIDE COMPLETE  " + k.tide.landed + " LANDED  +" + k.tide.bonus + (k.tide.rest ? "  +1 REST" : ""), 480, 448, 18, C.cyan, "center");
@@ -1505,42 +1520,35 @@ export class Tideline {
     const wx = sp.wx ? "  LIKES " + sp.wx : "";
     return where + when + wx;
   }
+  // The log is a page, not a list to step through: all thirty species in a small grid, and a tap
+  // moves a whole row of eight down into the list below, with each one's record or where to look.
   drawLog(g, holdFrac) {
-    const m = this.menu, cols = 8, cw = 104, ch = 74, x0 = 60, y0 = 90;
-    text(g, "FIELD LOG  " + this.recorded() + " OF " + N + " RECORDED", 480, 44, 30, C.ink, "center");
-    for (let i = 0; i < N + 2; i++) {
-      const cx = x0 + (i % cols) * cw + cw / 2, cy = y0 + Math.floor(i / cols) * ch + ch / 2;
-      const sel = i === m.at;
-      if (sel) { g.strokeStyle = C.cyan; g.lineWidth = 2; g.strokeRect(cx - cw / 2 + 4, cy - ch / 2 + 4, cw - 8, ch - 8); }
-      if (i < N) {
-        const sp = SPECIES[i];
-        if (this.sv.n[i] > 0) {
-          this.drawShape(g, sp.shape, cx, cy - 6, 0.62, sp.rar === 5 ? C.amber : C.ink, 2);
-          // Silver and gold as small pips (cheap to draw thirty of): two or three of them.
-          if (this.sv.q[i] > 1) { g.fillStyle = this.sv.q[i] === 3 ? C.amber : C.ink; for (let k = 0; k < this.sv.q[i]; k++) g.fillRect(cx - 14 + k * 11, cy + 24, 6, 6); }
-        }
-        else text(g, "?", cx, cy, 26, C.line, "center");
-      } else if (i === N) text(g, "FINDS", cx, cy - 8, 18, C.amber, "center"), text(g, this.findCount() + "/" + TREASURE.length, cx, cy + 14, 20, C.amber, "center");
-      else text(g, "CLOSE", cx, cy, 20, C.muted, "center");
+    const m = this.menu, cols = LOG_ROW, cw = 100, ch = 50, x0 = 80, y0 = 76;
+    text(g, "FIELD LOG  " + this.recorded() + " OF " + N + " RECORDED", 480, 36, 26, C.ink, "center");
+    const row = m.at;
+    if (row * cols < N) { g.strokeStyle = C.cyan; g.lineWidth = 2; g.strokeRect(x0 + 2, y0 + row * ch + 2, cols * cw - 4, ch - 4); }
+    for (let i = 0; i < N; i++) {
+      const cx = x0 + (i % cols) * cw + cw / 2, cy = y0 + Math.floor(i / cols) * ch + ch / 2, sp = SPECIES[i];
+      if (this.sv.n[i] > 0) {
+        this.drawShape(g, sp.shape, cx, cy - 4, 0.42, sp.rar === 5 ? C.amber : C.ink, 2);
+        if (this.sv.q[i] > 1) { g.fillStyle = this.sv.q[i] === 3 ? C.amber : C.ink; for (let k = 0; k < this.sv.q[i]; k++) g.fillRect(cx - 12 + k * 9, cy + 15, 5, 5); }
+      } else text(g, "?", cx, cy, 20, C.line, "center");
+    }
+    const ly = y0 + 4 * ch + 26;
+    if (row * cols < N) {
+      for (let k = 0; k < cols && row * cols + k < N; k++) {
+        const i = row * cols + k, sp = SPECIES[i], n = this.sv.n[i], y = ly + k * 25;
+        if (n > 0) text(g, sp.name.padEnd(21) + RARITY[sp.rar].padEnd(10) + ("x" + n).padEnd(6) + (sp.treasure ? "" : ((this.sv.m[i] / 10).toFixed(0) + " CM").padEnd(8)) + (QUALITY[this.sv.q[i]] || ""), 80, y, 17, sp.rar >= 4 ? C.amber : C.ink, "left");
+        else text(g, ("? " + RARITY[sp.rar]).padEnd(13) + this.hintFor(sp), 80, y, 17, C.muted, "left");
+      }
+    } else {
+      text(g, "FINDS THAT WERE NOT FISH: " + this.findCount() + " OF " + TREASURE.length, 480, ly + 20, 22, C.amber, "center");
+      text(g, "CATALOGUE SCORE " + this.catScore() + "    STARS " + this.starsTotal() + " OF " + N * 3, 480, ly + 60, 20, C.ink, "center");
+      text(g, "PERFECT CATCHES " + this.sv.pf + "    LANDED " + this.sv.landed + "    TIDES " + this.sv.tides, 480, ly + 92, 20, C.muted, "center");
     }
     g.fillStyle = "#2f7a4655";
-    if (holdFrac) g.fillRect(60, 410, 840 * holdFrac, 6);
-    const i = m.at;
-    if (i < N) {
-      const sp = SPECIES[i], n = this.sv.n[i];
-      if (n > 0) {
-        text(g, sp.name + "   " + RARITY[sp.rar], 480, 440, 24, C.ink, "center");
-        text(g, "LARGEST " + (this.sv.m[i] / 10).toFixed(1) + " CM    LANDED " + n + "    BEST " + (QUALITY[this.sv.q[i]] || "ONE STAR"), 480, 470, 20, C.amber, "center");
-        text(g, sp.note, 480, 500, 17, C.muted, "center");
-      } else {
-        text(g, "NOT YET RECORDED", 480, 440, 24, C.muted, "center");
-        text(g, this.hintFor(sp), 480, 476, 18, C.cyan, "center");
-      }
-    } else if (i === N) {
-      text(g, "FINDS THAT WERE NOT FISH: " + this.findCount() + " OF " + TREASURE.length, 480, 450, 22, C.amber, "center");
-      text(g, "CATALOGUE SCORE " + this.catScore() + "    STARS " + this.starsTotal() + " OF " + N * 3 + "    PERFECT CATCHES " + this.sv.pf, 480, 484, 18, C.muted, "center");
-    } else text(g, "HOLD TO CLOSE", 480, 460, 24, C.ink, "center");
-    text(g, "TAP BROWSES  HOLD CLOSES", 480, 524, 16, C.muted, "center");
+    if (holdFrac) g.fillRect(80, ly - 18, 800 * holdFrac, 4);
+    text(g, "TAP: NEXT ROW (" + (row + 1) + "/" + LOG_PAGES + ")   HOLD: CLOSE", 480, 528, 16, C.muted, "center");
   }
   findCount() {
     let n = 0;

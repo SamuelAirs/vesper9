@@ -84,7 +84,10 @@ export class Vesper {
     this.accumulator = 0;
     this.last = 0;
     this.hudValue = "";
-    this.lights = new LightDirector((cmd, data) => this.bridge.command(cmd, data));
+    // The node says how many lamps it has (device.lamps: 3 on the first node, 4 on the current one)
+    // and whether its board LED can be driven (device.boardLed). Until it says, three and no.
+    this.lights = new LightDirector((cmd, data) => this.bridge.command(cmd, data), undefined, undefined,
+      { lamps: () => this.lampCount(), board: () => this.hasBoardLed() });
     // Host-owned lamp feedback (navigation, holds, clicks, acknowledgements, ambient, mic live).
     this.hostLamps = new HostLamps();
     this.clickState = null;
@@ -497,6 +500,7 @@ export class Vesper {
     this.accumulator = 0;
     this.paused = false;
     this.lights.release().catch(() => {});
+    this.boardVisual();
     this.hudValue = "";
     this.hudLabels = "";
     this.silentTicks = false;
@@ -583,9 +587,19 @@ export class Vesper {
         return this.bridge.command("progress", { app: meta.id, value }, true);
       },
       tone: guarded((...args) => this.synth.tone(...args)),
+      // Nine values (three lamps, as every game was written) or twelve (four). On a four-lamp node
+      // a nine-value frame leaves the fourth lamp dark; on a three-lamp node the fourth is dropped.
       leds: (values) => {
         if (alive()) this.lights.set(values);
       },
+      // How many lamps the node has: pass it to the lightshow helpers to use all of them.
+      lampCount: () => this.lampCount(),
+      // The ESP32's own board LED: an extra accent, not a lamp. [r, g, b]; dark unless an app sets it,
+      // and dark again when the app is left. hasBoardLed() says whether this node has one.
+      board: (rgb) => {
+        if (alive()) { this.lights.setBoard(rgb); this.boardVisual(); }
+      },
+      hasBoardLed: () => this.hasBoardLed(),
       pattern: steps => command("pattern", { steps }),
       hud: guarded(items => this.hud(items)),
       controls: guarded(message => this.hint(message)),
@@ -1017,9 +1031,27 @@ export class Vesper {
     this.lights.setScale(levelScale(this.state.settings.lampLevel));
     this.fitCanvas();
   }
+  lampCount() {
+    return this.state.device?.lamps === 4 ? 4 : 3;
+  }
+  hasBoardLed() {
+    return this.state.device?.boardLed === true;
+  }
+  // The on-screen board LED pip mirrors what an app asked for (the node does not echo it).
+  boardVisual() {
+    const pip = $("lamp-board");
+    if (!pip) return;
+    const rgb = this.lights.boardDesired, on = this.hasBoardLed() && rgb.some((v) => v > 0);
+    pip.hidden = !this.hasBoardLed();
+    pip.style.background = on ? `rgb(${rgb.join(",")})` : "";
+    pip.style.boxShadow = on ? `0 0 9px rgba(${rgb.join(",")},.35)` : "";
+  }
   lightVisual(values) {
-    if (!Array.isArray(values) || values.length !== 9) return;
-    for (let i = 0; i < 3; i++) {
+    if (!Array.isArray(values) || (values.length !== 9 && values.length !== 12)) return;
+    const count = values.length / 3;
+    $("lamp-3").hidden = this.lampCount() < 4;
+    for (let i = 0; i < 4; i++) {
+      if (i >= count) { $("lamp-" + i).style.background = ""; $("lamp-" + i).style.color = ""; $("lamp-" + i).style.boxShadow = ""; continue; }
       const rgb = values.slice(i * 3, i * 3 + 3),
         on = Math.max(...rgb) > 0,
         lamp = $("lamp-" + i);
@@ -1028,7 +1060,7 @@ export class Vesper {
       lamp.style.boxShadow = on ? `0 0 13px rgba(${rgb.join(",")},.3)` : "";
       lamp.setAttribute(
         "aria-label",
-        ["Left", "Middle", "Right"][i] + " light " + (on ? "on" : "off"),
+        (count === 4 ? ["First", "Second", "Third", "Fourth"] : ["Left", "Middle", "Right"])[i] + " light " + (on ? "on" : "off"),
       );
     }
   }
@@ -1046,6 +1078,7 @@ export class Vesper {
         this.cardStats();
         this.settings();
         this.lightVisual(e.leds);
+        this.boardVisual();
         this.status();
         this.input.cancel(!!e.device.button, e.simulated ? "simulator" : "node");
         this.lights.invalidate();
@@ -1063,6 +1096,9 @@ export class Vesper {
         Object.assign(this.state.device, e);
         this.lights.invalidate();
         this.status();
+        // A node with a different lamp count or board LED shows it at once.
+        $("lamp-3").hidden = this.lampCount() < 4;
+        this.boardVisual();
         if (!e.connected) {
           this.input.cancel(true, this.state.simulated ? "simulator" : "node");
           this.browserMic.stop();
@@ -1238,6 +1274,7 @@ export class Vesper {
       press: hold, clicks: this.clickState, timerRemaining: remaining,
       // Confirmed capture from the node, not the requested mode.
       mic: !!s.device.connected && !!s.device.capture,
+      lamps: this.lampCount(),
     }));
   }
   frameStats() {

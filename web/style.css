@@ -1450,3 +1450,5 @@ main {
 @media (min-width: 700px) and (min-height: 400px) {
   body.playing #toast { top: 42px; bottom: auto; }
 }
+/* The node's board LED: a small accent pip beside the lamps, shown only on a node that has one. */
+.lamp.board-led { width: 10px; height: 10px; align-self: center; font-size: 0; }

@@ -190,12 +190,12 @@ let browser;
     vesper.lights.setScale(1); // this check is about rounding; the lamp level has its own tests
     vesper.lights.set(Array(9).fill(40));
     ctx.leds([0.5, 300, -4, 1, 2, 3, 4, 5, 6.6]);
-    const rounded = vesper.lights.desired.slice();
+    const rounded = vesper.lights.desired.slice(); // twelve: a three-lamp frame leaves the fourth lamp dark
     ctx.leds([1, 2, 3]);
     ctx.leds("red");
     return { rounded, kept: vesper.lights.desired.slice() };
   });
-  check("F3 ctx.leds rounds and clamps", JSON.stringify(ledResult.rounded) === JSON.stringify([1, 255, 0, 1, 2, 3, 4, 5, 7]), JSON.stringify(ledResult.rounded));
+  check("F3 ctx.leds rounds and clamps", JSON.stringify(ledResult.rounded) === JSON.stringify([1, 255, 0, 1, 2, 3, 4, 5, 7, 0, 0, 0]), JSON.stringify(ledResult.rounded));
   check("F3 ctx.leds ignores malformed arrays", JSON.stringify(ledResult.kept) === JSON.stringify(ledResult.rounded), JSON.stringify(ledResult.kept));
 
   // F1: through the real event path, a lost release is recovered by node_status.

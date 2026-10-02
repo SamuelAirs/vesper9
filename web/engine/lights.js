@@ -110,7 +110,11 @@ export class LightDirector {
     return Promise.race([promise, limit]).finally(() => clearTimeout(timer));
   }
   async flush(connected = true) {
-    this.flushBoard(connected);
+    const board = this.flushBoard(connected);
+    await this.flushLamps(connected);
+    await board;
+  }
+  async flushLamps(connected) {
     const now = this.clock();
     // A command in flight blocks only its own generation; a newer owner may write at once.
     if (!connected || this.busy === this.generation || !this.desired || now < this.suspendedUntil || now - this.last < 60) return;

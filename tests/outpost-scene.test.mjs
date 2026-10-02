@@ -25,14 +25,25 @@ const begin = (options) => {
   return made;
 };
 
+// A loaded machine (the whole suite running in parallel on the Pi) slows everything, so this takes
+// the median of many short batches, interleaved with batches of a fresh game as a yardstick measured
+// in the same run. The busy game must stay under 2 ms a frame, or, when the yardstick shows the machine
+// is slow right now, under 40 fresh-game frames (about 10x here; a real regression shows up as both).
 test("update stays cheap", () => {
-  const { app } = begin();
-  app.s.own.fill(100); app.s.rt = 1e9; app.s.sig = 1e9; app.dirty = true;
+  const busy = begin().app, fresh = begin().app;
+  busy.s.own.fill(100); busy.s.rt = 1e9; busy.s.sig = 1e9; busy.dirty = true;
   const g = fakeCanvas();
-  const t0 = process.hrtime.bigint();
-  for (let i = 0; i < 600; i++) { app.update(1 / 60); app.draw(g); }
-  const ms = Number(process.hrtime.bigint() - t0) / 1e6 / 600;
-  assert.ok(ms < 2, "update + draw averaged " + ms.toFixed(3) + " ms");
+  const batch = (app) => {
+    const t0 = process.hrtime.bigint();
+    for (let i = 0; i < 30; i++) { app.update(1 / 60); app.draw(g); }
+    return Number(process.hrtime.bigint() - t0) / 1e6 / 30;
+  };
+  for (let i = 0; i < 10; i++) { batch(busy); batch(fresh); } // warm up
+  const a = [], b = [];
+  for (let i = 0; i < 21; i++) { a.push(batch(busy)); b.push(batch(fresh)); }
+  const median = (x) => x.slice().sort((p, q) => p - q)[x.length >> 1];
+  const ms = median(a), base = median(b), limit = Math.max(2, 40 * base);
+  assert.ok(ms < limit, "update + draw median " + ms.toFixed(3) + " ms (limit " + limit.toFixed(3) + " ms; a fresh game takes " + base.toFixed(3) + " ms)");
 });
 
 // A canvas that records every call on itself, fails on any non-finite number, and counts the

@@ -346,8 +346,12 @@ test("a long hold freezes the world, harmlessly, and release resumes it", () => 
   run(app, 3);
   toLive(app);
   const lives = app.lives;
+  app.px = 480; // centred, so no wall turns the paddle during the hold
+  const before = app.dir;
   app.down();
+  assert.equal(app.dir, -before, "the press reverses at once, as a tap would");
   run(app, G.FREEZE_AFTER + 0.1);
+  assert.equal(app.dir, before, "a pausing hold keeps the direction the paddle had");
   const snap = [app.px, app.balls[0].x, app.balls[0].y, app.clock];
   run(app, 2.6); // a full three-second hold in all
   assert.deepEqual([app.px, app.balls[0].x, app.balls[0].y, app.clock], snap, "world frozen while held");

@@ -45,7 +45,9 @@ const baseSpeed = (ch) => Math.min(500, 340 + 20 * (ch - 1));
 const padSpeed = (ch) => Math.min(420, 320 + 10 * (ch - 1));
 const PAD_WIDTHS = [168, 156, 144, 132, 120, 110, 100, 92, 84];
 const padWidth = (ch) => PAD_WIDTHS[Math.min(PAD_WIDTHS.length - 1, ch - 1)];
-const rowsFor = (ch) => (ch < 3 ? 3 : ch < 5 ? 4 : ch < 7 ? 5 : ch < 10 ? 6 : 7);
+// Rows of cells per chamber. Kept low so a chamber takes a minute or two, not five: later chambers get
+// harder through speed, paddle width, hard and charge cells rather than sheer size.
+const rowsFor = (ch) => (ch < 4 ? 3 : ch < 8 ? 4 : 5);
 const NEWS = {
   1: "PRACTICE: TWO FREE BALLS", 2: "NEW: BONUS CELLS", 3: "NEW: HARDENED CELLS",
   4: "NEW: CHARGE CELLS BREAK THEIR NEIGHBOURS",
@@ -172,6 +174,7 @@ export class Ricochet {
     this.padW = padWidth(1);
     this.pressing = false;
     this.heldTime = 0;
+    this.dirBefore = 0;
     this.downs = [-9, -9, -9, -9];
     this.lostAt = -9;
     this.sparkle = [-9, -9, -9];
@@ -324,6 +327,7 @@ export class Ricochet {
     this.pressing = true;
     this.heldTime = 0;
     if (this.sub === "pick") return; // decided on release
+    this.dirBefore = this.dir;
     this.dir = -this.dir;
     this.ctx.tone(520, 0.025, "square");
   }
@@ -620,8 +624,12 @@ export class Ricochet {
   step(dt) {
     // A long hold is never a tap: the world freezes until release, so the hold that
     // opens the system menu cannot cost a ball.
+    const held = this.heldTime;
     if (this.pressing) this.heldTime += dt;
     if (this.sub === "pick") return this.stepPick(dt);
+    // A press that turns into a hold is a pause, not a turn: the paddle goes back to the way it was
+    // gliding before the press, and keeps going that way on release.
+    if (this.pressing && held < FREEZE_AFTER && this.heldTime >= FREEZE_AFTER && this.dirBefore) this.dir = this.dirBefore;
     if (this.frozen) return;
     this.shake = Math.max(0, this.shake - dt);
     this.clock += dt;

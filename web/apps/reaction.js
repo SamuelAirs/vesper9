@@ -75,6 +75,8 @@ export function migrateTrial(raw) {
 }
 // The longest delay a trial can be armed with, and the part of it that counts as "one of the longest".
 const DELAY_MIN = 1300, DELAY_MAX = 4200, LONG_WAIT = 3800;
+// A press later than this after the cue is not a reaction: the trial is void and not counted.
+export const TOO_SLOW = 1500;
 export class LightTrial {
   constructor(ctx) {
     this.c = ctx;
@@ -98,6 +100,7 @@ export class LightTrial {
     this.done = null;     // the series just finished: { median, spread, clean, best, rank, feats }
     this.delay = 0;       // the delay the current trial was armed with
     this.newFeats = [];
+    this.goAt = 0;        // this.t when the cue arrived, for the timeout when nobody presses
     this.c.hint(
       "Wait for the MIDDLE light. Press once it turns green. Early presses fail.",
     );
@@ -108,12 +111,21 @@ export class LightTrial {
     // Left and right lamps alternate red twice; the middle lamp stays dark.
     this.lamps.flash(0.8, (e) => (Math.floor(e / 0.2) % 2 === 0 ? only(0, LAMP.red, 0.8) : only(2, LAMP.red, 0.8)));
   }
+  // Too slow: the trial is void. Nothing is scored or saved and the series carries on.
+  tooSlow() {
+    this.c.command("cancel").catch(() => {});
+    this.phase = "slow";
+    this.last = null;
+    this.c.tone(140, 0.2);
+    this.lamps.flash(0.6, () => fill(LAMP.amber, 0.3));
+  }
   down(event) {
     this.guard.mark();
     if (
       this.phase === "title" ||
       this.phase === "result" ||
       this.phase === "early" ||
+      this.phase === "slow" ||
       this.phase === "error"
     ) {
       this.lamps.clear();
@@ -155,6 +167,7 @@ export class LightTrial {
         this.falseStart();
         return;
       }
+      if (milliseconds > TOO_SLOW) { this.tooSlow(); return; }
       this.last = Math.round(milliseconds);
       this.metric = metric;
       this.buckets[metric].push(this.last);
@@ -235,6 +248,7 @@ export class LightTrial {
       this.cueAt = event.at_us;
       this.cueGeneration = event.generation ?? 0;
       this.screenCueAt = performance.now();
+      this.goAt = this.t;
       this.phase = "go";
     }
   }
@@ -260,6 +274,8 @@ export class LightTrial {
   update(dt) {
     this.guard.tick(dt);
     this.t += dt;
+    // Nobody pressed: give the press a little longer than the limit to arrive, then void the trial.
+    if (this.phase === "go" && this.t - this.goAt > TOO_SLOW / 1000 + 0.4) this.tooSlow();
     // No host light while armed or waiting for the cue.
     if (this.phase !== "wait" && this.phase !== "go") this.lamps.frame(dt, null);
     const summary = reactionSummary(this.results);
@@ -273,14 +289,14 @@ export class LightTrial {
   draw(g) {
     space(g, this.t, 0.3);
     grid(g, 90);
-    if (this.c.state?.()?.scores?.reaction !== undefined)
-      text(g, 'LEGACY RECORD RETAINED / TIMING SOURCE UNKNOWN', 30, 32, 16, C.muted);
-    this.drawDiscs(g);
+    // The title keeps the middle of the screen for the banner; the discs appear once a trial starts.
+    if (this.phase !== "title") this.drawDiscs(g);
     const grade = this.phase === "result" ? reactionGrade(this.last) : null;
     const title = {
       wait: "WAIT FOR THE MIDDLE LIGHT",
       go: "NOW",
       early: "TOO EARLY",
+      slow: "TOO SLOW",
       result: this.last + " ms",
       error: "NODE UNAVAILABLE",
     }[this.phase];
@@ -291,13 +307,14 @@ export class LightTrial {
         480,
         312,
         36,
-        this.phase === "early" ? C.amber : C.ink,
+        this.phase === "early" || this.phase === "slow" ? C.amber : C.ink,
         "center",
       );
       if (grade) text(g, grade.word + (this.fresh ? " / NEW BEST" : ""), 480, 358, 24, this.fresh ? C.amber : C.muted, "center");
+      if (this.phase === "slow") text(g, "PRESS WITHIN 1.5 SECONDS OF THE GREEN LIGHT / NOT COUNTED", 480, 358, 18, C.muted, "center");
       if (this.phase === "result" && this.metric === "keyboard")
         text(g, "KEYBOARD TIMING IS APPROXIMATE", 480, 392, 18, C.muted, "center");
-      if (["result", "early", "error"].includes(this.phase) && !this.done)
+      if (["result", "early", "slow", "error"].includes(this.phase) && !this.done)
         text(g, "PRESS FOR ANOTHER TRIAL", 480, 420, 22, C.amber, "center");
     }
     if (this.done && this.phase === "result") this.drawSeries(g);

@@ -13,25 +13,29 @@ import { num, hashText, dateKey, cleanDaily, meetDaily, dailyDone, liveStreak, c
 // - feats, a daily order (the same for everyone on a date) with a streak, and a rank from feats,
 //   kept in a versioned save (schema 2) that still carries the first release's fields;
 // - two more ways to play, earned with feats and chosen by holding on the title or result screen:
-//   RUSH (sixty seconds, no hull, a miss costs time) and ECLIPSE (every gate is dark from the start).
+//   RUSH (sixty seconds, no hull, a miss costs time; opens at a best of 20 locks) and ECLIPSE (every gate
+//   is dark from the start; opens after 25 dark gates in all).
 //   Only the standard game sets the console's best score; each mode keeps its own best.
 const ORBIT_AHEAD_MAX = 4.5;
-// Half-width of the gate (radians) and angular speed. Both keep changing for the whole run: the
-// gate narrows until 40 locks and the satellite speeds up until 45.
-export const orbitWindow = (points) => Math.max(0.08, 0.5 - points * 0.0105);
-export const orbitSpeed = (points) => 1.15 + Math.min(points, 45) * 0.05;
+// Half-width of the gate (radians) and angular speed. The gate narrows until about 34 locks and the
+// satellite speeds up quickly until 45, slowly after. The floor of 0.14 rad keeps the narrowest gate at about +-40 ms at top
+// speed: tighter than that is the edge of human timing once the button and lamp latency are added.
+export const orbitWindow = (points) => Math.max(0.14, 0.5 - points * 0.0105);
+// Past 45 locks the satellite keeps gaining speed slowly (to 4.5 rad/s at 100), so a run still ends.
+export const orbitSpeed = (points) => 1.15 + Math.min(points, 45) * 0.05 + Math.max(0, Math.min(points, 100) - 45) * 0.02;
 // The perfect zone: the inner 30 % of the gate, and never more than 0.07 rad either side of its centre.
 export const orbitPerfect = (points) => Math.min(0.3 * orbitWindow(points), 0.07);
 export const SHIELD_CHAIN = 4;
 export const DARK_FROM = 30;
-// Is the gate for the lock after `points` locks a dark one?
-export const darkGate = (points) => points >= DARK_FROM && points % 3 === 2;
+// Is the gate for the lock after `points` locks a dark one? Every third from 30, every other from 50.
+export const darkGate = (points) => points >= DARK_FROM && (points >= 50 ? points % 2 === 1 : points % 3 === 2);
 const HULL_COLOR = [LAMP.red, LAMP.red, LAMP.amber, LAMP.green];
-// Ways to play. `need` is the number of feats that opens a mode.
+// Ways to play, each opened by something that shows the skill it asks for (not by a count of feats,
+// which one good run can collect): `opens(sv)` says whether it is open, `how` says how to open it.
 export const ORBIT_MODES = [
-  { id: "standard", name: "STANDARD", need: 0, text: "Three hull points. The gate narrows, reverses and drifts." },
-  { id: "rush", name: "RUSH", need: 3, text: "Sixty seconds, no hull. A lock adds time back; a miss costs three seconds." },
-  { id: "eclipse", name: "ECLIPSE", need: 6, text: "Every gate is dark. Lamp I is the only guide." },
+  { id: "standard", name: "STANDARD", opens: () => true, how: "", text: "Three hull points. The gate narrows, reverses and drifts." },
+  { id: "rush", name: "RUSH", opens: (sv) => sv.st.best >= 20, how: "REACH 20 LOCKS", text: "Sixty seconds, no hull. A lock adds time back; a miss costs three seconds." },
+  { id: "eclipse", name: "ECLIPSE", opens: (sv) => sv.st.dark >= 25, how: "LOCK 25 DARK GATES IN ALL", text: "Every gate is dark. Lamp I is the only guide." },
 ];
 export const RUSH_TIME = 60, RUSH_MISS = 3, RUSH_SECTOR_BONUS = 4;
 // A press on the title or result screen held this long changes the mode instead of starting.
@@ -44,14 +48,14 @@ const life = (a, key) => (a.sv.st[key] || 0) + (a.R[key] || 0);
 export const ORBIT_FEATS = [
   { id: "l10", name: "FIRST CONTACT", text: "Make 10 locks in one run.", n: 10, prog: (a) => a.points },
   { id: "l20", name: "DEEP FIELD", text: "Make 20 locks in one run.", n: 20, prog: (a) => a.points },
-  { id: "l30", name: "FAR SIDE", text: "Make 30 locks in one run.", n: 30, prog: (a) => a.points },
-  { id: "l40", name: "EVENT HORIZON", text: "Make 40 locks in one run.", n: 40, prog: (a) => a.points },
+  { id: "l35", name: "FAR SIDE", text: "Make 35 locks in one run.", n: 35, prog: (a) => a.points },
+  { id: "l50", name: "EVENT HORIZON", text: "Make 50 locks in one run.", n: 50, prog: (a) => a.points },
   { id: "shield", name: "CHARGED", text: "Chain 4 perfect locks to raise a shield.", n: SHIELD_CHAIN, prog: (a) => a.R.chainMax },
   { id: "chain8", name: "DEAD CENTRE", text: "Chain 8 perfect locks.", n: 8, prog: (a) => a.R.chainMax },
   { id: "perf15", name: "FINE TUNING", text: "Make 15 perfect locks in one run.", n: 15, prog: (a) => a.R.perfects },
   { id: "clean", name: "UNTOUCHED", text: "Reach 20 locks without losing hull.", n: 20, prog: (a) => a.R.clean },
   { id: "dark1", name: "BLIND LOCK", text: "Lock a dark gate.", n: 1, prog: (a) => a.R.dark },
-  { id: "dark5", name: "NIGHT WATCH", text: "Lock 5 dark gates in one run.", n: 5, prog: (a) => a.R.dark },
+  { id: "dark5", name: "NIGHT WATCH", text: "Lock 8 dark gates in one run.", n: 8, prog: (a) => a.R.dark },
   { id: "daily", name: "ON ORDERS", text: "Meet a daily order.", n: 1, prog: (a) => life(a, "daily") },
   { id: "streak", name: "ROUTINE", text: "Meet the daily order 3 days running.", n: 3, prog: (a) => a.sv.dl.streak },
   { id: "rush25", name: "AGAINST THE CLOCK", text: "Make 25 locks in one rush.", n: 25, prog: (a) => (a.mode === "rush" ? a.points : 0) },
@@ -143,7 +147,7 @@ export class OrbitLock {
   }
   // Radians the satellite still has to travel, in its direction, to reach the gate.
   ahead() { return ((((this.target - this.angle) * this.dir) % TAU) + TAU) % TAU; }
-  unlocked(id) { const m = ORBIT_MODES.find((x) => x.id === id); return !!m && this.sv.ft.length >= m.need; }
+  unlocked(id) { const m = ORBIT_MODES.find((x) => x.id === id); return !!m && m.opens(this.sv); }
   modesOpen() { return ORBIT_MODES.filter((m) => this.unlocked(m.id)).length > 1; }
   modeInfo() { return ORBIT_MODES.find((m) => m.id === this.mode); }
   begin() {
@@ -493,25 +497,29 @@ export class OrbitLock {
       row += 28;
     } else {
       const m = ORBIT_MODES[1];
-      text(g, m.name + " MODE OPENS AT " + m.need + " FEATS", 480, row, 16, C.muted, "center");
+      text(g, m.name + " MODE: " + m.how, 480, row, 16, C.muted, "center");
       row += 26;
     }
     drawFeatTicker(g, ORBIT_FEATS, sv.ft, this.t, row + 6);
   }
+  // The result: one banner line, then at most four short lines that always fit above the hint line.
   drawResult(g) {
     const standard = this.mode === "standard", best0 = standard ? this.best0 : this.modeBest0 || 0;
     const title = this.mode === "rush" ? "TIME" : "SIGNAL LOST";
-    banner(g, title, `${standard ? "" : this.modeInfo().name + ": "}${this.points} locks${this.points > best0 && this.points > 0 ? " / NEW BEST" : ""}`, C.amber);
+    banner(g, title, `${standard ? "" : this.modeInfo().name + ": "}${this.points} locks${this.points > best0 && this.points > 0 ? " · NEW BEST" : ""}`, C.amber);
     const lines = [];
     lines.push(["PERFECT " + this.R.perfects + "   BEST CHAIN " + this.R.chainMax + (this.R.dark ? "   DARK GATES " + this.R.dark : ""), C.ink]);
     if (this.orderMet) lines.push(["DAILY ORDER MET" + (this.sv.dl.streak > 1 ? " / STREAK " + this.sv.dl.streak : ""), C.cyan]);
     else lines.push(["TODAY: " + orbitOrder(this.dayKey()).text, C.muted]);
-    for (const id of this.fresh.slice(0, 2)) lines.push(["NEW FEAT: " + ORBIT_FEATS.find((f) => f.id === id).name, C.amber]);
-    if (this.fresh.length > 2) lines.push(["AND " + (this.fresh.length - 2) + " MORE FEATS", C.amber]);
-    const close = closestFeat(ORBIT_FEATS, this.sv.ft, this);
-    if (close && lines.length < 4) lines.push([close, C.muted]);
+    if (this.fresh.length) {
+      const names = this.fresh.map((id) => ORBIT_FEATS.find((f) => f.id === id).name);
+      lines.push([(names.length > 1 ? "NEW FEATS: " : "NEW FEAT: ") + names.slice(0, 2).join(", ") + (names.length > 2 ? " +" + (names.length - 2) : ""), C.amber]);
+    } else {
+      const close = closestFeat(ORBIT_FEATS, this.sv.ft, this);
+      if (close) lines.push([close, C.muted]);
+    }
     if (this.modesOpen()) lines.push(["TAP: PLAY " + this.modeInfo().name + "   HOLD: NEXT MODE", C.cyan]);
-    panel(g, 372, 384 + lines.length * 28);
-    lines.forEach(([s, col], i) => text(g, s, 480, 392 + i * 28, 18, col, "center"));
+    panel(g, 362, 374 + lines.length * 28);
+    lines.forEach(([s, col], i) => text(g, s, 480, 384 + i * 28, 18, col, "center"));
   }
 }

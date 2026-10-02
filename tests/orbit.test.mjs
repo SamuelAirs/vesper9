@@ -265,7 +265,8 @@ test("tuning: a timing player with 50 ms of error reaches the dark gates; the sh
 });
 
 // ------------------------------------------------------------------------------------------- modes
-const withFeats = (n) => ({ schema: 2, ft: ORBIT_FEATS.slice(0, n).map((f) => f.id) });
+// Saves with the modes opened: RUSH at a best of 20 locks, ECLIPSE after 25 dark gates in all.
+const withFeats = (n) => ({ schema: 2, st: { best: n >= 5 ? 20 : 0, dark: n >= 11 ? 25 : 0 } });
 const tap = (g) => { g.down(); step(g, 0.1); g.up(); };
 const hold = (g) => { g.down(); step(g, MODE_HOLD + 0.1); g.up(); };
 
@@ -273,19 +274,19 @@ test("modes: until one is earned a press starts at once; afterwards a tap plays 
   const g = new OrbitLock(makeCtx(30));
   g.down();
   assert.equal(g.phase, "play", "a fresh player's press did not start at once");
-  const h = new OrbitLock(makeCtx(31, { progress: withFeats(3) }));
+  const h = new OrbitLock(makeCtx(31, { progress: withFeats(5) }));
   assert.equal(h.modesOpen(), true);
   h.down();
   assert.equal(h.phase, "title", "with modes earned the press must wait for its release");
   h.up();
   assert.equal(h.phase, "play");
-  const k = new OrbitLock(makeCtx(32, { progress: withFeats(3) }));
+  const k = new OrbitLock(makeCtx(32, { progress: withFeats(5) }));
   hold(k);
   assert.equal(k.phase, "title");
   assert.equal(k.mode, "rush");
   hold(k);
-  assert.equal(k.mode, "standard", "eclipse is not earned at 3 feats");
-  const all = new OrbitLock(makeCtx(33, { progress: withFeats(6) }));
+  assert.equal(k.mode, "standard", "eclipse is not open yet");
+  const all = new OrbitLock(makeCtx(33, { progress: withFeats(11) }));
   hold(all); hold(all);
   assert.equal(all.mode, "eclipse");
   assert.equal(all.c.log.saves.at(-1).mode, "eclipse", "the chosen mode was not remembered");
@@ -294,7 +295,7 @@ test("modes: until one is earned a press starts at once; afterwards a tap plays 
 });
 
 test("rush: sixty seconds, misses cost time not hull, sectors add time, and it ends on the clock", () => {
-  const c = makeCtx(35, { progress: { ...withFeats(3), mode: "rush" } }), g = new OrbitLock(c);
+  const c = makeCtx(35, { progress: { ...withFeats(5), mode: "rush" } }), g = new OrbitLock(c);
   tap(g);
   assert.equal(g.mode, "rush"); assert.equal(g.phase, "play");
   assert.equal(g.clock, RUSH_TIME, "the clock started before the release that chose to play");
@@ -312,13 +313,13 @@ test("rush: sixty seconds, misses cost time not hull, sectors add time, and it e
   assert.equal(c.log.scores.length, 0, "a rush set the console's best score");
   const save = c.log.saves.at(-1);
   assert.equal(save.mb.rush, 5);
-  assert.equal(save.st.best, 0);
+  assert.equal(save.st.best, 20, "a rush changed the standard best");
   assert.equal(save.last.mode, "rush");
   assert.match(textOf(g).map((x) => x.s).join(" | "), /RUSH: 5 locks/);
 });
 
 test("eclipse: every gate is dark from the first, and its best is kept apart", () => {
-  const c = makeCtx(36, { progress: { ...withFeats(6), mode: "eclipse" } }), g = new OrbitLock(c);
+  const c = makeCtx(36, { progress: { ...withFeats(11), mode: "eclipse" } }), g = new OrbitLock(c);
   tap(g);
   assert.equal(g.dark, true);
   for (let i = 0; i < 4; i++) { plain(g); assert.equal(g.dark, true); }
@@ -327,4 +328,37 @@ test("eclipse: every gate is dark from the first, and its best is kept apart", (
   step(g, 2.2);
   assert.equal(c.log.scores.length, 0);
   assert.equal(c.log.saves.at(-1).mb.eclipse, 4);
+});
+
+test("review fixes: the gate never narrows below 0.14 rad, and one excellent run cannot open both modes, and a 30 ms player's run still ends", () => {
+  assert.equal(orbitWindow(40), 0.14);
+  assert.equal(orbitWindow(80), 0.14);
+  assert.ok(orbitWindow(30) > 0.14);
+  // At top speed the narrowest gate is still about +-30 ms wide.
+  assert.ok(orbitWindow(120) / orbitSpeed(120) > 0.03);
+  for (let seed = 1; seed <= 4; seed++) {
+    const c = makeCtx(seed, { progress: {} }), g = new OrbitLock(c); g.down();
+    let at = null, t = 0;
+    for (let i = 0; i < 60 * 1200 && g.phase === "play"; i++) {
+      t += DT;
+      if (at === null) at = t + g.ahead() / (orbitSpeed(g.points) - g.drift * g.dir) + gauss(c.rng, 0.03);
+      if (t >= at) { g.down(); g.up(); at = null; }
+      g.update(DT);
+    }
+    assert.equal(g.phase, "over", `seed ${seed}: a 30 ms player never ends (${g.points} locks)`);
+    assert.ok(!g.unlocked("eclipse"), `seed ${seed}: one run of ${g.points} locks opened ECLIPSE`);
+  }
+});
+
+test("review fixes: the result panel always ends above the hint line", () => {
+  const g = new OrbitLock(makeCtx(50, { progress: withFeats(11) }));
+  tap(g);
+  for (let i = 0; i < 46; i++) perfect(g);
+  for (let i = 0; i < 4; i++) miss(g);
+  assert.equal(g.phase, "over");
+  assert.ok(g.fresh.length >= 3);
+  const ys = [];
+  const g2d = new Proxy({}, { get: (t, k) => (k === "fillText" ? (s, x, y) => ys.push(y) : k in t ? t[k] : () => {}), set: (t, k, v) => { t[k] = v; return true; } });
+  g.draw(g2d);
+  assert.ok(Math.max(...ys) <= 500, "text drawn at y=" + Math.max(...ys));
 });

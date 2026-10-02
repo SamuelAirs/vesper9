@@ -3,7 +3,7 @@
 // the host writes no light while a trial is armed or its cue is showing.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { LightTrial, migrateTrial, trialRank, TRIAL_FEATS, SERIES, LOG_SIZE } from "../web/apps/reaction.js";
+import { LightTrial, migrateTrial, trialRank, TRIAL_FEATS, SERIES, LOG_SIZE, TOO_SLOW } from "../web/apps/reaction.js";
 import { makeCtx, step, DT } from "./audit/harness.mjs";
 
 // One trial on the simulator clock with a reaction of `ms`; returns the app.
@@ -202,4 +202,48 @@ test("while armed the screen shows the series to beat, and the lamps stay dark",
   step(g, 0.5);
   assert.ok(c.ledsNow.every((v) => v === 0));
   assert.ok(textOf(g).some((x) => x.s === "TO BEAT: 270 ms"));
+});
+
+test("a press more than 1.5 s after the cue is void: not scored, not saved, not in the series", () => {
+  const c = makeCtx(22, { progress: {} }), g = new LightTrial(c);
+  trial(g, 300);
+  const saves = c.log.saves.length, scores = c.log.scores.length;
+  for (const source of ["simulator", "node"]) {
+    trial(g, TOO_SLOW + 1500, { source });
+    assert.equal(g.phase, "slow", source);
+    assert.equal(c.log.commands.at(-1).name, "cancel", "the node trial was not cancelled");
+    assert.match(textOf(g).map((x) => x.s).join(" | "), /TOO SLOW.*NOT COUNTED/);
+  }
+  assert.equal(c.log.saves.length, saves, "a void trial was saved");
+  assert.equal(c.log.scores.length, scores, "a void trial was scored");
+  assert.equal(g.series.length, 1, "a void trial joined the series");
+  assert.equal(g.falses, 0, "a slow press is not a false start");
+  // A press just inside the limit still counts, and the next press after a void trial arms a new one.
+  trial(g, TOO_SLOW - 10);
+  assert.equal(g.phase, "result");
+  assert.equal(g.series.length, 2);
+});
+
+test("nobody presses after the cue: the trial times out by itself and the next press arms a new one", () => {
+  const c = makeCtx(23), g = new LightTrial(c);
+  g.down({});
+  g.event({ type: "cue", trial: g.trial, at_us: 1e6, generation: 0 });
+  step(g, TOO_SLOW / 1000);
+  assert.equal(g.phase, "go", "timed out before the limit");
+  step(g, 1);
+  assert.equal(g.phase, "slow");
+  assert.equal(c.log.commands.at(-1).name, "cancel");
+  assert.equal(c.log.saves.length, 0);
+  g.down({});
+  assert.equal(g.phase, "wait");
+});
+
+test("the title shows no discs under the banner and no record-keeping jargon", () => {
+  const c = makeCtx(24), g = new LightTrial(c);
+  c.state = () => ({ scores: { reaction: 700 } });
+  const words = textOf(g).map((x) => x.s);
+  for (const n of ["I", "II", "III"]) assert.ok(!words.includes(n), "disc " + n + " drawn on the title");
+  assert.ok(!words.some((s) => /LEGACY|TIMING SOURCE/.test(s)));
+  g.down({});
+  assert.ok(textOf(g).map((x) => x.s).includes("II"), "the discs appear once a trial starts");
 });

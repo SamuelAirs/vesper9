@@ -218,3 +218,17 @@ test("the soundings menu is titled, and the finale draws", () => {
   const h = strictCanvas(); app.draw(h);
   assert.deepEqual(h.count.bad, []);
 });
+
+test("the workshop menu is titled, a blueprint says HOLD TO FIT, and the run's fittings are listed", async () => {
+  const { FIT } = await import("../web/apps/outpost-rules.js");
+  const { app } = begin();
+  app.ring = { menu: "fit", idx: 0, hiAt: -9, last: app.clk };
+  app.entries = [{ key: "f1", kind: "fit", k: 1, label: FIT[1].n, aff: true, lines: ["SKY MACHINES x1.5"] }];
+  let { g, said } = sayer();
+  app.draw(g);
+  assert.ok(said.includes("WORKSHOP") && said.includes("HOLD TO FIT"), said.join("|"));
+  app.ring = null; app.s.ft = [1, 3];
+  ({ g, said } = sayer());
+  app.draw(g);
+  assert.ok(said.some((v) => v.includes(FIT[1].n) && v.includes(FIT[3].n)), said.join("|"));
+});

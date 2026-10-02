@@ -13,12 +13,12 @@ import { C, text, line, circle, diamond, banner, wrapText } from "../engine/draw
 import { TAU, clamp } from "../engine/math.js";
 import { pulse, blink } from "../engine/lightshow.js";
 import {
-  CONST, DWELL, EXPED, GOALS, GROOVE_MAX, HOLD_BUY, NG, NP, NR, RES, RING_IDLE, STAGES, UPG, PROD, PC_NAMES, SITES, FINALE_SEC,
+  CONST, DWELL, EXPED, GOALS, GROOVE_MAX, HOLD_BUY, NG, NP, NR, RES, RING_IDLE, STAGES, UPG, PROD, PC_NAMES, SITES, FINALE_SEC, FIT, fitName,
   capHours, clock, dur, fmt, fmtDate, fmtInt, fmtRate, goalFrac, masteredN, pendingOf, prodVisible, readyOf, revealOf, stageOf, unlockedN,
 } from "./outpost-rules.js";
 import { NS } from "./outpost-songs.js";
 
-const FREE_KINDS = ["close", "back", "sub", "panel", "mode", "song", "songnew"]; // entries that cost nothing to choose
+const FREE_KINDS = ["close", "back", "sub", "panel", "mode", "song", "songnew", "fit"]; // entries that cost nothing to choose
 // Horizon colour by stage: cold at first, warmer with the town, the aurora's teal at the end.
 const HORIZON = ["#16231c", "#1a271d", "#20291d", "#2a2a1c", "#2a2a20", "#1c2a2c", "#173033"];
 const HILLS = [[0, 424], [90, 408], [170, 418], [260, 394], [350, 412], [450, 400], [560, 416], [660, 398], [760, 414], [850, 402], [960, 420]];
@@ -114,7 +114,12 @@ function drawFooter(g, app) {
   const s = app.s;
   if (app.ring || app.panel || app.phase_ !== "play") return;
   const site = SITES[s.site];
-  if (site) text(g, site.n, 24, 524, 14, C.muted, "left"); // where the outpost stands
+  if (site) text(g, site.n, 24, 530, 14, C.muted, "left"); // where the outpost stands
+  if (s.ft && s.ft.length) { // this run's fittings, bottom right
+    let names = "";
+    for (const k of s.ft) if (FIT[k]) names += (names ? " + " : "") + fitName(s, k);
+    text(g, names, 936, 530, 14, C.amber, "right");
+  }
   if (app.nextGoal !== null) {
     const gl = GOALS[app.nextGoal];
     text(g, "GOAL  " + gl.n + "  " + Math.floor(goalFrac(s, gl) * 100) + "%", 480, 160, 16, C.cyan, "center");
@@ -798,7 +803,7 @@ function drawNews(g, app) {
 function drawRing(g, app) {
   const r = app.ring, es = app.entries, e = es[r.idx];
   frame(g, 30, 140, 900, 372, "#0c1511f2");
-  const title = { exp: "EXPEDITIONS", tree: "BEARING TREE", reloc: "RELOCATE", site: "SOUNDINGS", songs: "SONGBOOK", res: "RESEARCH", goals: "GOALS" }[r.menu] || "BUILD";
+  const title = { exp: "EXPEDITIONS", tree: "BEARING TREE", reloc: "RELOCATE", site: "SOUNDINGS", fit: "WORKSHOP", songs: "SONGBOOK", res: "RESEARCH", goals: "GOALS" }[r.menu] || "BUILD";
   text(g, title, 54, 164, 18, C.amber, "left");
   text(g, r.menu === "res" ? "DATA " + Math.floor(app.s.dat) : "SIGNAL " + fmt(app.s.sig), 906, 164, 18, C.muted, "right");
   // list window of up to 6 rows
@@ -829,7 +834,7 @@ function drawRing(g, app) {
   g.fillStyle = locked ? C.amber : e.aff || FREE_KINDS.includes(e.kind) ? C.ink : C.muted;
   g.fillRect(500, 458, 400 * held, 14);
   const free = FREE_KINDS.includes(e.kind);
-  const verb = { sub: "OPEN", panel: "OPEN", mode: "CHANGE", song: "PLAY", songnew: "COMPOSE", research: "START", reloc: "RELOCATE", launch: "CHOOSE", node: "CHOOSE" }[e.kind] || "BUY";
+  const verb = { sub: "OPEN", panel: "OPEN", mode: "CHANGE", song: "PLAY", songnew: "COMPOSE", research: "START", reloc: "RELOCATE", launch: "CHOOSE", node: "CHOOSE", fit: "FIT" }[e.kind] || "BUY";
   const label = app.refused ? "NOT NOW" : e.kind === "close" ? "HOLD TO CLOSE" : e.kind === "back" ? "HOLD TO GO BACK" : e.kind === "info" ? "NOTHING TO DO" : locked ? "STEADY..." : e.aff || free ? "HOLD TO " + verb : "CANNOT AFFORD YET";
   text(g, label, 500, 492, 18, app.refused ? C.red : locked ? C.amber : C.ink, "left");
   text(g, "TAP: NEXT", 906, 492, 18, C.muted, "right");

@@ -188,6 +188,35 @@ export class Vesper {
       this.fail(error);
     }
   }
+  rawKnock(e) {
+    try {
+      this.app?.knock?.(e);
+    } catch (error) {
+      this.fail(error);
+    }
+  }
+  // Two knocks on the case outside a game (engine/input.js knock()): close the system menu, step an
+  // instrument back to its own previous page (its back() returns true), or leave it for the dashboard;
+  // on the dashboard, go to the previous sector.
+  back(source = "api") {
+    if (this.menu) { this.closeMenu(); return; }
+    if (this.app) {
+      let handled = false;
+      try { handled = !!this.app.back?.(); } catch (error) { this.fail(error); return; }
+      if (!handled) this.home();
+      return;
+    }
+    if (PAGES.length > 1) {
+      this.page = (this.page + PAGES.length - 1) % PAGES.length;
+      this.buildHome();
+    }
+  }
+  // The first of two knocks: say what a second one would do.
+  knockVisual(waiting) {
+    if (!$("escape-hint")) return;
+    if (waiting) $("escape-hint").textContent = "KNOCK AGAIN: BACK";
+    else if (!this.clickState) $("escape-hint").textContent = this.menuHint();
+  }
   rawCancel() {
     this.lifecycle("cancel");
     this.synth.stopTone();
@@ -219,6 +248,12 @@ export class Vesper {
         at_us: performance.now() * 1000,
       });
   }
+  // K on the keyboard: a knock on the case, for the simulator and for trying a game without the node.
+  softwareKnock() {
+    if (this.state.controller === false) return;
+    if (this.state.simulated) this.bridge.command("knock", {}, true).catch(() => {});
+    else this.event({ type: "knock", at_us: performance.now() * 1000, peak: 20000, source: "keyboard" });
+  }
   bind() {
     const bindButton = (element) => {
       element.addEventListener("pointerdown", (e) => {
@@ -242,6 +277,10 @@ export class Vesper {
       if (e.code === "Space") {
         e.preventDefault();
         if (!e.repeat) this.softwareButton(true);
+      }
+      if (e.code === "KeyK" && !e.repeat) {
+        e.preventDefault();
+        this.softwareKnock();
       }
       if (e.code === "Escape") {
         e.preventDefault();
@@ -494,6 +533,8 @@ export class Vesper {
       rng: Random.warm(),
       // True while the app's taps are musical: the host's own step tick would sound with them.
       silentTicks: guarded((on = true) => { this.silentTicks = !!on; }),
+      // Whether knock-on-the-case input is switched on (Calibration). An app that uses knock() can say so.
+      knockInput: () => (this.state.settings.knock || "medium") !== "off",
       // The menu gesture as the router sees it right now (a third press being counted), for apps
       // that show or sound something on a long press (the Morse sidetone).
       menuGesture: () => (alive() ? this.input.gestureState() : { armed: false, elapsedMs: 0, thresholdMs: 0, progress: 0 }),
@@ -967,6 +1008,10 @@ export class Vesper {
           this.synth.unlock();
           this.input.down(e);
         } else this.input.up(e);
+        break;
+      case "knock":
+        this.hostLamps.touch(performance.now());
+        this.input.knock(e);
         break;
       case "sensor":
         this.state.sensor = e;

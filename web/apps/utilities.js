@@ -635,6 +635,12 @@ export class Settings {
     this.c.restage?.();
     this.render();
   }
+  // Two knocks on the case: a voice page or a calibration result goes back to the list.
+  back() {
+    if (this.voicePage === null && !this.syncResult) return false;
+    this.voicePage = null; this.syncResult = null; this.render();
+    return true;
+  }
   // Raw input while the tap-along runs. The menu gesture abandons it.
   down(e) { this.sync?.down(e); }
   up(e) { this.sync?.up(e); }

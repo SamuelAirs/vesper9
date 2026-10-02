@@ -449,3 +449,52 @@ test("AppGuard snapshots are cheap enough to take at every press", () => {
   const each = (performance.now() - t0) / 200;
   assert.ok(each < 2, `a snapshot of a large game takes ${each.toFixed(3)} ms`);
 });
+
+// ------------------------------------------------------------------------------- knocks on the case
+// Two knocks go back outside a game; one stray knock, a knock near a button press, or knocks too far
+// apart never do. In a game a knock is the game's, as PR #4 defined it.
+function knockRig(mode = "menu") {
+  const h = rig({ mode });
+  const backs = [], raw = [];
+  h.host.back = (via) => backs.push(via);
+  h.host.rawKnock = (e) => raw.push(e);
+  h.host.knockVisual = (on) => h.log.push(["knock", on]);
+  h.knock = (at = h.now()) => h.router.knock({ source: "node", generation: 1, at_us: at * 1000 });
+  return Object.assign(h, { backs, raw });
+}
+test("two knocks go back in menus, the dashboard and instruments", () => {
+  const h = knockRig();
+  h.wait(1000);
+  assert.equal(h.knock(), false);
+  assert.deepEqual(h.log.at(-1), ["knock", true], "the first knock says a second would go back");
+  h.wait(300);
+  assert.equal(h.knock(), true);
+  assert.deepEqual(h.backs, ["knock"]);
+  // Right after a back, nothing counts for a second.
+  h.wait(200); h.knock(); h.wait(250); h.knock();
+  assert.equal(h.backs.length, 1);
+  h.wait(1200); h.knock(); h.wait(250); h.knock();
+  assert.equal(h.backs.length, 2);
+});
+test("one stray knock, knocks too close or too far apart, or near a press, never go back", () => {
+  const lone = knockRig(); lone.wait(1000); lone.knock(); lone.wait(3000);
+  assert.equal(lone.backs.length, 0);
+  assert.deepEqual(lone.log.at(-1), ["knock", false], "the hint clears once a second knock can no longer come");
+  const slow = knockRig(); slow.wait(1000); slow.knock(); slow.wait(800); slow.knock();
+  assert.equal(slow.backs.length, 0, "800 ms apart is two separate knocks");
+  const quick = knockRig(); quick.wait(1000); quick.knock(); quick.wait(60); quick.knock();
+  assert.equal(quick.backs.length, 0, "60 ms apart is one ringing knock");
+  const pressed = knockRig(); pressed.wait(1000); pressed.press(60); pressed.wait(100); pressed.knock(); pressed.wait(250); pressed.knock();
+  assert.equal(pressed.backs.length, 0, "knocks just after a press are the switch, not the player");
+  const between = knockRig(); between.wait(1000); between.knock(); between.wait(100); between.press(60); between.wait(100); between.knock();
+  assert.equal(between.backs.length, 0, "a press between the knocks breaks the pair");
+  const held = knockRig(); held.wait(1000); held.down(); held.wait(600); held.knock(); held.wait(250); held.knock();
+  assert.equal(held.backs.length, 0, "never while the button is down");
+});
+test("in a game a knock goes to the game and never goes back", () => {
+  const h = knockRig("raw");
+  h.wait(1000); h.knock(); h.wait(250); h.knock();
+  assert.equal(h.backs.length, 0);
+  assert.equal(h.raw.length, 2);
+  assert.equal(h.count("down"), 0, "a knock is not a press");
+});

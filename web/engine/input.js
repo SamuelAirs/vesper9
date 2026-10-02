@@ -20,6 +20,11 @@ export const FALLBACK_HOLD_MS = 3000;
 export const RAW_STUCK_MS = 30000;
 // A node STATUS that says "up" this soon after a press may have been composed before it.
 const STATUS_GRACE_MS = 250;
+// Two knocks on the case, in a menu, the dashboard or an instrument, go back (main.js back()). The
+// second must come 120 to 650 ms after the first (by the node's clock), with the button untouched
+// for KNOCK_QUIET_MS before either, and nothing else counts for a second after a back. One stray
+// knock only shows "KNOCK AGAIN: BACK" and is forgotten. In a game a knock is the game's (knock()).
+export const DOUBLE_KNOCK_MIN_MS = 120, DOUBLE_KNOCK_MS = 650, KNOCK_QUIET_MS = 400, KNOCK_AFTER_BACK_MS = 1000;
 const MIN_TAP_MS = 8;
 
 // In a game (raw input) the hold runs this much longer: two quick taps and then a long press are
@@ -185,6 +190,7 @@ export class InputRouter {
   constructor(host, clock = () => performance.now()) {
     this.host = host; this.clock = clock; this.press = null;
     this.blocked = false; this.sequence = null;
+    this.lastEdge = -Infinity; this.knockAt = null; this.knockQuietUntil = -Infinity;
   }
   policy() { return this.host.escapePolicy?.() || { pace: 'standard' }; }
   pace() { return paceOf(this.policy().pace); }
@@ -206,6 +212,7 @@ export class InputRouter {
     this.host.clickVisual?.(0);
   }
   down(event = {}) {
+    if (!event.repeat) { this.lastEdge = this.clock(); this.forgetKnock(); }
     if (event.repeat || this.blocked || this.press) return;
     const mode = this.host.inputMode(), at = this.clock();
     const source = event.source || 'local', generation = event.generation ?? 0;
@@ -222,6 +229,7 @@ export class InputRouter {
     if (mode === 'raw') this.host.rawDown(event);
   }
   up(event = {}) {
+    this.lastEdge = this.clock(); this.forgetKnock();
     if (this.blocked) {
       if (!this.blockSource || !event.source || event.source === this.blockSource) {
         this.blocked = false; this.blockSource = null;
@@ -261,6 +269,7 @@ export class InputRouter {
   }
   update() {
     const pace = this.pace();
+    if (this.knockAt && this.clock() - this.knockAt.received > DOUBLE_KNOCK_MS + 250) this.forgetKnock();
     // The pause after the last tap runs out. (While the third press is down it is judged by its hold.)
     if (this.sequence && !this.press && this.clock() - this.sequence.received > pace.gapMs + 100) this.resetSequence();
     if (!this.press) return;
@@ -286,6 +295,39 @@ export class InputRouter {
     }
     if (!this.blocked || (this.blockSource && this.blockSource !== source)) return;
     if (pressed === false) { this.blocked = false; this.blockSource = null; this.resetSequence(); }
+  }
+  // A knock on the case (docs/PROTOCOL.md): a single instant, with no press or release. In a game it
+  // reaches the app (its knock() method), never while a menu's press is still waiting for its release,
+  // and it does not touch the tap, tap, hold sequence. Elsewhere two knocks go back (DOUBLE_KNOCK_MS).
+  // Returns whether anything acted on it.
+  knock(event = {}) {
+    const mode = this.host.inputMode();
+    if (mode === 'raw') {
+      if (this.blocked) return false;
+      this.host.rawKnock(event);
+      return true;
+    }
+    const now = this.clock(), at = this.stamp(event), source = event.source || 'node';
+    if (this.blocked || this.press || now - this.lastEdge < KNOCK_QUIET_MS || now < this.knockQuietUntil) {
+      this.forgetKnock();
+      return false;
+    }
+    const first = this.knockAt, since = first ? at - first.at : -1;
+    if (first && first.source === source && first.epoch === this.host.epoch && since >= DOUBLE_KNOCK_MIN_MS &&
+        since <= DOUBLE_KNOCK_MS && now - first.received <= DOUBLE_KNOCK_MS + 250) {
+      this.forgetKnock();
+      this.knockQuietUntil = now + KNOCK_AFTER_BACK_MS;
+      this.host.back?.('knock');
+      return true;
+    }
+    this.knockAt = { at, received: now, source, epoch: this.host.epoch };
+    this.host.knockVisual?.(true);
+    return false;
+  }
+  forgetKnock() {
+    if (!this.knockAt) return;
+    this.knockAt = null;
+    this.host.knockVisual?.(false);
   }
   cancel(waitForRelease = this.blocked, source = this.blockSource) {
     if (this.press?.mode === 'raw') this.host.rawCancel();

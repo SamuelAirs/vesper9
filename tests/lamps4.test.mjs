@@ -57,20 +57,20 @@ test("the board LED is a separate extra: never sent unless an app sets it and th
   const d = new LightDirector(async (name, data) => { calls.push([name, data]); }, () => (now += 100), 2000, { lamps: () => 4, board: () => board });
   d.set(fill(LAMP.red, 1, 4));
   await d.flush();
-  assert.ok(!calls.some(([name]) => name === "board"), "nothing lights the board LED on its own");
+  assert.ok(!calls.some(([name]) => name === "board_led"), "nothing lights the board LED on its own");
   d.setBoard([0, 0, 255]);
   await d.flush();
-  assert.ok(!calls.some(([name]) => name === "board"), "a node without one is never sent it");
+  assert.ok(!calls.some(([name]) => name === "board_led"), "a node without one is never sent it");
   board = true;
   await d.flush();
-  assert.deepEqual(calls.filter(([name]) => name === "board").at(-1)[1].values, [0, 0, 255]);
+  assert.deepEqual(calls.filter(([name]) => name === "board_led").at(-1)[1].values, [0, 0, 255]);
   const n = calls.length; await d.flush();
-  assert.equal(calls.filter(([name]) => name === "board").length, 1, "an unchanged colour is not resent");
+  assert.equal(calls.filter(([name]) => name === "board_led").length, 1, "an unchanged colour is not resent");
   d.setScale(0.5);
   await d.flush();
-  assert.deepEqual(calls.filter(([name]) => name === "board").at(-1)[1].values, [0, 0, 128], "the lamp level applies");
+  assert.deepEqual(calls.filter(([name]) => name === "board_led").at(-1)[1].values, [0, 0, 128], "the lamp level applies");
   await d.release();
-  assert.deepEqual(calls.filter(([name]) => name === "board").at(-1)[1].values, [0, 0, 0], "dark again when the app is left");
+  assert.deepEqual(calls.filter(([name]) => name === "board_led").at(-1)[1].values, [0, 0, 0], "dark again when the app is left");
   assert.equal(normalizeBoard([1, 2]), null);
   assert.ok(n > 0);
 });
@@ -87,4 +87,28 @@ test("the host's own lamp layer covers four lamps, with the microphone on the ri
   assert.deepEqual(gesture.slice(9), [255, 200, 150], "the rightmost lamp fills white towards the menu");
   const countdown = (r) => lampFrame({ ...base, rest: 0, lamps: 4, timerRemaining: r }).filter((_, i) => i % 3 === 0).filter((v) => v > 0).length;
   assert.deepEqual([9.5, 7, 4.5, 2].map(countdown), [4, 3, 2, 1]);
+});
+
+test("the node's echo is checked against what was sent, not the frame asked for", async () => {
+  const calls = [];
+  let count = 3, now = 0;
+  const d = new LightDirector(async (name, data) => { calls.push([name, data]); }, () => (now += 100), 2000, { lamps: () => count });
+  // A four-lamp frame on the old node is cut to three; the node echoes nine and nothing is resent.
+  d.set(fill(LAMP.red, 1, 4));
+  await d.flush();
+  const sent = calls.length;
+  d.observe(fill(LAMP.red));
+  await d.flush();
+  assert.equal(calls.length, sent);
+  // On the new node the service's physical values (twelve) are what is compared.
+  count = 4; d.invalidate();
+  await d.flush();
+  const again = calls.length;
+  d.observe(fill(LAMP.red, 1, 4));
+  await d.flush();
+  assert.equal(calls.length, again);
+  // A different echo (another tab, the node timing out) means the lamps are written again.
+  d.observe(lightsOff(4));
+  await d.flush();
+  assert.equal(calls.length, again + 1);
 });

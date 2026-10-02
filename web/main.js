@@ -84,8 +84,9 @@ export class Vesper {
     this.accumulator = 0;
     this.last = 0;
     this.hudValue = "";
-    // The node says how many lamps it has (device.lamps: 3 on the first node, 4 on the current one)
-    // and whether its board LED can be driven (device.boardLed). Until it says, three and no.
+    // The service says how many lamps the node has (state.lamps.count: 3 on the first node, 4 on the
+    // current one) and whether it has a board LED (state.lamps.board is [r, g, b], or null without
+    // one). Until it says, three and no.
     this.lights = new LightDirector((cmd, data) => this.bridge.command(cmd, data), undefined, undefined,
       { lamps: () => this.lampCount(), board: () => this.hasBoardLed() });
     // Host-owned lamp feedback (navigation, holds, clicks, acknowledgements, ambient, mic live).
@@ -1032,10 +1033,16 @@ export class Vesper {
     this.fitCanvas();
   }
   lampCount() {
-    return this.state.device?.lamps === 4 ? 4 : 3;
+    return (this.state.lamps?.count ?? this.state.device?.lamps) === 4 ? 4 : 3;
   }
   hasBoardLed() {
-    return this.state.device?.boardLed === true;
+    return Array.isArray(this.state.lamps?.board) || this.state.device?.boardLed === true;
+  }
+  // Every physical lamp value from a leds event or state (lamps), else the nine logical ones.
+  physicalLeds(e) {
+    if (Array.isArray(e?.lamps)) return e.lamps;
+    if (Array.isArray(e?.lamps?.values)) return e.lamps.values;
+    return e?.leds ?? e?.values;
   }
   // The on-screen board LED pip mirrors what an app asked for (the node does not echo it).
   boardVisual() {
@@ -1077,7 +1084,7 @@ export class Vesper {
         this.logbook();
         this.cardStats();
         this.settings();
-        this.lightVisual(e.leds);
+        this.lightVisual(this.physicalLeds(e));
         this.boardVisual();
         this.status();
         this.input.cancel(!!e.device.button, e.simulated ? "simulator" : "node");
@@ -1126,16 +1133,24 @@ export class Vesper {
         this.state.sensor = e;
         this.status();
         break;
-      case "leds":
+      case "leds": {
+        // e.values stays the nine logical lamps; e.lamps (new service) is every physical value.
+        const physical = this.physicalLeds(e);
         this.state.leds = e.values;
-        this.lights.observe(e.values);
-        this.lightVisual(e.values);
+        if (Array.isArray(e.lamps) && this.state.lamps) this.state.lamps.values = e.lamps;
+        this.lights.observe(physical);
+        this.lightVisual(physical);
+        break;
+      }
+      case "board_led":
+        if (this.state.lamps && Array.isArray(e.values)) this.state.lamps.board = e.values;
+        this.boardVisual();
         break;
       case "node_status":
         this.input.reconcile(e.button, this.state.simulated ? "simulator" : "node");
         this.state.device.button = e.button;
         this.state.device.generation = e.generation;
-        this.lights.observe(e.leds);
+        this.lights.observe(this.physicalLeds(e));
         this.state.device.capture = e.mic;
         this.state.device.audioBytes =
           e.audioBytes ?? this.state.device.audioBytes;
@@ -1143,7 +1158,14 @@ export class Vesper {
           e.crcErrors ?? this.state.device.crcErrors;
         this.state.device.missingSamples =
           e.missingSamples ?? this.state.device.missingSamples;
-        if (e.leds) this.lightVisual(e.leds);
+        // A node's STATUS says how many lamps it has and, when it has one, the board LED's colour, so a
+        // node plugged in after the page loaded is driven at its own count.
+        if (typeof e.lamps === "number") {
+          const before = this.lampCount() + "/" + this.hasBoardLed();
+          this.state.lamps = { count: e.lamps, values: e.leds, board: Array.isArray(e.board_led) ? e.board_led : null };
+          if (before !== this.lampCount() + "/" + this.hasBoardLed()) { this.lights.invalidate(); this.boardVisual(); }
+        }
+        if (e.leds || e.lamps) this.lightVisual(this.physicalLeds(e));
         break;
       case "mic":
         this.state.mic = {

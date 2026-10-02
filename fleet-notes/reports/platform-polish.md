@@ -53,6 +53,10 @@ Field Notes shows a `.venv/bin/pip` command to the player.
 
 ## Merge notes
 
+- Four lamps and the board LED follow PR #19's protocol (`state.lamps`, the `leds` event's `lamps`,
+  `board_led`). Against the service on main the console stays at three lamps and never sends
+  `board_led`. Not yet run against PR #19's service.
+
 - Merge after PR #11 (this branch contains its two commits).
 - PR #4 adds the same `rawKnock`, `softwareKnock`, K key, `knockInput` and `case "knock"` as
   this branch; keep this branch's `InputRouter.knock()` (it adds the menu back). Until #4 lands

@@ -33,7 +33,7 @@ export class LightDirector {
   constructor(command, clock = () => performance.now(), timeoutMs = 2000, { lamps = () => 3, board = () => false } = {}) {
     this.command = command; this.clock = clock; this.generation = 0; this.timeoutMs = timeoutMs;
     this.lamps = lamps; this.hasBoard = board;
-    this.desired = Array(MAX_LAMPS * 3).fill(0); this.sent = null; this.failed = null;
+    this.desired = Array(MAX_LAMPS * 3).fill(0); this.sent = null; this.failed = null; this.echo = null;
     this.boardDesired = [0, 0, 0]; this.boardRaw = null; this.boardSent = null; this.boardBusy = false;
     this.busy = null; this.last = -Infinity;
     this.suspendedUntil = 0;
@@ -89,18 +89,20 @@ export class LightDirector {
     // Both are written now; the socket delivers them in order after anything already sent.
     const cancel = this.command('cancel', {});
     const write = Promise.resolve(this.command('leds', { values: zero })).then(() => {
-      if (generation === this.generation) this.sent = padLamps(zero).join(',');
+      if (generation === this.generation) { this.sent = padLamps(zero).join(','); this.echo = this.sent; }
     });
     const writes = [cancel, write];
     // The board LED goes dark with the app that lit it.
     if (this.boardRaw || this.boardDesired.some(Boolean)) {
       this.boardRaw = null; this.boardDesired = [0, 0, 0];
-      if (this.hasBoard()) writes.push(Promise.resolve(this.command('board', { values: [0, 0, 0] })).then(() => { this.boardSent = '0,0,0'; }));
+      if (this.hasBoard()) writes.push(Promise.resolve(this.command('board_led', { values: [0, 0, 0] })).then(() => { this.boardSent = '0,0,0'; }));
     }
     return Promise.all(writes).then(() => undefined);
   }
   suspend(ms) { this.invalidate(); this.suspendedUntil = this.clock() + ms; }
-  observe(values) { if (!Array.isArray(values) || padLamps(values).join(',') !== this.sent) this.sent = null; }
+  // What the node shows (the service's physical lamp values) against what was last sent to it, so a
+  // four-lamp frame cut to three lamps, or a 9-value echo of a 12-value write, is not resent forever.
+  observe(values) { if (!Array.isArray(values) || padLamps(values).join(',') !== this.echo) this.sent = null; }
   // A reply that never comes must not hold the lamps for the bridge's 20 s request timeout.
   withTimeout(promise) {
     let timer;
@@ -124,7 +126,7 @@ export class LightDirector {
     this.busy = generation; this.last = now;
     try {
       await this.withTimeout(this.command('leds', { values }));
-      if (generation === this.generation) this.sent = key;
+      if (generation === this.generation) { this.sent = key; this.echo = padLamps(values).join(','); }
     } catch (error) {
       if (generation === this.generation) { this.sent = null; if (!transient(error)) this.failed = key; }
     } finally { if (this.busy === generation) this.busy = null; }
@@ -136,7 +138,7 @@ export class LightDirector {
     if (key === this.boardSent) return;
     this.boardBusy = true;
     try {
-      await this.withTimeout(this.command('board', { values: this.boardDesired.slice() }));
+      await this.withTimeout(this.command('board_led', { values: this.boardDesired.slice() }));
       this.boardSent = key;
     } catch (error) { this.boardSent = transient(error) ? null : key; } // a refused write is not retried until the colour changes
     finally { this.boardBusy = false; }

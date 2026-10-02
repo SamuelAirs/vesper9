@@ -16,6 +16,11 @@
 // halves it and a pause lets it fade. Late on, bearings left over after the tree can chart
 // CONSTELLATIONS: each multiplies all output and draws itself into the sky, without end.
 //
+// The hand keeps an EASY PACE: taps faster than about 2.5 a second are worth proportionally
+// less, so a steady beat pays as well as frantic tapping. Every machine is tuned to a note, and
+// a finished tune makes the machines on its commonest notes HUM (work harder) for a while, so
+// which tune to play is a choice about which machines to push.
+//
 // Numbers are plain doubles clamped to BIG (1e150) everywhere they can grow, so nothing
 // reaches Infinity or NaN. The save is one small JSON object (schema 4; schemas 1-3 migrate).
 // The three lamps are the status board: left breathes with production, middle fills toward
@@ -35,9 +40,10 @@ import { clamp } from "../engine/math.js";
 import { lightsOff } from "../engine/lightshow.js";
 import {
   SCHEMA, BIG, MAX_OWN, MILESTONES, PRESTIGE_K, READY_MIN, READY_RATIO, AWAY_MIN, HOLD_OPEN, HOLD_BUY, HOLD_BIG, DWELL, DWELL_BIG,
-  RING_IDLE, DIM_AFTER, SAVE_EVERY, SAVE_GAP, FLARE_LIFE, FLOATERS, LUMP_SEC,
+  RING_IDLE, DIM_AFTER, SAVE_EVERY, SAVE_GAP, FLARE_LIFE, FLOATERS, LUMP_SEC, TAP_EASY, TAP_EASY_FRENZY, PACE_BURST,
   GROOVE_BONUS, GROOVE_MAX, GROOVE_TOL, GROOVE_MIN_GAP, GROOVE_MAX_GAP, GROOVE_FADE, CHART_REQ, CHART_MULT, CHART_MAX,
   PROD, NP, UPG, NUP, VOICE, TREE, NT, KIT, KIT_SIGNAL, AUTO_EVERY, EXPED, MAX_RELICS, GEN_ID, RES, NR, EV, GOALS, NG, STAGES, CONST,
+  HUM_MULT, HUM_SEC, HUM_MAX, HUM_NOTES, HARMONICS, PC_NAMES, PC_PROD, humNotes, humMachines, humMultOf, humSecOf,
   hasRes, resSlots, tiersOwned, dataRate, dataBonus, unlockedN, masteredN, goalFrac, chartCost, chartName, chartsOpen, stageOf,
   num, fmt, fmtRate, dur, fmtInt, fmtDate, clock, costOf, milestonesAt, nextMilestone, globalMult, prodMult, evaluate, tapParts,
   capHours, pendingOf, revealOf, readyRatio, readyOf, slotsOf, upgradeVisible, tierOpen, prodVisible, freshState, applyKit, serialize, migrate,
@@ -58,6 +64,9 @@ export class Outpost {
     this.act = new Float64Array(NP); // smoothed 0..1 activity per machine (for motion)
     this.phase = new Float64Array(NP);
     this.flash = new Float64Array(NP); // purchase flash per machine
+    this.hum = new Float64Array(NP); // seconds of hum left per machine (HUM in the rules)
+    this.humK = new Float64Array(NP).fill(1); // the output multiplier each machine has now
+    this.baseRate = 0; // production without hum: what the station makes while nobody plays
     this.t = 0;
     this.clk = 0; // game-seconds, advances in update()
     this.down_ = false;
@@ -75,6 +84,7 @@ export class Outpost {
     this.flareIn = 50;
     this.boosts = [];
     this.note = null;
+    this.noteQ = []; // notes waiting for the current one to fade
     this.floats = Array.from({ length: FLOATERS }, () => ({ x: 0, y: 0, life: 0, v: "" }));
     this.queue = [];
     this.saveIn = SAVE_EVERY;
@@ -112,6 +122,9 @@ export class Outpost {
     this.groove = 0; // 0..GROOVE_MAX, this visit only
     this.gaps = []; // the last few gaps between gathering taps, for the beat
     this.lastGather = -9;
+    this.charge = PACE_BURST; // the hand's reserve after the last gathering tap (see TAP_EASY)
+    this.tuneK = 0; // the pace of this tune's taps so far: their summed worth, and how many
+    this.tuneN = 0;
     this.stageNow = -1;
     this.nextGoal = null;
     this.goalIn = 0;
@@ -150,7 +163,11 @@ export class Outpost {
   // ---- derived state -----------------------------------------------------------
   recalc() {
     this.dirty = false;
-    this.rate = evaluate(this.s, this.out);
+    const s = this.s, hm = humMultOf(s);
+    let humming = false;
+    for (let i = 0; i < NP; i++) { this.humK[i] = this.hum[i] > 0 && s.own[i] > 0 ? hm : 1; if (this.humK[i] !== 1) humming = true; }
+    this.rate = evaluate(s, this.out, humming ? this.humK : null);
+    this.baseRate = humming ? evaluate(s, null) : this.rate;
     const tp = tapParts(this.s);
     this.tapMult = tp.mult;
     this.tapFrac = tp.frac;
@@ -167,10 +184,16 @@ export class Outpost {
   frenzy() { let m = 1; for (const b of this.boosts) if (b.k === "frenzy") m = Math.max(m, b.mult); return m; }
   effRate() { return num(this.rate * this.surge()); }
   grooveMult() { return 1 + GROOVE_BONUS * Math.floor(this.groove) / GROOVE_MAX; }
-  tapValue() {
+  // What a tap is worth now. `paced` applies the easy pace (off for rewards that are not taps).
+  tapValue(paced = true) {
     const v = (this.tapMult * globalMult(this.s) + this.tapFrac * this.rate) * this.frenzy() * this.grooveMult();
-    return Math.max(1, num(v));
+    return Math.max(1, num(v)) * (paced ? this.paceNow() : 1);
   }
+  // The hand's reserve now (it refills between taps), and the share of a full tap the next one gets.
+  reserve() { return Math.min(PACE_BURST, this.charge + (this.clk - this.lastGather) * (this.frenzy() > 1 ? TAP_EASY_FRENZY : TAP_EASY)); }
+  paceNow() { return Math.min(1, this.reserve()); }
+  // Tapping faster than the easy pace just now (for the hint).
+  paceFast() { return this.clk - this.lastGather < 2 && this.charge < 0.5; }
   pending() { return pendingOf(this.s); }
   visibleItems() {
     const s = this.s, list = [];
@@ -178,8 +201,9 @@ export class Outpost {
     for (const u of UPG) if (upgradeVisible(s, u)) list.push({ type: "u", i: u.idx, key: "u" + u.idx, name: u.name, cost: u.cost });
     return list;
   }
+  // Gain per signal spent, judged on the station's normal output (hum comes and goes).
   gainOf(it) {
-    const s = this.s, base = this.rate;
+    const s = this.s, base = this.baseRate;
     if (it.type === "p") {
       s.own[it.i]++;
       const after = evaluate(s, null);
@@ -297,6 +321,7 @@ export class Outpost {
     s.ex = [];
     s.play = 0;
     applyKit(s);
+    this.hum.fill(0);
     this.boosts.length = 0;
     this.flare = null;
     this.flareIn = 40;
@@ -318,7 +343,7 @@ export class Outpost {
     const used = Math.min(sec, cap);
     sum.capped = sec > cap;
     sum.sec = used;
-    sum.gain = num(this.rate * used);
+    sum.gain = num(this.baseRate * used);
     this.gain(sum.gain, "o");
     sum.data = dataRate(this.s) * used;
     this.s.dat = Math.min(1e12, this.s.dat + sum.data);
@@ -333,7 +358,7 @@ export class Outpost {
       const x = EXPED[e.k];
       if (e.end > now + x.sec * 1000 + 60000) e.end = now + x.sec * 1000; // clock went backwards: never wait longer than the trip
       if (now >= e.end) {
-        const reward = num(this.rate * x.mins * 60);
+        const reward = num(this.baseRate * x.mins * 60);
         this.gain(reward, "b");
         s.dat = Math.min(1e12, s.dat + x.data * dataBonus(s));
         let relic = false;
@@ -425,31 +450,34 @@ export class Outpost {
     if (!(s.sp >= 0 && s.sp < this.mel.n.length)) s.sp = 0;
   }
   voices() { let n = 0; for (const k of VOICE) if (this.s.up[k]) n++; return n; }
-  playNote() {
+  // k: the share of a full tap this note's tap was worth (the easy pace)
+  playNote(k = 1) {
     const s = this.s, m = this.mel, st = s.st;
     if (s.sp >= m.n.length) s.sp = 0;
     const idx = s.sp, midi = m.n[idx], gap = this.clk - this.lastNoteAt;
     this.recent.push({ at: this.clk, sp: idx, sg: s.sg, gs: s.gs });
     if (this.recent.length > 6) this.recent.shift();
-    if (idx === 0) this.tuneClean = true; else if (gap > 1.6) this.tuneClean = false;
+    if (idx === 0) { this.tuneClean = true; this.tuneK = 0; this.tuneN = 0; } else if (gap > 1.6) this.tuneClean = false;
+    this.tuneK += k; this.tuneN++;
     this.lastNoteAt = this.clk;
     voiceNote(this, midi, gap, idx); // the tap's note, with the station's voices (outpost-music.js)
     this.noteFx = { pos: m.hi > m.lo ? clamp((midi - m.lo) / (m.hi - m.lo), 0, 1) : 0.5, t: 0 };
     st.nt = Math.min(1e12, st.nt + 1);
     s.sp = idx + 1;
     if (idx >= m.n.length - 1) this.finishTune();
-    else if (m.ends.includes(idx)) this.finishPhrase();
+    else if (m.ends.includes(idx)) this.finishPhrase(k);
   }
-  finishPhrase() {
+  finishPhrase(k = 1) {
     const s = this.s;
     s.st.ph++;
-    this.gain(this.tapValue() * 2 * (1 + 0.5 * s.tree[10]), "h");
+    this.gain(this.tapValue(false) * k * 2 * (1 + 0.5 * s.tree[10]), "h");
     this.accent = { k: "phrase", t: 0, dur: 0.4 };
     this.dirty = true;
   }
   finishTune() {
     const s = this.s, m = this.mel, st = s.st, len = m.n.length, pp = 1 + 0.5 * s.tree[10];
-    const lump = (this.effRate() * LUMP_SEC * len * (1 + 0.25 * this.voices()) + this.tapValue() * len * 0.15) * pp;
+    // paced by the tune's taps, or playing faster would pay more tunes a minute
+    const lump = (this.effRate() * LUMP_SEC * len * (1 + 0.25 * this.voices()) + this.tapValue(false) * len * 0.15) * pp * (this.tuneN ? this.tuneK / this.tuneN : 1);
     this.gain(lump, "h");
     st.md++;
     let first = false, mastered = false;
@@ -460,9 +488,24 @@ export class Outpost {
     this.accent = { k: "tune", t: 0, dur: 1 };
     this.setNote(mastered ? m.name + " MASTERED  +2% OUTPUT" : (first ? "FIRST PLAYING: " : "TUNE COMPLETE: ") + m.name + "  +" + fmt(lump), 4);
     tuneCue(this, m); // a closing flourish on the tune's own triad
+    this.startHum(m);
     this.nextTune();
     this.dirty = true;
     this.saveSoon();
+  }
+  // The machines tuned to the tune's commonest notes hum (HUM in the rules); longer in full groove.
+  startHum(m) {
+    const s = this.s, full = this.groove >= GROOVE_MAX, secs = humSecOf(s, full), on = [];
+    for (const i of humMachines(m)) {
+      if (i < 0) continue;
+      this.hum[i] = Math.min(HUM_MAX, this.hum[i] + secs);
+      if (s.own[i] > 0) on.push(i);
+    }
+    if (!on.length) return on;
+    this.queueNote("HUM x" + +humMultOf(s).toFixed(2) + " +" + Math.round(secs / 60) + " MIN" + (full ? " IN GROOVE" : "") + ": " + on.map((i) => PROD[i].short).join(", "), 3.5);
+    cue(this, "hum");
+    this.dirty = true;
+    return on;
   }
   nextTune() {
     const s = this.s, rng = this.c.rng;
@@ -494,6 +537,12 @@ export class Outpost {
 
   // ---- effects ------------------------------------------------------------------
   setNote(textValue, secs = 3) { this.note = { text: textValue, t: secs }; }
+  // A note shown once the current one has faded (at most two wait; older ones are dropped).
+  queueNote(textValue, secs = 3) {
+    if (!this.note) { this.setNote(textValue, secs); return; }
+    this.noteQ.push({ text: textValue, t: secs });
+    if (this.noteQ.length > 2) this.noteQ.shift();
+  }
   milestoneFx(label) {
     this.accent = { k: "milestone", t: 0, dur: 0.9 };
     this.setNote("MILESTONE - " + label, 3.5);
@@ -601,9 +650,10 @@ export class Outpost {
     if (this.groove >= GROOVE_MAX) { s.ev |= EV.groove; s.st.gt = Math.min(1e15, s.st.gt + 1); }
   }
   gather() {
-    const s = this.s;
+    const s = this.s, have = this.reserve(), k = Math.min(1, have);
+    this.charge = have - k;
     this.beatTap();
-    const v = this.tapValue();
+    const v = this.tapValue(false) * k;
     this.gain(v, "h");
     s.taps = Math.min(1e12, s.taps + 1);
     s.st.rtaps++;
@@ -611,7 +661,7 @@ export class Outpost {
     this.tapTimes.push(this.clk);
     if (this.tapTimes.length > 12) this.tapTimes.shift();
     if (this.tapTimes.length === 12 && this.clk - this.tapTimes[0] < 1.8) s.ev |= EV.presto;
-    this.playNote();
+    this.playNote(k);
     addRipple(this);
     addFloat(this, "+" + fmt(v), 480 + this.c.rng.range(-70, 70), 215 + this.c.rng.range(-8, 8));
     if (this.flare) this.catchFlare();
@@ -628,7 +678,7 @@ export class Outpost {
       this.boosts.push({ k: "surge", t: 30, max: 30, mult: 7 });
       this.setNote("FLARE CAUGHT - SURGE x7 FOR 30 S", 4);
     } else if (r < 0.8) {
-      const g = this.effRate() * 600 + this.tapValue() * 40;
+      const g = this.effRate() * 600 + this.tapValue(false) * 40;
       this.gain(g, "b");
       this.setNote("FLARE CAUGHT - LODE +" + fmt(g), 4);
     } else {
@@ -691,7 +741,8 @@ export class Outpost {
       const i = it.i, n = s.own[i], each = PROD[i].r * prodMult(s, i) * globalMult(s);
       const nm = nextMilestone(n);
       return { key: it.key, kind: "prod", i, label: PROD[i].n, sub: "x" + n, aff, cost: it.cost, big: "COST " + fmt(it.cost),
-        lines: ["OWNED " + n + "  EACH " + fmtRate(each) + " /S", PROD[i].fx.toUpperCase(), nm ? "NEXT x2 AT " + nm + " OWNED" : "ALL MILESTONES MET"] };
+        lines: ["OWNED " + n + "  EACH " + fmtRate(each) + " /S", PROD[i].fx.toUpperCase(), nm ? "NEXT x2 AT " + nm + " OWNED" : "ALL MILESTONES MET",
+          "TUNED TO " + PC_NAMES[PROD[i].pc] + (this.hum[i] > 0 ? ", HUMMING " + clock(this.hum[i]) : "")] };
     }
     const u = UPG[it.i];
     return { key: it.key, kind: "upg", i: it.i, label: u.name, sub: "UPG", aff, cost: u.cost, big: "COST " + fmt(u.cost), lines: [u.eff] };
@@ -702,11 +753,11 @@ export class Outpost {
     for (const e of s.ex) {
       const x = EXPED[e.k];
       list.push({ key: "act" + e.end, kind: "info", label: x.n, sub: clock((e.end - now) / 1000), aff: false, big: "OUT " + clock((e.end - now) / 1000),
-        lines: ["EXPECTED " + fmt(this.rate * x.mins * 60)] });
+        lines: ["EXPECTED " + fmt(this.baseRate * x.mins * 60)] });
     }
     EXPED.forEach((x, k) => {
       const free = s.ex.length < slotsOf(s);
-      list.push({ key: "go" + k, kind: "launch", k, label: x.n, sub: dur(x.sec), aff: free, big: "RETURNS ~" + fmt(this.rate * x.mins * 60),
+      list.push({ key: "go" + k, kind: "launch", k, label: x.n, sub: dur(x.sec), aff: free, big: "RETURNS ~" + fmt(this.baseRate * x.mins * 60),
         lines: [free ? "BACK IN " + dur(x.sec) : "NO FREE TEAM", "WORTH " + x.mins + " MIN OF OUTPUT", x.relic ? Math.round(x.relic * 100) + "% CHANCE OF A RELIC" : "NO RELICS ON SHORT TRIPS"] });
     });
     return list;
@@ -737,11 +788,11 @@ export class Outpost {
     for (let i = 0; i < NS; i++) {
       if (s.lt < SONGS[i].at) continue;
       list.push({ key: "s" + i, kind: "song", i, cur: s.sg === i, label: SONGS[i].name, sub: s.sc[i] >= 5 ? "MASTER" : s.sc[i] + "X", aff: true,
-        big: s.sg === i ? "PLAYING" : "PLAY THIS", lines: [SONGS[i].by, "PLAYED " + s.sc[i] + " TIMES", s.sc[i] >= 5 ? "MASTERED: +2% OUTPUT" : "MASTER AT 5 PLAYS: +2% OUTPUT"] });
+        big: s.sg === i ? "PLAYING" : "PLAY THIS", lines: [SONGS[i].by, "HUMS " + this.humList(MEL[i]), s.sc[i] >= 5 ? "MASTERED: +2% OUTPUT" : "PLAYED " + s.sc[i] + " OF 5 TO MASTER (+2%)"] });
     }
     if (gen) {
       list.push({ key: "gen", kind: "song", i: GEN_ID, cur: s.sg === GEN_ID, label: genName(s.gs), sub: "SEED", aff: true, big: s.sg === GEN_ID ? "PLAYING" : "PLAY THIS",
-        lines: ["COMPOSED FROM A SEED.", "THE SAME NAME IS ALWAYS", "THE SAME TUNE."] });
+        lines: ["COMPOSED FROM A SEED.", "THE SAME NAME IS ALWAYS", "THE SAME TUNE.", "HUMS " + this.humList(genTune(s.gs))] });
       list.push({ key: "newgen", kind: "songnew", label: "COMPOSE A NEW TUNE", aff: true, big: "NEW SEED", lines: ["MAKES A TUNE NOBODY HAS", "HEARD, AND PLAYS IT."] });
     }
     let shown = 0;
@@ -752,6 +803,7 @@ export class Outpost {
     }
     return list;
   }
+  humList(mel) { return humMachines(mel).map((i) => PROD[i].short).join(", "); }
   buildRes() {
     const s = this.s, now = Date.now();
     const list = [{ key: "back", kind: "back", label: "BACK", lines: ["TO THE BUILD RING"], hold: HOLD_BUY }];
@@ -899,6 +951,8 @@ export class Outpost {
     if (this.dirty || this.recalcIn <= 0) { this.recalc(); this.recalcIn = 0.2; }
     s.play += dt;
     s.st.tp += dt;
+    // hum runs down; a machine falling quiet changes the rate
+    for (let i = 0; i < NP; i++) if (this.hum[i] > 0) { this.hum[i] -= dt; if (this.hum[i] <= 0) { this.hum[i] = 0; this.dirty = true; } }
     // production, and the slow trickle of data
     const eff = this.effRate();
     this.gain(eff * dt, "m");
@@ -967,6 +1021,7 @@ export class Outpost {
     }
     this.wasAfford = aff;
     stepScene(this, dt); // visual-only animation (outpost-scene.js)
+    if (!this.note && this.noteQ.length) this.note = this.noteQ.shift();
     // autosave
     if (this.saveCool > 0) this.saveCool -= dt;
     this.saveIn -= dt;
@@ -1003,6 +1058,7 @@ export class Outpost {
     else if (this.phase_ === "card") h = "Press to continue.";
     else if (this.ring) h = "Tap: next entry. Hold, then release: choose.";
     else if (this.flare) h = "Signal flare. Tap now to catch it.";
+    else if (this.paceFast()) h = "Easy does it: a steady beat pays as well as fast tapping.";
     else if (this.affordN > 0) h = "Something is affordable. Hold to build.";
     else h = "Tap to gather signal and play the song. Hold to open the build ring.";
     if (h !== this.hintKey) { this.hintKey = h; this.c.hint(h); }
@@ -1013,6 +1069,6 @@ export class Outpost {
   draw(g) { drawOutpost(g, this); }
 }
 Outpost.music = { SONGS, MEL, GEN_ID, makeMelody, genTune, genName, scaleUp, midiHz, noteName, noteMidi, seeded, SCALES };
-Outpost.econ = { RES, GOALS, STAGES, VOICE, EV, NR, NG, NS, NT, hasRes, tierOpen, tiersOwned, dataRate, masteredN, unlockedN, stageOf, fmtInt, fmtDate, revealOf, fmt, fmtRate, dur, costOf, prodMult, globalMult, evaluate, tapParts, capHours, pendingOf, readyOf, migrate, serialize, freshState, applyKit,
+Outpost.econ = { RES, GOALS, STAGES, VOICE, EV, NR, NG, NS, NT, HUM_MULT, HUM_SEC, HUM_MAX, HUM_NOTES, HARMONICS, PC_NAMES, PC_PROD, humNotes, humMachines, humMultOf, humSecOf, hasRes, tierOpen, tiersOwned, dataRate, masteredN, unlockedN, stageOf, fmtInt, fmtDate, revealOf, fmt, fmtRate, dur, costOf, prodMult, globalMult, evaluate, tapParts, capHours, pendingOf, readyOf, migrate, serialize, freshState, applyKit,
   PROD, UPG, TREE, EXPED, READY_RATIO, MILESTONES, SCHEMA, BIG, PRESTIGE_K, READY_MIN, KIT, NUP, NP, milestonesAt,
   readyRatio, chartCost, chartName, chartsOpen, CONST, CHART_REQ, CHART_MULT, CHART_MAX, GROOVE_MAX, VOICE_GAIN };

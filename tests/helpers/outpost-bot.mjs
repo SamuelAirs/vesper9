@@ -1,14 +1,27 @@
 // A simulated OUTPOST player for balance tests and the report's timeline.
-// It plays the real cartridge: in "active" windows it taps and buys at once; the rest
-// of the time it is away from the screen and only checks in every `checkin` seconds.
+// It plays the real cartridge: in "active" windows it taps a steady beat (`tapRate` a second,
+// relaxed: below the easy pace, so every tap counts in full) and buys at once; the rest of the
+// time it is away from the screen and only checks in every `checkin` seconds.
 // Date.now is replaced by a fake clock that advances with the simulation.
 import { Outpost } from "../../web/apps/outpost.js";
 import { appContext } from "./app-context.mjs";
 
-const E = Outpost.econ;
-const TREE_ORDER = [0, 1, 10, 3, 5, 4, 2, 6, 9, 7, 8, 12, 11];
+const E = Outpost.econ, M = Outpost.music;
+const TREE_ORDER = [0, 1, 10, 3, 5, 4, 2, 13, 6, 9, 7, 8, 12, 11];
 
-export function simulate({ runs = 3, maxMin = 240, active = 150, cycle = 600, checkin = 150, seed = 1, tapRate = 4, dt = 0.25, ready = (s) => E.readyOf(s) } = {}) {
+// Between tunes, the bot picks the unlocked tune that hums the machines making the most.
+function chooseTune(app) {
+  const s = app.s;
+  let best = s.sg, bestV = -1;
+  for (let k = 0; k < M.SONGS.length; k++) {
+    if (s.lt < M.SONGS[k].at) continue;
+    const v = E.humMachines(M.MEL[k]).reduce((a, i) => a + (app.out[i] || 0) / (app.humK[i] || 1), 0);
+    if (v > bestV * 1.0001) { bestV = v; best = k; }
+  }
+  if (best !== s.sg) { s.sg = best; s.sp = 0; app.loadMelody(); }
+}
+
+export function simulate({ runs = 3, maxMin = 240, active = 150, cycle = 600, checkin = 150, seed = 1, tapRate = 2, dt = 0.25, tunes = true, ready = (s) => E.readyOf(s) } = {}) {
   let wall = 1.8e12;
   const realNow = Date.now;
   Date.now = () => wall;
@@ -17,7 +30,7 @@ export function simulate({ runs = 3, maxMin = 240, active = 150, cycle = 600, ch
     app.down();
     app.up({ durationMs: 50 }); // leave the intro card
     const res = [];
-    let t = 0, runStart = 0, layer = {}, nextCheck = 0;
+    let t = 0, runStart = 0, layer = {}, nextCheck = 0, taps = 0;
     const mark = (k, v) => { if (!(k in layer)) layer[k] = Number(v.toFixed(1)); };
     for (let r = 0; r < runs; r++) {
       layer = {}; runStart = t;
@@ -26,7 +39,7 @@ export function simulate({ runs = 3, maxMin = 240, active = 150, cycle = 600, ch
         const isActive = t % cycle < active;
         const checking = !isActive && t >= nextCheck;
         if (isActive) {
-          for (let k = 0; k < tapRate * dt; k++) app.gather();
+          for (taps += tapRate * dt; taps >= 1; taps--) { if (tunes && app.s.sp === 0) chooseTune(app); app.gather(); }
           app.buyAll();
         } else if (checking) { app.buyAll(); nextCheck = t + checkin; }
         if (app.s.tree[5] > 0 && app.s.ex.length < app.s.tree[5] && (isActive || checking)) {

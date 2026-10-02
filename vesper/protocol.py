@@ -30,6 +30,7 @@ class Kind(enum.IntEnum):
     CANCEL = 20
     PATTERN = 21
     KNOCK_SET = 22
+    BOARD_LED = 23
 
 
 def crc16(data):

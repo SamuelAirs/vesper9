@@ -45,6 +45,10 @@ static const int NODE_LEDS[12] = {7, 15, 16, 17, 18, 8, 9, 10, 11, 13, 14, 3};
 #else
 #error "NODE_BOARD must be 1 or 2"
 #endif
+// The development board's own RGB LED: one WS2812 on GPIO48 (on some of these boards it only works
+// once the "RGB" solder jumper beside it is closed). The TX and RX LEDs follow the UART lines and
+// the power LED is hard-wired; none of those can be controlled.
+#define NODE_BOARD_LED 48
 #define NODE_LED_COUNT (NODE_LAMPS * 3)
 // The first eight outputs use LEDC (all it has); the rest use MCPWM generators, two per operator.
 #define NODE_LEDC_COUNT 8

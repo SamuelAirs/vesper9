@@ -21,7 +21,8 @@ enum {
   V9_ARM = 19,
   V9_CANCEL = 20,
   V9_PATTERN = 21,
-  V9_KNOCK_SET = 22
+  V9_KNOCK_SET = 22,
+  V9_BOARD_LED = 23
 };
 static inline uint16_t v9_u16(const uint8_t *p) { return p[0] | ((uint16_t)p[1] << 8); }
 static inline uint32_t v9_u32(const uint8_t *p) {

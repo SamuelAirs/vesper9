@@ -2,6 +2,7 @@
 #include "driver/i2s_std.h"
 #include "driver/ledc.h"
 #include "driver/mcpwm_prelude.h"
+#include "driver/rmt_tx.h"
 #include "driver/uart.h"
 #include "driver/usb_serial_jtag.h"
 #include "esp_err.h"
@@ -63,6 +64,9 @@ static atomic_bool mic_stereo = false;
 static atomic_uint mic2_errors = 0;
 static atomic_int mic2_setup = 0; // esp_err_t of the second port's set-up, 0 = fine
 #endif
+// Wiring diagnostics for STATUS: the largest raw magnitude (top 16 bits) seen in the latest read, in
+// each I2S slot of each microphone port: left port slot 0, slot 1, right port slot 0, slot 1.
+static atomic_uint slot_peaks[4];
 static mcpwm_cmpr_handle_t extra_comparators[NODE_MCPWM_COUNT];
 static mcpwm_gen_handle_t extra_generators[NODE_MCPWM_COUNT];
 static uint8_t leds[NODE_LED_COUNT] = {0};
@@ -129,6 +133,38 @@ static void set_leds(const uint8_t *values) {
       mcpwm_generator_set_force_level(extra_generators[i], -1, true);
     }
   }
+}
+// The board's own LED (a WS2812): three bytes clocked out by RMT, green first.
+static rmt_channel_handle_t board_led_channel;
+static rmt_encoder_handle_t board_led_encoder;
+static uint8_t board_led[3] = {0}, board_led_wire[3];
+static void set_board_led(uint8_t r, uint8_t g, uint8_t b) {
+  board_led[0] = r;
+  board_led[1] = g;
+  board_led[2] = b;
+  if (!board_led_channel)
+    return;
+  board_led_wire[0] = g;
+  board_led_wire[1] = r;
+  board_led_wire[2] = b;
+  rmt_transmit_config_t once = {.loop_count = 0};
+  rmt_transmit(board_led_channel, board_led_encoder, board_led_wire, 3, &once);
+}
+static void setup_board_led(void) {
+  rmt_tx_channel_config_t channel = {.clk_src = RMT_CLK_SRC_DEFAULT,
+                                     .gpio_num = NODE_BOARD_LED,
+                                     .mem_block_symbols = 64,
+                                     .resolution_hz = 10000000, // 0.1 us
+                                     .trans_queue_depth = 4};
+  rmt_bytes_encoder_config_t bytes = {.bit0 = {.level0 = 1, .duration0 = 3, .level1 = 0, .duration1 = 9},
+                                      .bit1 = {.level0 = 1, .duration0 = 9, .level1 = 0, .duration1 = 3},
+                                      .flags.msb_first = 1};
+  if (rmt_new_tx_channel(&channel, &board_led_channel) != ESP_OK ||
+      rmt_new_bytes_encoder(&bytes, &board_led_encoder) != ESP_OK || rmt_enable(board_led_channel) != ESP_OK) {
+    board_led_channel = NULL; // a node without it still runs
+    return;
+  }
+  set_board_led(0, 0, 0);
 }
 static void lights_off(void) {
   uint8_t off[NODE_LED_COUNT] = {0};
@@ -208,7 +244,7 @@ static void status(uint8_t kind) {
                    "\"stereo\":%s,\"button\":%s,\"audio_"
                    "drops\":%u,\"rx_crc\":%lu,\"sensor\":{\"addr\":%d,\"ok\":%u,\"fail\":%u,\"err\":%d},\"leds\":[%s"
                    "],\"knock\":{\"thr\":%u,\"n\":%lu,\"btn\":%lu,\"long\":%lu,"
-                   "\"bright\":%lu,\"peak\":%ld,\"hf\":%ld},\"mic2\":{\"setup\":%d,\"err\":%u}}",
+                   "\"bright\":%lu,\"peak\":%ld,\"hf\":%ld},\"mic2\":{\"setup\":%d,\"err\":%u},\"slots\":[%u,%u,%u,%u],\"board_led\":[%u,%u,%u]}",
                    NODE_BOARD, NODE_LAMPS, NODE_MICS,
                    link == LINK_USB ? "usb" : link == LINK_UART ? "uart" : "none",
                    atomic_load(&mic_active) ? "true" : "false",
@@ -225,7 +261,8 @@ static void status(uint8_t kind) {
 #else
                    0, 0u
 #endif
-                   );
+                   , atomic_load(&slot_peaks[0]), atomic_load(&slot_peaks[1]), atomic_load(&slot_peaks[2]),
+                   atomic_load(&slot_peaks[3]), board_led[0], board_led[1], board_led[2]);
   if (n > 0 && n < (int)sizeof(data))
     send_message(kind, data, (uint16_t)n, false);
 }
@@ -284,6 +321,13 @@ static void command(uint8_t kind, uint16_t sequence, const uint8_t *p, uint16_t 
       return;
     }
     atomic_store(&knock_threshold, v9_u16(p));
+    break;
+  case V9_BOARD_LED:
+    if (n != 3) {
+      ack(sequence, kind, 1);
+      return;
+    }
+    set_board_led(p[0], p[1], p[2]);
     break;
   case V9_CANCEL:
     if (n) {
@@ -449,6 +493,23 @@ static void microphone_task(void *unused) {
       atomic_fetch_add(&mic2_errors, 1);
     }
 #endif
+    {
+      uint32_t peaks[4] = {0};
+      for (size_t i = 0; i < samples * 2; i++) {
+        int32_t a = raw[i] >> 16;
+        a = a < 0 ? -a : a;
+        if ((uint32_t)a > peaks[i & 1])
+          peaks[i & 1] = (uint32_t)a;
+#if NODE_MICS == 2
+        int32_t b = raw2[i] >> 16;
+        b = b < 0 ? -b : b;
+        if ((uint32_t)b > peaks[2 + (i & 1)])
+          peaks[2 + (i & 1)] = (uint32_t)b;
+#endif
+      }
+      for (int i = 0; i < 4; i++)
+        atomic_store(&slot_peaks[i], peaks[i]);
+    }
     v9_put32(payload, index);
     knock_verdict verdict = KNOCK_NONE;
     for (size_t i = 0; i < samples; i++) {
@@ -627,6 +688,7 @@ void app_main(void) {
   button_inhibit = button_stable;
   button_edge = esp_timer_get_time();
   setup_lights();
+  setup_board_led();
   uart_config_t uart = {.baud_rate = NODE_BAUD,
                         .data_bits = UART_DATA_8_BITS,
                         .parity = UART_PARITY_DISABLE,
@@ -658,7 +720,12 @@ void app_main(void) {
   // The right microphone: a second port in slave mode on its own pins, and the first port's clock
   // outputs routed to those same pins as well. A failure here leaves a one-microphone node, reported
   // in STATUS, rather than a node that cannot start.
+#ifdef NODE_MIC2_MASTER
+  // Diagnostic build: the right microphone on its own clocks (not sample-aligned with the left).
+  i2s_chan_config_t channel2 = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_1, I2S_ROLE_MASTER);
+#else
   i2s_chan_config_t channel2 = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_1, I2S_ROLE_SLAVE);
+#endif
   channel2.dma_desc_num = 6;
   channel2.dma_frame_num = NODE_AUDIO_SAMPLES;
   esp_err_t second = i2s_new_channel(&channel2, NULL, &microphone2);
@@ -669,6 +736,12 @@ void app_main(void) {
     mic2.gpio_cfg.din = NODE_I2S2_DIN;
     second = i2s_channel_init_std_mode(microphone2, &mic2);
   }
+#ifdef NODE_MIC2_MASTER
+  if (second != ESP_OK) {
+    microphone2 = NULL;
+    atomic_store(&mic2_setup, second);
+  }
+#else
   if (second == ESP_OK) {
     gpio_set_direction(NODE_I2S2_BCLK, GPIO_MODE_INPUT_OUTPUT);
     esp_rom_gpio_connect_out_signal(NODE_I2S2_BCLK, i2s_periph_signal[0].m_rx_bck_sig, false, false);
@@ -678,6 +751,7 @@ void app_main(void) {
     microphone2 = NULL;
     atomic_store(&mic2_setup, second);
   }
+#endif
 #endif
   xTaskCreate(tx_task, "v9_tx", 4096, NULL, 12, NULL);
   xTaskCreate(microphone_task, "v9_mic", 8192, NULL, 8, NULL);
@@ -730,6 +804,7 @@ void app_main(void) {
       reaction_armed = false;
       pattern_count = 0;
       lights_off();
+      set_board_led(0, 0, 0);
       button_inhibit = button_stable;
     }
     if (reaction_armed && now >= reaction_due) {

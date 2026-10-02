@@ -121,6 +121,7 @@ class Probe:
             self.send(Kind.KNOCK_SET, b"\x00\x00")
             self.send(Kind.CANCEL)
             self.send(Kind.LEDS, bytes(9))  # nine values are accepted by every board
+            self.send(Kind.BOARD_LED, bytes(3))
             self.link.flush()
         finally:
             self.link.close()
@@ -136,6 +137,7 @@ def main():
     parser.add_argument("--mic", type=float, default=0, help="seconds of microphone level statistics")
     parser.add_argument("--identify", action="store_true",
                         help="light one output at a time; each button press advances (maps real lamp/colour per GPIO)")
+    parser.add_argument("--board-led", action="store_true", help="step the board's own RGB LED through red, green, blue and white (firmware 0.2.0)")
     parser.add_argument("--mono", action="store_true", help="with --mic on a two-microphone node: the left microphone only")
     parser.add_argument("--knock", type=float, default=0,
                         help="seconds to listen for knocks on the case (prints each one, then the node's counters)")
@@ -159,6 +161,10 @@ def main():
                 print(f"ALL at {level}: ack {probe.command(Kind.LEDS, bytes([level] * probe.outputs))}", flush=True)
                 probe.pump(args.step)
             probe.command(Kind.LEDS, bytes(9))
+        if args.board_led:
+            for name, rgb in (("red", (60, 0, 0)), ("green", (0, 60, 0)), ("blue", (0, 0, 60)), ("white", (40, 40, 40)), ("off", (0, 0, 0))):
+                print(f"BOARD LED {name}: ack {probe.command(Kind.BOARD_LED, bytes(rgb))} (2 = this firmware has no board LED control)", flush=True)
+                probe.pump(args.step)
         if args.identify:
             for index in range(probe.outputs):
                 values = bytearray(probe.outputs)

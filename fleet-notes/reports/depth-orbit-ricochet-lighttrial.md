@@ -55,3 +55,20 @@ Shared pieces live in a new `web/apps/goals.js` (only these three games import i
   and "TO BEAT" while armed.
 - Verification: JS 856 pass, 1 fail (the same Perihelion bot test as on main); Python OK; catalog
   check, demo build and all four browser suites pass. Screenshots looked at for each new screen.
+
+## Round 3 (fixes from the honest platform review)
+- Orbit Lock: the gate never narrows below 0.14 rad (was 0.08). Past 45 locks the speed grows slowly
+  and past 50 every other gate is dark, so a 30 ms player's run still ends. Rush opens at a best of 20
+  locks and Eclipse at 25 dark gates in all, instead of after 3 and 6 feats, so one long run cannot
+  open both. Feats moved to match (FAR SIDE 35, EVENT HORIZON 50, 8 dark gates). The result panel is
+  at most four lines and ends above the hint line.
+- Ricochet: 3 rows of cells up to chamber 4, 4 up to chamber 8, then 5, so chambers end sooner.
+  A hold that pauses the game puts the paddle back on the direction it had before the press.
+- Light Trial: a press more than 1.5 s after the cue says TOO SLOW and is not scored, saved or added
+  to the series; the node trial is cancelled. With no press it times out by itself. The discs are
+  hidden on the title so the banner no longer covers them, and the legacy-record line is gone.
+- Left to the "Polish the platform from the review" thread: latency calibration, screen space, the
+  menu gesture.
+- Verification: JS 863 pass, 1 fail (the same Perihelion bot test as on main); Python OK; catalog
+  check, demo build and all four browser suites pass. Screenshots of the Orbit result panel, a
+  Ricochet chamber and the Light Trial title looked at. Not verified on the device.

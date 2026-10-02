@@ -445,26 +445,33 @@ export class Outpost {
     this.save(true);
   }
   // Milestones go to the console logbook once each (bit k of s.fe), when the host keeps one.
+  // The console logbook's calls are optional, may be held back during a menu gesture (and then
+  // return nothing) or fail; Outpost never depends on them.
+  book(name, ...args) {
+    try { return this.c[name]?.(...args); } catch { return undefined; }
+  }
   checkFeats() {
     const s = this.s;
     FEATS.forEach(([id, name, met], k) => {
       if (s.fe & (1 << k) || !met(s)) return;
-      const r = this.c.feat?.(id, name);
+      const r = this.book("feat", id, name);
       if (typeof r === "boolean") { s.fe |= 1 << k; this.saveSoon(); }
     });
   }
   // When Outpost is one of today's three in the console logbook, it states a musical order.
   startDaily() {
-    const today = this.c.today?.();
+    const today = this.book("today");
     if (!today || today.done) return;
     const k = Math.floor(Date.now() / 864e5) % DAILY.length;
     this.dailyK = DAILY[k][0];
-    this.c.daily?.(DAILY[k][1]);
+    this.book("daily", DAILY[k][1]);
   }
+  // The order is met: tell the logbook, and ask again next time unless it now has it (a call held
+  // back during a menu gesture can be dropped).
   dailyEvent(k) {
     if (this.dailyK !== k) return;
-    this.dailyK = null;
-    this.c.dailyMet?.();
+    this.book("dailyMet");
+    if (this.book("today")?.done !== false) this.dailyK = null;
   }
   // Credit production earned while closed (or paused for long). Returns the summary.
   creditAway(sec) {

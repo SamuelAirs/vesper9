@@ -1320,6 +1320,42 @@ test("console logbook: milestones become feats once each and are kept; today's o
   assert.equal(plain.s.fe, 0, "without a logbook nothing is marked as reported");
 });
 
+test("console logbook: calls held back during a menu gesture are made again; a failing logbook changes nothing", () => {
+  // The console holds feat and dailyMet back while a menu gesture is possible: they return nothing
+  // and may be dropped. Outpost asks again until the logbook has them.
+  wall = T0 + 864e5; // "play three tunes through"
+  const { ctx, app, book } = bootLog();
+  const met = ctx.dailyMet, feat = ctx.feat;
+  let held = 0;
+  ctx.dailyMet = () => { held++; };
+  app.finishTune(); app.finishTune(); app.finishTune();
+  assert.equal(held, 1); assert.equal(book.met, 0);
+  ctx.dailyMet = met;
+  app.finishTune();
+  assert.equal(book.met, 1, "asked again at the next tune");
+  app.finishTune();
+  assert.equal(book.met, 1, "and not after the logbook has it");
+  ctx.feat = () => undefined;
+  app.s.rt = 1e9; app.dirty = true; app.recalc(); app.relocate(); app.phase_ = "play";
+  advance(app, 1.2);
+  assert.equal(app.s.fe & 1, 0, "a feat held back is not marked as reported");
+  ctx.feat = feat;
+  advance(app, 1.2);
+  assert.ok(app.s.fe & 1);
+  assert.equal(book.feats.filter((f) => f[0] === "first-relocation").length, 1);
+  // a logbook whose every call throws: Outpost starts, plays, relocates and saves as without one
+  const bad = appContext();
+  for (const k of ["feat", "today", "daily", "dailyMet"]) bad[k] = () => { throw new Error("logbook down"); };
+  const other = new Outpost(bad);
+  other.down(); other.up({ durationMs: 50 });
+  other.finishTune();
+  other.s.rt = 1e9; other.dirty = true; other.recalc(); other.relocate(); other.phase_ = "play";
+  advance(other, 2);
+  assert.equal(other.s.fe, 0);
+  assert.equal(other.s.runs, 1);
+  finiteDeep(other.s);
+});
+
 test("the long game: a player who stays for each site's sounding hears the whole call and answers it", () => {
   const { res, app } = simulate({ runs: 9, maxMin: 600, sound: true });
   const s = app.s;

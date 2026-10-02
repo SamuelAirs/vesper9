@@ -6,8 +6,10 @@
 // feints that turn back early, then sequences: two or three lamps called at once, caught in order.
 // Three shields; a wide tap, a lapse or a burned red swing costs one. Every tap shows how early or
 // late it was. Runs light stars in a sky of six constellations. Holding on the title or result screen
-// opens the observatory: daily run, sprint and eclipse modes (unlocked by feats), light colours, the
-// sky chart, feats and a log. Save schema 2.
+// opens the observatory: daily run, sprint and eclipse modes (opened by reaching stages), light
+// colours (by stars lit), the sky chart and a log. Feats and the daily order go to the console's
+// logbook (ctx.feat, ctx.daily, ctx.dailyMet); the game keeps no streak or feat list of its own.
+// Save schema 3.
 import { C, space, text, line, circle, diamond, banner } from "../engine/draw.js";
 import { clamp, lerp, mixSeed, Random } from "../engine/math.js";
 import { LAMP, lamps, dim, spot, pulse, only } from "../engine/lightshow.js";
@@ -57,17 +59,17 @@ export function stageSpec(i) {
 const MODES = {
   swing: { name: "SWING", text: "The plain run. Scores to the console." },
   daily: { name: "DAILY", text: "The same swings for everyone today, with a goal." },
-  sprint: { name: "SPRINT", text: "Sixty seconds. A miss costs three of them.", need: 3 },
-  eclipse: { name: "ECLIPSE", text: "Every swing goes dark near the called lamp.", need: 6 },
+  sprint: { name: "SPRINT", text: "Sixty seconds. A miss costs three of them.", need: 2 }, // stage reached
+  eclipse: { name: "ECLIPSE", text: "Every swing goes dark near the called lamp.", need: 3 },
 };
 const LIGHTS = [
   { name: "AMBER", rgb: LAMP.amber, css: C.amber, need: 0 },
-  { name: "GREEN", rgb: LAMP.green, css: C.ink, need: 2 },
-  { name: "VIOLET", rgb: LAMP.violet, css: "#c2a8f0", need: 5 },
-  { name: "WHITE", rgb: LAMP.white, css: "#f2ead8", need: 9 },
+  { name: "GREEN", rgb: LAMP.green, css: C.ink, need: 4 }, // stars lit
+  { name: "VIOLET", rgb: LAMP.violet, css: "#c2a8f0", need: 12 },
+  { name: "WHITE", rgb: LAMP.white, css: "#f2ead8", need: 24 },
 ];
 const SCALE = [523, 587, 659, 784, 880, 1047, 1175, 1319]; // a pentatonic climb, one note per combo step
-const ROWS = ["SWING", "DAILY", "SPRINT", "ECLIPSE", "LIGHT", "SKY", "FEATS", "LOG"];
+const ROWS = ["SWING", "DAILY", "SPRINT", "ECLIPSE", "LIGHT", "SKY", "LOG"];
 // ---- the sky: six constellations of eight stars, lit one star at a time across runs ------------
 // A run lights a star for every stage it clears and for every second sequence it completes.
 const SKY_NAMES = ["THE PLUMB LINE", "THE KEEL", "THE TWIN LAMPS", "THE LONG SWING", "THE WATCHER", "MERIDIAN"];
@@ -90,7 +92,7 @@ export function skyPlace(n) {
 }
 export const starsEarned = (stagesCleared, sequences) => Math.max(0, stagesCleared) + Math.floor(Math.max(0, sequences) / 2);
 
-// ---- feats ------------------------------------------------------------------------------------
+// ---- feats: reported once each to the console's logbook (ctx.feat) -------------------------------
 const life = (a, key) => (a.sv.st[key] || 0) + (a.R[key] || 0);
 const FEATS = [
   { id: "first", name: "FIRST LIGHT", text: "Catch a PERFECT.", n: 1, prog: (a) => life(a, "perfects") },
@@ -104,7 +106,6 @@ const FEATS = [
   { id: "blind", name: "NIGHT SIGHT", text: "Catch 5 dark swings in one run.", n: 5, prog: (a) => a.R.blind },
   { id: "clean", name: "UNSHAKEN", text: "Clear a stage after the first without losing a shield.", n: 1, prog: (a) => a.R.clean },
   { id: "sprint", name: "SIXTY SECONDS", text: "Score 4000 in a sprint.", n: 4000, prog: (a) => Math.max(a.sv.best.sprint, a.mode === "sprint" ? a.score : 0) },
-  { id: "daily", name: "ON THE DAY", text: "Meet a daily goal.", n: 1, prog: (a) => life(a, "daily") },
   { id: "seq", name: "IN ORDER", text: "Complete 5 sequences in one run.", n: 5, prog: (a) => a.R.seqs },
   { id: "sky", name: "STARGAZER", text: "Light a whole constellation.", n: STARS_PER, prog: (a) => Math.min(STARS_PER, a.sv.sky + (a.R.stars || 0)) },
   { id: "hits", name: "OBSERVER", text: "Catch 500 swings in all.", n: 500, prog: (a) => life(a, "hits") },
@@ -117,7 +118,6 @@ const FEAT_IDS = FEATS.map((f) => f.id);
 const num = (v, d = 0) => (Number.isFinite(v) ? v : d);
 const hashText = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return h >>> 0; };
 const fmtDay = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
-const dayBefore = (key) => { const [y, m, d] = key.split("-").map(Number); return fmtDay(new Date(y, m - 1, d - 1)); };
 const dailyRng = new Random(1);
 // Today's goal, the same for everyone on the same date.
 export function dailyGoal(key) {
@@ -127,25 +127,26 @@ export function dailyGoal(key) {
   if (kind === 2) return { kind: "held", n: 4 + v, text: "Let " + (4 + v) + " red swings pass." };
   return { kind: "stage", n: 2 + (v % 3), text: "Reach " + STAGES[2 + (v % 3)].name + "." };
 }
-// Bring any stored shape (nothing, a stray object, schema 1 or 2) to schema 2. Schema 1 had no sky:
-// it starts with a star for every stage it had reached.
+// Bring any stored shape (nothing, a stray object, schema 1, 2 or 3) to schema 3. Schema 1 had no sky:
+// it starts with a star for every stage it had reached. Schema 3 drops the daily streak and the
+// daily-goal count, which the console's logbook now keeps.
 export function migrateSave(raw) {
   const r = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
   const o = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : {});
   const st = o(r.st), best = o(r.best), sel = o(r.sel), dl = o(r.dl);
   const pos = (v) => Math.max(0, Math.floor(num(v)));
   return {
-    schema: 2,
+    schema: 3,
     runs: pos(r.runs),
     last: o(r.last),
     milestone: pos(r.milestone),
     far: Math.min(99, pos(r.far)),
     ft: Array.isArray(r.ft) ? r.ft.filter((id, i) => FEAT_IDS.includes(id) && r.ft.indexOf(id) === i) : [],
-    st: { hits: pos(st.hits), perfects: pos(st.perfects), held: pos(st.held), daily: pos(st.daily) },
+    st: { hits: pos(st.hits), perfects: pos(st.perfects), held: pos(st.held) },
     best: { swing: pos(best.swing), sprint: pos(best.sprint), eclipse: pos(best.eclipse), combo: pos(best.combo) },
     sel: { light: clamp(pos(sel.light), 0, LIGHTS.length - 1) },
     sky: Math.min(SKY_SIZE, r.schema >= 2 ? pos(r.sky) : Math.min(99, pos(r.far))),
-    dl: { d: typeof dl.d === "string" ? dl.d.slice(0, 10) : "", best: pos(dl.best), done: dl.done ? 1 : 0, streak: pos(dl.streak), last: typeof dl.last === "string" ? dl.last.slice(0, 10) : "" },
+    dl: { d: typeof dl.d === "string" ? dl.d.slice(0, 10) : "", best: pos(dl.best), done: dl.done ? 1 : 0 },
   };
 }
 // Where the swing is at time t: a half-swing runs from x0 to x1 (lamp units, 0 = left lamp,
@@ -249,8 +250,8 @@ export class Meridian {
     if (this.mode === "swing") return Math.max(this.c.best?.() ?? 0, this.sv.best.swing);
     return this.sv.best[this.mode] || 0;
   }
-  unlocked(mode) { return this.sv.ft.length >= (MODES[mode].need || 0); }
-  light() { const l = LIGHTS[this.sv.sel.light] || LIGHTS[0]; return this.sv.ft.length >= l.need ? l : LIGHTS[0]; }
+  unlocked(mode) { return this.sv.far >= (MODES[mode].need || 0); }
+  light() { const l = LIGHTS[this.sv.sel.light] || LIGHTS[0]; return this.sv.sky >= l.need ? l : LIGHTS[0]; }
 
   // The pass of this half-swing that is judged for the called lamp, if it has one.
   makeGate(sw) {
@@ -345,11 +346,7 @@ export class Meridian {
       else this.start(this.phase === "over" ? this.mode : "swing");
       return;
     }
-    if (this.view !== "menu") {
-      if (long || this.view === "log" || this.view === "sky") { this.view = "menu"; this.page = 0; }
-      else this.page = (this.page + 1) % Math.ceil(FEATS.length / 6);
-      return;
-    }
+    if (this.view !== "menu") { this.view = "menu"; return; }
     if (!long) { this.cur = (this.cur + 1) % ROWS.length; this.c.tone(440, 0.03, "sine"); return; }
     this.choose();
   }
@@ -362,12 +359,11 @@ export class Meridian {
   }
   choose() {
     const row = ROWS[this.cur];
-    if (row === "FEATS") { this.view = "feats"; this.page = 0; return; }
     if (row === "LOG") { this.view = "log"; return; }
     if (row === "SKY") { this.view = "sky"; return; }
     if (row === "LIGHT") {
       let i = this.sv.sel.light;
-      do i = (i + 1) % LIGHTS.length; while (this.sv.ft.length < LIGHTS[i].need);
+      do i = (i + 1) % LIGHTS.length; while (this.sv.sky < LIGHTS[i].need);
       this.sv.sel.light = i;
       this.c.tone(520, 0.05, "sine");
       this.persist();
@@ -381,7 +377,10 @@ export class Meridian {
     this.mode = mode;
     this.reset();
     this.phase = "play";
-    if (mode === "daily") this.dseed = mixSeed(hashText("meridian-day" + this.dayKey())) || 1;
+    if (mode === "daily") {
+      this.dseed = mixSeed(hashText("meridian-day" + this.dayKey())) || 1;
+      this.c.daily?.("Daily run: " + dailyGoal(this.dayKey()).text.toLowerCase().replace(/\.$/, ""));
+    }
     this.best0 = this.bestRef();
     this.announce(mode === "swing" ? this.spec().note : MODES[mode].name + ": " + MODES[mode].text, 3.4);
     this.setHint(mode === "eclipse" ? "Listen for the turns. Tap where the called lamp would light." : "Watch the lamps. Tap as the light reaches the called lamp. Let red swings pass.");
@@ -511,7 +510,9 @@ export class Meridian {
       if (f.prog(this) >= f.n) {
         this.sv.ft.push(f.id);
         this.newFeats.push(f.id);
-        this.announce("FEAT: " + f.name, 3);
+        // The console's logbook keeps it and announces it; without one, the game says it.
+        if (!this.c.feat) this.announce("FEAT: " + f.name, 3);
+        else this.c.feat(f.id, f.name);
         this.queue(0, 659, 0.1, "sine");
         this.queue(0.12, 880, 0.18, "sine");
       }
@@ -549,12 +550,8 @@ export class Meridian {
       this.goalDone = this.goalMet();
       if (sv.dl.d !== key) { sv.dl.d = key; sv.dl.best = 0; sv.dl.done = 0; }
       sv.dl.best = Math.max(sv.dl.best, score);
-      if (this.goalDone && !sv.dl.done) {
-        sv.dl.done = 1;
-        sv.st.daily++;
-        sv.dl.streak = sv.dl.last && dayBefore(key) === sv.dl.last ? sv.dl.streak + 1 : 1;
-        sv.dl.last = key;
-      }
+      if (this.goalDone && !sv.dl.done) sv.dl.done = 1;
+      if (this.goalDone) this.c.dailyMet?.();
     } else sv.best[this.mode] = Math.max(sv.best[this.mode] || 0, score);
     // Run totals are now in the lifetime counters; leave the run's own values for the feats that read them.
     this.R.hits = 0; this.R.perfects = 0;
@@ -570,18 +567,12 @@ export class Meridian {
     this.hudKey = "";
   }
   persist() { this.c.saveProgress?.(JSON.parse(JSON.stringify(this.sv)))?.catch?.(this.c.error); }
-  // The nearest unlock and the open feat nearest its goal.
+  // What the next unlocks need: a mode opened by reaching a stage, a light by stars lit.
   nextGoal() {
-    const n = this.sv.ft.length, lines = [];
-    const locked = [...Object.values(MODES).filter((m) => m.need && n < m.need).map((m) => [m.need, m.name + " MODE"]), ...LIGHTS.filter((l) => n < l.need).map((l) => [l.need, l.name + " LIGHT"])].sort((a, b) => a[0] - b[0]);
-    if (locked.length) lines.push("NEXT: " + locked[0][1] + " AT " + locked[0][0] + " FEATS (" + n + ")");
-    let best = null, frac = 0;
-    for (const f of FEATS) {
-      if (this.sv.ft.includes(f.id) || f.hidden) continue;
-      const p = f.prog(this) / f.n;
-      if (p > frac && p < 1) { frac = p; best = f; }
-    }
-    if (best) lines.push("CLOSEST: " + best.name + " " + Math.floor(best.prog(this)) + " / " + best.n);
+    const lines = [], mode = Object.values(MODES).find((m) => m.need && this.sv.far < m.need);
+    if (mode) lines.push("REACH " + STAGES[mode.need].name + " TO OPEN " + mode.name);
+    const light = LIGHTS.find((l) => this.sv.sky < l.need);
+    if (light) lines.push(light.name + " LIGHT AT " + light.need + " STARS (" + this.sv.sky + " LIT)");
     return lines;
   }
 
@@ -802,9 +793,9 @@ export class Meridian {
     g.fillRect(110, 36, 740, 470);
     line(g, 160, 46, 800, 46, C.line);
     text(g, "OBSERVATORY", 480, 82, 34, C.amber, "center");
-    const sv = this.sv, n = sv.ft.length;
+    const sv = this.sv;
     if (this.view === "menu") {
-      const lock = (m) => (this.unlocked(m) ? null : "AT " + MODES[m].need + " FEATS");
+      const lock = (m) => (this.unlocked(m) ? null : "REACH " + STAGES[MODES[m].need].name);
       const rows = {
         SWING: ["SWING", "BEST " + this.bestRefFor("swing")],
         DAILY: ["DAILY", this.sv.dl.d === this.dayKey() && this.sv.dl.done ? "DONE TODAY" : "SEEDED BY DATE"],
@@ -812,7 +803,6 @@ export class Meridian {
         ECLIPSE: ["ECLIPSE", lock("eclipse") || "BEST " + sv.best.eclipse],
         LIGHT: ["LIGHT", this.light().name],
         SKY: ["SKY", sv.sky + " / " + SKY_SIZE + " STARS"],
-        FEATS: ["FEATS", n + " / " + FEATS.length],
         LOG: ["LOG", "RUNS " + sv.runs],
       };
       ROWS.forEach((id, i) => {
@@ -824,30 +814,19 @@ export class Meridian {
       });
       const id = ROWS[this.cur];
       let info;
-      if (id === "LIGHT") { const next = LIGHTS.find((l) => n < l.need); info = "The colour of the swinging light." + (next ? "  NEXT: " + next.name + " AT " + next.need : ""); }
-      else if (id === "FEATS") info = "Named goals. Some are not listed.";
+      if (id === "LIGHT") { const next = LIGHTS.find((l) => sv.sky < l.need); info = "The colour of the swinging light." + (next ? "  NEXT: " + next.name + " AT " + next.need + " STARS" : ""); }
       else if (id === "SKY") info = skyPlace(sv.sky) + ".  Runs light the stars.";
       else if (id === "LOG") info = "What you have done so far.";
-      else if (id === "DAILY") info = "Goal: " + dailyGoal(this.dayKey()).text + (sv.dl.streak > 1 ? "  STREAK " + sv.dl.streak : "");
+      else if (id === "DAILY") info = "Goal: " + dailyGoal(this.dayKey()).text;
       else info = MODES[id.toLowerCase()].text;
       text(g, info, 480, 446, 18, C.muted, "center");
       text(g, "TAP = NEXT LINE     HOLD = CHOOSE", 480, 480, 18, C.cyan, "center");
     } else if (this.view === "sky") {
       this.drawSky(g);
-    } else if (this.view === "feats") {
-      const per = 6, pages = Math.ceil(FEATS.length / per);
-      text(g, "FEATS  " + n + " / " + FEATS.length + "     PAGE " + (this.page + 1) + " / " + pages, 480, 118, 20, C.cyan, "center");
-      FEATS.slice(this.page * per, this.page * per + per).forEach((f, i) => {
-        const y = 156 + i * 52, done = sv.ft.includes(f.id);
-        text(g, (done ? "[X] " : "[ ] ") + (f.hidden && !done ? "????" : f.name), 150, y, 22, done ? C.cyan : C.ink);
-        if (!f.hidden || done) text(g, done ? "DONE" : Math.floor(Math.min(f.prog(this), f.n)) + " / " + f.n, 810, y, 20, done ? C.cyan : C.amber, "right");
-        text(g, f.hidden && !done ? f.hint : f.text, 150, y + 24, 16, C.muted);
-      });
-      text(g, "TAP = NEXT PAGE     HOLD = BACK", 480, 480, 18, C.cyan, "center");
     } else {
       const lines = [
         ["RUNS", sv.runs], ["SWINGS STRUCK", sv.st.hits], ["PERFECT", sv.st.perfects], ["RED SWINGS HELD", sv.st.held],
-        ["BEST COMBO", sv.best.combo], ["FURTHEST", stageSpec(sv.far).label], ["STARS LIT", sv.sky + " / " + SKY_SIZE], ["DAILY GOALS", sv.st.daily + (sv.dl.streak > 1 ? "  STREAK " + sv.dl.streak : "")],
+        ["BEST COMBO", sv.best.combo], ["FURTHEST", stageSpec(sv.far).label], ["STARS LIT", sv.sky + " / " + SKY_SIZE]
       ];
       lines.forEach(([k, v], i) => { const y = 130 + i * 44; text(g, k, 150, y, 22, C.ink); text(g, String(v), 810, y, 22, C.amber, "right"); });
       text(g, "TAP = BACK", 480, 480, 18, C.cyan, "center");

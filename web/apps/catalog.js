@@ -99,7 +99,7 @@ export const CARTRIDGES = [
     "id": "meridian",
     "name": "MERIDIAN",
     "subtitle": "Catch the light on the called lamp.",
-    "description": "A light swings across the three lamps. The screen calls LEFT, MIDDLE or RIGHT: watch the lamps and tap as the light reaches that lamp. Let red swings pass; read changes of tempo, dark swings and feints. Hold on the title for the observatory: daily run, sprint, eclipse, feats.",
+    "description": "A light swings across the three lamps. The screen calls LEFT, MIDDLE or RIGHT: watch the lamps and tap as the light reaches that lamp. Let red swings pass; read changes of tempo, dark swings and feints. Hold on the title for the observatory: daily run, sprint, eclipse, light colours and the sky chart.",
     "controls": "WATCH THE LAMPS · TAP ON THE CALLED LAMP · HOLD ON TITLE: OBSERVATORY",
     "category": "PLAY / TIMING",
     "glyph": 2,

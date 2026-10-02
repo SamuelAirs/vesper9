@@ -93,3 +93,10 @@ The long integrated run was started while final review continued. The final held
 - The lamp shows a red swing exactly when the screen calls one (it used to go red on swings that never reached the called lamp). The called-lamp marker is brighter (0.16 to 0.24, breathing) so it reads on the real lamps.
 - In the simulator, where there are no lamps, the three sockets show the lamps at full size.
 - Bot (6 seeds, taps on the visible light): 80 ms timing error now reaches cycles 5 to 8.
+
+## 2026-10-02 — Meridian moves its feats and daily order to the console logbook (desktop, not verified on the device)
+
+- Following the review rule Sam agreed with and PR #16's cut list: feats are reported once each with `ctx.feat` (the console announces them), and the daily run states its goal with `ctx.daily` and says when it is met with `ctx.dailyMet`. The observatory loses its FEATS screen, the daily streak and the feat ticker on the result screen. Without PR #16 (no logbook) the calls are skipped and the game announces feats itself.
+- Unlocks no longer count feats: SPRINT opens on reaching Tempo, ECLIPSE on reaching Eclipse, the lights at 4, 12 and 24 stars. The ON THE DAY feat is retired.
+- Save schema 3: drops the daily streak and the daily-goal count; tested from schemas 1 and 2.
+- PR #16's TIMING OFFSET matches the agreed contract (`latencyMs`, positive late, -150..300, 0 when absent); Meridian keeps its own reader so it runs before #16 lands.

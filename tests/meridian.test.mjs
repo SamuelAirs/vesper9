@@ -230,25 +230,23 @@ test("the lamps carry the swing: nine whole numbers that change, dark after canc
   assert.equal(ctx.calls.leds.length, n, "nothing is written after dispose()");
 });
 
-test("the observatory: a hold opens it, taps move, locked modes refuse, feats unlock sprint and eclipse", () => {
+test("the observatory: a hold opens it, taps move, locked modes refuse, stages open modes and stars open lights", () => {
   const { app } = mount();
   app.down(); run(app, 0.6); app.up();
   assert.equal(app.phase, "menu");
-  const pick = (name) => { while (["SWING", "DAILY", "SPRINT", "ECLIPSE", "LIGHT", "SKY", "FEATS", "LOG"][app.cur] !== name) tap(app); app.down(); run(app, 0.6); app.up(); };
+  const pick = (name) => { while (["SWING", "DAILY", "SPRINT", "ECLIPSE", "LIGHT", "SKY", "LOG"][app.cur] !== name) tap(app); app.down(); run(app, 0.6); app.up(); };
   pick("SPRINT");
-  assert.equal(app.phase, "menu", "sprint is locked without feats");
+  assert.equal(app.phase, "menu", "sprint is locked until TEMPO is reached");
   pick("SKY");
   assert.equal(app.view, "sky");
   tap(app);
   assert.equal(app.view, "menu", "a tap leaves the sky chart");
-  pick("FEATS");
-  assert.equal(app.view, "feats");
-  tap(app); assert.equal(app.page, 1);
-  app.down(); run(app, 0.6); app.up();
-  assert.equal(app.view, "menu");
-  app.sv.ft = ["first", "combo10", "drift"];
+  pick("LIGHT");
+  assert.equal(app.light().name, "AMBER", "no other light before four stars");
+  app.sv.sky = 4;
   pick("LIGHT");
   assert.equal(app.light().name, "GREEN");
+  app.sv.far = 2;
   pick("SPRINT");
   assert.equal(app.phase, "play");
   assert.equal(app.mode, "sprint");
@@ -274,7 +272,7 @@ test("only the plain run writes the console score; sprint keeps its own best", (
   assert.equal(ctx.calls.score.length, 1);
 });
 
-test("the daily run is the same for everyone on the day and keeps a streak", () => {
+test("the daily run is the same for everyone on the day and reports its order to the console's logbook", () => {
   const a = mount({ seed: 1 }).app, b = mount({ seed: 99 }).app;
   for (const app of [a, b]) { app.dayKey = () => "2026-10-02"; app.start("daily"); }
   const shape = (app) => { const out = []; for (let i = 0; i < 40; i++) { out.push([app.sw.x1.toFixed(4), app.sw.D.toFixed(4), app.sw.gate?.kind, app.sw.gate?.blind]); app.nextSwing(); } return JSON.stringify(out); };
@@ -282,21 +280,29 @@ test("the daily run is the same for everyone on the day and keeps a streak", () 
   assert.equal(shape(a), shape(b));
   const goal = dailyGoal("2026-10-02");
   assert.ok(goal.text.length > 5);
-  const { app } = mount();
+  const { ctx, app } = mount();
+  const said = [];
+  ctx.daily = (text) => said.push(["daily", text]);
+  ctx.dailyMet = () => said.push(["met"]);
   app.dayKey = () => "2026-10-02";
-  app.sv.dl = { d: "2026-10-01", best: 10, done: 1, streak: 3, last: "2026-10-01" };
+  app.sv.dl = { d: "2026-10-01", best: 10, done: 1 };
   app.start("daily");
+  assert.deepEqual(said, [["daily", "Daily run: " + goal.text.toLowerCase().replace(/\.$/, "")]]);
   app.goalMet = () => true;
   app.finish();
-  assert.deepEqual([app.sv.dl.d, app.sv.dl.done, app.sv.dl.streak, app.sv.dl.last], ["2026-10-02", 1, 4, "2026-10-02"]);
-  assert.equal(app.sv.st.daily, 1);
-  assert.ok(app.sv.ft.includes("daily"));
+  assert.deepEqual([app.sv.dl.d, app.sv.dl.done], ["2026-10-02", 1]);
+  assert.deepEqual(said.at(-1), ["met"]);
+  assert.ok(!("streak" in app.sv.dl), "the streak is the console's");
+  // Without a logbook (an older console) the daily run still plays.
+  const c = mount().app;
+  c.start("daily"); c.goalMet = () => true; c.finish();
+  assert.equal(c.sv.dl.done, 1);
 });
 
-test("save schema 2: anything stored loads, a saved game round-trips, unknown feats are dropped", () => {
+test("save schema 3: anything stored loads, a saved game round-trips, unknown feats are dropped", () => {
   for (const raw of [undefined, null, 7, "x", [], { schema: 1, runs: 2, last: { score: 5 }, milestone: 1 }, { st: "no", best: [], ft: "first" }, { schema: 2, sky: -4 }, { schema: 2, sky: 999 }]) {
     const s = migrateSave(raw);
-    assert.equal(s.schema, 2);
+    assert.equal(s.schema, 3);
     numbers(s);
     assert.ok(Array.isArray(s.ft));
     assert.ok(s.sky >= 0 && s.sky <= SKY_SIZE);
@@ -308,7 +314,7 @@ test("save schema 2: anything stored loads, a saved game round-trips, unknown fe
   app.shields = 1; app.gates = 99; app.penalty("WIDE", false);
   run(app, 3);
   const saved = ctx.calls.saved.at(-1);
-  assert.ok(saved && saved.schema === 2 && saved.runs === 1);
+  assert.ok(saved && saved.schema === 3 && saved.runs === 1);
   assert.ok(JSON.stringify(saved).length < 4096);
   assert.deepEqual(migrateSave(JSON.parse(JSON.stringify(saved))), saved);
   const again = new Meridian(appContext({ progress: { ...saved, ft: [...saved.ft, "bogus", saved.ft[0]] } }));
@@ -317,14 +323,32 @@ test("save schema 2: anything stored loads, a saved game round-trips, unknown fe
   assert.equal(again.sv.sky, saved.sky);
 });
 
-test("a schema 1 save migrates to schema 2 with a star for every stage it had reached", () => {
+test("older saves migrate to schema 3: schema 1 gets a star per stage reached, the daily streak goes to the console", () => {
   const old = { schema: 1, runs: 9, far: 4, ft: ["first", "drift"], st: { hits: 300 }, best: { swing: 5000, combo: 22 }, sel: { light: 1 }, dl: { d: "2026-10-01", best: 900, done: 1, streak: 2, last: "2026-10-01" } };
   const s = migrateSave(old);
-  assert.equal(s.schema, 2);
+  assert.equal(s.schema, 3);
   assert.equal(s.sky, 4);
-  assert.deepEqual([s.runs, s.far, s.st.hits, s.best.swing, s.best.combo, s.sel.light, s.dl.streak], [9, 4, 300, 5000, 22, 1, 2]);
+  assert.deepEqual([s.runs, s.far, s.st.hits, s.best.swing, s.best.combo, s.sel.light, s.dl.best], [9, 4, 300, 5000, 22, 1, 900]);
   assert.deepEqual(s.ft, ["first", "drift"]);
   assert.equal(migrateSave({ schema: 2, far: 4, sky: 0 }).sky, 0, "a schema 2 save keeps its own sky");
+  const two = migrateSave({ schema: 2, runs: 5, sky: 9, ft: ["first", "daily", "seq"], st: { hits: 50, daily: 4 }, dl: { d: "2026-10-01", best: 700, done: 1, streak: 6, last: "2026-10-01" } });
+  assert.deepEqual(two.dl, { d: "2026-10-01", best: 700, done: 1 });
+  assert.deepEqual(two.st, { hits: 50, perfects: 0, held: 0 });
+  assert.deepEqual(two.ft, ["first", "seq"], "the retired ON THE DAY feat is dropped");
+  assert.deepEqual([two.runs, two.sky], [5, 9]);
+});
+
+test("feats go to the console's logbook once each; the game keeps no list screen", () => {
+  const { ctx, app } = mount();
+  const sent = [];
+  ctx.feat = (id, name) => { sent.push(id); return true; };
+  app.start("swing");
+  bot(app, 3, 0.02, 90);
+  assert.ok(sent.includes("first") && sent.includes("combo10"));
+  assert.equal(new Set(sent).size, sent.length, "each feat once");
+  assert.ok(!app.note.startsWith("FEAT"), "the console announces feats, not the game");
+  app.checkFeats();
+  assert.equal(new Set(sent).size, sent.length);
 });
 
 test("the sky: stars for stages and sequences, added up across runs, never past the last star", () => {

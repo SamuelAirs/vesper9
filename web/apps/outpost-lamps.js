@@ -21,7 +21,7 @@
 // own breath, dimK, grooveSeen and stumble.
 import { clamp } from "../engine/math.js";
 import { LAMP, lamps, dim, blend, pulse, blink, spot, only, chase, ramp } from "../engine/lightshow.js";
-import { DIM_AFTER, EXPED, GROOVE_MAX, readyOf } from "./outpost-rules.js";
+import { DIM_AFTER, EXPED, FINALE_SEC, GROOVE_MAX, readyOf } from "./outpost-rules.js";
 import { liveBeat } from "./outpost-music.js";
 
 export const CUE_GLOW = 0.25; // seconds a cue note's light lasts
@@ -30,7 +30,6 @@ export const STUMBLE = 0.3; // seconds the dropped-beat flicker lasts
 // How early the beat flash is sent: the node's lamp throttle (as Meridian allows) plus the
 // player's calibrated input latency, so the flash is seen when the finger should land.
 export const LAMP_LAG = 0.035;
-export const FINALE_SEC = 12; // how long the cartridge keeps app.finale after THE CALL is answered
 
 const latencyOf = (app) => {
   let ms = 0;

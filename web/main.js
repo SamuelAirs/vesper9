@@ -521,6 +521,8 @@ export class Vesper {
       pattern: steps => command("pattern", { steps }),
       hud: guarded(items => this.hud(items)),
       controls: guarded(message => this.hint(message)),
+      // An instrument that switches between its panel and the canvas (navigation true or false) says so.
+      restage: guarded(() => { this.input.cancel(this.input.blocked || !!this.input.press, this.input.blockSource || this.input.press?.event.source); this.accumulator = 0; this.stage(); }),
       hint: (message) => {
         if (this.token === token) $("app-readout").textContent = message;
       },
@@ -535,6 +537,8 @@ export class Vesper {
       actions: (items, { focus } = {}) => {
         if (this.token !== token) return;
         const container = $("utility-actions");
+        // A long list (Calibration, Node Scope) goes to three columns so it fits above the fold.
+        container.classList.toggle("dense", items.length > 10);
         const unchanged =
           container.children.length === items.length &&
           [...container.children].every(

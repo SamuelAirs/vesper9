@@ -47,13 +47,20 @@ class Layout(unittest.TestCase):
         first_tool = next(n for n, i in enumerate(listed) if not game(i))
         self.assertTrue(all(game(i) for i in listed[:first_tool]) and not any(game(i) for i in listed[first_tool:]),
                         'games come first and no page mixes games and tools')
-        self.assertTrue(set(GAMES) - {'pulsar', 'helix', 'kiln'} <= set(listed))
+        self.assertTrue(set(GAMES) - {'pulsar', 'helix', 'kiln', 'descent'} <= set(listed))
         self.assertNotIn('pulsar', listed)
         self.assertNotIn('helix', listed)
         # New instruments (The Stacks, "library") join TOOLS; these seven are always there.
         self.assertLessEqual({'morse', 'cadence', 'lantern', 'oracle', 'environment', 'resonance', 'transcribe'},
                              set(sectors['TOOLS'] + sectors['SENSORS']))
         self.assertTrue(all(s.get('tagline') for s in CATALOG['sectors']), 'every page says what it is for')
+
+    def test_descent_is_on_hold_off_the_dashboard_but_still_registered(self):
+        on_dashboard = {i for s in CATALOG['sectors'] for i in s['apps']}
+        descent = next(app for app in CATALOG['apps'] if app['id'] == 'descent')
+        self.assertNotIn('descent', on_dashboard)
+        self.assertEqual(descent['voice'], [], 'its voice name is gone')
+        self.assertEqual(descent['factory'], 'Descent', 'its code and saves stay, launchable by id')
 
     def test_slots_held_for_cartridges_on_their_way_in_are_only_the_known_ones(self):
         # The source catalog may name a cartridge whose own pull request has not landed: Meridian and
@@ -85,8 +92,9 @@ class Layout(unittest.TestCase):
         self.assertEqual(ephemeris['factory'], 'Ephemeris', 'but it is still registered and launchable by id')
         # Everything that is not on the dashboard is a system tool or retired (Ephemeris, Chronometer).
         # Pulsar and Helix are retired games, removed from the catalog by their own pull requests.
+        # Descent is on hold (Sam, 2026-10-02): off the dashboard, without a voice name.
         self.assertEqual({i for i in IDS if i not in on_dashboard} - {'pulsar', 'helix'},
-                         {'settings', 'diagnostics', 'telemetry', 'ephemeris', 'timers'})
+                         {'settings', 'diagnostics', 'telemetry', 'ephemeris', 'timers', 'descent'})
 
     def test_the_catalog_no_longer_carries_a_menu_policy(self):
         self.assertTrue(all('escape' not in app for app in CATALOG['apps']))

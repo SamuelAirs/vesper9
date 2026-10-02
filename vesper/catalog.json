@@ -34,8 +34,7 @@
       "apps": [
         "orbit",
         "ricochet",
-        "runner",
-        "descent"
+        "runner"
       ]
     },
     {
@@ -259,9 +258,7 @@
         "sites": "Sites cleared",
         "fuel": "Best fuel left %"
       },
-      "voice": [
-        "lander"
-      ],
+      "voice": [],
       "capabilities": [
         "button",
         "lights",

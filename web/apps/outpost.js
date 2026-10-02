@@ -53,7 +53,7 @@ import {
   PROD, NP, UPG, NUP, VOICE, TREE, NT, KIT, KIT_SIGNAL, AUTO_EVERY, EXPED, MAX_RELICS, GEN_ID, RES, NR, EV, GOALS, NG, STAGES, CONST,
   HUM_MULT, HUM_SEC, HUM_MAX, HUM_NOTES, HARMONICS, PC_NAMES, PC_PROD, humNotes, humMachines, humMultOf, humSecOf, humMaxOf, upgCost,
   SITES, NSITE, SILENT, SURVEY_BONUS, SURVEY_LEVELS, SURVEY, siteOf, siteFx, siteMach, siteKnown, surveysDone, surveyOf, offerSites,
-  CALL_ID, CALL_FRAGS, CALL_LOG, CALL_ANSWERED, CHORUS_MULT, callMelody, FEATS,
+  CALL_ID, CALL_FRAGS, CALL_LOG, CALL_ANSWERED, CHORUS_MULT, FINALE_SEC, callMelody, FEATS,
   hasRes, resSlots, tiersOwned, dataRate, dataBonus, unlockedN, masteredN, goalFrac, chartCost, chartName, chartsOpen, stageOf,
   num, fmt, fmtRate, dur, fmtInt, fmtDate, clock, costOf, milestonesAt, nextMilestone, globalMult, prodMult, evaluate, tapParts,
   capHours, pendingOf, revealOf, readyRatio, readyOf, slotsOf, upgradeVisible, tierOpen, prodVisible, freshState, applyKit, serialize, migrate,
@@ -65,8 +65,10 @@ import { drawOutpost, stepScene, addRipple, addFloat } from "./outpost-scene.js"
 
 // Orders Outpost states to the console logbook when it is one of today's three (one per date).
 const DAILY = [["groove", "Finish a tune in full groove"], ["flare", "Catch a signal flare"], ["tunes", "Play three tunes through"]];
+// Today's order when none is stated yet: one of DAILY by the local date (the logbook keeps local dates).
+const dailyPick = (ms) => { const d = new Date(ms); return (d.getFullYear() * 372 + d.getMonth() * 31 + d.getDate()) % DAILY.length; };
 const ROMAN = ["I", "II"];
-const FINALE_SEC = 12; // how long app.finale lasts after the call is answered (for drawing)
+const NOTE_STALE = 8; // seconds a passing note may wait behind story notes before it is dropped
 
 // ---- the cartridge -----------------------------------------------------------
 export class Outpost {
@@ -148,7 +150,8 @@ export class Outpost {
     this.tunesNow = 0; // tunes finished this visit (for the daily order)
     this.dailyK = null; // the daily order Outpost stated to the console logbook, while unmet
     this.known = this.knownMask(); // the sites on the map (bit k), to announce new ones
-    if (!this.s.of.length || this.s.of.some((k) => k === this.s.site || !siteKnown(this.s, k))) this.s.of = this.offer();
+    if (this.s.of.length < offerSites(this.s, () => 0).length || this.s.of.some((k) => k === this.s.site || !siteKnown(this.s, k))
+      || (this.s.cf >= CALL_FRAGS && !this.s.ans && this.s.site !== SILENT && this.s.of[0] !== SILENT)) this.s.of = this.offer();
 
     // Offline credit: wall-clock time since the save, capped; a clock that went backwards
     // (or a save stamped in the future) earns nothing and loses nothing.
@@ -411,7 +414,7 @@ export class Outpost {
       this.queueNote("SOUNDING " + ROMAN[sv.lvl] + " TAKEN: " + x.n + "  +" + Math.round(SURVEY_BONUS * 100) + "% OUTPUT FOR EVER", 4.5);
       this.accent = { k: "event", t: 0, dur: 0.9 };
       cue(this, "survey");
-      if (x.k === SILENT && sv.lvl === 0) this.answerCall();
+      if (x.k === SILENT && sv.lvl === 0) { if (!s.ans) this.answerCall(); }
       else if (x.k !== SILENT && s.cf < CALL_FRAGS) this.decodeFragment();
       else if (s.relics < MAX_RELICS) { s.relics++; this.queueNote("THE SOUNDING TURNED UP A RELIC  +3% OUTPUT", 3.5); }
     }
@@ -435,8 +438,9 @@ export class Outpost {
     const s = this.s;
     s.ans = Math.max(1, s.ans);
     this.finale = { t: 0 };
-    this.setNote(CALL_ANSWERED, 6);
-    this.noteQ.length = 0;
+    this.noteQ.length = 0; // the finale has the screen
+    this.note = null;
+    this.queueNote(CALL_ANSWERED, 6);
     this.queueNote("THE STATION JOINS THE CHORUS: ALL OUTPUT x" + CHORUS_MULT + ", HUM +0.5", 5);
     this.accent = { k: "prestige", t: 0, dur: 4 };
     cue(this, "answer");
@@ -462,7 +466,8 @@ export class Outpost {
   startDaily() {
     const today = this.book("today");
     if (!today || today.done) return;
-    const k = Math.floor(Date.now() / 864e5) % DAILY.length;
+    let k = today.own ? DAILY.findIndex((d) => d[1] === today.goal) : -1; // stated earlier today: keep it
+    if (k < 0) k = dailyPick(Date.now());
     this.dailyK = DAILY[k][0];
     this.book("daily", DAILY[k][1]);
   }
@@ -597,7 +602,7 @@ export class Outpost {
     const s = this.s, m = this.mel, st = s.st;
     if (s.sp >= m.n.length) s.sp = 0;
     const idx = s.sp, midi = m.n[idx], gap = this.clk - this.lastNoteAt;
-    this.recent.push({ at: this.clk, sp: idx, sg: s.sg, gs: s.gs });
+    this.recent.push({ at: this.clk, sp: idx, sg: s.sg, gs: s.gs, fin: idx >= m.n.length - 1 || m.ends.includes(idx) });
     if (this.recent.length > 6) this.recent.shift();
     if (idx === 0) { this.tuneClean = true; this.tuneK = 0; this.tuneN = 0; } else if (gap > 1.6) this.tuneClean = false;
     this.tuneK += k; this.tuneN++;
@@ -671,26 +676,47 @@ export class Outpost {
     this.loadMelody();
   }
   // Takes back the last k gathering taps' place in the melody (their signal stays). Used when
-  // a press turned out to be part of a menu gesture rather than playing.
+  // a press turned out to be part of a menu gesture rather than playing. A phrase or tune one of
+  // them finished stays finished (its bonus is paid): only the taps after it are taken back, or a
+  // hold on a tune's last note could finish the same tune again and again.
   unplay(k) {
     const s = this.s;
     if (k <= 0 || !this.recent.length) return;
-    k = Math.min(k, this.recent.length);
-    const first = this.recent[this.recent.length - k];
-    this.recent.length -= k;
+    let from = this.recent.length - Math.min(k, this.recent.length);
+    for (let i = this.recent.length - 1; i >= from; i--) if (this.recent[i].fin) { from = i + 1; break; }
+    if (from >= this.recent.length) return;
+    const first = this.recent[from];
+    this.recent.length = from;
     if (first.sg !== s.sg || (s.sg === GEN_ID && first.gs !== s.gs)) { s.sg = first.sg; s.gs = first.gs; this.loadMelody(); }
     s.sp = first.sp;
     this.noteFx = null;
   }
 
   // ---- effects ------------------------------------------------------------------
-  setNote(textValue, secs = 3) { this.note = { text: textValue, t: secs }; }
-  // A note shown once the current one has faded and the station is in view (at most six wait;
-  // older ones are dropped). Notes are drawn only over the station, and their time runs regardless.
+  // A passing note, shown now over another passing one. During a story note it waits its turn
+  // instead (for a few seconds at most: then it is stale and dropped).
+  setNote(textValue, secs = 3) {
+    if (this.note?.story) { this.waitNote({ text: textValue, t: secs, story: false, until: this.clk + NOTE_STALE }); return; }
+    this.note = { text: textValue, t: secs };
+  }
+  // A story note (a sounding, a fragment of the call, a new site): shown once the current note has
+  // faded and the station is in view, never cut short, and put back to wait while the ring, a view
+  // or a card covers the station.
   queueNote(textValue, secs = 3) {
-    if (!this.note && this.noteSeen()) { this.setNote(textValue, secs); return; }
-    this.noteQ.push({ text: textValue, t: secs });
-    if (this.noteQ.length > 6) this.noteQ.shift();
+    if (!this.note && this.noteSeen()) { this.note = { text: textValue, t: secs, story: true }; return; }
+    this.waitNote({ text: textValue, t: secs, story: true });
+  }
+  // At most six notes wait; past that the oldest passing one is dropped (else the oldest story note
+  // that was never on screen). A story note put back from the screen goes first in line.
+  waitNote(n, first = false) {
+    if (first) this.noteQ.unshift(n);
+    else this.noteQ.push(n);
+    if (this.noteQ.length > 6) { const i = this.noteQ.findIndex((x) => !x.story); this.noteQ.splice(i >= 0 ? i : first ? 1 : 0, 1); }
+  }
+  // The next note to show, skipping passing notes that waited too long.
+  nextNote() {
+    while (this.noteQ.length) { const n = this.noteQ.shift(); if (n.story || !(n.until < this.clk)) return n; }
+    return null;
   }
   noteSeen() { return this.phase_ === "play" && !this.ring && !this.panel; }
   milestoneFx(label) {
@@ -816,7 +842,7 @@ export class Outpost {
     if (this.tapTimes.length === 12 && this.clk - this.tapTimes[0] < 1.8) s.ev |= EV.presto;
     this.playNote(k);
     addRipple(this);
-    addFloat(this, "+" + fmt(v), 480 + this.c.rng.range(-70, 70), 215 + this.c.rng.range(-8, 8));
+    addFloat(this, "+" + fmt(v), 480 + this.c.rng.range(-70, 70), 225 + this.c.rng.range(-8, 8));
     if (this.flare) this.catchFlare();
   }
   catchFlare() {
@@ -1224,7 +1250,8 @@ export class Outpost {
     }
     this.wasAfford = aff;
     stepScene(this, dt); // visual-only animation (outpost-scene.js)
-    if (!this.note && this.noteQ.length && this.noteSeen()) this.note = this.noteQ.shift();
+    if (this.note?.story && !this.noteSeen() && this.note.t > 0.5) { this.waitNote(this.note, true); this.note = null; } // it waits for the station
+    if (!this.note && this.noteQ.length && this.noteSeen()) this.note = this.nextNote();
     // autosave
     if (this.saveCool > 0) this.saveCool -= dt;
     this.saveIn -= dt;
@@ -1287,6 +1314,6 @@ export class Outpost {
 Outpost.music = { SONGS, MEL, GEN_ID, makeMelody, genTune, genName, scaleUp, midiHz, noteName, noteMidi, seeded, SCALES };
 Outpost.econ = { RES, GOALS, STAGES, VOICE, EV, NR, NG, NS, NT, HUM_MULT, HUM_SEC, HUM_MAX, HUM_NOTES, HARMONICS, PC_NAMES, PC_PROD, humNotes, humMachines, humMultOf, humSecOf, humMaxOf, upgCost,
   SITES, NSITE, SILENT, SURVEY_BONUS, SURVEY_LEVELS, SURVEY, siteOf, siteFx, siteMach, siteKnown, surveysDone, surveyOf, offerSites,
-  CALL_ID, CALL_FRAGS, CALL_LOG, CALL_ANSWERED, CHORUS_MULT, callMelody, FEATS, hasRes, tierOpen, tiersOwned, dataRate, masteredN, unlockedN, stageOf, fmtInt, fmtDate, revealOf, fmt, fmtRate, dur, costOf, prodMult, globalMult, evaluate, tapParts, capHours, pendingOf, readyOf, migrate, serialize, freshState, applyKit,
+  CALL_ID, CALL_FRAGS, CALL_LOG, CALL_ANSWERED, CHORUS_MULT, FINALE_SEC, callMelody, FEATS, DAILY, dailyPick, hasRes, tierOpen, tiersOwned, dataRate, masteredN, unlockedN, stageOf, fmtInt, fmtDate, revealOf, fmt, fmtRate, dur, costOf, prodMult, globalMult, evaluate, tapParts, capHours, pendingOf, readyOf, migrate, serialize, freshState, applyKit,
   PROD, UPG, TREE, EXPED, READY_RATIO, MILESTONES, SCHEMA, BIG, PRESTIGE_K, READY_MIN, KIT, NUP, NP, milestonesAt,
   readyRatio, READY_LATE, READY_FLOOR, chartCost, chartName, chartsOpen, CONST, CHART_REQ, CHART_MULT, CHART_MAX, GROOVE_MAX, VOICE_GAIN };

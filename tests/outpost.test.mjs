@@ -566,11 +566,34 @@ test("menu gesture: taps that belonged to it take their notes back; a plain ring
   const { ctx, app: c } = begin();
   const n = ctx.calls.tone.length; tap(c); advance(c, 0.3);
   assert.deepEqual(lead(ctx, n), [M.MEL[0].n[0]]);
-  // across a wrap: the tune comes back to where the gesture started
+  // across a wrap: a tune the gesture's first tap finished stays finished (counted once, its bonus
+  // paid); only the tap after it, in the next tune, is taken back
   c.s.sp = c.mel.n.length - 1; advance(c, 1.5);
+  const played = c.s.st.md;
   tap(c); advance(c, 0.2); tap(c); advance(c, 0.2);
   c.down(); advance(c, 1.0); c.cancel();
-  assert.equal(c.s.sp, c.mel.n.length - 1);
+  assert.equal(c.s.sp, 0);
+  assert.equal(c.s.st.md, played + 1);
+});
+
+test("a hold on a tune's last note finishes the tune once, not again at every hold", () => {
+  const { app } = begin();
+  const s = app.s, len = app.mel.n.length;
+  for (let i = 0; i < len - 1; i++) { app.gather(); advance(app, 0.4); }
+  assert.equal(s.st.md, 0);
+  for (let k = 0; k < 6; k++) {
+    app.down(); advance(app, 0.5); app.up({ durationMs: 500 }); // the press plays the last note; the ring opens
+    if (app.ring) { app.ring.idx = 0; app.down(); advance(app, 0.5); app.up({ durationMs: 500 }); } // hold CLOSE
+    advance(app, 0.2);
+  }
+  assert.equal(s.st.md, 1, "one tune finished");
+  assert.equal(s.sx, 1, "and counted once toward the sounding");
+  // the same at the end of a phrase: its bonus is paid once
+  const b = begin().app, end = b.mel.ends[0];
+  for (let i = 0; i < end; i++) { b.gather(); advance(b, 0.4); }
+  const ph = b.s.st.ph;
+  for (let k = 0; k < 4; k++) { b.down(); advance(b, 0.5); b.up({ durationMs: 500 }); if (b.ring) b.closeRing(); advance(b, 0.2); }
+  assert.equal(b.s.st.ph, ph + 1);
 });
 
 test("statistics: counts by source, persistence, and where counting began", () => {
@@ -1212,7 +1235,7 @@ test("the call in the songbook: it appears with the first fragment, previews, lo
   assert.equal(s.sg, E.CALL_ID, "loop mode keeps playing the call");
   s.sm = 1; for (let i = 0; i < 6; i++) { app.finishTune(); assert.notEqual(s.sg, E.CALL_ID, "shuffle never picks the call"); }
   // a save that says it plays the call without a fragment falls back to the first tune
-  app.s.sg = E.CALL_ID; app.s.cf = 0; app.save(true);
+  app.s.sg = E.CALL_ID; app.s.cf = 0; app.s.sv.fill(0); app.save(true);
   const again = boot({ progress: structuredClone(lastSave(ctx)) }).app;
   assert.equal(again.s.sg, 0);
 });
@@ -1283,8 +1306,12 @@ test("a schema 4 save (from the previous build) loads at the landing site with n
   assert.equal(E.migrate({ ...saved, ans: 1, cf: 2 }).s.cf, E.CALL_FRAGS, "an answered call is a whole one");
 });
 
+// The first day from T0 whose order (by the local date) is DAILY[k].
+const dayOf = (k) => { for (let d = 0; ; d++) if (E.dailyPick(T0 + d * 864e5) === k) return T0 + d * 864e5; };
+const ORDER = (id) => E.DAILY.findIndex((d) => d[0] === id);
+
 test("console logbook: milestones become feats once each and are kept; today's order is stated and met once; all optional", () => {
-  wall = T0 + 864e5; // a date whose order is "play three tunes through"
+  wall = dayOf(ORDER("tunes")); // a date whose order is "play three tunes through"
   const { ctx, app, book } = bootLog();
   assert.deepEqual(book.daily, ["Play three tunes through"]);
   app.finishTune(); app.finishTune();
@@ -1309,9 +1336,9 @@ test("console logbook: milestones become feats once each and are kept; today's o
   run(again, 2);
   assert.ok(!seen.includes("first-relocation"), "a feat already reported is not reported again after a reload");
   // the other orders, and nothing at all without a logbook
-  wall = T0; const f = bootLog(); assert.deepEqual(f.book.daily, ["Catch a signal flare"]);
+  wall = dayOf(ORDER("flare")); const f = bootLog(); assert.deepEqual(f.book.daily, ["Catch a signal flare"]);
   f.app.flare = { x: 400, y: 200, t: 9, life: 14 }; f.app.catchFlare(); assert.equal(f.book.met, 1);
-  wall = T0 + 2 * 864e5; const gr = bootLog(); assert.deepEqual(gr.book.daily, ["Finish a tune in full groove"]);
+  wall = dayOf(ORDER("groove")); const gr = bootLog(); assert.deepEqual(gr.book.daily, ["Finish a tune in full groove"]);
   for (let i = 0; i < 80; i++) { gr.app.gather(); advance(gr.app, 0.45); }
   assert.equal(gr.book.met, 1);
   const plain = begin().app;
@@ -1323,7 +1350,7 @@ test("console logbook: milestones become feats once each and are kept; today's o
 test("console logbook: calls held back during a menu gesture are made again; a failing logbook changes nothing", () => {
   // The console holds feat and dailyMet back while a menu gesture is possible: they return nothing
   // and may be dropped. Outpost asks again until the logbook has them.
-  wall = T0 + 864e5; // "play three tunes through"
+  wall = dayOf(ORDER("tunes"));
   const { ctx, app, book } = bootLog();
   const met = ctx.dailyMet, feat = ctx.feat;
   let held = 0;
@@ -1354,6 +1381,110 @@ test("console logbook: calls held back during a menu gesture are made again; a f
   assert.equal(other.s.fe, 0);
   assert.equal(other.s.runs, 1);
   finiteDeep(other.s);
+});
+
+test("story notes are never cut short: a passing note waits its turn, and a story note waits while the ring covers the station", () => {
+  const { app } = begin();
+  app.queueNote(E.CALL_LOG[0], 5);
+  assert.equal(app.note.text, E.CALL_LOG[0]);
+  advance(app, 1);
+  app.setNote("TUNE COMPLETE: X  +5", 4); // what finishing a tune shows
+  assert.equal(app.note.text, E.CALL_LOG[0], "the story note stays");
+  advance(app, 4.2);
+  assert.equal(app.note.text, "TUNE COMPLETE: X  +5", "the passing note follows it");
+  // a passing note that waited too long is dropped
+  app.note = null; app.queueNote("STORY A", 10); app.setNote("STALE", 3);
+  advance(app, 10.2);
+  assert.notEqual(app.note?.text, "STALE");
+  // the ring covers the station: the story note waits, then shows for its full time
+  app.note = null; app.noteQ.length = 0;
+  app.queueNote("STORY B", 4); advance(app, 1);
+  app.openRing("main"); advance(app, 6);
+  assert.ok(app.noteQ.some((n) => n.text === "STORY B"), "put back while the ring is open");
+  app.closeRing(); advance(app, 0.1);
+  assert.equal(app.note.text, "STORY B");
+  assert.ok(app.note.t > 2.5, "with the time it had left");
+  // at most six wait; a passing note goes before a story note
+  app.note = { text: "NOW", t: 9, story: true }; app.noteQ.length = 0;
+  for (let i = 0; i < 5; i++) app.queueNote("S" + i, 3);
+  app.setNote("P", 3); app.queueNote("S5", 3);
+  assert.equal(app.noteQ.length, 6);
+  assert.ok(!app.noteQ.some((n) => n.text === "P") && app.noteQ.every((n) => n.story));
+  // the story note on screen, put back while six wait, goes first in line, and six still wait
+  app.openRing("main"); advance(app, 0.1);
+  assert.equal(app.noteQ.length, 6);
+  assert.equal(app.noteQ[0].text, "NOW");
+  app.closeRing(); advance(app, 0.1);
+  assert.equal(app.note.text, "NOW");
+});
+
+test("the finale is shown at once and fires once; sky and ground soundings count only machines built here", () => {
+  const { app } = begin();
+  const s = app.s;
+  s.L = 500; s.cf = E.CALL_FRAGS; s.rt = 1e9; app.dirty = true; app.recalc();
+  app.relocate(E.SILENT); app.phase_ = "play"; app.arrive();
+  app.queueNote("SOMETHING ELSE", 4);
+  app.answerCall();
+  assert.equal(app.note.text, E.CALL_ANSWERED);
+  assert.equal(s.ans, 1);
+  s.sx = 1; app.checkSurvey(); // the sounding counts the answer: no second finale
+  assert.equal(s.sv[E.SILENT], 1);
+  assert.equal(s.ans, 1);
+  // HEAD START gives machines on arrival; the High Ridge sounding wants machines built there
+  for (const lvl of [4, 5]) {
+    const b = begin().app, t = b.s;
+    t.tree[0] = lvl; t.L = 40; t.rt = 1e9; b.dirty = true; b.recalc();
+    b.relocate(1); b.phase_ = "play";
+    advance(b, 1.2);
+    assert.equal(t.sv[1], 0, "head start " + lvl + ": not taken on arrival");
+    const sv = E.surveyOf(t);
+    assert.equal(sv.v, 0); assert.match(sv.text, /^BUILD 60 OF ONE SKY MACHINE/);
+    t.sig = 1e15;
+    while (E.surveyOf(t).v < 60) b.buyProd(0);
+    advance(b, 1.2);
+    assert.equal(t.sv[1], 1, "taken once 60 more are built");
+  }
+});
+
+test("an odd save keeps the story whole: fragments follow the soundings, the answer and the silent coast agree, the offer is full", () => {
+  const save = (over) => {
+    const s = E.freshState();
+    return { ...E.serialize(s, T0), runs: 3, L: 500, ...over };
+  };
+  const load = (over) => { wall = T0 + 1000; return boot({ progress: save(over) }).app; };
+  // a sounding taken at the silent coast without the answer: taken back, so the finale can still come
+  let a = load({ site: 11, cf: 11, ans: 0, sv: [2, 2, 2, 2, 2, 1, 0, 0, 0, 0, 0, 1] });
+  assert.equal(a.s.sv[E.SILENT], 0); assert.equal(a.s.ans, 0); assert.equal(a.s.cf, E.CALL_FRAGS);
+  // answered, but the sounding missing: no second finale
+  a = load({ site: 11, cf: 11, ans: 1, sv: Array(12).fill(0) });
+  assert.equal(a.s.sv[E.SILENT], 1);
+  // every ordinary site sounded twice, no fragments: the call is whole
+  a = load({ cf: 0, sv: [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 0] });
+  assert.equal(a.s.cf, E.CALL_FRAGS);
+  assert.equal(a.s.of[0], E.SILENT, "and the silent coast is offered first");
+  // at the silent coast without the whole call: back at the landing site
+  a = load({ site: 11, cf: 3, sv: [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
+  assert.equal(a.s.site, 0);
+  // a short or repeated offer is made full again
+  for (const of of [[5], [1, 1, 1], [2, 3]]) {
+    a = load({ of });
+    assert.equal(a.s.of.length, 3, JSON.stringify(of));
+    assert.equal(new Set(a.s.of).size, 3);
+  }
+  for (const x of [a]) finiteDeep(x.s);
+});
+
+test("today's order: the one stated earlier today is kept (the logbook keeps local dates)", () => {
+  for (const k of [0, 1, 2]) {
+    wall = dayOf((k + 1) % 3); // a day that would pick another order
+    const ctx = appContext(), said = [];
+    ctx.today = () => ({ goal: E.DAILY[k][1], done: false, own: true });
+    ctx.daily = (text) => said.push(text);
+    ctx.dailyMet = () => {};
+    const app = new Outpost(ctx);
+    assert.equal(app.dailyK, E.DAILY[k][0]);
+    assert.ok(said.every((t) => t === E.DAILY[k][1]));
+  }
 });
 
 test("the long game: a player who stays for each site's sounding hears the whole call and answers it", () => {

@@ -93,10 +93,13 @@ test("a thruster fires on a press in flight, and there are only as many as the l
   fire(app);
   run(app, 0.3);
   const vx = app.p.vx, kicks = app.kicks;
-  assert.equal(kicks, 1);
+  assert.equal(kicks, 2);
+  tap(app);
+  assert.equal(app.kicks, 1);
+  assert.ok(app.p.vx > vx && app.p.vy > 0);
+  run(app, 0.1);
   tap(app);
   assert.equal(app.kicks, 0);
-  assert.ok(app.p.vx > vx && app.p.vy > 0);
   const vx2 = app.p.vx;
   tap(app);
   assert.equal(app.p.vx, vx2, "an empty thruster still pushed");
@@ -118,7 +121,7 @@ test("a press just before touchdown is a skip, and a perfect skip bounces higher
   };
   const plain = drop(false), skipped = drop(true);
   assert.equal(skipped.perfect, 1);
-  assert.equal(skipped.kicks, 1, "the skip used a thruster");
+  assert.equal(skipped.kicks, 2, "the skip used a thruster");
   assert.ok(skipped.vy > plain.vy * 1.3, skipped.vy + " vs " + plain.vy);
   assert.ok(skipped.vx > plain.vx);
 });
@@ -273,6 +276,23 @@ test("a careful player flies much farther than one who only fires, on the same f
   };
   const careful = sum({ skill: 1 }), idle = sum({ thrust: false, skip: false });
   assert.ok(careful > idle * 1.6, careful + " vs " + idle);
+});
+
+test("upgrades do not outweigh skill: careful timing on a small loadout keeps up with a full one", () => {
+  // bots with a hand's lag; `skill` sets how widely their skips scatter around the perfect moment
+  const mean = (level, skill) => {
+    const { app } = mount({ seed: 7 });
+    app.sv.up = [level, level, level, level, level];
+    const jitter = new Random(22);
+    let total = 0;
+    for (let r = 0; r < 16; r++) total += playRun(app, { skill, lag: 0.2, jitter }).metres;
+    return total / 16;
+  };
+  const sharp0 = mean(0, 1), sharp2 = mean(2, 1), sharp5 = mean(5, 1), loose2 = mean(2, 0.2), loose5 = mean(5, 0.2);
+  assert.ok(sharp2 > loose2 * 1.3, "skill at II: " + sharp2 + " vs " + loose2);
+  assert.ok(sharp5 > loose5 * 1.3, "skill at V: " + sharp5 + " vs " + loose5);
+  assert.ok(sharp2 > loose5 * 0.75, "a sharp II against a loose V: " + sharp2 + " vs " + loose5);
+  assert.ok(sharp5 < sharp0 * 4.5, "upgrades: " + sharp0 + " -> " + sharp5);
 });
 
 test("a campaign of runs with the workshop gets steadily farther and reaches new zones", () => {

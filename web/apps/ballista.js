@@ -57,10 +57,10 @@ export const ZONES = [
   { name: "THE FLATS", roman: "I", from: 0, col: LAMP.green, ink: "#9fdc7a", gap: [180, 380], kinds: { pad: 3, drift: 2, scrap: 3 } },
   { name: "THE DUNES", roman: "II", from: 150, col: LAMP.amber, ink: "#e7b879", gap: [170, 360], kinds: { pad: 3, drift: 2, scrap: 3, boost: 2, beacon: 2 } },
   { name: "THE CRATERS", roman: "III", from: 350, col: LAMP.red, ink: "#eb947a", gap: [170, 350], kinds: { pad: 3, drift: 2, scrap: 2, boost: 2, beacon: 2, pit: 2, mine: 2 } },
-  { name: "THE SPIRES", roman: "IV", from: 650, col: LAMP.violet, ink: "#b48cf0", gap: [160, 340], kinds: { pad: 2, drift: 2, scrap: 2, boost: 2, beacon: 2, pit: 2, mine: 2, updraft: 2, net: 2 } },
-  { name: "THE GLASS", roman: "V", from: 1000, col: LAMP.cyan, ink: "#8fcbc5", gap: [160, 340], kinds: { pad: 2, drift: 1, scrap: 2, boost: 2, beacon: 2, pit: 3, mine: 2, updraft: 1, net: 2, ice: 3 } },
-  { name: "THE STORM", roman: "VI", from: 1500, col: LAMP.white, ink: "#ece4d0", gap: [160, 330], kinds: { pad: 2, drift: 1, scrap: 2, boost: 2, beacon: 2, pit: 3, mine: 2, updraft: 1, net: 2, ice: 2, gust: 3 } },
-  { name: "THE BEYOND", roman: "VII", from: 2600, col: [255, 0, 110], ink: "#e0507a", gap: [150, 300], kinds: { pad: 2, drift: 1, scrap: 2, boost: 2, beacon: 2, pit: 4, mine: 2, updraft: 1, net: 2, ice: 2, gust: 2 } },
+  { name: "THE SPIRES", roman: "IV", from: 600, col: LAMP.violet, ink: "#b48cf0", gap: [160, 340], kinds: { pad: 2, drift: 2, scrap: 2, boost: 2, beacon: 2, pit: 2, mine: 2, updraft: 2, net: 2 } },
+  { name: "THE GLASS", roman: "V", from: 900, col: LAMP.cyan, ink: "#8fcbc5", gap: [160, 340], kinds: { pad: 2, drift: 1, scrap: 2, boost: 2, beacon: 2, pit: 3, mine: 2, updraft: 1, net: 2, ice: 3 } },
+  { name: "THE STORM", roman: "VI", from: 1250, col: LAMP.white, ink: "#ece4d0", gap: [160, 330], kinds: { pad: 2, drift: 1, scrap: 2, boost: 2, beacon: 2, pit: 3, mine: 2, updraft: 1, net: 2, ice: 2, gust: 3 } },
+  { name: "THE BEYOND", roman: "VII", from: 1900, col: [255, 0, 110], ink: "#e0507a", gap: [150, 300], kinds: { pad: 2, drift: 1, scrap: 2, boost: 2, beacon: 2, pit: 4, mine: 2, updraft: 1, net: 2, ice: 2, gust: 2 } },
 ];
 export const zoneAt = (metres) => { for (let i = ZONES.length - 1; i > 0; i--) if (metres >= ZONES[i].from) return i; return 0; };
 // What a newcomer is told the first time each thing comes into view (once per save).
@@ -91,7 +91,7 @@ export const UPGRADES = [
 const UP_MAX = 5;
 // An overhaul (every system at V) strips the five systems back to nothing and raises the pod's
 // mark: each mark launches faster and earns more salvage for good, and the systems cost more.
-export const MARK_MAX = 9, MARK_SPEED = 0.06, MARK_SALVAGE = 0.15, MARK_COST = 0.4;
+export const MARK_MAX = 9, MARK_SPEED = 0.03, MARK_SALVAGE = 0.15, MARK_COST = 0.4;
 export const upCost = (i, level, mark) => Math.round(UPGRADES[i].cost[level] * (1 + MARK_COST * mark) / 5) * 5;
 export const PODS = [
   { name: "STANDARD", need: 0, e: 0, drag: 1, kick: 1, perfect: 1, text: "The survey pod as issued." },
@@ -122,14 +122,14 @@ export function loadout(up, podIx, mods = [], mark = 0) {
   const has = (id) => mods.includes(id);
   return {
     g: G * (pod.g || 1),
-    vmax: (560 + 40 * L(0)) * (podIx === 2 ? 1.04 : 1) * (1 + MARK_SPEED * mark),
-    kicks: 1 + Math.ceil(L(1) / 2), // a thruster more at I, III and V; a harder push at II and IV
-    e: 0.4 + 0.025 * L(2) + pod.e,
-    keep: 0.82 + 0.016 * L(2),
-    roll: 1 - 0.06 * L(2),
-    drag: 0.0003 * (1 - 0.09 * L(3)) * pod.drag,
+    vmax: (600 + 25 * L(0)) * (podIx === 2 ? 1.04 : 1) * (1 + MARK_SPEED * mark),
+    kicks: 2 + Math.floor(L(1) / 2), // a thruster more at II and IV; a harder push at I, III and V
+    e: 0.44 + 0.015 * L(2) + pod.e,
+    keep: 0.84 + 0.01 * L(2),
+    roll: 1 - 0.04 * L(2),
+    drag: 0.0003 * (1 - 0.06 * L(3)) * pod.drag,
     magnet: 24 + 16 * L(4),
-    kick: pod.kick * (has("burner") ? 1.25 : 1) * (1 + 0.1 * Math.floor(L(1) / 2)),
+    kick: pod.kick * (has("burner") ? 1.25 : 1) * (1 + 0.06 * Math.ceil(L(1) / 2)),
     perfect: SKIP_PERFECT * pod.perfect * (has("gyro") ? 1.4 : 1),
     pad: has("spring") ? 1.2 : 1,
     scrap: has("scanner") ? 4 : 2,

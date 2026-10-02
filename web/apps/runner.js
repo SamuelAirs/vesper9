@@ -137,8 +137,6 @@ export const WORKSHOP = [
 ];
 const MAG_R = [0, 45, 85, 130];
 const ZEN_LV = 2;
-const RANKS = ["CADET", "SURVEYOR", "PATHFINDER", "DUNE WALKER", "RILLE JUMPER", "CRYSTAL HAND", "RIM RIDER", "FAR SIDER", "MOON GHOST"];
-export const rankOf = (lv) => RANKS[Math.min(RANKS.length - 1, Math.floor((lv - 1) / 3))];
 
 // ---- survey orders: three goals a level ------------------------------------------------
 // `min` is the first level an order can appear at, so every order on the board can be met by then.
@@ -182,6 +180,7 @@ export const orderText = (o) => ORDER_KINDS[o.k].text(o.n);
 
 // ---- daily run ----------------------------------------------------------------------
 const dailyRng = new Random(1);
+const DAILY_SH = 60; // shards for the day's goal, once a day
 const dateKey = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
 export function dailyGoal(key) {
   const h = hashText("ride" + key), kind = h % 4, v = (h >>> 8) % 5;
@@ -225,7 +224,9 @@ export function migrateSave(raw) {
     pb: Array.from({ length: RIDES.length }, (_, i) => nat(Array.isArray(r.pb) ? r.pb[i] : 0)),
     st: { m: nat(st.m), bm: nat(st.bm), suns: nat(st.suns), perfects: nat(st.perfects), shards: nat(st.shards), fevers: nat(st.fevers), chasms: nat(st.chasms), chain: nat(st.chain), zen: nat(st.zen), best: nat(st.best), top: nat(st.top) },
     bc: Array.from({ length: ZONES.length }, (_, i) => clamp(nat(Array.isArray(r.bc) ? r.bc[i] : 0), 0, 7)),
-    dl: { d: typeof dl.d === "string" ? dl.d.slice(0, 10) : "", best: nat(dl.best), done: dl.done ? 1 : 0, streak: nat(dl.streak), last: typeof dl.last === "string" ? dl.last.slice(0, 10) : "" },
+    // The day's best and whether its goal was paid. (A streak and its last day were kept here until
+    // 2026-10-02; the console logbook keeps the streak now, and old ones are dropped.)
+    dl: { d: typeof dl.d === "string" ? dl.d.slice(0, 10) : "", best: nat(dl.best), done: dl.done ? 1 : 0 },
   };
 }
 
@@ -260,6 +261,8 @@ export class Moonrunner {
     this.parts = new Float32Array(MAX_PARTS * 5); // x, y, vx, vy, life
     this.trail = new Float32Array(TRAIL * 2);
     this.lastHint = "";
+    // The daily run's goal is this game's order in the console logbook (when it is one of today's three).
+    ctx.daily?.("Daily run: " + dailyGoal(this.dayKey()).text.replace(/\.$/, "").toLowerCase());
     this.reset();
     this.phase = "title";
     this.setHint("Tap to ride. Hold for the depot.");
@@ -871,7 +874,7 @@ export class Moonrunner {
     }
   }
   checkOrders() {
-    if (this.daily && !this.goalDone && this.goalMet()) { this.goalDone = true; this.notify("DAILY GOAL MET", 2.4); this.c.tone(784, 0.2, "sine"); }
+    if (this.daily && !this.goalDone && this.goalMet()) { this.goalDone = true; this.c.dailyMet?.(); this.notify("DAILY GOAL MET", 2.4); this.c.tone(784, 0.2, "sine"); }
     this.orders.forEach((o, i) => {
       if (this.sv.gd[i]) return;
       if (this.zen && o.k !== "zen" && o.k !== "hoard") return;
@@ -924,12 +927,8 @@ export class Moonrunner {
       const key = this.dayKey();
       if (sv.dl.d !== key) { sv.dl.d = key; sv.dl.best = 0; sv.dl.done = 0; }
       sv.dl.best = Math.max(sv.dl.best, score);
-      if (this.goalDone && !sv.dl.done) {
-        sv.dl.done = 1;
-        sv.dl.streak = sv.dl.last && this.dayBefore(key) === sv.dl.last ? sv.dl.streak + 1 : 1;
-        sv.dl.last = key;
-        sv.sh += 40 + 10 * Math.min(sv.dl.streak, 7);
-      }
+      // The streak is the console logbook's now; the game pays the day's goal once in shards.
+      if (this.goalDone && !sv.dl.done) { sv.dl.done = 1; sv.sh += DAILY_SH; }
     } else if (!this.zen) sv.pb[this.rideIx] = Math.max(sv.pb[this.rideIx] || 0, score);
     this.levelled = null;
     if (sv.gd.every(Boolean)) {
@@ -952,11 +951,6 @@ export class Moonrunner {
     for (const rd of RIDES) if (rd.lv === lv) out.push(rd.name + " SLED");
     for (const tr of TRAILS) if (tr.lv === lv) out.push(tr.name + " TRAIL");
     return out;
-  }
-  dayBefore(key) {
-    const [y, m, d] = key.split("-").map(Number);
-    const t = new Date(y, m - 1, d - 1);
-    return t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0");
   }
   dailyDone() { return this.sv.dl.d === this.dayKey() && this.sv.dl.done === 1; }
   nextUnlock() {
@@ -1405,7 +1399,7 @@ export class Moonrunner {
     this.card(g, 84, 470);
     text(g, "MOONRUNNER", 480, 132, 42, C.ink, "center");
     text(g, "Hold to dive down the slopes. Let go to fly off the crests.", 480, 178, 20, C.muted, "center");
-    text(g, "LEVEL " + this.sv.lv + "  " + rankOf(this.sv.lv) + "     SURVEY ORDERS", 480, 226, 20, C.amber, "center");
+    text(g, "LEVEL " + this.sv.lv + "     SURVEY ORDERS", 480, 226, 20, C.amber, "center");
     this.drawOrders(g, 266, 20);
     const next = this.nextUnlock();
     if (next) text(g, "NEXT  " + next, 480, 380, 18, C.muted, "center");
@@ -1423,11 +1417,11 @@ export class Moonrunner {
     text(g, res.metres + " m   " + res.perfects + " PERFECT   BEST CHAIN " + res.chain + "   " + res.top + " km/h", 480, 222, 20, C.ink, "center");
     let y = 268;
     if (this.levelled) {
-      text(g, "LEVEL " + this.levelled.lv + "  " + rankOf(this.levelled.lv) + "   +" + this.levelled.bonus + " SHARDS", 480, y, 24, C.cyan, "center"); y += 32;
+      text(g, "LEVEL " + this.levelled.lv + "   +" + this.levelled.bonus + " SHARDS", 480, y, 24, C.cyan, "center"); y += 32;
       if (this.levelled.unlocks.length) { text(g, "UNLOCKED  " + this.levelled.unlocks.join(", "), 480, y, 18, C.cyan, "center"); y += 30; }
       text(g, "NEW ORDERS", 480, y + 4, 18, C.amber, "center"); y += 36;
     } else if (this.daily) {
-      text(g, this.goalDone ? "DAILY GOAL MET" + (this.sv.dl.streak > 1 ? "  STREAK " + this.sv.dl.streak : "") : "DAILY: " + dailyGoal(this.dayKey()).text, 480, y, 18, this.goalDone ? C.cyan : C.muted, "center"); y += 32;
+      text(g, this.goalDone ? "DAILY GOAL MET  +" + DAILY_SH + " SHARDS" : "DAILY: " + dailyGoal(this.dayKey()).text, 480, y, 18, this.goalDone ? C.cyan : C.muted, "center"); y += 32;
     }
     this.drawOrders(g, y, 18);
     if (this.overT > LOCK) text(g, this.sv.runs >= 2 ? "TAP = RIDE AGAIN     HOLD = DEPOT" : "PRESS TO RIDE AGAIN", 480, 476, 18, C.amber, "center");
@@ -1435,7 +1429,7 @@ export class Moonrunner {
   drawDepot(g) {
     this.card(g, 36, 506);
     text(g, "DEPOT", 480, 78, 34, C.amber, "center");
-    text(g, "LEVEL " + this.sv.lv + "  " + rankOf(this.sv.lv) + "     " + this.sv.sh + " SHARDS", 480, 112, 18, C.muted, "center");
+    text(g, "LEVEL " + this.sv.lv + "     " + this.sv.sh + " SHARDS", 480, 112, 18, C.muted, "center");
     const sv = this.sv;
     if (this.view === "menu") {
       const ride = RIDES[sv.sel.ride];
@@ -1461,7 +1455,7 @@ export class Moonrunner {
       else if (id === "SLED") { const nx = RIDES.find((q) => q.lv > sv.lv); info = ride.text + (nx ? "  NEXT: " + nx.name + " AT LEVEL " + nx.lv : ""); }
       else if (id === "START") info = "Begin in any zone you have reached. Only a run from the start sets the record.";
       else if (id === "ZEN") info = "Ride with no daylight clock and no score. Leave with tap, tap, hold.";
-      else if (id === "DAILY") { const gl = dailyGoal(this.dayKey()); info = "Today: " + gl.text + (sv.dl.streak > 1 ? "  STREAK " + sv.dl.streak : ""); }
+      else if (id === "DAILY") { const gl = dailyGoal(this.dayKey()); info = "Today: " + gl.text; }
       else if (id === "WORKSHOP") info = "Magnet, grapple and fever coil.";
       else if (id === "ORDERS") info = "Meet all three to reach the next level.";
       else info = "Zones, beacons found, and the expedition's totals.";

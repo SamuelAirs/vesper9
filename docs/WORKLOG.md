@@ -70,6 +70,7 @@ The long integrated run was started while final review continued. The final held
 - Gear: the battery became the GRAPPLE (a rille fall costs 3 s less a tier), the fever coil keeps the chain through one miss a fever, shards score nothing, and a surveyed zone pays 60 shards instead of daylight. A test checks that full gear scores the same as none. Old saves keep their tiers.
 - Fixed the fever notice colour (`startsWith("FEVER")`) and the ground seams (one piece per zone, a world-fixed gradient for the blend).
 - Bots, 8 seeds, score (metres): precise about 53 400 (8 600), 150 ms late 27 600 (7 600), 250 ms late 11 800 (5 700), by eye 15 000 (6 300); before, 250 ms late scored 56 percent of precise, now 22 percent. The precise bot reaches VI 8/8, 250 ms late 4/8. Runs last about 140 to 165 s (were about 250 s).
+- Console logbook (PR #16's cut list): the game's own daily streak and the rank names are gone. The daily run states its goal with `ctx.daily()` and reports it with `ctx.dailyMet()` (both optional, so the game also runs without #16); the goal pays 60 shards once a day. Old saves drop the streak.
 - Not verified on the device.
 
 ## 2026-10-01 — Moonrunner: depth and visuals (desktop/cloud session)

@@ -605,19 +605,30 @@ test("zen: no clock and no score; a rille costs nothing and the ride goes on", (
   assert.equal(ctx.calls.score.length, 0);
   assert.ok(g.sv.st.zen > 0, "zen metres were not banked");
 });
-test("daily run: the same hills for everyone on a date, different ones the next day, and a streak", () => {
+test("daily run: the same hills for everyone on a date, different ones the next day; its goal is the console's order", () => {
   const make = (key) => { const g = new Moonrunner(appContext({ seed: Math.random() * 1e9 })); g.dayKey = () => key; g.start("daily"); g.r.x += 3000; g.extend(); return g; };
   const a = make("2026-10-01"), b = make("2026-10-01"), c = make("2026-10-02");
   assert.deepEqual(a.kp, b.kp);
   assert.notDeepEqual(a.kp, c.kp);
   assert.ok(dailyGoal("2026-10-01").text.length > 5);
-  const g = new Moonrunner(appContext({ seed: 40, progress: { schema: 3, dl: { last: "2026-09-30", streak: 2 } } }));
+  const ctx = appContext({ seed: 40, progress: { schema: 3, sh: 0, dl: { last: "2026-09-30", streak: 2 } } }), said = [];
+  let met = 0;
+  ctx.daily = (text) => said.push(text);
+  ctx.dailyMet = () => met++;
+  const g = new Moonrunner(ctx);
+  assert.equal(said.length, 1);
+  assert.match(said[0], /^Daily run: /);
+  assert.equal(g.sv.dl.streak, undefined, "the old streak was kept");
   g.dayKey = () => "2026-10-01";
   g.start("daily");
-  g.goalDone = true;
-  step(g, 1); kill(g);
-  assert.equal(g.sv.dl.streak, 3);
+  g.goalMet = () => true;
+  step(g, 1);
+  assert.ok(g.goalDone);
+  kill(g);
+  step(g, 3);
+  assert.equal(met, 1, "the console was not told the order was met");
   assert.equal(g.sv.dl.done, 1);
+  assert.ok(g.sv.sh >= 60, "the day's goal paid no shards");
 });
 test("leaving in the middle of a run banks it: the score, the stats and the shards are kept", () => {
   const { ctx, g } = started({ seed: 41 });

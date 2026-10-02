@@ -25,6 +25,8 @@ export const CUE_GAIN = 0.6;
 // In full groove each tap adds a quiet bell an octave and a fifth up (the note's third partial,
 // so it never clashes): the sound of being in the pocket.
 export const POCKET_GAIN = 0.12;
+// THE CALL's undecoded notes are played as a quiet drone.
+export const HIDDEN_GAIN = 0.35;
 
 // Scale degrees (1 = tonic, 3 = third, 5 = fifth, 8 = the octave, ...) for each mode. Pentatonic
 // tunes use the major degrees; cues only use 1, 2, 3, 5 and 6 and their octaves, which are in
@@ -68,6 +70,8 @@ export const CUES = {
   hum: [[1, 5, 8], 0.12, 0.4, "sine", LAMP.green], // a finished tune sets machines humming (played in their own notes)
   fragment: [[5, 6, 5, 2, 8], 0.13, 0.3, "sine", LAMP.violet], // a fragment of THE CALL is decoded
   answer: [[1, 3, 5, 8, 5, 8, 10, 12, 15, 12, 15], 0.12, 0.4, "sine", LAMP.white], // THE CALL is answered
+  survey: [[5, 8], 0.06, 0.12, "sine", LAMP.violet], // a sounding is taken (a fragment or the answer follows)
+  site: [[1, 5, 9, 12], 0.1, 0.3, "sine", LAMP.cyan], // a new site comes onto the map
 };
 
 // The player's beat (seconds) while they are keeping one, else 0.
@@ -149,6 +153,9 @@ export function voiceNote(app, midi, gap, idx) {
   if (app.clk - app.lastTapTone <= 0.03) return; // faster than any hand: skip the sound, not the note
   app.lastTapTone = app.clk;
   const c = app.c, m = app.mel, s = app.s, len = clamp(gap * 1.25, 0.16, 0.55), hz = midiHz(midi);
+  // an undecoded note of THE CALL: a muffled, quiet drone with no harmony, so the decoded notes
+  // stand out as the melody
+  if (m.hidden?.[idx]) { c.tone(hz, len, "sine", HIDDEN_GAIN); return; }
   c.tone(hz, len, "triangle", app.voices() >= 2 ? 0.8 : 1);
   if (s.up[VOICE[0]]) c.tone(midiHz(scaleUp(midi, m.pcs, 2)), len * 0.7, "sine", VOICE_GAIN[0]);
   if (s.up[VOICE[1]]) c.tone(hz * 2, Math.min(len, 0.25), "sine", VOICE_GAIN[1]);

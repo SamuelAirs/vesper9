@@ -25,6 +25,7 @@ const begin = (options) => {
 };
 const advance = (app, seconds) => run(app, seconds, () => { wall += 1000 / 60; });
 const M = Outpost.music;
+const tap = (app) => { app.down(); advance(app, 0.06); app.up({ durationMs: 60 }); };
 
 test("songbook: every melody is well formed and starts the way the printed tune does", (t) => {
   assert.ok(M.SONGS.length >= 15, "a good number of tunes");
@@ -94,7 +95,7 @@ test("the extra voices sit quietly under the lead: a fully voiced tap is about t
 });
 
 // ======================= cues in the tune's key, on the player's beat =======================
-import { CUES, CUE_GAIN, POCKET_GAIN, cue, tick, tuneCue, degreeMidi, cueTiming, liveBeat } from "../web/apps/outpost-music.js";
+import { CUES, CUE_GAIN, POCKET_GAIN, HIDDEN_GAIN, cue, tick, tuneCue, degreeMidi, cueTiming, liveBeat } from "../web/apps/outpost-music.js";
 const tuneCueOf = (app) => tuneCue(app, app.mel);
 
 const hzMidi = (hz) => Math.round(69 + 12 * Math.log2(hz / 440));
@@ -226,4 +227,22 @@ test("cues wait their turn, and a hum sounds the notes of the machines that are 
   // with nothing humming the hum falls back to the tune's own chord
   app.hum.fill(0); app.queue = []; cue(app, "hum");
   assert.equal(app.queue.length, CUES.hum[0].length);
+});
+
+test("THE CALL's undecoded notes are a quiet drone; the decoded ones play as the melody", () => {
+  const { ctx, app } = begin();
+  advance(app, 1);
+  const mel = app.mel, saved = mel.hidden;
+  mel.hidden = mel.n.map((_, i) => i % 2 === 1);
+  try {
+    app.s.sp = 0; advance(app, 0.5);
+    let n = ctx.calls.tone.length; tap(app);
+    const shown = ctx.calls.tone.slice(n);
+    assert.equal(shown[0][2], "triangle", "a decoded note is the lead");
+    advance(app, 0.5);
+    n = ctx.calls.tone.length; tap(app);
+    const hidden = ctx.calls.tone.slice(n).filter((c) => c[3] !== CUE_GAIN);
+    assert.equal(hidden.length, 1, "no harmony on a drone note");
+    assert.ok(hidden[0][2] === "sine" && hidden[0][3] === HIDDEN_GAIN && HIDDEN_GAIN < 0.5, "quiet and muffled: " + hidden[0]);
+  } finally { mel.hidden = saved; }
 });

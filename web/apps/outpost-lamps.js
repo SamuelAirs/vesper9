@@ -7,7 +7,8 @@
 // where its note sits in the melody's range (a short glow, brighter with groove, cyan when it is
 // full), each note of a sound cue lights the lamp for its pitch in the cue's colour (so a purchase
 // runs green across the lamps, a returning expedition cyan), and events add an accent: buy,
-// milestone, phrase, tune, event and prestige. A flare blinks faster as it is about to fade. After
+// milestone, phrase, tune, event and prestige. When THE CALL is answered the station's colours
+// turn slowly round all three lamps for the finale. A flare blinks faster as it is about to fade. After
 // DIM_AFTER seconds without input everything drops to a dim version (flare and ready cues stay
 // visible).
 //
@@ -16,8 +17,8 @@
 //
 // Fields used on the cartridge (`app`): c, s, clk, rate, idle, phase_, ring, panel, affordN,
 // goalFrac, flare, boosts, groove, gaps, lastGather, hum, noteFx ({ pos 0..1, t }), accent ({ k, t,
-// dur }), cueFx ({ pos, rgb, t }, set by outpost-music.js), and this module's own breath, dimK,
-// grooveSeen and stumble.
+// dur }), cueFx ({ pos, rgb, t }, set by outpost-music.js), finale ({ t }), and this module's
+// own breath, dimK, grooveSeen and stumble.
 import { clamp } from "../engine/math.js";
 import { LAMP, lamps, dim, blend, pulse, blink, spot, only, chase, ramp } from "../engine/lightshow.js";
 import { DIM_AFTER, EXPED, GROOVE_MAX, readyOf } from "./outpost-rules.js";
@@ -29,6 +30,7 @@ export const STUMBLE = 0.3; // seconds the dropped-beat flicker lasts
 // How early the beat flash is sent: the node's lamp throttle (as Meridian allows) plus the
 // player's calibrated input latency, so the flash is seen when the finger should land.
 export const LAMP_LAG = 0.035;
+export const FINALE_SEC = 12; // how long the cartridge keeps app.finale after THE CALL is answered
 
 const latencyOf = (app) => {
   let ms = 0;
@@ -113,6 +115,13 @@ export function lampFrame(app) {
   // the latest cue note, in its cue's colour, on the lamp for its pitch
   const cf = app.cueFx;
   if (cf) over(spot(cf.pos, cf.rgb, 0.7).map((x) => Math.round(x * 0.55 * (1 - cf.t / CUE_GLOW))));
+  // THE CALL answered: for the finale the three colours of the station turn slowly round the
+  // lamps, fading out over its last seconds
+  if (app.finale) {
+    const t = app.finale.t, fade = clamp((FINALE_SEC - t) / 4, 0, 1) * clamp(t / 1.5, 0, 1);
+    const turn = [LAMP.white, LAMP.cyan, LAMP.violet], step = Math.floor(t * 1.5);
+    over(lamps(...[0, 1, 2].map((i) => dim(turn[(i + step) % 3], 0.45 * fade))));
+  }
   const a = app.accent;
   if (a) {
     const f = 1 - a.t / a.dur;

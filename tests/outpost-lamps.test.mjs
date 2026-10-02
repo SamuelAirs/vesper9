@@ -294,3 +294,20 @@ test("while machines hum, the left lamp breathes brighter and leans cyan", () =>
   assert.ok(hum[1] > quiet[1], `brighter: ${quiet} -> ${hum}`);
   assert.ok(hum[2] > quiet[2] + 20, `cyan-ish: ${quiet} -> ${hum}`);
 });
+
+test("answering THE CALL turns the station's colours round the lamps, then fades", () => {
+  const { app } = begin();
+  advance(app, 2);
+  app.accent = null;
+  app.finale = { t: 0 };
+  const seen = new Set();
+  let bright = 0;
+  for (let i = 0; i < 60 * 8; i++) { advance(app, 1 / 60); app.accent = null; app.cueFx = null; const v = app.lampValues(); bright = Math.max(bright, ...v); seen.add(v.map((x) => (x > 40 ? 1 : 0)).join()); }
+  assert.ok(bright > 90, "lit: " + bright);
+  assert.ok(seen.size >= 3, "it turns: " + seen.size);
+  app.finale = { t: 11.99 };
+  const end = app.lampValues();
+  app.finale = null;
+  const none = app.lampValues();
+  assert.ok(end.every((x, i) => Math.abs(x - none[i]) <= 2), `faded by the end: ${end} vs ${none}`);
+});

@@ -75,3 +75,10 @@ The long integrated run was started while final review continued. The final held
 - The menu gesture's final hold is 600 ms longer inside a game (1.6 s at the standard pace); menus keep 1 s. `SETTLE` is 2.8 s.
 - TIMING OFFSET in Calibration (`latencyMs`, tap-along), two knocks on the case go back outside a game (needs PR #4's firmware and service), and the console logbook (today's three, streak, feats; progress id `console`, version 1).
 - Report and per-game cut list: `fleet-notes/reports/platform-polish.md`.
+
+## 2026-10-02 — After Hours: four games from the game kit (desktop, not verified on the device)
+
+- Crawlspace (turn-based roguelike), Supper Club (three pans on the three lamps), Pocket Links (nine-hole mini golf) and Night Grid (power-routing puzzle), built by an outside chatbot from the game kit and reviewed before adding. Each is one file in `web/apps/` with its own tests; they register through one `Object.assign` line in `registry.js` and sit on a new AFTER HOURS sector after MIND.
+- They draw three lamps; on the four-lamp node the fourth stays dark until each game is given a use for it.
+- Crawlspace's choice scan shortened from 1.7 s to 1.2 s per option (a turn averaged about 3.2 s). The 1.5 s pause after an action stays: it is what keeps a player who mashes alive for the first 30 seconds.
+- Checks: the four games' 58 tests, the menu-gesture test with all four (every pace), full JS suite (one failure, the Perihelion bot on seed 3003, also failing without these games), catalog check, all four launched in the standalone simulator at 1024 × 600 with no page errors.

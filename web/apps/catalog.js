@@ -300,7 +300,7 @@ export const CARTRIDGES = [
     "id": "outpost",
     "name": "OUTPOST",
     "subtitle": "Build something that runs without you.",
-    "description": "Tap to gather signal, and every tap plays the next note of a melody: a songbook of old tunes and endless composed ones, played at your own tempo. Hold to open the build ring: buy machines, check statistics and goals, run research, choose the tune. Relocations and expeditions deepen the station, and it keeps working while you are away (up to eight hours, more with upgrades).",
+    "description": "Tap to gather signal, and every tap plays the next note of a melody at your own tempo; each tune makes the machines tuned to its notes hum. Hold to open the build ring: buy machines, choose the tune, run research. Relocate to new sites, each with its own rules and soundings to take, and decode the call hidden in the signal. The station keeps working while you are away.",
     "controls": "TAP TO GATHER AND PLAY · HOLD FOR THE RING",
     "category": "PLAY / INCREMENTAL",
     "glyph": 5,
@@ -308,7 +308,9 @@ export const CARTRIDGES = [
     "record": {
       "signal": "Lifetime signal",
       "bearings": "Bearings earned",
-      "relocations": "Relocations"
+      "relocations": "Relocations",
+      "site": "Moved to",
+      "call": "The call"
     },
     "factory": "Outpost",
     "voice": [

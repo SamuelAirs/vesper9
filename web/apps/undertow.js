@@ -11,7 +11,7 @@
 // guide (twelve species, two to a zone, pearls for each new one); schools scatter as the craft passes.
 //
 // The dock (hold on the title or result screen) has the craft, refits bought with pearls (magnet,
-// plating, sonar, scanner), a start zone, a daily dive seeded by the date, the field guide, feats and
+// assay, lure, scanner: pearls and sea life, never survival), a start zone, a daily dive seeded by the date, the field guide, feats and
 // a log. The save is versioned (schema 3) and still carries the fields the dashboard's field record
 // reads (runs, last, milestone); first-release and schema-2 saves are migrated.
 //
@@ -54,12 +54,14 @@ export const CRAFTS = [
   { name: "BULWARK", hull: 3, up: 600, down: 410, vmax: 245, r: 16, pearl: 1, cost: 400, text: "Slow to answer. Three hull." },
 ];
 
-// Refits bought with pearls at the dock; each level costs the next price in `costs`. The daily dive
-// ignores them, so it is the same dive for everyone.
+// Refits bought with pearls at the dock; each level costs the next price in `costs`. They help with
+// pearls and sea life only, never with surviving, so the best passage count is skill, not grinding.
+// The daily dive ignores them, so it is the same dive for everyone. (Slots 1 and 2 were plating and
+// sonar in an unreleased build; a save that bought them gets the assay and the lure.)
 export const UPGRADES = [
   { id: "magnet", name: "PEARL MAGNET", costs: [120, 260], text: "Pearls are collected from further away." },
-  { id: "plating", name: "HULL PLATING", costs: [300], text: "One more hull at the start of every dive." },
-  { id: "sonar", name: "LONG SONAR", costs: [180], text: "Faster pings in the Abyss; columns stay lit longer." },
+  { id: "assay", name: "CLEAN ASSAY", costs: [300], text: "Every fifth clean passage pays 5 pearls, not 3." },
+  { id: "lure", name: "SEA LURE", costs: [180], text: "Sea life comes twice as often, new species first." },
   { id: "scanner", name: "WIDE SCANNER", costs: [90], text: "Sea life is logged from further away, and sooner." },
 ];
 
@@ -90,8 +92,12 @@ export function nextGate(center, points, rng) {
   const base = clamp(center + rng.range(-reach, reach), 165, 375);
   const amp = points >= 8 ? Math.min(70, 14 + (points - 8) * 2.5) : 0;
   const z = zoneAt(points);
-  // Currents from the Trench, on most columns there and on half of them in the Deep.
-  const cur = (z === 2 || z === 5) && rng.next() < (z === 2 ? 0.7 : 0.5) ? (rng.next() < 0.5 ? -1 : 1) * (200 + Math.min(120, (points - 20) * 4)) : 0;
+  // Currents from the Trench. They ease in: none on its first two columns, then rarer and gentler
+  // (a third of the columns at 120 px/s^2) growing to most columns at 260 by its end; half of the
+  // columns in the Deep at full strength (320).
+  const into = points - ZONES[2].at;
+  const curChance = z === 2 ? (into < 2 ? 0 : Math.min(0.7, 0.3 + (into - 2) * 0.05)) : z === 5 ? 0.5 : 0;
+  const cur = curChance && rng.next() < curChance ? (rng.next() < 0.5 ? -1 : 1) * (120 + Math.min(200, into * 10)) : 0;
   // Breathing openings in the Vent Field and the Deep.
   const breathe = z >= 4 && rng.next() < 0.75 ? 26 + Math.min(16, (points - 50)) : 0;
   return { x: 1010, center: base, base, amp: z === 3 ? amp * 0.5 : amp, phase: rng.range(0, TAU), age: 0,
@@ -232,7 +238,7 @@ export class Undertow {
     this.startZone = start;
     this.points = ZONES[start].at;
     this.zone = start;
-    this.startHull = this.craft.hull + this.lv("plating");
+    this.startHull = this.craft.hull;
     this.hull = this.startHull;
     this.shield = 0;
     this.grace = 0;
@@ -582,17 +588,16 @@ export class Undertow {
       this.hit(top ? "SURFACE LIMIT / RELEASE TO DESCEND" : "DEPTH LIMIT / HOLD TO ASCEND");
       if (this.phase === "play") { this.y = clamp(this.y, TOP + 4, FLOOR - 4); this.vy = 0; }
     }
-    // The Abyss: a sonar ping every 1.6 s (1.1 s with the long sonar) lights the columns it reaches.
+    // The Abyss: a sonar ping every 1.6 s lights the columns it reaches.
     if (z === 3) {
-      const sonar = this.lv("sonar");
       this.pingT += dt;
-      if (this.pingT >= 1.6 - 0.5 * sonar) { this.pingT = 0; this.ping = 1; this.c.tone(1320, 0.04, "sine"); }
+      if (this.pingT >= 1.6) { this.pingT = 0; this.ping = 1; this.c.tone(1320, 0.04, "sine"); }
       if (this.ping > 0) {
         const r0 = this.ping;
         this.ping += 760 * dt;
         for (const gate of this.gates) {
           const d = gate.x + COL / 2 - CX;
-          if (d >= r0 && d < this.ping) gate.lit = 1.1 + 0.6 * sonar;
+          if (d >= r0 && d < this.ping) gate.lit = 1.1;
         }
         if (this.ping > 1000) this.ping = 0;
       }
@@ -609,10 +614,11 @@ export class Undertow {
       lifeRng.state = this.lstate;
       const pool = SPECIES.filter((s) => s.zone === this.zone);
       const fresh = pool.filter((s) => !this.known(s.id));
-      const s = fresh.length && lifeRng.next() < 0.7 ? lifeRng.pick(fresh) : lifeRng.pick(pool);
+      const lure = this.lv("lure");
+      const s = fresh.length && lifeRng.next() < (lure ? 0.9 : 0.7) ? lifeRng.pick(fresh) : lifeRng.pick(pool);
       const slow = s.kind === "jelly" || s.kind === "ray";
       this.life.push({ id: s.id, x: 1020, y: lifeRng.range(90, 440), vx: slow ? lifeRng.range(-20, 20) : lifeRng.range(-70, 10), ph: lifeRng.range(0, TAU), scan: 0, done: this.known(s.id) ? 1 : 0, fl: 0 });
-      this.lifeNext = lifeRng.range(2.2, 4.4);
+      this.lifeNext = lifeRng.range(2.2, 4.4) / (lure ? 2 : 1);
       this.lstate = lifeRng.state;
     }
     const scanner = this.lv("scanner"), range = 70 + 40 * scanner, need = scanner ? 0.3 : 0.45;
@@ -655,8 +661,9 @@ export class Undertow {
       this.clean++;
       this.R.cleanBest = Math.max(this.R.cleanBest, this.clean);
       if (this.clean % 5 === 0) {
-        this.R.pearls += 3 * k.pearl;
-        this.announce("CLEAN x" + this.clean + "  +" + 3 * k.pearl + " PEARLS", 1.6);
+        const pay = (this.lv("assay") ? 5 : 3) * k.pearl;
+        this.R.pearls += pay;
+        this.announce("CLEAN x" + this.clean + "  +" + pay + " PEARLS", 1.6);
         this.c.tone(988, 0.08, "sine");
       }
     } else this.clean = 0;
@@ -668,7 +675,7 @@ export class Undertow {
       this.zone = z;
       this.R.zone = Math.max(this.R.zone, z);
       this.flashT = 1.2;
-      this.bannerT = 3.2; // the zone's name, large, while it fades in
+      this.bannerT = 2.4; // the zone's name along the top edge
       [392, 523, 659].forEach((hz, i) => this.c.tone(hz, 0.12 + 0.05 * i, "triangle"));
       const col = ZONES[z].lamp;
       this.lamps.flash(1.0, (e) => only(chase(e, 6, false), col, 0.6));
@@ -983,18 +990,16 @@ export class Undertow {
     this.drawCraft(g, Z, zi);
     // The depth gauge, top right.
     text(g, this.metres() + " M", 944, 40, 18, Z.col, "right");
-    if (this.noteT > 0 && this.phase === "play") text(g, this.note, 480, 44, 24, C.amber, "center");
-    if (this.bannerT > 0 && this.phase === "play") {
-      const a = clamp(Math.min(this.bannerT / 0.8, (3.2 - this.bannerT) / 0.3), 0, 1);
-      g.globalAlpha = a * 0.75;
-      g.fillStyle = "#000000";
-      g.fillRect(0, 150, 960, 104);
-      g.globalAlpha = a;
-      line(g, 300, 160, 660, 160, Z.col, 2);
-      text(g, ZONES[this.zone].name, 480, 202, 44, Z.col, "center");
-      text(g, ZONES[this.zone].note, 480, 238, 20, C.ink, "center");
+    // A new zone's name sits along the top edge, above the lane the craft flies in, and the usual
+    // notice moves just below it while it shows.
+    const banner = this.bannerT > 0 && this.phase === "play";
+    if (banner) {
+      g.globalAlpha = clamp(Math.min(this.bannerT / 0.6, (2.4 - this.bannerT) / 0.3), 0, 1) * 0.9;
+      text(g, ZONES[this.zone].name, 480, 46, 32, Z.col, "center");
+      text(g, ZONES[this.zone].note, 480, 74, 18, C.ink, "center");
       g.globalAlpha = 1;
     }
+    if (this.noteT > 0 && this.phase === "play") text(g, this.note, 480, banner ? 102 : 44, 24, C.amber, "center");
     if (this.parked > 0 && this.phase === "play") {
       g.fillStyle = "#0c1511d8";
       g.fillRect(250, 330, 460, 96);
@@ -1208,7 +1213,7 @@ export class Undertow {
       else if (id === "CRAFT") {
         const nextCraft = CRAFTS.find((x, i) => !sv.own[i]);
         info = k.text + (nextCraft ? "  NEXT: " + nextCraft.name + " " + nextCraft.cost + " PEARLS" : "");
-      } else if (id === "REFIT") info = "Magnet, plating, sonar and scanner. The daily dive goes without.";
+      } else if (id === "REFIT") info = "Pearl and sea-life gear. It never helps you survive.";
       else if (id === "START") info = "Start in any zone you have reached.";
       else if (id === "DAILY") info = "Goal: " + dailyGoal(key).text + (sv.dl.streak > 1 ? "  STREAK " + sv.dl.streak : "");
       else if (id === "GUIDE") info = "Fly close to sea life to log it. " + SPECIES_PEARLS + " pearls for each new species.";

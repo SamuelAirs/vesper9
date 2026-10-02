@@ -340,10 +340,10 @@ test("refits: bought level by level with pearls at the dock, used in dives, not 
   hold(g); hold(g); hold(g); // the magnet twice, then it is full
   assert.deepEqual(g.sv.up, [2, 0, 0, 0]);
   assert.equal(g.sv.bank, 700 - 120 - 260);
-  tap(g); hold(g); // plating
+  tap(g); hold(g); // the assay
   assert.equal(g.sv.up[1], 1);
   assert.equal(g.sv.bank, 20);
-  tap(g); hold(g); // sonar: too dear
+  tap(g); hold(g); // the lure: too dear
   assert.equal(g.sv.up[2], 0);
   assert.equal(g.sv.bank, 20);
   tap(g); tap(g); hold(g); // BACK
@@ -351,16 +351,21 @@ test("refits: bought level by level with pearls at the dock, used in dives, not 
   assert.equal(ctx.calls.saved.at(-1).up[0], 2);
   g.view = "menu"; g.cur = 0; hold(g); // DIVE
   assert.equal(g.phase, "play");
-  assert.equal(g.hull, CRAFTS[0].hull + 1, "plating did not add a hull");
+  assert.equal(g.hull, CRAFTS[0].hull, "a refit changed the hull: refits must never help survival");
   // The magnet reaches a pearl the bare craft would miss.
   g.parked = 0; g.next = 99;
   g.pearls = [{ x: 260, y: 305, gate: false, kind: 0, got: 0 }];
   run(g, 0.3, () => { g.y = 270; g.vy = 0; });
   assert.equal(g.R.pearls, 1, "the magnet did not reach");
+  // The assay pays 5 for every fifth clean passage.
+  g.clean = 4;
+  g.gates = [{ ...nextGate(270, 0, new Random(1)), x: 140, center: 270, base: 270, amp: 0, margin: 80 }];
+  g.y = 270; g.update(DT);
+  assert.equal(g.R.pearls, 6, "the assay did not pay five");
   const d = new Undertow(appContext({ seed: 23, progress: { schema: 3, up: [2, 1, 1, 1] } }));
   d.daily = true; d.start();
-  assert.equal(d.hull, CRAFTS[0].hull, "the daily dive used the plating");
-  assert.equal(d.lv("magnet"), 0);
+  assert.equal(d.lv("magnet"), 0, "the daily dive used a refit");
+  assert.equal(d.lv("assay"), 0);
 });
 
 test("a schema-2 save migrates to schema 3 with empty refits and guide, and junk is cleaned", () => {
@@ -377,4 +382,21 @@ test("a schema-2 save migrates to schema 3 with empty refits and guide, and junk
   assert.deepEqual(junk.sp, ["moon"]);
   assert.equal(junk.dm, 0);
   assert.deepEqual(migrateSave(s), s);
+});
+
+test("the Trench eases its currents in: none on its first columns, rarer and gentler early than late", () => {
+  const stats = (from, to) => {
+    const rng = new Random(5);
+    let n = 0, on = 0, sum = 0;
+    for (let i = 0; i < 4000; i++) {
+      const q = nextGate(270, from + (i % (to - from)), rng);
+      n++; if (q.cur) { on++; sum += Math.abs(q.cur); }
+    }
+    return { share: on / n, mean: on ? sum / on : 0 };
+  };
+  const first = stats(20, 22), early = stats(22, 26), late = stats(30, 34), deep = stats(70, 80);
+  assert.equal(first.share, 0, "a current on the Trench's first two columns");
+  assert.ok(early.share < late.share - 0.15, "early " + early.share + " late " + late.share);
+  assert.ok(early.mean < 170 && late.mean > 210, "early " + early.mean + " late " + late.mean);
+  assert.ok(deep.share > 0.4 && deep.mean >= 300);
 });

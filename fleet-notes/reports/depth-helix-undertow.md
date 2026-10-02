@@ -29,8 +29,14 @@ simulator screenshots at 1024 x 600.
   banks 10 pearls; fish and schools shy away from the craft. Purely a side goal: creatures never hit.
   Their generator is separate from the column generator, so the daily dive and the bots are unchanged.
 - Refits at the dock (REFIT row): Pearl Magnet (2 levels, 120/260: collect radius 22 -> 34 -> 46 px),
-  Hull Plating (300: +1 starting hull), Long Sonar (180: ping every 1.1 s, columns lit longer),
-  Wide Scanner (90: log from 110 px in 0.3 s). The daily dive ignores refits.
+  Clean Assay (300: every fifth clean passage pays 5, not 3), Sea Lure (180: sea life twice as often,
+  new species first), Wide Scanner (90: log from 110 px in 0.3 s). The daily dive ignores refits.
+- After the 2026-10-02 platform review: refits no longer help survival (Hull Plating and Long Sonar were
+  replaced by the assay and the lure, in the same save slots), so the best passage count is skill, not
+  grinding. Trench currents ease in: none on its first two columns, then a third of columns at 120 px/s^2
+  rising to most at 260 by its end (the Deep stays at half the columns, 320). The zone banner moved from a
+  dark band across the middle to the top edge. The menu gesture firing mid-dive is left to the platform
+  thread.
 - Field guide (GUIDE row): zones down the side, both species with drawings once logged. Feats 16 now:
   NATURALIST (6 species) and FIELD GUIDE (all 12).
 - Depth gauge in metres (top right), deepest dive kept in the save and shown on title, result and log.

@@ -1,7 +1,7 @@
 // Raw edges remain immediate. The menu gesture can already have affected a game when it completes.
 //
 // The one menu gesture, in every app and on the dashboard: TAP, TAP, HOLD. Two quick taps, then a
-// third press that stays down for `holdMs`. `tapMs` is the longest press that still counts as a tap,
+// third press that stays down for `holdMs` (longer inside a game: see PLAY_HOLD_EXTRA_MS). `tapMs` is the longest press that still counts as a tap,
 // `gapMs` the longest release-to-press pause between the three presses. The three presets are the
 // "gesture pace" setting.
 export const GESTURE_PACES = {
@@ -22,7 +22,13 @@ export const RAW_STUCK_MS = 30000;
 const STATUS_GRACE_MS = 250;
 const MIN_TAP_MS = 8;
 
+// In a game (raw input) the hold runs this much longer: two quick taps and then a long press are
+// natural play there (feathering thrust, a long swing), and a menu opening mid-run breaks the run.
+// The standard pace's 1000 ms becomes 1600 ms. Menus and the dashboard keep the shorter hold.
+export const PLAY_HOLD_EXTRA_MS = 600;
+
 export const paceOf = (name) => GESTURE_PACES[name] || GESTURE_PACES.standard;
+export const playHoldMs = (pace) => pace.holdMs + PLAY_HOLD_EXTRA_MS;
 // How long the third press must stay down. `selectMs` is the navigation selection threshold, or 0
 // in a game where a hold means nothing to the host.
 export const gestureHoldMs = (pace, selectMs = 0) => Math.max(pace.holdMs, selectMs ? selectMs + SELECT_MARGIN_MS : 0);
@@ -68,7 +74,7 @@ export class GestureTimeline {
     const linked = (a, b) => quick(a) && b.at - a.up <= gap;
     if (last.up === null) {
       if (now - last.at <= pace.tapMs / 1000 + 0.05) return true; // it may still turn out to be a tap
-      if (now - last.at > gestureHoldMs(pace, settings.holdMs || 0) / 1000 + 0.3) return false;
+      if (now - last.at > Math.max(gestureHoldMs(pace, settings.holdMs || 0), playHoldMs(pace)) / 1000 + 0.3) return false;
       const first = marks.at(-3), second = marks.at(-2);
       return !!first && !!second && linked(first, second) && linked(second, last);
     }
@@ -184,8 +190,9 @@ export class InputRouter {
   pace() { return paceOf(this.policy().pace); }
   stamp(e) { return Number.isFinite(e.at_us) ? e.at_us / 1000 : this.clock(); }
   // The hold this press needs to complete the gesture: longer in a menu, so choosing never gets there first.
+  // In a game it is the longer play hold (PLAY_HOLD_EXTRA_MS).
   thresholdMs(press) {
-    return gestureHoldMs(this.pace(), press.mode === 'menu' ? this.host.holdMs() : 0);
+    return press.mode === 'menu' ? gestureHoldMs(this.pace(), this.host.holdMs()) : playHoldMs(this.pace());
   }
   // Seen by apps through ctx.menuGesture(): is a third press being counted right now?
   gestureState() {

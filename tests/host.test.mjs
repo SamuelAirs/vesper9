@@ -2,7 +2,7 @@
 // (fleet/reports/audit-host.md). Host-level behaviour that needs a DOM lives in host-browser.cjs.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { InputRouter, GESTURE_PACES, RAW_STUCK_MS } from "../web/engine/input.js";
+import { InputRouter, GESTURE_PACES, RAW_STUCK_MS, playHoldMs } from "../web/engine/input.js";
 import { LightDirector, normalizeLeds } from "../web/engine/lights.js";
 
 globalThis.localStorage = { getItem: () => null, setItem() {} };
@@ -280,13 +280,14 @@ function gestureAt(pace, tap, gap, hold) {
 test("F9 the menu opens exactly when both taps, both pauses and the hold meet the pace's limits", () => {
   const table = [];
   for (const pace of Object.keys(GESTURE_PACES)) {
-    const p = GESTURE_PACES[pace];
+    const p = GESTURE_PACES[pace], h = playHoldMs(p); // in a game the hold is the longer play hold
     for (const [tap, gap, hold, ok] of [
-      [p.tapMs, p.gapMs, p.holdMs, true],
-      [60, 60, p.holdMs, true],
-      [p.tapMs + 20, p.gapMs, p.holdMs, false],   // taps too slow
-      [p.tapMs, p.gapMs + 40, p.holdMs, false],   // a pause too long
-      [p.tapMs, p.gapMs, p.holdMs - 80, false],   // hold too short
+      [p.tapMs, p.gapMs, h, true],
+      [60, 60, h, true],
+      [p.tapMs + 20, p.gapMs, h, false],   // taps too slow
+      [p.tapMs, p.gapMs + 40, h, false],   // a pause too long
+      [p.tapMs, p.gapMs, h - 80, false],   // hold too short
+      [60, 60, p.holdMs + 200, false],     // the menu's hold is a swing in a game
     ]) {
       const opened = gestureAt(pace, tap, gap, hold);
       table.push(`${pace} tap ${tap} gap ${gap} hold ${hold}: ${opened}`);

@@ -202,3 +202,19 @@ Read-only JSON for instruments such as TELEMETRY. It is cheap enough to poll abo
 | `node.knock` | The node's knock counters from STATUS (`thr`, `n`, `btn`, `long`, `bright`, `peak`, `hf`), or `null` for firmware without knock detection. |
 | `node.knockGuarded` | Knocks the service dropped as the button's own sound (see KNOCK); `n` counts them too, since the node sent them. |
 | `node.sensor` | The node's sensor diagnostics (`addr`, `ok`, `fail`, last `err`); `{"simulated": true, …}` in the simulator. |
+
+## Lamps as the controlling tab drives them (four lamps and the board LED)
+
+The browser never speaks the node protocol; it sends commands over the service's WebSocket. For lights these are:
+
+| Command | Fields | Effect |
+| --- | --- | --- |
+| `leds` | `values`: 9 or 12 integers 0–255 | Nine values are the three logical lamps (left, middle, right), as before. Twelve address four lamps directly, one RGB triplet per lamp from left to right. |
+| `pattern` | `steps`: 1–16 of `{ms, values}`, `repeat` 1–8 | `values` is 9 or 12 integers; every step of one pattern has the same count. |
+| `board_led` | `values`: 3 integers 0–255 (red, green, blue) | Sets the development board's own LED. It is not part of `leds` or `pattern`; a node-timed pattern leaves it alone. |
+
+Either count works on either node. Nine values on a four-lamp node: the node shows the middle value on lamps 2 and 3. Twelve values on a three-lamp node: the service folds them to nine, the middle lamp taking the brighter of lamps 2 and 3 channel by channel. `board_led` on a node without one (firmware before 0.2.0) succeeds and does nothing.
+
+`state.lamps` tells a page what it has: `count` (3 or 4), `values` (every physical lamp's current values, 9 or 12) and `board` (the board LED's `[r, g, b]`, or `null` when the node has none). `state.leds` and the `leds` event's `values` stay nine values, the logical lamps, for everything written for three; the `leds` event also carries `lamps`, every physical value. A `board_led` event carries `values`. The simulated node (`--simulate`) stands in for the four-lamp node: `count` 4 and a board LED.
+
+Everything goes dark, the board LED included, when the controlling tab leaves, and the node itself puts all of it out after 3 s without the host.

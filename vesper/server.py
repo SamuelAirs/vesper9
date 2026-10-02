@@ -146,7 +146,12 @@ class Console:
                 "device": {"connected": self.device.connected, "name": self.device.name, "capture": self.device.mic,
                            "crcErrors": self.device.crc_errors, "missingSamples": self.device.audio_missing,
                            "audioBytes": self.device.audio_bytes, "button": self.device.pressed, "generation": self.device.generation},
-                "leds": self.device.leds, "mic": {"mode": self.mode, "level": self.level, "session": self.session,
+                "leds": self.device.leds,
+                # The node's lights as games may drive them: how many lamps it has, every lamp's values
+                # (three per lamp, left to right), and the development board's own LED if it has one.
+                "lamps": {"count": self.device.lamps, "values": self.device.lamp_values,
+                          "board": self.device.board_led if self.device.has_board_led else None},
+                "mic": {"mode": self.mode, "level": self.level, "session": self.session,
                            "unavailable": self.speech.availability(), "recognizer": self.speech.status(), "droppedChunks": self.speech.dropped, "error": self.mic_error(),
                            "modes": list(MIC_MODES),
                            "analysis": {"rate": analysis.RATE, "bands": analysis.BANDS, "edgesHz": analysis.EDGES,
@@ -218,7 +223,8 @@ class Console:
         try:
             for label, step in (("microphone off", lambda: self.set_mic("off")),
                                 ("cancel", lambda: self.device.command(Kind.CANCEL)),
-                                ("lamps off", lambda: self.device.command(Kind.LEDS, bytes(9)))):
+                                ("lamps off", lambda: self.device.command(Kind.LEDS, bytes(9))),
+                                ("board light off", lambda: self.device.command(Kind.BOARD_LED, bytes(3)))):
                 try:
                     await step()
                 except Exception as exc:
@@ -474,22 +480,31 @@ class Console:
         kind = data.get("command")
         if kind == "leds":
             values = data.get("values")
-            if not isinstance(values, list) or len(values) != 9 or any(type(x) is not int or not 0 <= x <= 255 for x in values):
-                raise ValueError("Nine integer light values from 0 to 255 required")
+            # Nine values are the three logical lamps (left, middle, right); twelve address four lamps
+            # directly. Either works on either node: the node or the service converts.
+            if not isinstance(values, list) or len(values) not in (9, 12) or any(type(x) is not int or not 0 <= x <= 255 for x in values):
+                raise ValueError("Nine or twelve integer light values from 0 to 255 required")
             await self.device.command(Kind.LEDS, bytes(values))
+        elif kind == "board_led":
+            values = data.get("values")
+            if not isinstance(values, list) or len(values) != 3 or any(type(x) is not int or not 0 <= x <= 255 for x in values):
+                raise ValueError("Three integer values from 0 to 255 required")
+            await self.device.command(Kind.BOARD_LED, bytes(values))
         elif kind == "pattern":
             steps, repeat = data.get("steps"), data.get("repeat", 1)
             if not isinstance(steps, list) or not 1 <= len(steps) <= 16 or type(repeat) is not int or not 1 <= repeat <= 8:
                 raise ValueError("Pattern must contain 1–16 steps and repeat 1–8 times")
             payload = bytes([repeat, len(steps)])
+            # Every step carries nine values or every step twelve (see "leds").
+            width = len(steps[0].get("values")) if isinstance(steps[0], dict) and isinstance(steps[0].get("values"), list) else 9
             for step in steps:
                 if not isinstance(step, dict):
                     raise ValueError("Invalid pattern step")
                 ms, values = step.get("ms"), step.get("values")
-                if (type(ms) is not int or not 10 <= ms <= 10000 or not isinstance(values, list) or len(values) != 9
-                        or any(type(v) is not int or not 0 <= v <= 255 for v in values)):
+                if (type(ms) is not int or not 10 <= ms <= 10000 or not isinstance(values, list) or width not in (9, 12)
+                        or len(values) != width or any(type(v) is not int or not 0 <= v <= 255 for v in values)):
                     raise ValueError("Invalid pattern step")
-                payload += struct.pack("<H9B", ms, *values)
+                payload += struct.pack(f"<H{width}B", ms, *values)
             await self.device.command(Kind.PATTERN, payload)
         elif kind == "reaction":
             trial, delay = data.get("trial"), data.get("delay")

@@ -13,7 +13,7 @@ import { C, text, line, circle, diamond, banner, wrapText } from "../engine/draw
 import { TAU, clamp } from "../engine/math.js";
 import { pulse, blink } from "../engine/lightshow.js";
 import {
-  CONST, DWELL, EXPED, GOALS, GROOVE_MAX, HOLD_BUY, NG, NP, NR, RES, RING_IDLE, STAGES, UPG, PROD, PC_NAMES, SITES,
+  CONST, DWELL, EXPED, GOALS, GROOVE_MAX, HOLD_BUY, NG, NP, NR, RES, RING_IDLE, STAGES, UPG, PROD, PC_NAMES, SITES, FINALE_SEC,
   capHours, clock, dur, fmt, fmtDate, fmtInt, fmtRate, goalFrac, masteredN, pendingOf, prodVisible, readyOf, revealOf, stageOf, unlockedN,
 } from "./outpost-rules.js";
 import { NS } from "./outpost-songs.js";
@@ -67,9 +67,11 @@ export function drawOutpost(g, app) {
   if (app.ring) drawRing(g, app);
   else if (app.panel) drawPanel(g, app);
   else if (app.note && app.phase_ === "play") {
-    const w = app.note.text.length * 13.3 + 40;
-    g.fillStyle = "#0c1511c0"; g.fillRect(480 - w / 2, 274, w, 36);
-    text(g, app.note.text, 480, 292, 22, C.cyan, "center");
+    // story notes (soundings, fragments of the call, new sites) stand out in amber on a framed plate
+    const story = !!app.note.story, w = Math.min(920, app.note.text.length * 13.3 + 40);
+    if (story) frame(g, 480 - w / 2, 270, w, 44, "#0c1511e0");
+    else { g.fillStyle = "#0c1511c0"; g.fillRect(480 - w / 2, 274, w, 36); }
+    text(g, app.note.text, 480, 292, 22, story ? C.amber : C.cyan, "center");
   }
   if (app.phase_ === "intro") banner(g, "OUTPOST", "A lone station on a dark world. Tap to gather signal and play its song. Hold to build.");
   else if (app.phase_ === "news") drawNews(g, app);
@@ -468,9 +470,9 @@ function drawLive(g, app, stage, still) {
   }
 }
 
-// The call answered: a cyan dawn over the horizon and rings leaving the station, for twelve seconds.
+// The call answered: a cyan dawn over the horizon and rings leaving the station, while app.finale lasts.
 function drawFinale(g, app) {
-  const t = app.finale.t || 0, u = clamp(t / 12, 0, 1), fade = Math.min(1, t * 2) * (1 - u);
+  const t = app.finale.t || 0, u = clamp(t / FINALE_SEC, 0, 1), fade = Math.min(1, t * 2) * (1 - u);
   glow(g, 1, 480, GY, 640, 220, 0.55 * fade);
   for (let k = 0; k < 3; k++) {
     const w = (t * 0.5 + k / 3) % 1;

@@ -10,6 +10,7 @@ import { LightDirector } from "./engine/lights.js";
 import { HostLamps, levelScale } from "./engine/ambient.js";
 import { microphoneStatus } from "./engine/status.js";
 import { planVoice } from "./engine/voice.js";
+import { LOGICAL_W, LOGICAL_H, renderFactor } from "./engine/render.js";
 
 const $ = (id) => document.getElementById(id);
 // Assigning identical text still replaces the text node and dirties layout, so
@@ -89,6 +90,9 @@ export class Vesper {
     this.ambientStep = -1;
     this.loaded = false;
     this.errors = [];
+    this.renderScale = 1;
+    this.renderSteps = new Map();
+    this.renderWindow = null;
     this.g = $("game").getContext("2d", { alpha: false });
     this.ag = $("ambient").getContext("2d");
     this.buildHome();
@@ -266,6 +270,7 @@ export class Vesper {
         this.input.cancel();
       }
     });
+    window.addEventListener("resize", () => this.fitCanvas());
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) {
         this.softwareButton(false);
@@ -429,7 +434,7 @@ export class Vesper {
     this.closeMenu(false);
     this.unmount();
     this.page = Math.min(left.page, PAGES.length - 1);
-    $("console").classList.remove("playing");
+    this.stage();
     $("dashboard").hidden = false;
     $("application").hidden = true;
     this.buildHome(left.index);
@@ -576,13 +581,63 @@ export class Vesper {
       this.fail(error);
       return;
     }
-    $("game-stage").hidden = !!this.app.navigation;
-    $("utility-stage").hidden = !this.app.navigation;
-    $("hud").hidden = !!this.app.navigation;
-    $("console").classList.toggle("playing", !this.app.navigation);
+    this.stage();
     window.scrollTo(0, 0);
     this.bridge.command("focus", { app: meta.id }, true);
     this.clickVisual(0);
+  }
+  // Which stage the app shows: the canvas (a game, or an instrument in a raw-input moment such as
+  // Calibration's tap-along) or its panel. Play mode folds the console's chrome away (style.css).
+  stage() {
+    const nav = !!this.app?.navigation, playing = !!this.app && !nav;
+    $("game-stage").hidden = nav;
+    $("utility-stage").hidden = !nav;
+    $("hud").hidden = nav;
+    $("console").classList.toggle("playing", playing);
+    document.body.classList.toggle("playing", playing);
+    this.fitCanvas();
+  }
+  // The game canvas holds the pixels it is shown at (times the device pixel ratio, at most twice the
+  // logical 960 × 540) and no more: anything beyond that is painted and then thrown away when the
+  // browser scales the picture down. Apps keep drawing in 960 × 540; frame() applies the scale.
+  // RENDER QUALITY in Calibration: SHARP draws every shown pixel, FAST draws 70% of them and lets the
+  // browser scale up, AUTO starts sharp and steps down while a game keeps missing frames (adaptRender).
+  fitCanvas() {
+    const canvas = $("game");
+    if (!this.app || this.app.navigation) return;
+    const box = canvas.getBoundingClientRect();
+    if (!(box.width > 0 && box.height > 0)) return;
+    const shown = Math.min(box.width / LOGICAL_W, box.height / LOGICAL_H) * (window.devicePixelRatio || 1);
+    const scale = Math.max(0.35, Math.min(2, shown * renderFactor(this.state.settings.renderQuality, this.autoRender())));
+    const w = Math.round(LOGICAL_W * scale), h = Math.round(LOGICAL_H * scale);
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+    this.renderScale = w / LOGICAL_W;
+  }
+  // AUTO's current step for this app (remembered for the session, so a heavy game starts where it settled).
+  autoRender() {
+    return this.state.settings.renderQuality === "auto" || !this.state.settings.renderQuality ? this.renderSteps.get(this.meta?.id) ?? 1 : 1;
+  }
+  // AUTO: after the first second of a game, judge each 2-second window. When more than a quarter of
+  // its frames missed (over 20 ms), draw 15% fewer pixels, down to 55% of the shown size. It never
+  // steps back up during a session: a picture that sharpens and blurs by turns is worse than either.
+  adaptRender(frameMs) {
+    const quality = this.state.settings.renderQuality || "auto";
+    if (quality !== "auto" || !this.app || this.app.navigation || this.paused) { this.renderWindow = null; return; }
+    const w = (this.renderWindow ||= { skip: 60, n: 0, slow: 0 });
+    if (w.skip > 0) { w.skip--; return; }
+    w.n++;
+    if (frameMs > 20) w.slow++;
+    if (w.n < 120) return;
+    const step = this.autoRender();
+    if (w.slow / w.n > 0.25 && step > 0.56) {
+      this.renderSteps.set(this.meta.id, Math.max(0.55, step * 0.85));
+      this.fitCanvas();
+      w.skip = 30;
+    }
+    w.n = w.slow = 0;
   }
   hint(message) {
     $("control-hint").textContent = message;
@@ -844,6 +899,7 @@ export class Vesper {
     if (!this.synth.enabled) this.synth.stopTone();
     $("console").classList.toggle("crt", this.state.settings.crt);
     this.lights.setScale(levelScale(this.state.settings.lampLevel));
+    this.fitCanvas();
   }
   lightVisual(values) {
     if (!Array.isArray(values) || values.length !== 9) return;
@@ -1070,6 +1126,7 @@ export class Vesper {
     const dt = Math.min(0.1, Math.max(0, (now - (this.last || now)) / 1000));
     if (this.last && !document.hidden) {
       this.frameTimes.push(now - this.last);
+      this.adaptRender(now - this.last);
       if (this.frameTimes.length > 600) this.frameTimes.shift();
     }
     this.last = now;
@@ -1101,7 +1158,8 @@ export class Vesper {
           }
         }
         try {
-          this.g.setTransform(1, 0, 0, 1, 0, 0);
+          const scale = this.renderScale || 1;
+          this.g.setTransform(scale, 0, 0, scale, 0, 0);
           this.g.globalAlpha = 1;
           this.app.draw?.(this.g);
         } catch (error) {

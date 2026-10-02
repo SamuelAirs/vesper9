@@ -1373,3 +1373,65 @@ main {
 .fn-still .fn-caret, .fn-panel.fn-still .fn-caret { animation: none; }
 @media (prefers-reduced-motion: reduce) { .fn-rec i, .fn-caret { animation: none; } }
 .atmo-top .big-readout small.atmo-case { color: var(--amber); font-size: 13px; letter-spacing: 1px; }
+
+/* Play mode: the game gets the screen. While a game runs (any landscape screen from 700 × 400 up),
+   the console's chrome folds into one slim row on top (lamps, title, HUD, microphone, clock) and one
+   at the bottom (the app's hint, the menu gesture, its hold bar, timers). The wrappers become
+   `display: contents` so their children sit directly in the console's grid. On the 1024 × 600
+   display this leaves the stage 1024 × 540, so the 960 × 540 game is shown at its own size. */
+@media (min-width: 700px) and (min-height: 400px) {
+  body.playing { padding: 0; }
+  .console.playing {
+    height: 100dvh; max-width: none; border: 0; border-radius: 0; box-shadow: none;
+    display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+    grid-template-rows: 34px minmax(0, 1fr) 26px; column-gap: 16px;
+  }
+  .console.playing .masthead, .console.playing .case-label, .console.playing .bar-label,
+  .console.playing .environment-mini, .console.playing .app-description,
+  .console.playing .control-deck .arcade, .console.playing .control-copy .eyebrow { display: none; }
+  .console.playing .instrument-bar, .console.playing main, .console.playing #application,
+  .console.playing .control-deck { display: contents; }
+  .console.playing .physical-lights { grid-column: 1; grid-row: 1; align-self: center; padding-left: 14px; gap: 6px; }
+  .console.playing .lamp { width: 22px; height: 22px; font-size: 9px; }
+  .console.playing .app-heading { grid-column: 2; grid-row: 1; margin: 0; gap: 12px; min-width: 0; justify-content: flex-start; }
+  .console.playing .app-heading > div { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+  .console.playing .app-heading .eyebrow { display: none; }
+  .console.playing .app-heading h1 { font-size: 18px; margin: 0; white-space: nowrap; letter-spacing: 1px; }
+  .console.playing #pause-button { min-height: 24px; padding: 3px 8px; font-size: 0; }
+  .console.playing #pause-button::after { content: "MENU"; font-size: 9px; letter-spacing: 1px; }
+  .console.playing .hud {
+    grid-column: 3; grid-row: 1; align-self: center; min-height: 0; padding: 0; border: 0;
+    flex-wrap: nowrap; justify-content: flex-start; gap: 14px; overflow: hidden; min-width: 0;
+  }
+  .console.playing .hud-item span { font-size: 8px; }
+  .console.playing .hud-item { gap: 7px; white-space: nowrap; }
+  .console.playing .hud-item strong { font-size: 16px; }
+  .console.playing .mic-pill { grid-column: 4; grid-row: 1; align-self: center; margin: 0; padding: 3px 8px; }
+  .console.playing .mic-pill:not(.active) .level-track { display: none; }
+  .console.playing #clock { grid-column: 5; grid-row: 1; align-self: center; padding-right: 14px; font-size: 11px; color: var(--muted); }
+  .console.playing .game-stage {
+    grid-column: 1 / -1; grid-row: 2; width: 100%; height: 100%; min-height: 0; margin: 0;
+    border: 0; border-radius: 0; background: #0b1410;
+    border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  }
+  .console.playing .game-stage canvas { width: 100%; height: 100%; object-fit: contain; }
+  .console.playing .stage-corners { display: none; }
+  .console.playing .control-copy {
+    grid-column: 1 / 4; grid-row: 3; justify-self: start; max-width: 58%; overflow: hidden;
+    align-self: center; display: flex; align-items: center; gap: 12px;
+    padding-left: 14px; min-width: 0; white-space: nowrap;
+  }
+  .console.playing #control-hint { margin: 0; font-size: 10px; overflow: hidden; text-overflow: ellipsis; }
+  .console.playing .control-secondary { font-size: 9px; line-height: 1; }
+  .console.playing .control-copy .hold-track { margin: 0; width: 90px; min-width: 90px; }
+  .console.playing .app-readout {
+    grid-column: 1 / 4; grid-row: 3; justify-self: end; max-width: 41%; text-align: right;
+    align-self: center; margin: 0; min-height: 0; font-size: 10px; line-height: 1.2;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .console.playing .footer-right {
+    grid-column: 4 / 6; grid-row: 3; align-self: center; display: flex; gap: 12px; padding-right: 14px;
+    max-width: none; white-space: nowrap; font-size: 9px;
+  }
+  .console.playing #build-tag { display: none; }
+}

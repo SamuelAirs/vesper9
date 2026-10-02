@@ -547,5 +547,7 @@ export const DEFAULT_SETTINGS = {
   "tempUnit": "F",
   "tempOffset": 0,
   "lampLevel": "medium",
-  "lampAmbient": true
+  "lampAmbient": true,
+  "latencyMs": 0,
+  "renderQuality": "auto"
 };

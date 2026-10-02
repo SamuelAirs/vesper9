@@ -98,6 +98,11 @@ def validate_setting(key, value):
         valid = type(value) is int and value in (600, 850, 1200, 1600)
     elif key == 'gesturePace':
         valid = value in ('quick', 'standard', 'relaxed')
+    elif key == 'renderQuality':
+        valid = value in ('auto', 'sharp', 'fast')
+    elif key == 'latencyMs':
+        # Input timing offset from the tap-along calibration: positive when taps register late.
+        valid = type(value) is int and -150 <= value <= 300
     elif key == 'tempUnit':
         valid = value in ('C', 'F')
     elif key == 'tempOffset':

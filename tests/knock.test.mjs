@@ -47,7 +47,9 @@ test("a knock during a held press or between the gesture's taps changes nothing 
   down(); h.wait(60); up(); h.wait(80);
   h.router.knock({ peak: 7000 });
   down(); h.wait(60); up(); h.wait(80);
-  down(); h.router.knock({ peak: 7000 }); h.wait(1100);
+  down(); h.router.knock({ peak: 7000 });
+  // Hold until the gesture fires, however long the in-game hold is set (up to 5 s).
+  for (let ms = 0; ms < 5000 && !h.log.some((e) => e[0] === "menu"); ms += 10) h.wait(10);
   assert.equal(h.log.filter((e) => e[0] === "knock").length, 2);
   assert.equal(h.log.filter((e) => e[0] === "menu").length, 1, "tap, tap, hold still opens the menu");
 });

@@ -103,3 +103,36 @@ export function award(feats, list, check) {
   for (const f of list) if (!feats.includes(f.id) && check(f.id)) { feats.push(f.id); got.push(f.name); }
   return got;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Settling a session as a whole. Both games count each item's answers during a session (`tally`) and
+// change strengths once, when it ends (`settle`), from how that session went for the item: mostly right
+// from memory and it rises (straight to 2 for a weak item answered from memory four or more times, so a good
+// first session already opens the next letters); mostly wrong and it drops a step; anything between leaves it
+// due again soon. One slip among many good answers no longer cancels the step.
+// `how` is "clean" (from memory), "helped" (the hint was showing) or "miss".
+export function tally(table, tallies, key, how) {
+  const r = record(table, key), t = tallies[key] || (tallies[key] = [0, 0, 0]);
+  if (how === "miss") { r[3] = Math.min(9999, r[3] + 1); t[2]++; }
+  else { r[2] = Math.min(9999, r[2] + 1); t[how === "clean" ? 0 : 1]++; }
+}
+export const RISE_AT = 0.75;
+export function settle(table, tallies, session) {
+  const gained = [], revisit = [];
+  for (const [key, t] of Object.entries(tallies)) {
+    const [clean, helped, miss] = t, total = clean + helped + miss;
+    if (!total) continue;
+    const r = record(table, key), right = (clean + helped) / total;
+    if (clean >= 1 && right >= RISE_AT && r[0] < MASTERED && (r[1] <= session || r[0] < 2)) {
+      r[0] = r[0] < 2 && clean >= 4 ? 2 : r[0] + 1;
+      r[1] = session + SPACING[r[0]];
+      gained.push(key);
+      continue;
+    }
+    if (!miss) continue;
+    revisit.push(key);
+    if (right < 0.5 && miss >= 2) r[0] = Math.max(0, r[0] - 1);
+    r[1] = Math.min(r[1], session + 1);
+  }
+  return { gained, revisit };
+}

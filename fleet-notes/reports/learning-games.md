@@ -23,6 +23,16 @@ Perihelion bot test that also fails on `main` in this environment. **Nothing her
   stamp, combo pips, wax seals. Holding past the last wing opens the archivist's desk (rank, all plates,
   feats); a tap goes back.
 
+## Third pass: the platform review (2026-10-02)
+
+- Echo unlock pacing: strengths now settle once per session from each item's whole-session record
+  (`tally` / `settle` in `learning.js`), not per answer, so one slip no longer cancels the step. A weak item
+  answered from memory 4+ times at 75%+ goes straight to strength 2. A bot that slips on 10% of letters now
+  opens a fifth letter after its first shift and keeps opening one a shift (test, three seeds).
+- Glyph Archive: the first time-out in a row costs no seal and is not a spaced-practice miss (the next one
+  in a row does cost a seal); weak entries get 0.8 s more; the shortest window is 2.2 s (was 1.5). New
+  "which of two" cards from card 5: a symbol and two meanings, tap for the upper, hold for the lower.
+
 ## Details
 
 **Echo Vault** (`web/apps/echo.js`, whole file replaced)

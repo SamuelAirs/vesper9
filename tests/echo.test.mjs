@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { EchoVault, migrateEcho, schoolLetters, callSign, ORDER, WORDS, SHIELDS, SHIFT, FIRST_LETTERS, STATIONS, CONTRACTS, FEATS, RANKS } from "../web/apps/echo.js";
 import { MORSE } from "../web/apps/morse.js";
-import { credit, fault, need, practiseDay, SPACING, rankOf, dailyFor, dayIndex, award } from "../web/apps/learning.js";
+import { credit, fault, need, practiseDay, SPACING, rankOf, dailyFor, dayIndex, award, tally, settle } from "../web/apps/learning.js";
 import { appContext, fakeCanvas } from "./helpers/app-context.mjs";
 
 const DT = 1 / 60;
@@ -16,11 +16,12 @@ function begin(g) { g.down(); g.up({ durationMs: 60 }); while (g.phase === "intr
 const numbers = (o, path = "") => Object.entries(o).flatMap(([k, v]) => (v && typeof v === "object" ? numbers(v, path + k + ".") : typeof v === "number" ? [[path + k, v]] : []));
 
 // A player who knows `known` letters: waits `think` s, then keys the right code; otherwise waits it out.
-function bot(g, { think = 0.5, known = () => true, seconds = 400 } = {}) {
+// With `slip`, a letter it does not know is one wrong element (a single miss), not a wrong code.
+function bot(g, { think = 0.5, known = () => true, seconds = 400, slip = false } = {}) {
   for (let i = 0; i < seconds * 60 && g.phase === "play"; i++) {
     if (g.stage === "send" && g.current() && g.letterT >= think && g.downAt === null && !g.input && g.missT <= 0) {
       const k = g.current();
-      for (const e of known(k) ? MORSE[k] : "..--..") { if (g.phase !== "play" || g.stage !== "send") break; key(g, e); }
+      for (const e of known(k) ? MORSE[k] : slip ? (MORSE[k][0] === "." ? "-" : ".") : "..--..") { if (g.phase !== "play" || g.stage !== "send") break; key(g, e); }
     } else g.update(DT);
   }
 }
@@ -247,15 +248,15 @@ test("Echo Vault: days practised make a streak; a full save stays small", () => 
 test("Echo Vault depth: the last word of a shift is a station's call sign; keying it logs the station and earns experience", () => {
   const c = appContext({ seed: 21 }), g = new EchoVault(c);
   begin(g);
-  let sign = "";
+  let sign = "", pool = [];
   for (let i = 0; i < 400 * 60 && g.phase === "play"; i++) {
-    if (g.run.words === SHIFT - 1 && g.kind === "contact") sign = g.word;
+    if (g.run.words === SHIFT - 1 && g.kind === "contact") { sign = g.word; pool = g.pool(); }
     if (g.stage === "send" && g.current() && g.letterT >= 0.5 && g.downAt === null && !g.input && g.missT <= 0)
       for (const e of MORSE[g.current()]) { if (g.phase !== "play" || g.stage !== "send") break; key(g, e); }
     else g.update(DT);
   }
   assert.equal(g.result.reason, "opened");
-  assert.equal(sign, callSign(0, g.pool()), "the call sign is built from open letters");
+  assert.equal(sign, callSign(0, pool), "the call sign is built from open letters");
   assert.equal(g.result.station, STATIONS[0]); assert.equal(g.sv.stations, 1);
   assert.ok(g.result.xp >= SHIFT * 5 + 50, "xp " + g.result.xp); assert.equal(g.sv.xp, g.result.xp);
   assert.ok(g.sv.feats.includes("first")); assert.ok(g.result.feats.includes("FIRST CONTACT"));
@@ -289,4 +290,40 @@ test("Echo Vault: a hold on the title shows the code card, a second the logbook,
   hold(); assert.equal(g.page, "log"); g.draw(fakeCanvas());
   hold(); assert.equal(g.phase, "title"); g.draw(fakeCanvas());
   hold(); g.down(); g.up({ durationMs: 60 }); assert.equal(g.phase, "title", "a tap on a page goes back");
+});
+
+test("Spaced practice settles a session as a whole: one slip among good answers still earns the step", () => {
+  const t = {}, s = {};
+  for (let i = 0; i < 9; i++) tally(t, s, "E", "clean");
+  tally(t, s, "E", "miss");
+  for (let i = 0; i < 2; i++) tally(t, s, "T", "clean");
+  for (let i = 0; i < 4; i++) tally(t, s, "A", "miss");
+  tally(t, s, "A", "clean");
+  t.N = [3, 9, 20, 0]; tally(t, s, "N", "clean");
+  const out = settle(t, s, 1);
+  assert.equal(t.E[0], 2, "a new letter answered from memory 9 of 10 times goes straight to 2"); assert.equal(t.E[1], 1 + SPACING[2]);
+  assert.deepEqual(t.E.slice(2), [9, 1]);
+  assert.equal(t.T[0], 1, "two clean answers: one step");
+  assert.equal(t.A[0], 0); assert.ok(t.A[1] <= 1, "mostly wrong: due again");
+  assert.equal(t.N[0], 3, "a strong letter that is not due waits");
+  assert.deepEqual(out.gained.sort(), ["E", "T"]); assert.deepEqual(out.revisit, ["A"]);
+  const u = { K: [3, 1, 5, 0] }, v = {};
+  tally(u, v, "K", "miss"); tally(u, v, "K", "miss"); tally(u, v, "K", "clean");
+  settle(u, v, 4); assert.equal(u.K[0], 2, "mostly wrong drops one step"); assert.ok(u.K[1] <= 5, "and it is due again soon");
+});
+
+test("Echo Vault pacing: a player who keys 90% of letters right opens new letters shift after shift", () => {
+  for (const seed of [31, 32, 33]) {
+    let r = seed;
+    const rand = () => ((r = (r * 1103515245 + 12345) % 2147483648) / 2147483648);
+    const c = appContext({ seed }), g = new EchoVault(c);
+    const sizes = [];
+    for (let shift = 0; shift < 4; shift++) {
+      begin(g); bot(g, { think: 0.5, known: () => rand() > 0.1, slip: true });
+      assert.equal(g.phase, "over"); sizes.push(g.poolSize());
+      step(g, 1); g.down(); g.up({ durationMs: 60 }); g.title?.();
+    }
+    assert.ok(sizes[0] >= FIRST_LETTERS + 1, `seed ${seed}: a fifth letter after the first shift (${sizes})`);
+    assert.ok(sizes[3] >= FIRST_LETTERS + 3, `seed ${seed}: still opening letters (${sizes})`);
+  }
 });

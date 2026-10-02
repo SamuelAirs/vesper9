@@ -4,7 +4,7 @@ import { AppGuard } from "../engine/input.js";
 import { LAMP, fill, only, meter, spot, dim, pulse, lightsOff } from "../engine/lightshow.js";
 import { LampBus, LOCKOUT, announce, drawNote } from "./game-kit.js";
 import { MORSE } from "./morse.js";
-import { validRecord, credit, assisted, fault, need, strength, weightedPick, localDay, practiseDay, MASTERED,
+import { validRecord, tally, settle, need, strength, weightedPick, localDay, practiseDay, MASTERED,
   rankOf, dayIndex, dailyFor, award } from "./learning.js";
 
 // ---------------------------------------------------------------------------------------------
@@ -163,7 +163,7 @@ export class EchoVault {
     const pool = this.pool();
     // Letters never answered yet are introduced before the first transmission.
     this.fresh = pool.filter((k) => { const r = this.sv.letters[k]; return !r || r[2] + r[3] === 0; }).slice(0, 4);
-    this.run = { words: 0, letters: 0, misses: 0, helped: 0, combo: 0, bestCombo: 0, points: 0, playT: 0, raised: {}, dropped: {}, lost: 0, gained: 0, cleared: 0,
+    this.run = { words: 0, letters: 0, misses: 0, helped: 0, combo: 0, bestCombo: 0, points: 0, playT: 0, tally: {}, lost: 0, gained: 0, cleared: 0,
       echoes: 0, priority: 0, shieldsLost: 0, contact: false, door: [] };
     this.sparks = []; this.trace = new Array(TRACE).fill(0); this.traceAt = 0;
     this.shields = SHIELDS;
@@ -289,8 +289,8 @@ export class EchoVault {
       // A letter still at strength 0 is being met for the first time: keying it with the code in view
       // counts. From strength 1 on, only an answer from memory makes it stronger.
       const helped = this.hintVisible() && strength(this.sv.letters, k) > 0;
-      if (helped) { assisted(this.sv.letters, k); run.helped++; }
-      else if (credit(this.sv.letters, k, this.sv.session, run.raised)) run.gained++;
+      tally(this.sv.letters, run.tally, k, helped ? "helped" : "clean");
+      if (helped) run.helped++;
       run.letters++; run.combo++; run.bestCombo = Math.max(run.bestCombo, run.combo);
       const mult = Math.min(4, 1 + Math.floor(run.combo / 6)) * (this.kind === "priority" || this.kind === "contact" ? 2 : 1);
       run.points += 10 * mult;
@@ -302,7 +302,7 @@ export class EchoVault {
       else this.c.tone(880, 0.06);
     } else {
       const heard = Object.keys(MORSE).find((key) => MORSE[key] === this.input) || "?";
-      if (fault(this.sv.letters, k, this.sv.session, run.raised, run.dropped)) run.lost++;
+      tally(this.sv.letters, run.tally, k, "miss");
       run.misses++; run.combo = 0;
       this.feedback = heard === "?" ? `NOT ${this.kind === "echo" ? "THE LETTER" : k} / ITS CODE IS SHOWN` : `HEARD ${heard}, NOT ${k}`;
       this.shown = true; this.missT = 0.5;
@@ -340,7 +340,7 @@ export class EchoVault {
   }
   timeUp() {
     const run = this.run, k = this.current();
-    if (k && fault(this.sv.letters, k, this.sv.session, run.raised, run.dropped)) run.lost++;
+    if (k) tally(this.sv.letters, run.tally, k, "miss");
     run.misses++; run.combo = 0; run.words++;
     run.door.push(2);
     this.shields--; run.shieldsLost++;
@@ -359,6 +359,9 @@ export class EchoVault {
     this.lit = false; this.c.synth.stopTone();
     const cpm = run.playT > 20 ? Math.round(run.letters / (run.playT / 60)) : 0;
     const accuracy = run.letters + run.misses ? Math.round((100 * run.letters) / (run.letters + run.misses)) : 0;
+    // Strengths change once, now, from how the whole shift went for each letter.
+    const settled = settle(sv.letters, run.tally, sv.session);
+    run.gained = settled.gained.length; run.lost = settled.revisit.length; run.revisit = settled.revisit;
     // One new letter per run, once every letter in play has reached strength 2 (the newest one 1).
     let unlocked = "";
     const size = this.poolSize(), pool = this.pool();
@@ -717,7 +720,7 @@ export class EchoVault {
     text(g, r.reason === "left" ? "TRANSMISSION ENDED" : r.reason === "opened" ? "VAULT OPENED" : "VAULT SEALED", 480, 52, 38, r.reason === "opened" ? C.ink : C.amber, "center");
     text(g, `${last.score} POINTS${r.record ? "  /  NEW BEST" : ""}   +${r.xp || 0} XP`, 480, 100, 26, C.ink, "center");
     text(g, `${last.words} WORDS   ${last.letters} LETTERS   ${last.accuracy}% CLEAN${r.cpm ? `   ${r.cpm} LETTERS A MINUTE` : ""}`, 480, 138, 20, C.ink, "center");
-    text(g, `${run.gained || 0} STRONGER   ${run.lost || 0} TO REVISIT   ${run.helped || 0} WITH THE CODE SHOWN`, 480, 168, 18, C.muted, "center");
+    text(g, `${run.gained || 0} STRONGER   ${run.lost ? `REVISIT ${(run.revisit || []).slice(0, 6).join(" ")}` : "NOTHING TO REVISIT"}   ${run.helped || 0} WITH THE CODE SHOWN`, 480, 168, 18, C.muted, "center");
     // What this shift added to the longer game, one line each.
     const news = [];
     if (r.promoted) news.push([`PROMOTED: ${r.promoted}`, C.amber]);

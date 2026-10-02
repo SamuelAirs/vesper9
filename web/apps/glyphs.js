@@ -3,7 +3,7 @@ import { C, text, line, circle, diamond, space } from "../engine/draw.js";
 import { AppGuard } from "../engine/input.js";
 import { LAMP, fill, meter, spot, dim, pulse, lightsOff } from "../engine/lightshow.js";
 import { LampBus, LOCKOUT, announce, drawNote } from "./game-kit.js";
-import { record, validRecord, credit, fault, need, strength, weightedPick, localDay, practiseDay, MASTERED,
+import { validRecord, tally, settle, need, strength, weightedPick, localDay, practiseDay, MASTERED,
   rankOf, dailyFor, award } from "./learning.js";
 
 // ---------------------------------------------------------------------------------------------
@@ -18,6 +18,7 @@ export const CARDS = 30;
 export const SEALS = 3;
 const HOLD_NO = 0.4;   // a press held this long answers NO MATCH
 const HOLD_PICK = 0.5; // on the title and result screens a press this long changes the wing
+const MIN_WINDOW = 2.2; // the shortest a card's time gets as a session speeds up
 
 // Braille: dots 1-2-3 down the left column, 4-5-6 down the right; bit n-1 is dot n.
 const dots = (s) => [...s].reduce((m, d) => m | (1 << (Number(d) - 1)), 0);
@@ -166,7 +167,7 @@ export class GlyphVault {
     const add = deck.open === 0 ? 4 : unmet === 0 && weak <= 4 ? 2 : 0;
     this.fresh = wing.entries.slice(deck.open, deck.open + add).map((e) => e.k);
     deck.open = Math.min(wing.entries.length, deck.open + add);
-    this.run = { cards: 0, right: 0, wrong: 0, combo: 0, bestCombo: 0, points: 0, raised: {}, dropped: {}, gained: 0, lost: 0, streak: 0,
+    this.run = { cards: 0, right: 0, wrong: 0, combo: 0, bestCombo: 0, points: 0, tally: {}, gained: 0, lost: 0, streak: 0, timeouts: 0, picks: 0,
       sealsLost: 0, reverseRight: 0, relics: 0, relicCards: 0 };
     this.cardT = 0;
     this.seals = SEALS;
@@ -196,26 +197,32 @@ export class GlyphVault {
     const fresh = strength(deck.items, target.k) === 0 && (deck.items[target.k]?.[2] || 0) === 0;
     // About half the cards are true pairs (more for weak entries, since a true pair recognised is what
     // strengthens one); an entry never answered before always comes true first.
-    const truth = fresh || this.c.rng.next() < (strength(deck.items, target.k) < 2 ? 0.6 : 0.5);
+    // From the fifth card, an entry already met may come as a "which of two" card: the symbol and two
+    // meanings, tap for the upper one, hold for the lower. `truth` then says the upper one is right.
+    const pick = !fresh && n >= 4 && open.length >= 3 && strength(deck.items, target.k) >= 1 && this.c.rng.next() < 0.3;
+    const truth = pick ? this.c.rng.next() < 0.5 : fresh || this.c.rng.next() < (strength(deck.items, target.k) < 2 ? 0.6 : 0.5);
     let other = target;
-    if (!truth) {
+    if (!truth || pick) {
       const all = wing.entries, ti = all.indexOf(target);
       const choices = (open.length > 2 ? open : all).filter((e) => e !== target);
       other = weightedPick(this.c.rng, choices, (e) => wing.alike(target, e, ti, all.indexOf(e)));
     }
     // From the ninth card, entries with some strength may be asked meaning first.
-    const reverse = n >= 8 && strength(deck.items, target.k) >= 2 && this.c.rng.next() < 0.4;
+    const reverse = !pick && n >= 8 && strength(deck.items, target.k) >= 2 && this.c.rng.next() < 0.4;
     const relic = n > 0 && n % 10 === 9;
-    this.card = { k: target.k, other: other.k, truth, reverse, relic, fresh };
+    this.card = { k: target.k, other: other.k, truth, reverse, relic, fresh, pick };
     this.cardT = 0;
     if (relic) run.relicCards++;
     this.prev = target.k;
     if (n === 8) announce(this, "REVERSE CARDS / MEANING FIRST");
     else if (relic) announce(this, "RELIC CARD / TRIPLE POINTS", 2);
-    this.total = this.left = this.window + (fresh ? 1.2 : 0) + (reverse ? 0.4 : 0);
+    else if (pick && !run.pickShown) { run.pickShown = true; announce(this, "WHICH OF TWO / TAP UPPER, HOLD LOWER", 2); }
+    // Weak entries get longer: recalling something half-learned takes a moment.
+    const weak = strength(deck.items, target.k) < 2 ? 0.8 : 0;
+    this.total = this.left = this.window + (fresh ? 1.2 : 0) + (reverse ? 0.4 : 0) + (pick ? 0.6 : 0) + weak;
     // A press still held from the last card belongs to it, not to this one.
     this.stage = "ask"; this.answered = this.downAt !== null;
-    this.c.hint("Tap: they match. Hold: they do not.");
+    this.c.hint(pick ? "Tap: the upper meaning. Hold: the lower one." : "Tap: they match. Hold: they do not.");
   }
   // The player's verdict: true for MATCH, false for NO MATCH, null when the card ran out.
   answer(match) {
@@ -227,24 +234,34 @@ export class GlyphVault {
       run.right++; run.combo++; run.streak++; run.bestCombo = Math.max(run.bestCombo, run.combo);
       if (card.reverse) run.reverseRight++;
       if (card.relic) run.relics++;
-      // A true pair recognised is the evidence that strengthens an entry; a false pair rejected only counts.
-      if (card.truth && credit(deck.items, card.k, deck.session, run.raised)) run.gained++;
-      else if (!card.truth) record(deck.items, card.k)[2] += 1;
+      // Recognising a true pair, or picking the right meaning, is recall from memory; rejecting a false
+      // pair counts as right but is weaker evidence.
+      tally(deck.items, run.tally, card.k, card.truth || card.pick ? "clean" : "helped");
+      run.timeouts = 0;
+      if (card.pick) run.picks++;
       const mult = Math.min(4, 1 + Math.floor(run.combo / 5)) * (card.relic ? 3 : 1);
       run.points += 10 * mult + Math.round(10 * clamp(this.left / this.total, 0, 1));
-      this.window = Math.max(1.5, this.window * 0.96);
+      this.window = Math.max(MIN_WINDOW, this.window * 0.96);
       this.c.tone(card.truth ? 820 : 620, 0.08);
       this.lamps.flash(0.35, (e, T) => spot(e / T, dim(LAMP.green, 0.5)));
-      this.feedback = card.truth ? "MATCH" : "NO MATCH, RIGHTLY";
+      this.feedback = card.pick ? "RIGHT" : card.truth ? "MATCH" : "NO MATCH, RIGHTLY";
       if (run.streak % 10 === 0 && this.seals < SEALS) { this.seals++; announce(this, "SEAL RESTORED"); }
+    } else if (match === null && run.timeouts === 0) {
+      // Running out of time is slow recall, not wrong recall: the first time-out in a row only breaks the
+      // combo and shows the answer; the next one in a row costs a seal.
+      run.wrong++; run.combo = 0; run.streak = 0; run.timeouts = 1;
+      this.window = Math.min(3.4, this.window + 0.6);
+      this.c.tone(300, 0.15);
+      this.lamps.flash(0.4, (e, T) => fill(LAMP.amber, 0.3 * (1 - e / T)));
+      this.feedback = "TOO SLOW / THE NEXT ONE COSTS A SEAL";
     } else {
       run.wrong++; run.combo = 0; run.streak = 0;
-      if (fault(deck.items, card.k, deck.session, run.raised, run.dropped)) run.lost++;
+      if (match === null) run.timeouts++; else { run.timeouts = 0; tally(deck.items, run.tally, card.k, "miss"); }
       this.seals--; run.sealsLost++;
       this.window = Math.min(3.4, this.window + 0.6);
       this.c.tone(130, 0.25);
       this.lamps.flash(0.5, (e) => (Math.floor(e / 0.125) % 2 === 0 ? fill(LAMP.red, 0.5) : lightsOff()));
-      this.feedback = match === null ? "TOO SLOW" : match ? "NOT A MATCH" : "THAT WAS A MATCH";
+      this.feedback = match === null ? "TOO SLOW AGAIN" : card.pick ? "THE OTHER ONE" : match ? "NOT A MATCH" : "THAT WAS A MATCH";
     }
     this.stage = "show"; this.wait = ok ? 0.55 : 1.7; this.wasRight = ok; this.cardT = 0;
     if (this.seals <= 0) this.finish("sealed");
@@ -253,6 +270,9 @@ export class GlyphVault {
   finish(reason) {
     const run = this.run, sv = this.sv, wing = this.wing();
     if (reason === "complete") run.points += 50 * this.seals;
+    // Strengths change once, now, from how the whole session went for each entry.
+    const settled = settle(this.deck().items, run.tally, this.deck().session);
+    run.gained = settled.gained.length; run.lost = settled.revisit.length;
     this.phase = "over"; this.overAt = this.t;
     const accuracy = run.cards ? Math.round((100 * run.right) / run.cards) : 0;
     const best = run.points > sv.best.score;
@@ -511,7 +531,17 @@ export class GlyphVault {
     const ease = showing ? 1 : Math.min(1, this.cardT / 0.22), slide = (1 - ease) * (1 - ease) * 140;
     const lx = 290 + slide * 0.4, rx = 670 + slide;
     this.drawSlab(g, lx, 245, card.relic); this.drawSlab(g, rx, 245, card.relic);
-    if (!card.reverse) { this.drawFront(g, target, lx, 245, braille ? 1.15 : 88, C.ink); this.drawBack(g, other, rx, 245, 60, colour); }
+    if (card.pick) {
+      // Which of two: the symbol, and two meanings tagged with the press that picks each.
+      this.drawFront(g, target, lx, 245, braille ? 1.15 : 88, C.ink);
+      const upper = card.truth ? target : other, lower = card.truth ? other : target;
+      [[upper, 195, "TAP"], [lower, 295, "HOLD"]].forEach(([e, y, tag]) => {
+        const right = e === target, tint = showing ? (right ? C.cyan : C.line) : C.ink;
+        text(g, tag, rx - 112, y, 16, showing ? C.muted : C.amber);
+        this.drawBack(g, e, rx + 22, y, 40, tint);
+      });
+      line(g, rx - 120, 245, rx + 120, 245, "#24372a", 1);
+    } else if (!card.reverse) { this.drawFront(g, target, lx, 245, braille ? 1.15 : 88, C.ink); this.drawBack(g, other, rx, 245, 60, colour); }
     else { this.drawBack(g, target, lx, 245, 60, C.ink); this.drawFront(g, other, rx, 245, braille ? 1.15 : 88, colour); }
     if (showing) {
       // The verdict stamp pops in over the gap between the slabs.
@@ -524,8 +554,8 @@ export class GlyphVault {
       g.fillStyle = C.dark; g.fillRect(180, 378, 600, 12);
       g.fillStyle = f > 0.25 ? (card.relic ? C.amber : C.ink) : C.red; g.fillRect(180 + 300 * (1 - f), 378, 600 * f, 12);
       const hold = this.downAt !== null ? clamp((this.t - this.downAt) / HOLD_NO, 0, 1) : 0;
-      text(g, "TAP: MATCH", 330, 426, 24, hold > 0 && hold < 1 ? C.muted : C.ink, "center");
-      text(g, "HOLD: NO MATCH", 630, 426, 24, hold > 0 ? C.red : C.ink, "center");
+      text(g, card.pick ? "TAP: UPPER" : "TAP: MATCH", 330, 426, 24, hold > 0 && hold < 1 ? C.muted : C.ink, "center");
+      text(g, card.pick ? "HOLD: LOWER" : "HOLD: NO MATCH", 630, 426, 24, hold > 0 ? (card.pick ? C.amber : C.red) : C.ink, "center");
       if (hold > 0) { g.fillStyle = C.red; g.fillRect(530, 446, 200 * hold, 6); }
     } else {
       text(g, this.feedback, 480, 398, 24, this.wasRight ? C.ink : C.red, "center");

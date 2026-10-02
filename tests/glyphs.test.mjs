@@ -74,8 +74,13 @@ test("Glyph Archive: tap is MATCH, a hold answers NO MATCH at 0.4 s, and a card 
   step(g, 0.6);
   // The press that answered is over; the next card is untouched by it.
   assert.equal(g.stage, "ask"); assert.equal(g.run.cards, 2);
-  step(g, 6); assert.equal(g.run.wrong, 1, "a card left to run out is wrong"); assert.equal(g.seals, SEALS - 1);
-  assert.equal(g.feedback, "TOO SLOW");
+  step(g, 6); assert.equal(g.run.wrong, 1, "a card left to run out is wrong");
+  assert.equal(g.seals, SEALS, "the first time-out costs no seal (slow recall is not wrong recall)");
+  assert.match(g.feedback, /^TOO SLOW/);
+  const misses = Object.values(g.deck().items).reduce((n, r) => n + r[3], 0);
+  assert.equal(misses, 0, "a time-out is not a miss in the spaced practice");
+  step(g, 2); assert.equal(g.stage, "ask"); step(g, 6);
+  assert.equal(g.seals, SEALS - 1, "a second time-out in a row costs a seal"); assert.equal(g.feedback, "TOO SLOW AGAIN");
 });
 
 test("Glyph Archive: a hold still down when the next card comes does not answer it", () => {
@@ -224,4 +229,32 @@ test("Glyph Archive depth: new fields migrate safely, the desk draws, and a tap 
   g.sv.wing = WINGS.length - 1; g.sv.plates = ["braille:0", "greek:2"]; g.sv.feats = ["first", "plate"];
   hold(g); assert.equal(g.desk, true); g.draw(fakeCanvas());
   tap(g); assert.equal(g.desk, false); assert.equal(g.phase, "title"); assert.equal(g.wing().id, "phonetic");
+});
+
+test("Glyph Archive: which-of-two cards; a tap picks the upper meaning, a hold the lower; both draw", () => {
+  const c = appContext({ seed: 25 }), g = new GlyphVault(c);
+  const deck = g.sv.decks.braille; deck.open = 8;
+  for (const e of WINGS[0].entries.slice(0, 8)) deck.items[e.k] = [2, 0, 4, 0];
+  begin(g);
+  let seen = 0;
+  for (let i = 0; i < 29 && g.phase === "play"; i++) {
+    while (g.stage !== "ask" && g.phase === "play") step(g, 0.05);
+    if (g.phase !== "play") break;
+    const card = g.card;
+    if (card.pick) {
+      seen++;
+      assert.notEqual(card.k, card.other, "two different meanings"); assert.equal(card.reverse, false);
+      g.draw(fakeCanvas());
+      const right = g.run.right;
+      if (card.truth) tap(g); else hold(g);
+      assert.equal(g.run.right, right + 1, "the press that names the right meaning is right");
+      g.draw(fakeCanvas());
+    } else if (card.truth) tap(g); else hold(g);
+  }
+  assert.ok(seen >= 3, "which-of-two cards come up (" + seen + ")");
+  const h = new GlyphVault(appContext({ seed: 26 }));
+  h.sv.decks.braille.open = 8; begin(h);
+  while (h.stage !== "ask") step(h, 0.05);
+  h.card.pick = true; h.card.truth = true;
+  hold(h); assert.equal(h.wasRight, false); assert.equal(h.feedback, "THE OTHER ONE");
 });

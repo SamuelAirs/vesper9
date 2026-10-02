@@ -767,7 +767,8 @@ test("a schema 3 save (from the previous build) loads with everything kept and t
   assert.deepEqual([...s.up].map((x, i) => (x ? i : -1)).filter((i) => i >= 0), old.up);
   assert.deepEqual(s.tree, old.tree);
   for (const k of ["taps", "b", "L", "runs", "maxTier", "relics", "sg", "sp", "gs", "sm", "ev"]) assert.equal(s[k], old[k], k);
-  assert.deepEqual(s.sc, old.sc); assert.deepEqual(s.gl.slice(0, old.gl.length), old.gl); assert.deepEqual(s.rd, old.rd);
+  assert.deepEqual(s.sc.slice(0, old.sc.length), old.sc); assert.deepEqual(s.gl.slice(0, old.gl.length), old.gl); assert.deepEqual(s.rd, old.rd);
+  assert.ok(s.sc.length >= old.sc.length && s.sc.slice(old.sc.length).every((c) => c === 0), "tunes added since start unplayed");
   assert.deepEqual(s.rs.map((e) => [e.k, e.end]), old.rs);
   for (const k of Object.keys(old.st)) assert.ok(s.st[k] >= old.st[k], "statistic " + k + " kept"); // a few grow with the 20 s away
   assert.equal(s.fk, old.fk, "statistics are not restarted"); assert.equal(s.f, old.f);

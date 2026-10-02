@@ -39,14 +39,14 @@ if (want("runner")) {
   console.log("\n## Moonrunner (score = metres + perfect slides + shards; the run lasts as long as the daylight)");
   head(H);
   for (const [n, p] of [["times every dive (late by 0 frames)", { kind: "timed", sigmaFrames: 0 }],
-    ["times every dive, 150 ms late", { kind: "timed", sigmaFrames: 9 }], ["dives by eye", { kind: "eye" }],
+    ["times every dive, 150 ms late", { kind: "timed", sigmaFrames: 9 }], ["times every dive, 250 ms late", { kind: "timed", sigmaFrames: 15 }], ["dives by eye", { kind: "eye" }],
     ["never press", { kind: "never" }], ["always hold", { kind: "hold" }],
     ["tap every 1.0 s", { kind: "rhythm", period: 1 }], ["mash 4 Hz", { kind: "mash", hz: 4 }]])
     summarize(n, SEEDS.map((s) => playRunner(s, p, CAP)), "metres");
-  for (const [n, p] of [["timed", { kind: "timed", sigmaFrames: 0 }], ["by eye", { kind: "eye" }]]) {
+  for (const [n, p] of [["timed", { kind: "timed", sigmaFrames: 0 }], ["150 ms late", { kind: "timed", sigmaFrames: 9 }], ["250 ms late", { kind: "timed", sigmaFrames: 15 }], ["by eye", { kind: "eye" }]]) {
     const runs = SEEDS.map((s) => playRunner(s, p, CAP));
     const at = (k) => f(median(runs.map((r) => r.at[k]).filter(Number.isFinite)));
-    console.log(`${n}: median time to reach zones II..VI: ${[1, 2, 3, 4, 5].map(at).join(" / ")} s`);
+    console.log(`${n}: median time to reach zones II..VI: ${[1, 2, 3, 4, 5].map(at).join(" / ")} s; reached VI ${runs.filter((r) => Number.isFinite(r.at[5])).length}/${runs.length}`);
   }
 }
 

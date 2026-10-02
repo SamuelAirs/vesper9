@@ -3,7 +3,7 @@
 // the real down()/up()/update().
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Moonrunner, migrateSave, ordersFor, orderText, ORDER_KINDS, ZONES, RIDES, WORKSHOP, dailyGoal, zoneAt, beaconsOf, PX_M, PERFECT, THUD, RILLE_V, MIN_V } from "../web/apps/runner.js";
+import { Moonrunner, GRIP, ZONE_T, migrateSave, ordersFor, orderText, ORDER_KINDS, ZONES, RIDES, WORKSHOP, dailyGoal, zoneAt, beaconsOf, PX_M, PERFECT, THUD, RILLE_V, MIN_V } from "../web/apps/runner.js";
 import { appContext, fakeCanvas } from "./helpers/app-context.mjs";
 import { runnerBot } from "./helpers/runner-bot.mjs";
 
@@ -167,13 +167,17 @@ test("a skip over a bump is not a landing: it neither scores nor breaks the chai
   assert.equal(g.chain, 2);
   assert.equal(g.R.perfects, 0);
 });
-test("three perfect slides in a row are fever: double points, for a while", () => {
+test("three perfect slides in a row are fever: double points, for a while; the coil keeps one missed chain", () => {
   const { g } = started({ seed: 14, progress: { schema: 3, up: { coil: 1 } } });
   clearAll(g);
   const x = onDownslope(g);
   for (let k = 0; k < 3; k++) landAt(g, x, 0.05);
   assert.equal(g.R.fevers, 1);
-  assert.ok(g.fever > 6.5, "the coil did not lengthen fever: " + g.fever);
+  assert.ok(g.fever > 4.5 && g.fever <= 5, "fever is not five seconds: " + g.fever);
+  landAt(g, x, -0.7); // a miss: the coil holds the chain once
+  assert.equal(g.chain, 3);
+  landAt(g, x, -0.7);
+  assert.equal(g.chain, 0, "the coil held twice in one fever");
   const pts = g.pts;
   g.addPoints(10);
   assert.equal(g.pts - pts, 20);
@@ -197,7 +201,7 @@ test("fever rises a level for every three more perfect slides: x3 points and a h
   step(g, 12);
   assert.equal(g.feverLv, 0, "the level outlived the fever");
 });
-test("a sunstone buys daylight; a survey beacon is found once for good, and a full zone adds daylight to every run", () => {
+test("a sunstone buys daylight; a survey beacon is found once for good, and a full zone pays a bonus but no daylight", () => {
   const { ctx, g } = started({ seed: 45 });
   clearAll(g);
   step(g, 0.2);
@@ -215,22 +219,22 @@ test("a sunstone buys daylight; a survey beacon is found once for good, and a fu
   }
   assert.equal(g.sv.bc[0], 7);
   assert.equal(g.R.beacons, 3);
-  assert.equal(g.sv.sh, sh + 90);
+  assert.equal(g.sv.sh, sh + 150);
   kill(g);
   step(g, 3); // past the gesture window, so the save goes out
   assert.deepEqual(ctx.calls.saved.at(-1).bc.slice(0, 2), [7, 0]);
-  // The next run starts with two more seconds, and the mare's beacons are already found.
+  // The next run starts with the usual daylight, and the mare's beacons are already found.
   g.down(); g.up();
   assert.equal(g.phase, "play");
-  assert.equal(g.T, 42);
+  assert.equal(g.T, 40);
   assert.ok(g.beacons.filter((b) => b.zi === 0).every((b) => b.found));
   assert.deepEqual(beaconsOf(0), [80, 200, 320]);
 });
 test("daylight runs down; a new zone buys more; at night the sled coasts to a stop and the run ends", () => {
   const { ctx, g } = started({ seed: 15, progress: { schema: 3, up: { bat: 1 } } });
-  assert.equal(g.T, 48, "the battery did not add daylight");
+  assert.equal(g.T, 40, "workshop gear added daylight");
   step(g, 1);
-  assert.ok(g.T < 47.1);
+  assert.ok(g.T < 39.1);
   const T = g.T;
   g.enterZone(1);
   assert.ok(g.T > T + 24);
@@ -247,8 +251,8 @@ test("daylight runs down; a new zone buys more; at night the sled coasts to a st
   assert.equal(ctx.calls.saved.at(-1).schema, 3);
 });
 test("a rille is flown by a sled fast enough at its rim; a slow one falls in and loses daylight", () => {
-  const at = (v) => {
-    const { g } = started({ seed: 16 });
+  const at = (v, bat = 0) => {
+    const { g } = started({ seed: 16, progress: { schema: 3, up: { bat } } });
     clearAll(g);
     const crest = g.kp.find((p) => !p.valley && p.x > g.r.x + 300);
     const c = { x0: crest.x + 30, x1: crest.x + 230, done: false }; // the widest a rille is made
@@ -267,6 +271,8 @@ test("a rille is flown by a sled fast enough at its rim; a slow one falls in and
   assert.ok(slow.lost > 8, "no daylight lost: " + slow.lost);
   assert.equal(slow.g.phase, "play");
   assert.ok(slow.g.r.x > slow.c.x1, "not set down past the rille");
+  const grappled = at(250, 2);
+  assert.ok(Math.abs(slow.lost - grappled.lost - 6) < 0.1, "the grapple did not take 6 s off the fall: " + (slow.lost - grappled.lost));
 });
 test("dust pits drag, a boost crystal throws the sled forward while held, a vent throws it high", () => {
   const roll = (fn, hold) => {
@@ -646,4 +652,31 @@ test("every screen draws without throwing, with text of 16 px or more, and drawi
   kill(g); step(g, 1); g.draw(g2d);
   assert.ok(sizes.length > 100);
   assert.ok(Math.min(...sizes) >= 16, "smallest text " + Math.min(...sizes));
+});
+
+test("from the crystals on the sled is on its own: less assist, a narrower perfect window, less daylight per zone", () => {
+  const { g } = started({ seed: 61 });
+  const at = (zi) => (ZONES[zi].from + 50) * PX_M;
+  assert.equal(g.windowAt(at(0)), PERFECT);
+  assert.equal(g.windowAt(at(2)), PERFECT);
+  for (let zi = 3; zi < ZONES.length; zi++) {
+    assert.ok(g.windowAt(at(zi)) < g.windowAt(at(zi - 1)), "zone " + zi + " is no narrower");
+    assert.ok(GRIP[zi].assist < GRIP[zi - 1].assist, "zone " + zi + " has no less assist");
+    assert.ok(ZONE_T[zi] < ZONE_T[zi - 1], "zone " + zi + " gives no less daylight");
+  }
+});
+test("workshop gear adds no points: a perfect slide and a shard score the same with full gear", () => {
+  const run = (up) => {
+    const { g } = started({ seed: 62, progress: { schema: 3, up } });
+    clearAll(g);
+    const x = onDownslope(g), pts = g.pts;
+    landAt(g, x, 0.05);
+    g.shards = [{ x: g.r.x + 4, y: g.r.y - 18, got: 0 }];
+    g.update(DT);
+    return { pts: g.pts - pts, T: g.T, shards: g.R.shards };
+  };
+  const bare = run({}), full = run({ mag: 3, bat: 2, coil: 1 });
+  assert.equal(full.shards, 1);
+  assert.equal(full.pts, bare.pts);
+  assert.equal(full.T, bare.T);
 });

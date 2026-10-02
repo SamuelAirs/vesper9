@@ -63,6 +63,15 @@ The long integrated run was started while final review continued. The final held
 - Project placed under local git: `v0.2.0-as-delivered`, then bring-up commits. The generated simulator is no longer tracked.
 - Sam's feedback after playing: fun; the lamps are underused; dictation a little inaccurate; wants more games and instruments. Plan for the overnight agent fleet: `../fleet/PLAN.md`.
 
+## 2026-10-02 — Moonrunner: fixes from the platform review (desktop/cloud session)
+
+- The review (`/mnt/project-files/reviews/platform-review-2026-10-02.md`) found Moonrunner too easy and upgrade-driven: a laggy bot reached The Far Side every run, and the battery's daylight made the best score grow with grinding.
+- Skill: from zone IV the dive assist weakens (`GRIP`: 60, 40, 30 percent) and the perfect window narrows (0.42, 0.38, 0.35 rad); daylight per new zone is `ZONE_T` = 25, 20, 10, 6, 4 s; V moved to 3400 m and VI to 5400 m.
+- Gear: the battery became the GRAPPLE (a rille fall costs 3 s less a tier), the fever coil keeps the chain through one miss a fever, shards score nothing, and a surveyed zone pays 60 shards instead of daylight. A test checks that full gear scores the same as none. Old saves keep their tiers.
+- Fixed the fever notice colour (`startsWith("FEVER")`) and the ground seams (one piece per zone, a world-fixed gradient for the blend).
+- Bots, 8 seeds, score (metres): precise about 53 400 (8 600), 150 ms late 27 600 (7 600), 250 ms late 11 800 (5 700), by eye 15 000 (6 300); before, 250 ms late scored 56 percent of precise, now 22 percent. The precise bot reaches VI 8/8, 250 ms late 4/8. Runs last about 140 to 165 s (were about 250 s).
+- Not verified on the device.
+
 ## 2026-10-01 — Moonrunner: depth and visuals (desktop/cloud session)
 
 - Sam asked for better visuals across the board and games with life and depth you can sink time into. Changes stay inside `web/apps/runner.js` (the dashboard and catalog belong to another thread).

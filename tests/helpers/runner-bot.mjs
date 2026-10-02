@@ -8,8 +8,6 @@
 // sled and lets go over an uphill. Near a rille it stays light.
 // `lag` (seconds) delays every change of the button: a sloppy player. `plan: false` never looks
 // ahead and only plays by eye.
-import { PERFECT } from "../../web/apps/runner.js";
-
 const DT = 1 / 60;
 export function runnerBot(g, { lag = 0, plan = true } = {}) {
   const s = { want: false, since: 0, at: 0, flight: null };
@@ -20,7 +18,7 @@ export function runnerBot(g, { lag = 0, plan = true } = {}) {
       for (let f = 0; f < 400; f++) {
         const ev = g.advance(q, DT, f >= k, true);
         if (!ev) continue;
-        if (ev.type === "land") { if (ev.diff <= PERFECT * 0.8 && ev.th > 0.08) return k; break; }
+        if (ev.type === "land") { if (ev.diff <= g.windowAt(q.x) * 0.8 && ev.th > 0.08) return k; break; }
         if (ev.type === "fell" || ev.type === "wall") break;
         if (ev.type !== "gap") break;
       }

@@ -2,8 +2,10 @@
 // lunar hills. Hold: the sled is heavy and dives, so on a downslope it gains speed (on an upslope
 // it loses it). Let go: it is light and flies off the crests. Come down so the sled meets a
 // downslope along its own line and the landing is a PERFECT SLIDE: a burst of speed. Three in a
-// row is FEVER. The sled runs on daylight: the terminator is coming, every zone reached buys more,
-// and when the light is gone the sled coasts to a stop.
+// row is FEVER. The sled runs on daylight: the terminator is coming, every zone reached buys more
+// (less and less from the crystals on), and when the light is gone the sled coasts to a stop. From
+// the crystals on the dive assist weakens and the perfect window narrows, so the far zones are
+// reached on skill. Workshop gear forgives mistakes but never adds daylight or points.
 //
 // Around that: six zones that each add one thing (bigger hills, dust pits, rilles to fly over,
 // boost crystals, crater rims with vents, the dark far side), survey orders (three goals per level,
@@ -33,11 +35,14 @@ const AHEAD = 2400, BEHIND = 900;
 export const TEMPO = { k: 0.65, p: 1, lo: 0.8, hi: 2.2, stick: 1, airDive: 0.9, assistH: 600 };
 const SET = [3, 5];
 const SAFE = 150 * PX_M; // the first 150 m of a run have no rilles or pits
-const START_T = 40, ZONE_T = 25, PERFECT_T = 0.5;
+const START_T = 40, PERFECT_T = 0.5;
+// Daylight for reaching each zone: less and less from the crystals on, so the far zones are reached
+// on perfect slides, not on the clock alone.
+export const ZONE_T = [0, 25, 20, 10, 6, 4];
 const FEVER_T = 5, FEVER_CHAIN = 3, FEVER_MAX = 4; // fever rises a level (x2 .. x5) for every three more perfect slides
 const BEACON_H = 170; // how high (px) above the ground a beacon hangs
 const SUN_T = 4; // seconds of daylight a sunstone gives
-const BEACON_T = 2; // seconds of starting daylight for each zone whose three beacons are all found
+const BEACON_SH = 60; // shards for finding the last of a zone's three beacons
 const BEACON_AT = [0.2, 0.5, 0.8]; // where in a zone (as a share of its length) its beacons hang
 const NIGHT_STOP = 150; // after dark the run ends when the sled is this slow on the ground
 const FALL_T = 8; // seconds of daylight lost by falling into a rille
@@ -61,8 +66,14 @@ export const ZONES = [
   { name: "THE DUNES", roman: "II", from: 400, L: [510, 720], H: [250, 360], col: LAMP.amber, ink: C.amber, text: "Dust pits in the valleys. Fly over them.", mix: { pit: 4, shards: 2, none: 1 } },
   { name: "THE RILLES", roman: "III", from: 1000, L: [540, 780], H: [280, 420], col: LAMP.cyan, ink: C.cyan, text: "Rilles past the crests. Be fast to fly them.", mix: { chasm: 4, pit: 2, shards: 2 } },
   { name: "THE CRYSTALS", roman: "IV", from: 1800, L: [570, 840], H: [310, 450], col: LAMP.violet, ink: "#b48cf0", text: "Hold over a crystal to be thrown forward.", mix: { pad: 4, chasm: 2, pit: 2, shards: 1 } },
-  { name: "THE RIMS", roman: "V", from: 2800, L: [630, 960], H: [360, 530], col: LAMP.white, ink: "#ece4d0", text: "Crater rims and gas vents. Go high.", mix: { vent: 3, chasm: 3, pad: 2, pit: 1, shards: 1 } },
-  { name: "THE FAR SIDE", roman: "VI", from: 4000, L: [630, 960], H: [340, 500], col: LAMP.blue, ink: "#6fa8dc", text: "No Earth in this sky. Trust the lamps.", mix: { chasm: 3, pit: 2, pad: 2, vent: 2, shards: 1 }, dark: true },
+  { name: "THE RIMS", roman: "V", from: 3400, L: [630, 960], H: [360, 530], col: LAMP.white, ink: "#ece4d0", text: "Crater rims and gas vents. Go high.", mix: { vent: 3, chasm: 3, pad: 2, pit: 1, shards: 1 } },
+  { name: "THE FAR SIDE", roman: "VI", from: 5400, L: [630, 960], H: [340, 500], col: LAMP.blue, ink: "#6fa8dc", text: "No Earth in this sky. Trust the lamps.", mix: { chasm: 3, pit: 2, pad: 2, vent: 2, shards: 1 }, dark: true },
+];
+// From the crystals on the sled is on its own more and more: the dive assist weakens (`assist`, a
+// share of ASSIST.w) and the perfect window narrows (`win`, radians). Zones I-III keep the full help.
+export const GRIP = [
+  { assist: 1, win: PERFECT }, { assist: 1, win: PERFECT }, { assist: 1, win: PERFECT },
+  { assist: 0.6, win: 0.42 }, { assist: 0.4, win: 0.38 }, { assist: 0.3, win: 0.35 },
 ];
 export const zoneAt = (m) => { for (let i = ZONES.length - 1; i > 0; i--) if (m >= ZONES[i].from) return i; return 0; };
 // Each zone's colours: sky top and horizon, far and near ridges, ground top and depth, the band of
@@ -83,6 +94,13 @@ function paletteAt(m) {
   if (k >= 1) return SKIES[zi];
   const a = SKIES[zi - 1], b = SKIES[zi];
   return { sky: [mix(a.sky[0], b.sky[0], k), mix(a.sky[1], b.sky[1], k)], far: mix(a.far, b.far, k), mid: mix(a.mid, b.mid, k), soil: [mix(a.soil[0], b.soil[0], k), mix(a.soil[1], b.soil[1], k)], band: mix(a.band, b.band, k), edge: mix(a.edge, b.edge, k) };
+}
+// A horizontal gradient, or its right-hand colour where the canvas cannot make one.
+function hgrad(g, x0, x1, left, right) {
+  const gr = g.createLinearGradient?.(x0, 0, x1, 0);
+  if (!gr?.addColorStop) return right;
+  gr.addColorStop(0, left); gr.addColorStop(1, right);
+  return gr;
 }
 // A vertical gradient, or its top colour where the canvas cannot make one.
 function vgrad(g, y0, y1, top, bottom) {
@@ -109,11 +127,13 @@ const TRAILS = [
   { name: "EMBER", col: C.red, lv: 9 },
   { name: "VIOLET", col: "#b48cf0", lv: 12 },
 ];
-// Bought with shards. tiers[i] is the cost of tier i + 1.
+// Bought with shards. tiers[i] is the cost of tier i + 1. Gear forgives mistakes and gathers
+// shards, but never adds daylight or points, so a clean run scores the same with or without it.
+// (The ids are the save's: `bat` was a battery that added daylight before 2026-10-02.)
 export const WORKSHOP = [
   { id: "mag", name: "MAGNET", tiers: [80, 200, 400], text: "Pulls shards in from further away." },
-  { id: "bat", name: "BATTERY", tiers: [150, 400], text: "Eight more seconds of daylight a tier." },
-  { id: "coil", name: "FEVER COIL", tiers: [250], text: "Fever lasts two seconds longer." },
+  { id: "bat", name: "GRAPPLE", tiers: [150, 400], text: "A fall into a rille costs three seconds less a tier." },
+  { id: "coil", name: "FEVER COIL", tiers: [250], text: "Once each fever, a missed slide keeps the chain." },
 ];
 const MAG_R = [0, 45, 85, 130];
 const ZEN_LV = 2;
@@ -144,7 +164,7 @@ export const ORDER_KINDS = {
   vent: { min: 8, n: (L) => Math.min(8, 1 + Math.floor((L - 8) / 3)), text: (n) => `Ride ${n} vent${n > 1 ? "s" : ""} in one run.`, prog: (a) => a.R.vents },
 };
 const beaconCount = (bc) => bc.reduce((n, m) => n + ((m & 1) + ((m >> 1) & 1) + ((m >> 2) & 1)), 0);
-// Where the survey beacons hang: three per zone, at fixed distances (m). The far side's run past 4000 m.
+// Where the survey beacons hang: three per zone, at fixed distances (m). The far side's run 1500 m past its start.
 export const beaconsOf = (zi) => { const a = ZONES[zi].from, b = zi + 1 < ZONES.length ? ZONES[zi + 1].from : a + 1500; return BEACON_AT.map((k) => Math.round(a + k * (b - a))); };
 const hashText = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return h >>> 0; };
 // The three orders of level L, the same on every console. Level 1 is a fixed introduction.
@@ -267,9 +287,9 @@ export class Moonrunner {
     this.r = { x, y: this.gy(x), vx: 260, vy: 0, v: 260, a: this.slopeAt(x), air: false, airT: 0, tx: x, hi: 0, vent: false };
     this.camX = x; this.camY = this.r.y; this.zoom = 1;
     this.runT = 0;
-    this.T = this.zen ? Infinity : START_T + 8 * sv.up.bat + BEACON_T * sv.bc.filter((m) => m === 7).length;
+    this.T = this.zen ? Infinity : START_T;
     this.night = false;
-    this.chain = 0; this.fever = 0; this.feverLv = 0;
+    this.chain = 0; this.fever = 0; this.feverLv = 0; this.coilUsed = false;
     this.pts = 0;
     this.zone = zoneAt(x / PX_M);
     this.zoneT = 0;
@@ -295,7 +315,8 @@ export class Moonrunner {
   ride() { return RIDES[this.rideIx]; }
   // Fever raises the top speed, more at each level.
   topSpeed() { return this.ride().maxV + (this.fever > 0 ? 150 + 100 * this.feverLv : 0); }
-  feverLen() { return FEVER_T + 2 * this.sv.up.coil; }
+  fallT() { return FALL_T - 3 * this.sv.up.bat; }
+  feverLen() { return FEVER_T; }
   plainRun() { return !this.daily && !this.zen && this.startZone === 0; }
   // The record this run chases: the console's best for a plain run, the day's or the sled's otherwise.
   bestRef() {
@@ -479,7 +500,8 @@ export class Moonrunner {
         const sp = Math.hypot(r.vx, r.vy), path = Math.atan2(r.vy, r.vx);
         const near = below < 40, aim = th + (near ? 0.05 : CLOSE_IN);
         // Far above the slope the line only ever steepens, so a dive never floats the sled past it.
-        const turn = clamp(wrapAngle(aim - path), near ? -ASSIST.w * dt : 0, ASSIST.w * dt), na = path + turn;
+        const w = ASSIST.w * GRIP[zoneAt(r.x / PX_M)].assist;
+        const turn = clamp(wrapAngle(aim - path), near ? -w * dt : 0, w * dt), na = path + turn;
         r.vx = sp * Math.cos(na); r.vy = sp * Math.sin(na);
       }
     }
@@ -506,8 +528,10 @@ export class Moonrunner {
   // Would landing now be perfect? (Used by the lamps and a planning bot.)
   perfectNow(r) {
     const th = this.slopeAt(r.x + r.vx * 0.1);
-    return th > 0.08 && Math.abs(wrapAngle(Math.atan2(r.vy, r.vx) - th)) <= PERFECT;
+    return th > 0.08 && Math.abs(wrapAngle(Math.atan2(r.vy, r.vx) - th)) <= this.windowAt(r.x);
   }
+  // The perfect window (radians) at x px.
+  windowAt(x) { return GRIP[zoneAt(x / PX_M)].win; }
 
   // ---- input ---------------------------------------------------------------------------
   // On the title, result and depot screens a press is decided when it ends: a tap chooses the
@@ -734,7 +758,7 @@ export class Moonrunner {
     const flight = ev.dist / PX_M;
     this.R.longest = Math.max(this.R.longest, Math.floor(flight));
     if (ev.hi > 240) this.addPoints(Math.floor(ev.hi / 8), "BIG AIR");
-    if (ev.diff <= PERFECT && ev.th > 0.08) {
+    if (ev.diff <= this.windowAt(r.x) && ev.th > 0.08) {
       this.chain++;
       this.R.perfects++;
       this.R.chain = Math.max(this.R.chain, this.chain);
@@ -756,6 +780,7 @@ export class Moonrunner {
       } else if (this.chain % FEVER_CHAIN === 0 && this.fever <= 0) {
         this.fever = this.feverLen();
         this.feverLv = 1;
+        this.coilUsed = false;
         this.R.fevers++;
         this.R.feverLv = Math.max(this.R.feverLv, 2);
         this.notify("FEVER x2", 1.6);
@@ -763,6 +788,13 @@ export class Moonrunner {
       }
       this.dust(r.x, r.y, 4);
     } else {
+      if (this.fever > 0 && this.sv.up.coil && !this.coilUsed && this.chain > 0) {
+        // The fever coil catches one miss a fever: the chain holds.
+        this.coilUsed = true;
+        this.showTrick("COIL HOLDS");
+        this.c.tone(523, 0.08, "triangle");
+        return;
+      }
       if (this.chain > 0) this.c.tone(260, 0.06, "sine");
       this.chain = 0;
       if (ev.diff > THUD) {
@@ -780,10 +812,10 @@ export class Moonrunner {
     c.done = true;
     this.chain = 0;
     this.R.falls++;
-    if (!this.zen) this.T = Math.max(0, this.T - FALL_T);
+    if (!this.zen) this.T = Math.max(0, this.T - this.fallT());
     this.fx.thud = 0.6;
     this.c.tone(110, 0.25, "sawtooth");
-    this.notify(this.zen ? "INTO THE RILLE. RIDE ON." : "INTO THE RILLE: -" + FALL_T + " S OF DAYLIGHT", 2.2);
+    this.notify(this.zen ? "INTO THE RILLE. RIDE ON." : "INTO THE RILLE: -" + this.fallT() + " S OF DAYLIGHT", 2.2);
     this.dust(r.x, r.y, 10);
   }
   enterZone(zi) {
@@ -791,7 +823,7 @@ export class Moonrunner {
     this.R.zone = Math.max(this.R.zone, zi);
     this.zoneT = 2.6;
     this.fx.zone = 0.8;
-    if (!this.zen && !this.night && zi > this.startZone) { this.T += ZONE_T; this.notify("+" + ZONE_T + " S OF DAYLIGHT", 2.6); }
+    if (!this.zen && !this.night && zi > this.startZone) { this.T += ZONE_T[zi]; this.notify("+" + ZONE_T[zi] + " S OF DAYLIGHT", 2.6); }
     MOTIFS[zi].forEach((hz, i) => this.c.tone(hz, 0.16 + 0.04 * i, "sine"));
   }
   collect(r, dt) {
@@ -806,14 +838,12 @@ export class Moonrunner {
       if (d < 26 || (s.pull && d < 32)) {
         s.got = 1;
         this.R.shards++;
-        this.pts += 10;
         this.fx.shard = 0.12;
         this.c.tone(note(4 + (this.R.shards % 6)) * 2, 0.04, "sine");
       }
     }
   }
-  // Sunstones buy daylight; beacons are found once for good, and a zone's three together add
-  // daylight to the start of every run.
+  // Sunstones buy daylight; beacons are found once for good, and a zone's last one pays a bonus.
   collectSky(r) {
     const cy = r.y - 18;
     for (const q of this.suns) {
@@ -835,7 +865,8 @@ export class Moonrunner {
       this.sv.sh += 30;
       this.addPoints(250, "NEW BEACON");
       const all = this.sv.bc[b.zi] === 7;
-      this.notify(all ? ZONES[b.zi].name + ": ALL BEACONS. +" + BEACON_T + " S OF DAYLIGHT EVERY RUN" : "SURVEY BEACON " + beaconCount(this.sv.bc) + " / " + 3 * ZONES.length + "  +30 SHARDS", 3);
+      if (all) this.sv.sh += BEACON_SH;
+      this.notify(all ? ZONES[b.zi].name + " SURVEYED: +" + (30 + BEACON_SH) + " SHARDS" : "SURVEY BEACON " + beaconCount(this.sv.bc) + " / " + 3 * ZONES.length + "  +30 SHARDS", 3);
       [523, 784, 1047, 1568].forEach((hz, i) => this.c.tone(hz, 0.1 + 0.05 * i, "sine"));
     }
   }
@@ -1137,19 +1168,27 @@ export class Moonrunner {
     };
     const piece = (a, b) => {
       if (b <= a) return;
-      // Chunks of 300 px, each in the palette at its middle, so a zone's colours blend in.
-      for (let c0 = a; c0 < b; c0 += 300) {
-        const c1 = Math.min(b, c0 + 300) + (c0 + 300 < b ? 1 / z : 0), pal = paletteAt((c0 + c1) / 2 / PX_M);
-        band(c0, c1, 0, null, pal.soil[1]);
-        band(c0, c1, 0, 90, pal.soil[0]);
-        band(c0, c1, 20, 36, pal.band);
-        band(c0, c1, 58, 64, pal.band);
-        g.strokeStyle = pal.edge;
+      // One piece per zone. Over a zone's first 80 m its colours blend in from the last zone's, with
+      // a gradient fixed to the world, so the ground has no seams.
+      for (let c0 = a, c1; c0 < b; c0 = c1) {
+        const zi = zoneAt(c0 / PX_M), from = ZONES[zi].from * PX_M, to = from + 80 * PX_M;
+        c1 = Math.min(b, zi + 1 < ZONES.length ? ZONES[zi + 1].from * PX_M : Infinity);
+        if (c1 <= c0) c1 = Math.min(b, c0 + 200);
+        const e1 = c1 + (c1 < b ? 1 / z : 0), cur = SKIES[zi], prev = zi > 0 && c0 < to ? SKIES[zi - 1] : null;
+        const col = (k, i) => {
+          const end = i === undefined ? cur[k] : cur[k][i];
+          return prev ? hgrad(g, from, to, i === undefined ? prev[k] : prev[k][i], end) : end;
+        };
+        band(c0, e1, 0, null, col("soil", 1));
+        band(c0, e1, 0, 90, col("soil", 0));
+        band(c0, e1, 20, 36, col("band"));
+        band(c0, e1, 58, 64, col("band"));
+        g.strokeStyle = col("edge");
         g.lineWidth = 2.5 / z;
         g.beginPath();
         g.moveTo(c0, this.gy(c0));
-        for (let x = c0; x < c1; x += step) g.lineTo(x, this.gy(x));
-        g.lineTo(c1, this.gy(c1));
+        for (let x = c0; x < e1; x += step) g.lineTo(x, this.gy(x));
+        g.lineTo(e1, this.gy(e1));
         g.stroke();
       }
     };
@@ -1338,7 +1377,7 @@ export class Moonrunner {
       text(g, z.roman + "   " + z.name, 480, 70, 30, z.ink, "center");
       text(g, z.text, 480, 104, 20, C.muted, "center");
       g.globalAlpha = 1;
-    } else if (this.noticeT > 0) text(g, this.notice, 480, 52, 22, this.notice === "FEVER" ? C.cyan : C.amber, "center");
+    } else if (this.noticeT > 0) text(g, this.notice, 480, 52, 22, this.notice.startsWith("FEVER") ? C.cyan : C.amber, "center");
     if (this.trickT > 0) text(g, this.trick, 480, 150, 26, this.trick === "THUD" ? C.red : C.cyan, "center");
     // The perfect chain toward fever, and the fever meter.
     if (this.fever > 0) {
@@ -1423,7 +1462,7 @@ export class Moonrunner {
       else if (id === "START") info = "Begin in any zone you have reached. Only a run from the start sets the record.";
       else if (id === "ZEN") info = "Ride with no daylight clock and no score. Leave with tap, tap, hold.";
       else if (id === "DAILY") { const gl = dailyGoal(this.dayKey()); info = "Today: " + gl.text + (sv.dl.streak > 1 ? "  STREAK " + sv.dl.streak : ""); }
-      else if (id === "WORKSHOP") info = "Magnet, battery and fever coil.";
+      else if (id === "WORKSHOP") info = "Magnet, grapple and fever coil.";
       else if (id === "ORDERS") info = "Meet all three to reach the next level.";
       else info = "Zones, beacons found, and the expedition's totals.";
       text(g, info, 480, 446, 18, C.muted, "center");
@@ -1455,7 +1494,7 @@ export class Moonrunner {
         text(g, zz.roman + "  " + zz.name.slice(4), 160, y, 20, got ? zz.ink : C.line);
         const m = sv.bc[i];
         text(g, [0, 1, 2].map((k) => ((m >> k) & 1 ? "◆" : "◇")).join(" "), 520, y, 18, m === 7 ? C.cyan : got ? C.muted : C.line);
-        text(g, got ? (m === 7 ? "+" + BEACON_T + " S DAYLIGHT" : "REACHED") : "FROM " + zz.from + " m", 800, y, 18, got ? C.amber : C.line, "right");
+        text(g, got ? (m === 7 ? "SURVEYED" : "REACHED") : "FROM " + zz.from + " m", 800, y, 18, got ? C.amber : C.line, "right");
       });
       text(g, RIDES.map((rd, i) => rd.name + " " + (rd.lv <= sv.lv ? sv.pb[i] : "-")).join("   "), 480, 440, 18, C.muted, "center");
       text(g, "TAP = BACK", 480, 480, 18, C.cyan, "center");

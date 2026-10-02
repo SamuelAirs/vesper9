@@ -542,7 +542,7 @@ export const CARTRIDGES = [
     "glyph": 4,
     "factory": "Crawlspace",
     "voice": [
-      "crawlspace"
+      "crawl space"
     ],
     "capabilities": [
       "button",
@@ -629,8 +629,7 @@ export const CARTRIDGES = [
     "glyph": 4,
     "factory": "NightGrid",
     "voice": [
-      "night grid",
-      "nightgrid"
+      "night grid"
     ],
     "capabilities": [
       "button",

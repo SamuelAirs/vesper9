@@ -260,8 +260,11 @@ async function button(page, ms = 80) {
     stage.y + stage.height <= 720,
     "entire game stage fits a 720p display",
   );
-  const deck = await page.locator(".control-deck").boundingBox();
+  // In play the control deck folds into the bottom row (display: contents), so measure its contents.
+  const deck = await page.locator(".control-copy").boundingBox();
   assert.ok(deck.y + deck.height <= 720, "switch and status fit 720p");
+  const shown = await page.locator("#game").boundingBox();
+  assert.ok(shown.width >= 1100 || shown.height >= 620, "in play the game fills most of a 720p display: " + JSON.stringify(shown));
   assert.ok(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight), "whole console fits 720p");
   await page.screenshot({
     path: path.join(output, "VESPER-9-720p.png"),

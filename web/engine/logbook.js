@@ -9,7 +9,10 @@
 // the streak; meeting all three is a full day.
 // FEATS: a game reports a feat once (ctx.feat); the logbook keeps the latest MAX_FEATS, by game.
 export const LOGBOOK_VERSION = 1;
-export const PICKS = 3, MAX_FEATS = 60, MAX_DAYS = 45, TARGET_SHARE = 0.6;
+export const PICKS = 3;
+export const MAX_FEATS = 60;
+export const MAX_DAYS = 45;
+export const TARGET_SHARE = 0.6;
 
 const str = (v, n) => (typeof v === "string" ? v.slice(0, n) : "");
 const num = (v) => (Number.isFinite(v) ? v : 0);

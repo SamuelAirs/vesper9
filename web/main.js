@@ -11,7 +11,8 @@ import { HostLamps, levelScale } from "./engine/ambient.js";
 import { microphoneStatus } from "./engine/status.js";
 import { planVoice } from "./engine/voice.js";
 import { LOGICAL_W, LOGICAL_H, renderFactor } from "./engine/render.js";
-import * as Log from "./engine/logbook.js";
+import { cleanLogbook, ensureDay, dateKey, pickOf, ownOrder, meetOrder, noteScore, addFeat, streak, doneCount, PICKS } from "./engine/logbook.js";
+const Log = { cleanLogbook, ensureDay, dateKey, pickOf, ownOrder, meetOrder, noteScore, addFeat, streak, doneCount, PICKS };
 
 const $ = (id) => document.getElementById(id);
 // Assigning identical text still replaces the text node and dirties layout, so
@@ -849,7 +850,7 @@ export class Vesper {
         run: () =>
           this.help(
             this.meta
-              ? this.meta.description + " To open the menu from anywhere: tap, tap, then press and hold for about a second. The two taps and the hold reach the app first; when the menu opens, the app puts back anything they changed."
+              ? this.meta.description + " To open the menu from anywhere: tap, tap, then press and hold (about a second in menus, 1.6 seconds inside a game). The two taps and the hold reach the app first; when the menu opens, the app puts back anything they changed."
               : "Tap to move between items. Hold and release to select. To open the system menu from anywhere, in any app: tap, tap, then press and hold for about a second. Space or the on-screen arcade button also works. The dashboard's sectors are " + PAGES.map((p) => p.name.charAt(0) + p.name.slice(1).toLowerCase()).join(", ") + ": the games come first, then the instruments. Calibration, Node Scope and Telemetry are under SYSTEM TOOLS in the system menu.",
           ),
       },

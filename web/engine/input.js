@@ -24,7 +24,10 @@ const STATUS_GRACE_MS = 250;
 // second must come 120 to 650 ms after the first (by the node's clock), with the button untouched
 // for KNOCK_QUIET_MS before either, and nothing else counts for a second after a back. One stray
 // knock only shows "KNOCK AGAIN: BACK" and is forgotten. In a game a knock is the game's (knock()).
-export const DOUBLE_KNOCK_MIN_MS = 120, DOUBLE_KNOCK_MS = 650, KNOCK_QUIET_MS = 400, KNOCK_AFTER_BACK_MS = 1000;
+export const DOUBLE_KNOCK_MIN_MS = 120;
+export const DOUBLE_KNOCK_MS = 650;
+export const KNOCK_QUIET_MS = 400;
+export const KNOCK_AFTER_BACK_MS = 1000;
 const MIN_TAP_MS = 8;
 
 // In a game (raw input) the hold runs this much longer: two quick taps and then a long press are

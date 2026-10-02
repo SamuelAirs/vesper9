@@ -792,7 +792,7 @@ test("groove: a steady beat builds it to x1.5, a stumble halves it, a pause lets
   const { app } = begin();
   advance(app, 2);
   const base = app.tapValue();
-  for (let i = 0; i < 40; i++) { app.gather(); advance(app, 0.3); }
+  for (let i = 0; i < 40; i++) { app.gather(); advance(app, 0.45); } // an easy pace, so the full value counts
   assert.equal(app.groove, E.GROOVE_MAX);
   assert.equal(app.grooveMult(), 1.5);
   assert.ok(app.tapValue() / base >= 1.5, "full groove: x" + app.tapValue() / base);
@@ -814,6 +814,47 @@ test("groove: a steady beat builds it to x1.5, a stumble halves it, a pause lets
   const g = fakeCanvas(); app.draw(g);
   app.checkGoals(false);
   assert.ok(app.s.gl.includes(E.GOALS.findIndex((x) => x.n === "IN THE POCKET")));
+});
+
+test("easy pace: tapping faster than an easy beat earns no more, a pause restores the full value", () => {
+  // signal by hand (taps, phrases, tunes; no machines) over 20 s of steady tapping at a given rate
+  const earn = (perSec, frenzy = false) => {
+    const { app } = begin();
+    advance(app, 3);
+    if (frenzy) app.boosts.push({ k: "frenzy", t: 99, max: 99, mult: 30 });
+    const before = app.s.st.hand;
+    for (let i = 0, n = 20 * perSec; i < n; i++) { app.gather(); advance(app, 1 / perSec); }
+    return { app, perSec: (app.s.st.hand - before) / 20 };
+  };
+  const easy = earn(2.5).perSec, fast = earn(5).perSec, frantic = earn(10).perSec, slow = earn(1.25).perSec;
+  assert.ok(slow < easy * 0.65, "half the pace earns less (each tap still counts): " + slow / easy);
+  assert.ok(fast <= easy * 1.1, "twice the easy pace earns no more: " + fast / easy);
+  assert.ok(frantic <= easy * 1.1, "four times the easy pace earns no more: " + frantic / easy);
+  // a frenzy (taps x30 from a flare) raises the easy pace, so quick tapping is worth it for those seconds
+  const fz = earn(2.5, true).perSec, fzFast = earn(5, true).perSec;
+  assert.ok(fzFast > fz * 1.6, "in a frenzy, tapping twice as fast pays more: " + fzFast / fz);
+  // after fast tapping, one tap is worth less and the hint says why; a short pause brings the full value back
+  const { app } = earn(8);
+  const full = app.tapValue(false);
+  assert.ok(app.tapValue() < full * 0.5, "fast: " + app.tapValue() / full);
+  assert.ok(app.floats.some((f) => f.life > 0 && f.v !== "+" + E.fmt(full)), "the floating numbers show the smaller taps");
+  assert.match(app.hintKey, /steady/i, "the hint explains it");
+  advance(app, 1.3);
+  assert.equal(app.paceNow(), 1);
+  assert.equal(app.tapValue(), app.tapValue(false));
+  // a short burst after a pause is worth the full value
+  for (let i = 0; i < 3; i++) { assert.equal(app.paceNow(), 1, "burst tap " + i); app.gather(); advance(app, 0.1); }
+  assert.ok(app.paceNow() < 1, "the reserve is spent");
+  advance(app, 2.1);
+  assert.doesNotMatch(app.hintKey, /steady/i, "the hint goes once the tapping slows");
+  // rewards that are not taps (flare lodes) are not paced
+  app.s.own[1] = 30; app.dirty = true; app.recalc();
+  for (let i = 0; i < 30; i++) { app.gather(); advance(app, 0.1); }
+  const lode = app.effRate() * 600 + app.tapValue(false) * 40, sig = app.s.sig;
+  app.flare = { x: 300, y: 200, t: 5, life: 14 };
+  app.c.rng.next = () => 0.6; // the lode
+  app.gather();
+  assert.ok(app.s.sig - sig >= lode * 0.99, "the lode is not cut by the tapping pace");
 });
 
 test("constellations: shown from 1000 bearings, each multiplies all output, costs grow, the sky draws them", () => {

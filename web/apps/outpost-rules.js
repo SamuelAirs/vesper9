@@ -31,6 +31,12 @@ export const SAVE_GAP = 1.5; // minimum seconds between event saves
 export const FLARE_LIFE = 14;
 export const FLOATERS = 12;
 export const LUMP_SEC = 0.08; // a finished tune pays this many seconds of production per note (more with voices)
+// Easy pace: the hand has a small reserve of PACE_BURST taps that refills at TAP_EASY a second
+// (TAP_EASY_FRENZY during a tap frenzy). A tap spends one, or whatever is left, and is worth that
+// much, so a steady, comfortable beat pays as much as frantic tapping (and a short burst is free).
+export const TAP_EASY = 2.5;
+export const TAP_EASY_FRENZY = 8;
+export const PACE_BURST = 3;
 // Groove: a tap within GROOVE_TOL of the recent beat adds a step; GROOVE_MAX steps add GROOVE_BONUS
 // (half again) to every tap and phrase.
 export const GROOVE_BONUS = 0.5;

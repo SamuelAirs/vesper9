@@ -35,7 +35,7 @@ import { clamp } from "../engine/math.js";
 import { lightsOff } from "../engine/lightshow.js";
 import {
   SCHEMA, BIG, MAX_OWN, MILESTONES, PRESTIGE_K, READY_MIN, READY_RATIO, AWAY_MIN, HOLD_OPEN, HOLD_BUY, HOLD_BIG, DWELL, DWELL_BIG,
-  RING_IDLE, DIM_AFTER, SAVE_EVERY, SAVE_GAP, FLARE_LIFE, FLOATERS, LUMP_SEC,
+  RING_IDLE, DIM_AFTER, SAVE_EVERY, SAVE_GAP, FLARE_LIFE, FLOATERS, LUMP_SEC, TAP_EASY, TAP_EASY_FRENZY, PACE_BURST,
   GROOVE_BONUS, GROOVE_MAX, GROOVE_TOL, GROOVE_MIN_GAP, GROOVE_MAX_GAP, GROOVE_FADE, CHART_REQ, CHART_MULT, CHART_MAX,
   PROD, NP, UPG, NUP, VOICE, TREE, NT, KIT, KIT_SIGNAL, AUTO_EVERY, EXPED, MAX_RELICS, GEN_ID, RES, NR, EV, GOALS, NG, STAGES, CONST,
   hasRes, resSlots, tiersOwned, dataRate, dataBonus, unlockedN, masteredN, goalFrac, chartCost, chartName, chartsOpen, stageOf,
@@ -112,6 +112,9 @@ export class Outpost {
     this.groove = 0; // 0..GROOVE_MAX, this visit only
     this.gaps = []; // the last few gaps between gathering taps, for the beat
     this.lastGather = -9;
+    this.charge = PACE_BURST; // the hand's reserve after the last gathering tap (see TAP_EASY)
+    this.tuneK = 0; // the pace of this tune's taps so far: their summed worth, and how many
+    this.tuneN = 0;
     this.stageNow = -1;
     this.nextGoal = null;
     this.goalIn = 0;
@@ -167,10 +170,16 @@ export class Outpost {
   frenzy() { let m = 1; for (const b of this.boosts) if (b.k === "frenzy") m = Math.max(m, b.mult); return m; }
   effRate() { return num(this.rate * this.surge()); }
   grooveMult() { return 1 + GROOVE_BONUS * Math.floor(this.groove) / GROOVE_MAX; }
-  tapValue() {
+  // What a tap is worth now. `paced` applies the easy pace (off for rewards that are not taps).
+  tapValue(paced = true) {
     const v = (this.tapMult * globalMult(this.s) + this.tapFrac * this.rate) * this.frenzy() * this.grooveMult();
-    return Math.max(1, num(v));
+    return Math.max(1, num(v)) * (paced ? this.paceNow() : 1);
   }
+  // The hand's reserve now (it refills between taps), and the share of a full tap the next one gets.
+  reserve() { return Math.min(PACE_BURST, this.charge + (this.clk - this.lastGather) * (this.frenzy() > 1 ? TAP_EASY_FRENZY : TAP_EASY)); }
+  paceNow() { return Math.min(1, this.reserve()); }
+  // Tapping faster than the easy pace just now (for the hint).
+  paceFast() { return this.clk - this.lastGather < 2 && this.charge < 0.5; }
   pending() { return pendingOf(this.s); }
   visibleItems() {
     const s = this.s, list = [];
@@ -425,31 +434,34 @@ export class Outpost {
     if (!(s.sp >= 0 && s.sp < this.mel.n.length)) s.sp = 0;
   }
   voices() { let n = 0; for (const k of VOICE) if (this.s.up[k]) n++; return n; }
-  playNote() {
+  // k: the share of a full tap this note's tap was worth (the easy pace)
+  playNote(k = 1) {
     const s = this.s, m = this.mel, st = s.st;
     if (s.sp >= m.n.length) s.sp = 0;
     const idx = s.sp, midi = m.n[idx], gap = this.clk - this.lastNoteAt;
     this.recent.push({ at: this.clk, sp: idx, sg: s.sg, gs: s.gs });
     if (this.recent.length > 6) this.recent.shift();
-    if (idx === 0) this.tuneClean = true; else if (gap > 1.6) this.tuneClean = false;
+    if (idx === 0) { this.tuneClean = true; this.tuneK = 0; this.tuneN = 0; } else if (gap > 1.6) this.tuneClean = false;
+    this.tuneK += k; this.tuneN++;
     this.lastNoteAt = this.clk;
     voiceNote(this, midi, gap, idx); // the tap's note, with the station's voices (outpost-music.js)
     this.noteFx = { pos: m.hi > m.lo ? clamp((midi - m.lo) / (m.hi - m.lo), 0, 1) : 0.5, t: 0 };
     st.nt = Math.min(1e12, st.nt + 1);
     s.sp = idx + 1;
     if (idx >= m.n.length - 1) this.finishTune();
-    else if (m.ends.includes(idx)) this.finishPhrase();
+    else if (m.ends.includes(idx)) this.finishPhrase(k);
   }
-  finishPhrase() {
+  finishPhrase(k = 1) {
     const s = this.s;
     s.st.ph++;
-    this.gain(this.tapValue() * 2 * (1 + 0.5 * s.tree[10]), "h");
+    this.gain(this.tapValue(false) * k * 2 * (1 + 0.5 * s.tree[10]), "h");
     this.accent = { k: "phrase", t: 0, dur: 0.4 };
     this.dirty = true;
   }
   finishTune() {
     const s = this.s, m = this.mel, st = s.st, len = m.n.length, pp = 1 + 0.5 * s.tree[10];
-    const lump = (this.effRate() * LUMP_SEC * len * (1 + 0.25 * this.voices()) + this.tapValue() * len * 0.15) * pp;
+    // paced by the tune's taps, or playing faster would pay more tunes a minute
+    const lump = (this.effRate() * LUMP_SEC * len * (1 + 0.25 * this.voices()) + this.tapValue(false) * len * 0.15) * pp * (this.tuneN ? this.tuneK / this.tuneN : 1);
     this.gain(lump, "h");
     st.md++;
     let first = false, mastered = false;
@@ -601,9 +613,10 @@ export class Outpost {
     if (this.groove >= GROOVE_MAX) { s.ev |= EV.groove; s.st.gt = Math.min(1e15, s.st.gt + 1); }
   }
   gather() {
-    const s = this.s;
+    const s = this.s, have = this.reserve(), k = Math.min(1, have);
+    this.charge = have - k;
     this.beatTap();
-    const v = this.tapValue();
+    const v = this.tapValue(false) * k;
     this.gain(v, "h");
     s.taps = Math.min(1e12, s.taps + 1);
     s.st.rtaps++;
@@ -611,7 +624,7 @@ export class Outpost {
     this.tapTimes.push(this.clk);
     if (this.tapTimes.length > 12) this.tapTimes.shift();
     if (this.tapTimes.length === 12 && this.clk - this.tapTimes[0] < 1.8) s.ev |= EV.presto;
-    this.playNote();
+    this.playNote(k);
     addRipple(this);
     addFloat(this, "+" + fmt(v), 480 + this.c.rng.range(-70, 70), 215 + this.c.rng.range(-8, 8));
     if (this.flare) this.catchFlare();
@@ -628,7 +641,7 @@ export class Outpost {
       this.boosts.push({ k: "surge", t: 30, max: 30, mult: 7 });
       this.setNote("FLARE CAUGHT - SURGE x7 FOR 30 S", 4);
     } else if (r < 0.8) {
-      const g = this.effRate() * 600 + this.tapValue() * 40;
+      const g = this.effRate() * 600 + this.tapValue(false) * 40;
       this.gain(g, "b");
       this.setNote("FLARE CAUGHT - LODE +" + fmt(g), 4);
     } else {
@@ -1003,6 +1016,7 @@ export class Outpost {
     else if (this.phase_ === "card") h = "Press to continue.";
     else if (this.ring) h = "Tap: next entry. Hold, then release: choose.";
     else if (this.flare) h = "Signal flare. Tap now to catch it.";
+    else if (this.paceFast()) h = "Easy does it: a steady beat pays as well as fast tapping.";
     else if (this.affordN > 0) h = "Something is affordable. Hold to build.";
     else h = "Tap to gather signal and play the song. Hold to open the build ring.";
     if (h !== this.hintKey) { this.hintKey = h; this.c.hint(h); }

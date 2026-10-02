@@ -153,3 +153,14 @@ test("a new stage reached in play cross-fades in over the old one", () => {
     assert.equal(layers() - n, 1, "the old stage is gone once the fade is over");
   } finally { withOffscreen(false); }
 });
+
+test("a humming machine shows the note it is tuned to beside its count", () => {
+  const { app } = begin();
+  app.s.own[0] = 12; app.dirty = true; app.update(1 / 60);
+  const said = [];
+  const g = new Proxy(fakeCanvas(), { get(o, k) { return k === "fillText" ? (v) => said.push(String(v)) : o[k]; }, set(o, k, v) { o[k] = v; return true; } });
+  app.draw(g);
+  assert.ok(said.includes("x12"));
+  app.hum[0] = 20; said.length = 0; app.draw(g);
+  assert.ok(said.includes("x12 C"), said.join("|"));
+});

@@ -6,14 +6,14 @@
 // sequences of flares, relics and shuffles are part of the tests).
 //
 // Fields read from the cartridge: c (only settings().reducedMotion), s, t, clk, phase_, ring, entries, panel, card, cardT, away,
-// newsFrom, note, floats, ripples, act, phase, flash, flare, boosts, groove, items, affordN,
+// newsFrom, note, floats, ripples, act, phase, flash, flare, boosts, groove, hum, items, affordN,
 // goalName, goalCost, goalFrac, nextGoal, refused, down_, consume, downAt; and the methods
-// surge(), effRate(), tapValue(), grooveMult() and pending().
+// surge(), effRate(), tapValue(), paceNow(), grooveMult() and pending().
 import { C, text, line, circle, diamond, banner, wrapText } from "../engine/draw.js";
 import { TAU, clamp } from "../engine/math.js";
 import { pulse, blink } from "../engine/lightshow.js";
 import {
-  CHART_REQ, CONST, DWELL, EXPED, GOALS, GROOVE_MAX, HOLD_BUY, NG, NP, NR, RES, RING_IDLE, STAGES, UPG,
+  CHART_REQ, CONST, DWELL, EXPED, GOALS, GROOVE_MAX, HOLD_BUY, NG, NP, NR, RES, RING_IDLE, STAGES, UPG, PROD, PC_NAMES,
   capHours, clock, dur, fmt, fmtDate, fmtInt, fmtRate, goalFrac, masteredN, pendingOf, prodVisible, readyOf, revealOf, stageOf, unlockedN,
 } from "./outpost-rules.js";
 import { NS } from "./outpost-songs.js";
@@ -91,7 +91,9 @@ function drawHeader(g, app) {
   text(g, "BY HAND" + star, 24, 84, 16, C.muted, "left");
   text(g, fmt(s.st.hand), 24, 110, 24, C.amber, "left");
   text(g, "PER TAP", 936, 24, 16, C.muted, "right");
-  text(g, "+" + fmt(app.tapValue()), 936, 50, 24, C.ink, "right");
+  // tapping faster than a steady beat earns less (easy pace): the figure warms as it drops
+  const pace = typeof app.paceNow === "function" ? app.paceNow() : 1;
+  text(g, "+" + fmt(app.tapValue()), 936, 50, 24, pace < 0.5 ? C.red : pace < 0.95 ? C.amber : C.ink, "right");
   text(g, s.L > 0 ? "BEARINGS" : "BEST RATE" + star, 936, 84, 16, C.muted, "right");
   text(g, s.L > 0 ? s.b + " / " + s.L : fmtRate(s.st.peak) + " /S", 936, 110, 24, C.amber, "right");
   if (app.groove >= 1) {
@@ -425,13 +427,16 @@ function drawScene(g, app) {
   drawRipples(g, app);
   let ghost = -1;
   for (let i = 0; i < NP; i++) { // light pools under working machines, drawn first so bodies stand in them
-    if (s.own[i] > 0) glow(g, app.flash[i] > 0 ? 1 : 0, machineX(i), GY + 3, 50, 10, 0.12 + 0.4 * app.act[i] + 0.5 * app.flash[i]);
+    if (s.own[i] > 0) glow(g, app.flash[i] > 0 || humOf(app, i) > 0 ? 1 : 0, machineX(i), GY + 3, 50, 10, 0.12 + 0.4 * app.act[i] + 0.5 * app.flash[i]);
   }
   for (let i = 0; i < NP; i++) {
     const x = machineX(i), n = s.own[i];
     if (n > 0) {
-      machine(g, app, i, x, n);
-      text(g, "x" + n, x, GY + 26, 16, app.flash[i] > 0 ? C.cyan : C.muted, "center");
+      const hum = humOf(app, i);
+      // a humming machine trembles and shows the note it is tuned to; the letter blinks as it runs out
+      machine(g, app, i, hum > 0 ? x + Math.sin(app.t * 47 + i) * 0.9 : x, n);
+      const tone = hum > 0 && (hum > 2 || blink(app.t, 3)) ? " " + (PC_NAMES[PROD[i].pc] || "") : "";
+      text(g, "x" + n + tone, x, GY + 26, 16, app.flash[i] > 0 || hum > 0 ? C.cyan : C.muted, "center");
       if (app.flash[i] > 0) {
         circle(g, x, GY - 40, 30 + 40 * (1 - app.flash[i]), C.cyan, false, 2);
         glow(g, 1, x, GY - 40, 60, 60, 0.6 * app.flash[i]);
@@ -470,6 +475,8 @@ function drawPulses(g, app) {
   g.globalAlpha = 1;
 }
 
+// Seconds of hum left on machine i (0 when quiet, or before the cartridge had hum).
+const humOf = (app, i) => (app.hum && app.hum[i] > 0 ? app.hum[i] : 0);
 // A machine: its fleet behind it (more copies as more are owned), its body from the cache, then
 // the moving part. Motion speed follows its output (act) and phase.
 function machine(g, app, i, x, n) {

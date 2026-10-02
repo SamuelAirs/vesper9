@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   Ballista, migrateSave, dailyGoal, loadout, zoneAt, sweepAngle, powerAt, timeToGround,
-  ZONES, UPGRADES, PODS, FEATS, MODULES, SLOTS, SLOT3_FEATS, M, RISE, MIN_HOLD, SKIP_WIN,
+  ZONES, UPGRADES, PODS, FEATS, MODULES, SLOTS, SLOT3_FEATS, M, RISE, MIN_HOLD, SKIP_WIN, EARLY_WIN, LATE_WIN,
   contractText, contractProgress, chainMult, salvageFor, upCost, MARK_SPEED,
 } from "../web/apps/ballista.js";
 import { Random } from "../web/engine/math.js";
@@ -12,6 +12,8 @@ import { playRun, campaign, shop } from "./helpers/ballista-bot.mjs";
 const F = 1 / 60;
 const tap = (app) => { app.down(); app.up(); };
 function hold(app, seconds) { app.down(); run(app, seconds); app.up(); }
+// The workshop line `id` for this save (lines that do nothing yet are hidden).
+const row = (app, id) => { const i = app.rows().indexOf(id); assert.ok(i >= 0, id + " is not shown"); return i; };
 const mount = (options = {}) => { const ctx = appContext({ seed: 11, ...options }); return { ctx, app: new Ballista(ctx) }; };
 // Starts a run and fires at `angle` with full power.
 function fire(app, angle = 40) {
@@ -121,6 +123,86 @@ test("a press just before touchdown is a skip, and a perfect skip bounces higher
   assert.ok(skipped.vx > plain.vx);
 });
 
+test("a press near touchdown never spends a thruster: early does nothing, late is still a skip", () => {
+  const descend = () => {
+    const { app } = mount();
+    fire(app, 30);
+    app.features = []; app.nextX = 1e9;
+    Object.assign(app.p, { x: 300, y: 200, vx: 400, vy: -300, mode: "air" });
+    return app;
+  };
+  // early: a press a little before the window is ignored, and a second press in it still skips
+  const early = descend(), kicks = early.kicks;
+  let pressed = 0;
+  for (let i = 0; i < 200 && early.p.vy < 0; i++) {
+    const t = early.landIn();
+    if (pressed === 0 && t > SKIP_WIN && t < SKIP_WIN + EARLY_WIN) { tap(early); pressed = 1; assert.equal(early.kicks, kicks, "early press spent a thruster"); assert.ok(early.early > 0); assert.equal(early.skip, null); }
+    if (pressed === 1 && t >= 0 && t <= early.L.perfect * 0.5) { tap(early); pressed = 2; }
+    early.update(F);
+  }
+  assert.equal(pressed, 2);
+  assert.equal(early.R.perfect, 1);
+  assert.equal(early.kicks, kicks);
+  // late: a press just after a plain touchdown turns it into a good skip
+  const late = descend(), plain = descend();
+  for (let i = 0; i < 200 && late.p.y > 0.01 && late.p.vy <= 0; i++) { late.update(F); plain.update(F); }
+  late.update(F); plain.update(F);
+  for (let i = 0; i < Math.floor((LATE_WIN * 60) / 2); i++) { late.update(F); plain.update(F); }
+  tap(late);
+  assert.equal(late.kicks, kicks, "late press spent a thruster");
+  assert.equal(late.R.good, 1);
+  late.update(F); plain.update(F);
+  assert.ok(late.p.vx > plain.p.vx && late.p.vy > plain.p.vy, late.p.vx + "," + late.p.vy + " vs " + plain.p.vx + "," + plain.p.vy);
+  // after the late window a press is a thruster again
+  const after = descend();
+  for (let i = 0; i < 200 && after.p.vy <= 0; i++) after.update(F);
+  for (let i = 0; i < Math.ceil(LATE_WIN * 60) + 2; i++) after.update(F);
+  if (after.landIn() < 0) { tap(after); assert.equal(after.kicks, kicks - 1); }
+});
+
+test("perfect skips gain speed, and more along a chain; good skips lose a little", () => {
+  const skipAt = (frac, chain) => {
+    const { app } = mount();
+    fire(app, 30);
+    app.features = []; app.nextX = 1e9;
+    Object.assign(app.p, { x: 300, y: 200, vx: 400, vy: -300, mode: "air" });
+    app.chain = chain;
+    let done = false;
+    for (let i = 0; i < 200 && app.p.vy < 0; i++) {
+      const tti = app.skipWindow();
+      if (!done && tti >= 0 && tti <= frac) { tap(app); done = true; }
+      app.update(F);
+    }
+    return app.p.vx;
+  };
+  const vxBefore = (() => { const { app } = mount(); fire(app, 30); app.features = []; app.nextX = 1e9; Object.assign(app.p, { x: 300, y: 200, vx: 400, vy: -300, mode: "air" }); for (let i = 0; i < 200 && app.p.vy < 0 && app.p.y > 5; i++) app.update(F); return app.p.vx; })();
+  const perfect0 = skipAt(0.03, 0), perfect5 = skipAt(0.03, 5), good = skipAt(SKIP_WIN * 0.95, 0);
+  assert.ok(perfect0 > vxBefore, perfect0 + " vs " + vxBefore);
+  assert.ok(perfect5 > perfect0 * 1.05, perfect5 + " vs " + perfect0);
+  assert.ok(good < vxBefore, good + " vs " + vxBefore);
+});
+
+test("the aim screen predicts where a shot first lands, and shows the field to there", () => {
+  const { app } = mount();
+  tap(app);
+  assert.equal(app.phase, "aim");
+  assert.ok(app.features.some((f) => f.x > app.reach * 0.8), "the field is placed out to the reach");
+  for (const [angle, power] of [[20, 0.5], [40, 1], [60, 0.8]]) {
+    const { app: b } = mount();
+    tap(b);
+    const want = b.carry(angle, power);
+    b.features = []; b.nextX = 1e9;
+    b.angle = angle; b.power = power;
+    b.fire();
+    let x = 0;
+    for (let i = 0; i < 1200 && b.phase === "fly"; i++) { b.update(F); if (b.p.y <= 0.6 && b.R.bounces + b.R.lifts > 0) { x = b.p.x; break; } if (b.p.mode !== "air") { x = b.p.x; break; } }
+    assert.ok(Math.abs(x - want) < 30, angle + "/" + power + ": " + x + " vs " + want);
+  }
+  const g = fakeCanvas();
+  app.draw(g);
+  app.down(); run(app, 0.4); app.draw(g); app.up();
+});
+
 test("a sinkhole ends the run, unless the pod skips off it", () => {
   const into = (skip) => {
     const { app } = mount();
@@ -195,8 +277,9 @@ test("a careful player flies much farther than one who only fires, on the same f
 
 test("a campaign of runs with the workshop gets steadily farther and reaches new zones", () => {
   const { app, out } = campaign(30, 5, { skill: 0.6 });
-  const early = out.slice(0, 5).reduce((a, o) => a + o.m, 0) / 5, late = out.slice(-5).reduce((a, o) => a + o.m, 0) / 5;
-  assert.ok(late > early * 2, early + " -> " + late);
+  // the first runs buy the cheap levels quickly; after that, skill carries more of the distance
+  const early = out.slice(0, 2).reduce((a, o) => a + o.m, 0) / 2, late = out.slice(-5).reduce((a, o) => a + o.m, 0) / 5;
+  assert.ok(late > early * 1.6, early + " -> " + late);
   assert.ok(app.sv.far >= 3, "zone " + app.sv.far);
   assert.ok(app.sv.up.reduce((a, b) => a + b) >= 10);
   assert.ok(app.sv.ft.length >= 5);
@@ -267,10 +350,10 @@ test("draw() runs in every phase and view, with the pod high above the screen", 
   app.draw(g);
   hold(app, 0.6);
   for (let i = 0; i < 10; i++) { app.draw(g); tap(app); }
-  app.cur = 11; hold(app, 0.6); app.draw(g); tap(app); app.draw(g); hold(app, 0.6);
-  app.cur = 12; hold(app, 0.6); app.draw(g); tap(app);
-  app.cur = 7; hold(app, 0.6); app.draw(g); tap(app);
-  app.cur = 6; hold(app, 0.6); for (let i = 0; i < 12; i++) { app.draw(g); tap(app); }
+  app.cur = row(app, "RECORDS"); hold(app, 0.6); for (let i = 0; i < 6; i++) { app.draw(g); tap(app); } app.draw(g); hold(app, 0.6);
+  app.cur = row(app, "CONTRACTS"); hold(app, 0.6); app.draw(g); tap(app);
+  app.sv.mods = ["spring"];
+  app.cur = row(app, "MODULES"); hold(app, 0.6); for (let i = 0; i < 12; i++) { app.draw(g); tap(app); }
   hold(app, 0.6); app.draw(g);
   for (let z = 0; z < ZONES.length; z++) { app.sv.far = z; app.draw(g); }
   app.phase = "fly"; for (let z = 0; z < ZONES.length; z++) { app.camX = ZONES[z].from * M - 300; app.draw(g); } // every zone's sky and silhouettes
@@ -292,10 +375,9 @@ test("the workshop buys a level with salvage, refuses without it, and saves", ()
   assert.equal(app.sv.up[0], 1, "bought without the salvage");
   assert.match(app.need, /NEED/);
   // pods are locked until enough feats
-  app.cur = 9; hold(app, 0.6);
-  assert.equal(app.sv.pod, 0);
+  assert.ok(!app.rows().includes("POD"));
   app.sv.ft = FEATS.slice(0, 4).map((f) => f.id);
-  hold(app, 0.6);
+  app.cur = row(app, "POD"); hold(app, 0.6);
   assert.equal(app.sv.pod, 1);
   app.cur = 0; hold(app, 0.6);
   assert.equal(app.phase, "aim");
@@ -323,7 +405,7 @@ test("the daily run has the same field and loadout for everyone on a date, and d
     const { ctx, app } = mount({ seed, progress: { schema: 2, up, pod: 0 } });
     app.dayKey = () => "2026-10-01";
     hold(app, 0.6);
-    app.cur = 10;
+    app.cur = row(app, "DAILY");
     hold(app, 0.6);
     assert.equal(app.phase, "aim");
     assert.ok(app.daily);
@@ -361,14 +443,14 @@ test("a good player meets each kind of daily goal on the daily loadout", () => {
     const { app } = mount({ seed: d });
     app.dayKey = () => "2026-10-0" + d;
     app.startRun(true);
-    playRun(app, { skill: 1, jitter: new Random(3) });
+    playRun(app, { skill: 1, aimPad: true, jitter: new Random(3) });
     for (const k in goals) most[k] = Math.max(most[k], goals[k](app));
   }
   // the hardest version of each goal
   assert.ok(most.metres >= 300, "metres " + most.metres);
   assert.ok(most.perfect >= 3, "perfect " + most.perfect);
   assert.ok(most.lifts >= 3, "lifts " + most.lifts);
-  assert.ok(most.scrap >= 13, "scrap " + most.scrap);
+  assert.ok(most.scrap >= 11, "scrap " + most.scrap);
 });
 // ---- saves -------------------------------------------------------------------------------------
 
@@ -509,9 +591,10 @@ test("a chain grows with pads and perfect skips, ends on a plain landing, and mu
 });
 
 test("modules are built, fitted and removed in the workshop, within the slots", () => {
-  const { ctx, app } = mount({ progress: { schema: 3, salvage: 5000 } });
+  const { ctx, app } = mount({ progress: { schema: 3, salvage: 5000, up: [2, 2, 2, 2, 2] } });
+  assert.ok(!mount({ progress: { schema: 3, salvage: 5000 } }).app.rows().includes("MODULES"), "modules wait for the systems");
   hold(app, 0.6);
-  app.cur = 6; hold(app, 0.6);
+  app.cur = row(app, "MODULES"); hold(app, 0.6);
   assert.equal(app.view, "mods");
   hold(app, 0.6); // build SPRING TUNING: fitted at once
   tap(app); hold(app, 0.6); // SCRAP SCANNER
@@ -567,11 +650,12 @@ test("the daily run fits no modules", () => {
 test("an overhaul needs every system at V and a second hold, then strips them for a faster mark", () => {
   const { ctx, app } = mount({ progress: { schema: 3, up: [5, 5, 5, 5, 4], salvage: 0 } });
   hold(app, 0.6);
-  app.cur = 8;
-  hold(app, 0.6);
+  assert.ok(!app.rows().includes("OVERHAUL"), "no overhaul line before every system is at V");
+  app.overhaul();
   assert.match(app.need, /EVERY SYSTEM/);
   app.sv.up[4] = 5;
   const v0 = loadout(app.sv.up, 0, [], 0).vmax;
+  app.cur = row(app, "OVERHAUL");
   hold(app, 0.6);
   assert.equal(app.sv.mark, 0, "one hold overhauled");
   hold(app, 0.6);
@@ -583,6 +667,6 @@ test("an overhaul needs every system at V and a second hold, then strips them fo
   assert.ok(Math.abs(loadout([5, 5, 5, 5, 5], 0, [], 1).vmax - v0 * (1 + MARK_SPEED)) < 1e-6);
   // stepping away cancels a pending overhaul
   const b = mount({ progress: { schema: 3, up: [5, 5, 5, 5, 5] } }).app;
-  hold(b, 0.6); b.cur = 8; hold(b, 0.6); tap(b); b.cur = 8; hold(b, 0.6);
+  hold(b, 0.6); b.cur = row(b, "OVERHAUL"); hold(b, 0.6); tap(b); b.cur = row(b, "OVERHAUL"); hold(b, 0.6);
   assert.equal(b.sv.mark, 0);
 });

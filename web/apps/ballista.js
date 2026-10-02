@@ -1,14 +1,17 @@
 // BALLISTA — a one-button launcher, played for distance. The barrel sweeps up and down by itself;
 // pressing fixes the angle, holding charges a meter that rises and falls, releasing fires a survey
-// pod across open ground. What it lands on decides the run: spring pads and mines throw it on,
-// boosters speed it up, drifts and nets slow it, sinkholes swallow it. In flight one button does
-// two jobs: a press while the pod is about to touch down is a skip (the later, the better: a
-// perfect skip keeps its speed), a press any other time fires a thruster, of which there are few.
+// pod across open ground. A strip under the aim shows the field ahead and where the shot will
+// first land. What it lands on decides the run: spring pads and mines throw it on, boosters speed
+// it up, drifts and nets slow it, sinkholes swallow it. In flight one button does two jobs: a press
+// while the pod is about to touch down is a skip (the later, the better: a perfect skip gains
+// speed, more along a chain), a press any other time fires a thruster, of which there are few. A
+// press a little early or just late is forgiven, never a wasted thruster.
 //
 // Around that: salvage from every run buys upgrades in the workshop (barrel, thrusters, hull,
-// fins, magnet), six zones farther out bring new things, pods are earned with feats, and a daily
-// run gives everyone the same field and loadout for the date. Versioned save (schema 2) that takes
-// over the first Ballista's record. The lamps are the pod's instruments.
+// fins, magnet), then modules and overhaul marks; seven zones farther out bring new things,
+// contracts set standing jobs, pods are earned with feats, and a daily run gives everyone the
+// same field and loadout for the date. Versioned save (schema 3) that takes over the first
+// Ballista's record. The lamps are the pod's instruments.
 import { C, text, line, circle, diamond, banner } from "../engine/draw.js";
 import { TAU, clamp, mixSeed, Random } from "../engine/math.js";
 import { LAMP, lamps, dim, blend, ramp, spot, pulse, blink, fill, meter, lightsOff } from "../engine/lightshow.js";
@@ -32,7 +35,14 @@ const HOLD_PICK = 0.5; // a press this long on a menu screen chooses instead of 
 export const SKIP_WIN = 0.3; // seconds before touchdown when a press is a skip, not a thrust
 export const SKIP_PERFECT = 0.11; // ... and within this, a perfect skip
 const SKIP_E_CAP = 0.76; // no skip returns more of the fall than this
-const BOUNCE_VY = 90; // touching down slower than this, the pod rolls
+// Forgiveness around the skip window, so a press near the ground never wastes a thruster: a press up
+// to EARLY_WIN before the window does nothing (press again), and one up to LATE_WIN after a plain
+// touchdown still turns it into a good skip. Human hands and the console's input lag both need it.
+export const EARLY_WIN = 0.25, LATE_WIN = 0.14;
+const PERFECT_E = 0.24, GOOD_E = 0.05; // what a skip adds to the hull's bounce
+const PERFECT_KEEP = 1.05, GOOD_KEEP = 0.88; // ... and how much speed it keeps: a perfect skip gains a little,
+const CHAIN_KEEP = 0.02, CHAIN_KEEP_MAX = 5; // ... and a little more for each link of a chain behind it
+export const BOUNCE_VY = 90; // touching down slower than this, the pod rolls
 const STOP_VX = 10;
 const VX_CAP = 1500, VY_CAP = 1100;
 const RUN_CAP = 180; // seconds: a run that has not ended by then ends
@@ -73,7 +83,7 @@ const MOTIFS = [[392, 494, 587], [440, 554, 659], [330, 392, 494], [294, 370, 44
 // Five systems, five levels each, paid for with salvage.
 export const UPGRADES = [
   { id: "barrel", name: "BARREL", text: "Faster launch.", cost: [20, 70, 180, 400, 800] },
-  { id: "thrust", name: "THRUSTERS", text: "One more thruster per run.", cost: [20, 60, 170, 380, 720] },
+  { id: "thrust", name: "THRUSTERS", text: "More thrusters (I, III, V), harder pushes (II, IV).", cost: [20, 60, 170, 380, 720] },
   { id: "hull", name: "HULL", text: "Livelier bounces, longer rolls.", cost: [15, 55, 160, 360, 680] },
   { id: "fins", name: "FINS", text: "Less air drag.", cost: [20, 70, 190, 400, 760] },
   { id: "magnet", name: "MAGNET", text: "Draws scrap from farther away.", cost: [10, 40, 100, 200, 380] },
@@ -105,21 +115,21 @@ export const MODULES = [
 ];
 const MOD_IDS = MODULES.map((m) => m.id);
 export const SLOTS = 2, SLOT3_FEATS = 12;
-const DAILY_UP = [2, 2, 2, 2, 2];
+const DAILY_UP = [3, 3, 3, 3, 3];
 // A pod's numbers from the upgrade levels and the pod chosen.
 export function loadout(up, podIx, mods = [], mark = 0) {
   const pod = PODS[podIx] || PODS[0], L = (i) => clamp(Math.floor(up[i] || 0), 0, UP_MAX);
   const has = (id) => mods.includes(id);
   return {
     g: G * (pod.g || 1),
-    vmax: (560 + 90 * L(0)) * (podIx === 2 ? 1.04 : 1) * (1 + MARK_SPEED * mark),
-    kicks: 1 + L(1),
-    e: 0.4 + 0.05 * L(2) + pod.e,
-    keep: 0.82 + 0.025 * L(2),
-    roll: 1 - 0.08 * L(2),
-    drag: 0.0003 * (1 - 0.13 * L(3)) * pod.drag,
+    vmax: (560 + 40 * L(0)) * (podIx === 2 ? 1.04 : 1) * (1 + MARK_SPEED * mark),
+    kicks: 1 + Math.ceil(L(1) / 2), // a thruster more at I, III and V; a harder push at II and IV
+    e: 0.4 + 0.025 * L(2) + pod.e,
+    keep: 0.82 + 0.016 * L(2),
+    roll: 1 - 0.06 * L(2),
+    drag: 0.0003 * (1 - 0.09 * L(3)) * pod.drag,
     magnet: 24 + 16 * L(4),
-    kick: pod.kick * (has("burner") ? 1.25 : 1),
+    kick: pod.kick * (has("burner") ? 1.25 : 1) * (1 + 0.1 * Math.floor(L(1) / 2)),
     perfect: SKIP_PERFECT * pod.perfect * (has("gyro") ? 1.4 : 1),
     pad: has("spring") ? 1.2 : 1,
     scrap: has("scanner") ? 4 : 2,
@@ -227,7 +237,7 @@ export function dailyGoal(key) {
   if (kind === 0) { const n = 200 + 25 * v; return { kind: "metres", n, text: "Fly " + n + " m." }; }
   if (kind === 1) { const n = 1 + (v % 3); return { kind: "perfect", n, text: "Make " + n + " perfect skip" + (n > 1 ? "s." : ".") }; }
   if (kind === 2) { const n = 1 + (v % 3); return { kind: "lifts", n, text: "Hit " + n + " pad" + (n > 1 ? "s, boosters or mines." : ", booster or mine.") }; }
-  const n = 5 + 2 * v; return { kind: "scrap", n, text: "Collect " + n + " scrap." };
+  const n = 3 + 2 * v; return { kind: "scrap", n, text: "Collect " + n + " scrap." };
 }
 
 // Bring any stored shape to schema 3: nothing (a first launch), schema 1 (the first Ballista, an
@@ -300,7 +310,10 @@ function sky(g, z) {
   return list[z];
 }
 
-const WORKSHOP = ["LAUNCH", "BARREL", "THRUSTERS", "HULL", "FINS", "MAGNET", "MODULES", "CONTRACTS", "OVERHAUL", "POD", "DAILY", "FEATS", "LOG"];
+// Every line the workshop can show. Lines that do nothing yet stay hidden (see rows()), so a new
+// save starts with nine; the five systems are always lines 1-5.
+const WORKSHOP = ["LAUNCH", "BARREL", "THRUSTERS", "HULL", "FINS", "MAGNET", "OVERHAUL", "MODULES", "POD", "CONTRACTS", "DAILY", "RECORDS"];
+const MODULES_AT = 10; // system levels bought before the modules line appears
 
 export class Ballista {
   constructor(ctx) {
@@ -354,6 +367,8 @@ export class Ballista {
     this.runT = 0;
     this.kicks = this.L.kicks;
     this.skip = null; // { grade, t } an armed skip
+    this.late = null; // { t, impact, vx } a plain touchdown a late press can still make a skip
+    this.early = 0; // seconds left of the "too early" cue
     this.features = [];
     this.nextX = 25 * M; // the first 25 m are clear
     this.lastPit = -1e9;
@@ -417,10 +432,10 @@ export class Ballista {
   range(a, b) { return a + (b - a) * this.rnd(); }
 
   // Places what lies ahead, a little beyond the right edge of the screen, and forgets what is behind.
-  spawnAhead() {
+  spawnAhead(ahead = 1400) {
     const p = this.p;
     let guard = 0;
-    while (this.nextX < p.x + 1400 && guard++ < 12 && this.features.length < MAX_FEATURES) {
+    while (this.nextX < p.x + ahead && guard++ < 40 && this.features.length < MAX_FEATURES) {
       const x = this.nextX, z = ZONES[zoneAt(x / M)];
       let kind = this.pick(z.kinds);
       if (kind === "pit" && x - this.lastPit < 700) kind = "drift";
@@ -555,7 +570,13 @@ export class Ballista {
   press() {
     const p = this.p;
     if (this.skip) return;
+    if (this.late && this.late.t <= LATE_WIN) { this.lateSkip(); return; }
     const tti = this.skipWindow();
+    if (tti < 0 && this.landIn() >= 0) { // a little early: nothing yet, press again
+      this.early = 0.5;
+      this.c.tone(560, 0.03, "sine");
+      return;
+    }
     if (tti >= 0) {
       const grade = tti <= this.L.perfect ? "perfect" : "good";
       this.skip = { grade, t: 0 };
@@ -581,18 +602,51 @@ export class Ballista {
   }
   // Seconds until touchdown when a press now would be a skip, or -1.
   skipWindow() {
+    const tti = this.landIn();
+    return tti >= 0 && tti <= SKIP_WIN ? tti : -1;
+  }
+  // Seconds until a skippable touchdown within the window or a little before it, or -1.
+  landIn() {
     const p = this.p;
     if (p.mode !== "air" || p.vy > -BOUNCE_VY * 1.3) return -1;
     const tti = timeToGround(p.y, p.vy, this.L.g);
-    return tti <= SKIP_WIN ? tti : -1;
+    return tti <= SKIP_WIN + EARLY_WIN ? tti : -1;
+  }
+  // A press just after a plain touchdown: redo that bounce as a good skip.
+  lateSkip() {
+    const p = this.p, L = this.L, late = this.late;
+    this.late = null;
+    p.vx = Math.max(p.vx, late.vx * Math.max(L.keep, GOOD_KEEP));
+    p.vy = Math.max(p.vy, late.impact * Math.min(SKIP_E_CAP, L.e + GOOD_E));
+    p.y = Math.max(p.y, 0.5);
+    p.mode = "air";
+    this.R.good++;
+    this.flash = 0.15; this.flashCol = "cyan";
+    this.c.tone(620, 0.07, "triangle");
+    this.notice = "LATE SKIP";
+    this.noticeT = 0.8;
   }
   startRun(daily) {
     this.daily = daily;
     this.resetRun();
     this.phase = "aim";
-    this.spawnAhead();
+    this.reach = this.carry(42, 1); // the farthest first landing, about: the aim screen shows the field to there
+    this.spawnAhead(Math.max(1400, this.reach + 400));
     this.setHint("AIM", "PRESS TO FIX THE ANGLE. HOLD TO CHARGE, RELEASE TO FIRE.");
     this.hudNow();
+  }
+  // Where a shot at this angle and power first lands (px), in still air.
+  carry(angle, power) {
+    const a = (angle * Math.PI) / 180, v = this.L.vmax * (0.3 + 0.7 * power), L = this.L;
+    let x = Math.cos(a) * BARREL, y = PIVOT_Y + Math.sin(a) * BARREL, vx = Math.cos(a) * v, vy = Math.sin(a) * v;
+    for (let i = 0; i < 1200 && (y > 0 || vy > 0); i++) {
+      const k = L.drag * Math.hypot(vx, vy);
+      vx = Math.max(0, vx - k * vx * STEP);
+      vy -= (L.g + k * vy) * STEP;
+      x += vx * STEP;
+      y += vy * STEP;
+    }
+    return x;
   }
   // A finished press on the title, result or workshop screen.
   menuPress(dur) {
@@ -608,11 +662,12 @@ export class Ballista {
       return;
     }
     if (this.view !== "menu") {
-      if (long || this.view === "log" || this.view === "contracts") { this.view = "menu"; this.page = 0; }
-      else this.page = (this.page + 1) % Math.ceil(FEATS.length / 6);
+      if (long || this.view === "contracts") { this.view = "menu"; this.page = 0; }
+      else this.page = (this.page + 1) % (Math.ceil(FEATS.length / 6) + 1); // the feats' pages, then the log
+
       return;
     }
-    if (!long) { this.cur = (this.cur + 1) % WORKSHOP.length; this.need = ""; this.confirm = false; this.c.tone(420, 0.02, "sine"); return; }
+    if (!long) { this.cur = (this.cur + 1) % this.rows().length; this.need = ""; this.confirm = false; this.c.tone(420, 0.02, "sine"); return; }
     this.shopChoose();
   }
   openShop() {
@@ -624,6 +679,15 @@ export class Ballista {
     this.setHint("SHOP", "TAP: NEXT LINE. HOLD: CHOOSE.");
     this.hudNow();
   }
+  // The workshop's lines for this save: the overhaul once it can be done, modules once the systems
+  // are well along (or one is built), the pod once there is a second to choose.
+  rows() {
+    const sv = this.sv, levels = sv.up.reduce((a, b) => a + b, 0);
+    return WORKSHOP.filter((id) =>
+      id === "OVERHAUL" ? levels >= UP_MAX * UPGRADES.length && sv.mark < MARK_MAX
+        : id === "MODULES" ? levels >= MODULES_AT || sv.mods.length > 0 || sv.mark > 0
+          : id === "POD" ? this.unlockedPod(1) : true);
+  }
   // The first system whose next level can be bought now, or -1.
   affordable() {
     for (let i = 0; i < UPGRADES.length; i++) {
@@ -633,11 +697,10 @@ export class Ballista {
     return -1;
   }
   shopChoose() {
-    const row = WORKSHOP[this.cur], sv = this.sv;
+    const row = this.rows()[this.cur], sv = this.sv;
     if (row === "LAUNCH") { this.startRun(false); return; }
     if (row === "DAILY") { this.startRun(true); return; }
-    if (row === "FEATS") { this.view = "feats"; this.page = 0; return; }
-    if (row === "LOG") { this.view = "log"; return; }
+    if (row === "RECORDS") { this.view = "feats"; this.page = 0; return; }
     if (row === "CONTRACTS") { this.view = "contracts"; return; }
     if (row === "MODULES") { this.view = "mods"; this.mcur = 0; this.need = ""; return; }
     if (row === "OVERHAUL") { this.overhaul(); return; }
@@ -672,6 +735,7 @@ export class Ballista {
     this.confirm = false;
     sv.mark++;
     sv.up = sv.up.map(() => 0);
+    this.cur = 0; // the overhaul line is gone until the systems are full again
     this.need = "MARK " + roman(sv.mark + 1) + ". LAUNCH +" + Math.round(100 * MARK_SPEED * sv.mark) + "%, SALVAGE +" + Math.round(100 * MARK_SALVAGE * sv.mark) + "%.";
     [392, 523, 659, 784].forEach((hz, i) => this.note(0.1 * i, hz, 0.18, "triangle"));
     this.checkFeats();
@@ -743,6 +807,8 @@ export class Ballista {
     if (this.kickT > 0) this.kickT -= step;
     if (this.chainT > 0) this.chainT -= step;
     if (this.skip) { this.skip.t += step; if (this.skip.t > 0.5) this.skip = null; }
+    if (this.late && (this.late.t += step) > LATE_WIN) this.late = null;
+    if (this.early > 0) this.early -= step;
     if (p.mode === "air") {
       const v = Math.hypot(p.vx, p.vy), k = L.drag * v;
       let ax = -k * p.vx, ay = -L.g - k * p.vy;
@@ -819,9 +885,11 @@ export class Ballista {
   touchdown() {
     const p = this.p, L = this.L, f = this.groundAt(p.x), skip = this.skip;
     this.skip = null;
+    this.late = null;
+    this.early = 0;
     p.y = 0;
     this.kiteRun = 0;
-    const impact = -p.vy;
+    const impact = -p.vy, vx0 = p.vx;
     if (f && f.k === "pit") {
       if (skip) { this.R.pitskip++; this.bounce(impact, Math.min(SKIP_E_CAP, L.e + 0.2), 0.95, skip.grade); return; }
       if (this.shell > 0) {
@@ -837,14 +905,16 @@ export class Ballista {
       return;
     }
     if (f && this.lift(f, impact)) return;
+    if (!skip && impact >= BOUNCE_VY * 1.3) this.late = { t: 0, impact, vx: vx0 };
     if (impact < BOUNCE_VY && !skip) { p.vy = 0; p.mode = "roll"; this.unlink(); return; }
     let e = L.e, keep = L.keep;
     const drift = f && f.k === "drift" && !L.skids;
     if (drift) { e *= 0.35; keep *= 0.6; }
     if (f && f.k === "ice") { e *= 1.08; keep = 1; }
-    if (skip) { // a skip keeps more of both: a perfect one nearly all the speed
-      e = Math.min(SKIP_E_CAP, L.e + (skip.grade === "perfect" ? 0.22 : 0.1));
-      keep = Math.max(keep, skip.grade === "perfect" ? 0.98 : 0.92);
+    if (skip) { // a skip keeps more of both: a perfect one gains speed, more along a chain
+      const perfect = skip.grade === "perfect";
+      e = Math.min(SKIP_E_CAP, L.e + (perfect ? PERFECT_E : GOOD_E));
+      keep = perfect ? PERFECT_KEEP + CHAIN_KEEP * Math.min(this.chain, CHAIN_KEEP_MAX) : Math.max(keep, GOOD_KEEP);
     }
     this.bounce(impact, e, keep, skip ? skip.grade : "");
     if (!skip) this.unlink();
@@ -897,6 +967,7 @@ export class Ballista {
       this.shake = 0.35;
     } else return false;
     f.hit = this.t;
+    this.late = null;
     this.R.lifts++;
     this.link();
     if (f.k !== "mine") this.shake = Math.max(this.shake, 0.1);
@@ -1504,6 +1575,7 @@ export class Ballista {
       g.beginPath(); g.ellipse(lx, this.sy(0), 10 + 90 * tti, 4 + 20 * tti, 0, 0, TAU);
       g.strokeStyle = perfect ? C.ink : C.cyan; g.lineWidth = perfect ? 4 : 2; g.stroke();
     }
+    if (this.early > 0 && this.phase === "fly") text(g, "EARLY", x, y - 26, 16, C.muted, "center");
     if (this.phase === "over" && this.reason === "pit") return;
     if (p.mode === "air" && y > -20 && y < 560) { // its shadow on the ground
       const gy = this.sy(0), k = clamp(1 - p.y / 500, 0.15, 1);
@@ -1567,6 +1639,7 @@ export class Ballista {
       g.globalAlpha = 1;
     }
     if (this.phase === "aim") {
+      this.drawAhead(g);
       if (this.mods.length) text(g, "FITTED: " + this.mods.map((id) => MODULES.find((m) => m.id === id).name).join(" / "), 480, 118, 16, C.muted, "center");
       if (this.sv.runs < 2 && !this.charging) {
         g.fillStyle = "#0c1511e8";
@@ -1575,6 +1648,33 @@ export class Ballista {
         text(g, "RELEASE TO FIRE", 480, 260, 22, C.muted, "center");
       }
     }
+  }
+  // The field ahead, as a strip under the ground, with where this shot will first land: aim for a pad.
+  drawAhead(g) {
+    const x0 = 60, x1 = 900, y = 522, span = Math.max(600, this.reach * 1.15);
+    const X = (px) => x0 + ((x1 - x0) * px) / span;
+    g.fillStyle = "#050a07cc";
+    g.fillRect(x0 - 8, y - 14, x1 - x0 + 16, 28);
+    line(g, x0, y, x1, y, C.line, 2);
+    for (const f of this.features) {
+      if (f.x > span) break;
+      const a = X(f.x), w = Math.max(3, X(f.x + f.w) - a);
+      if (f.k === "pad") { g.fillStyle = C.cyan; g.fillRect(a, y - 7, w, 7); }
+      else if (f.k === "boost") { g.fillStyle = C.amber; g.fillRect(a, y - 5, w, 5); }
+      else if (f.k === "mine") circle(g, a + 2, y - 4, 4, C.red, true);
+      else if (f.k === "pit") { g.fillStyle = C.red; g.fillRect(a, y - 1, w, 9); }
+      else if (f.k === "drift") { g.fillStyle = "#6b5a3a"; g.fillRect(a, y - 2, w, 5); }
+      else if (f.k === "ice") { g.fillStyle = "#8fcbc566"; g.fillRect(a, y - 2, w, 5); }
+      else if (f.k === "net") line(g, a, y - 11, a, y, C.muted, 2);
+    }
+    // where it lands: at full power while aiming, at the meter's power while charging
+    const lx = X(this.carry(this.angle, this.charging ? this.power : 1));
+    if (lx <= x1 + 4) {
+      g.beginPath(); g.moveTo(lx, y - 3); g.lineTo(lx - 7, y - 15); g.lineTo(lx + 7, y - 15); g.closePath();
+      if (this.charging) { g.fillStyle = C.ink; g.fill(); } else { g.strokeStyle = C.muted; g.lineWidth = 2; g.stroke(); }
+    }
+    text(g, "AHEAD", x0 - 10, y - 24, 14, C.muted);
+    text(g, Math.round(span / M) + " m", x1 + 10, y - 24, 14, C.muted, "right");
   }
   drawTitle(g) {
     banner(g, "BALLISTA", "FIRE THE POD AS FAR AS IT WILL GO");
@@ -1619,7 +1719,8 @@ export class Ballista {
     text(g, "SALVAGE " + this.sv.salvage, 790, 62, 22, C.ink, "right");
     const sv = this.sv, n = sv.ft.length;
     if (this.view === "menu") {
-      WORKSHOP.forEach((id, i) => {
+      const rows = this.rows();
+      rows.forEach((id, i) => {
         const y = 100 + i * 26, on = i === this.cur;
         let label = id, value = "";
         if (i >= 1 && i <= UPGRADES.length) {
@@ -1634,13 +1735,12 @@ export class Ballista {
         else if (id === "OVERHAUL") value = "MARK " + roman(sv.mark + 1) + (sv.up.every((L) => L >= UP_MAX) && sv.mark < MARK_MAX ? "  READY" : "");
         else if (id === "POD") value = PODS[sv.pod].name;
         else if (id === "DAILY") value = this.dailyDone() ? "DONE TODAY" : "BEST " + (sv.dl.d === this.dayKey() ? sv.dl.best : 0) + " m";
-        else if (id === "FEATS") value = n + " / " + FEATS.length;
-        else if (id === "LOG") value = "ZONE " + ZONES[sv.far].roman + " / " + ZONES[ZONES.length - 1].roman;
+        else if (id === "RECORDS") value = "FEATS " + n + " / " + FEATS.length + "   ZONE " + ZONES[sv.far].roman;
         if (on) diamond(g, 150, y, 8, C.amber, true);
         text(g, label, 176, y, 20, on ? C.amber : C.ink);
         text(g, value, 810, y, 18, on ? C.amber : id === "OVERHAUL" && value.endsWith("READY") ? C.cyan : C.muted, "right");
       });
-      const id = WORKSHOP[this.cur];
+      const id = rows[this.cur];
       let info = "";
       if (this.need) info = this.need;
       else if (id === "LAUNCH") info = "Fire a pod with this loadout.";
@@ -1650,8 +1750,7 @@ export class Ballista {
       else if (id === "OVERHAUL") info = "With every system at V: strip them for a new mark. Launch +" + Math.round(MARK_SPEED * 100) + "%, salvage +" + Math.round(MARK_SALVAGE * 100) + "% a mark.";
       else if (id === "POD") { const next = PODS.find((x, i) => i > 0 && !this.unlockedPod(i)); info = PODS[sv.pod].text + (next ? "  NEXT: " + next.name + " AT " + next.need + " FEATS" : ""); }
       else if (id === "DAILY") info = "Same field and kit for everyone today. " + dailyGoal(this.dayKey()).text + (sv.dl.streak > 1 ? "  STREAK " + sv.dl.streak : "");
-      else if (id === "FEATS") info = "Named goals, " + FEAT_BOUNTY + " salvage each. Some are not listed.";
-      else info = "Zones reached and lifetime totals.";
+      else info = "Feats (" + FEAT_BOUNTY + " salvage each), then zones and lifetime totals.";
       text(g, info, 480, 456, 16, this.need ? C.cyan : C.muted, "center");
       text(g, "TAP = NEXT LINE     HOLD = CHOOSE", 480, 492, 18, C.cyan, "center");
     } else if (this.view === "mods") {
@@ -1677,8 +1776,8 @@ export class Ballista {
       });
       text(g, "COMPLETED " + sv.cdone + "     A NEW JOB REPLACES EACH ONE DONE OR WITHDRAWN", 480, 400, 16, C.muted, "center");
       text(g, "PRESS = BACK", 480, 490, 18, C.cyan, "center");
-    } else if (this.view === "feats") {
-      const per = 6, pages = Math.ceil(FEATS.length / per);
+    } else if (this.view === "feats" && this.page < Math.ceil(FEATS.length / 6)) {
+      const per = 6, pages = Math.ceil(FEATS.length / per) + 1;
       text(g, "FEATS  " + n + " / " + FEATS.length + "     PAGE " + (this.page + 1) + " / " + pages, 480, 104, 20, C.cyan, "center");
       FEATS.slice(this.page * per, this.page * per + per).forEach((f, i) => {
         const y = 144 + i * 52, done = sv.ft.includes(f.id);
@@ -1700,7 +1799,7 @@ export class Ballista {
       text(g, "BEST CHAIN " + sv.chain + "   CONTRACTS " + sv.cdone + "   MODULES " + sv.mods.length + " / " + MODULES.length + "   MARK " + roman(sv.mark + 1), 480, y + 26, 16, C.muted, "center");
       text(g, PODS.map((p, i) => p.name + " " + sv.pb[i] + " m").join("   "), 480, y + 52, 16, C.muted, "center");
       if (sv.legacy) text(g, "FIRST RANGE: " + sv.legacy.runs + " SURVEYS, LAST SCORE " + sv.legacy.score, 480, y + 78, 16, C.line, "center");
-      text(g, "TAP = BACK", 480, 490, 18, C.cyan, "center");
+      text(g, "TAP = FEATS     HOLD = BACK", 480, 490, 18, C.cyan, "center");
     }
   }
   dailyDone() { return this.sv.dl.d === this.dayKey() && this.sv.dl.done === 1; }

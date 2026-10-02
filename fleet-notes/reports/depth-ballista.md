@@ -23,3 +23,15 @@
 - Bot: systems full after about 30 runs, all modules about 50, then a mark every 25-30 runs.
 - Dashboard best in old units needs a service change (reported to the coordinator; vesper/ untouched).
 - Tests: 33 in tests/ballista.test.mjs; full suite 829 JS pass, 1 fail (the same Perihelion bot test that fails on main); Python, catalog, demo and the four browser suites pass. Not verified on the device.
+
+## Round 3: fixes from the platform review (2026-10-02)
+
+The review scored Ballista 6.5: "luck outweighs skill", a press near touchdown spends a thruster, pads can't be seen before launch, the workshop has 13 lines, and upgrades raise the score more than skill does.
+
+- Forgiveness: a press up to 0.25 s before the skip window does nothing (an EARLY cue; press again), and a press up to 0.14 s after a plain touchdown still turns it into a good skip (LATE SKIP). A press near the ground never spends a thruster.
+- Skips carry the skill: a perfect skip now gains speed (x1.05, plus 0.02 for each chain link up to 5); a good skip keeps x0.88.
+- Upgrades are weaker: barrel +40 a level (was +90), hull bounce +0.025 (was +0.05), fins drag -9% (was -13%), and thrusters add one at I, III and V and push harder at II and IV (at most 4, was 6). The daily loadout is now level III. Daily scrap goals are 3-11.
+- The aim screen shows the field ahead as a strip under the ground, out to the farthest first landing, with a marker for where this shot will first land (at full power while aiming, at the meter's power while charging).
+- Workshop: lines that do nothing yet are hidden (overhaul until every system is at V, modules until 10 levels or one is built, pod until a second is earned); feats and log are one RECORDS line. A new save starts with 9 lines, 12 at most.
+- Bot: it now reads the arc ahead, aims each skip with a spread that grows as skill falls and presses 0.2 s late like a hand. Skill 1 against skill 0.2 at the same levels: 1.6x farther at level II and V (was about 1.25x). Level 0 to level V: about 6x (was about 8x). Upgrades still matter most, but the gap from skill is now visible.
+- Tests: 36 in tests/ballista.test.mjs; full suite 832 JS pass, 1 fail (the Perihelion bot test that also fails on main); Python, catalog, demo and the four browser suites pass. Not verified on the device.

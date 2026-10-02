@@ -86,3 +86,10 @@ The long integrated run was started while final review continued. The final held
 - The sky: six constellations of eight stars in the observatory (SKY row), lit across runs, a star per stage cleared and one per two sequences. New feat STARGAZER (a whole constellation). Save schema 2; a schema 1 save starts with a star per stage reached (`migrateSave`, tested).
 - Visuals: the call pops in, sockets flash the grade and ripple, a combo ring fills toward the next multiplier, a stage progress bar, the travel arc between the sockets, lit stars behind the title and result screens.
 - Bot (6 seeds, 10 min cap): 30 and 50 ms timing error reach cycles 12 to 14; 80 ms reaches cycles 2 to 6 in four to six minutes. Not verified on the device.
+
+## 2026-10-02 — Meridian after the platform review (desktop, not verified on the device)
+
+- Latency: a tap is judged at its arrival minus 35 ms of lamp lag (the console writes the lamps at most every 60 ms and waits for an acknowledgement) and minus the console-wide calibration `settings.latencyMs` once Settings offers it (clamped to -150..300 ms, 0 when absent). A lapse waits for the same delay, and an end lamp's lapse now waits for its wider window too.
+- The lamp shows a red swing exactly when the screen calls one (it used to go red on swings that never reached the called lamp). The called-lamp marker is brighter (0.16 to 0.24, breathing) so it reads on the real lamps.
+- In the simulator, where there are no lamps, the three sockets show the lamps at full size.
+- Bot (6 seeds, taps on the visible light): 80 ms timing error now reaches cycles 5 to 8.

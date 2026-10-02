@@ -28,6 +28,11 @@ const SHIELDS = 3;
 export const PRACTICE = 4; // the first gates of a run cost nothing
 const REGEN = 15; // gates in a row without a penalty restore a shield
 const LEAD = 0.55; // a newly called lamp is not judged on a pass sooner than this
+// Delay between the game clock and what the player can act on. The console writes the lamps at most
+// every 60 ms and waits for each write to be acknowledged, so the visible light trails the game clock
+// by about this much; the console-wide input calibration (settings.latencyMs, positive when taps
+// register late) adds the rest. A tap is judged at its arrival minus both.
+export const LAMP_LAG = 0.035;
 const SPRINT_S = 60;
 // Stages: hits needed to clear (half as many in a sprint), half-swing duration at the start and end of the stage, and the
 // rules that switch on. From the sixth stage on the game cycles with everything on, faster each time,
@@ -157,7 +162,8 @@ export function gateTime(sw, p) {
   const mid = (sw.x0 + sw.x1) / 2, k = (p - mid) / (sw.x0 - mid);
   return sw.t0 + (sw.D * Math.acos(clamp(k, -1, 1))) / Math.PI;
 }
-// The lamp row on screen: three still lamps; the called one is marked. The light is not drawn.
+// The lamp row on screen: three still lamps; the called one is marked. The light is not drawn on a
+// console with a node; in the simulator, where there are no lamps, the sockets show them.
 const LX = [330, 480, 630], LY = 372;
 
 export class Meridian {
@@ -382,16 +388,19 @@ export class Meridian {
     this.lamps.clear();
   }
 
-  // A press in play: judged against the nearest gate still open.
+  // How far the player's view and taps trail the game clock, in seconds.
+  lag() { return LAMP_LAG + clamp(num(this.c.settings?.()?.latencyMs), -150, 300) / 1000; }
+  // A press in play: judged against the nearest gate still open, at the moment the player meant it.
   strike() {
-    const g = this.nearestGate(), k = this.spec().win * (g?.end ? END_WIN : 1);
-    const err = g ? Math.abs(this.rt - g.t) : Infinity;
+    const at = this.rt - this.lag();
+    const g = this.nearestGate(at), k = this.spec().win * (g?.end ? END_WIN : 1);
+    const err = g ? Math.abs(at - g.t) : Infinity;
     if (!g || err > WIN[2] * k) {
       // Just after a swing that lapsed: the same miss, already paid for.
       if (this.rt - this.lapseAt < 0.35) { this.fb = { word: "LATE", pts: 0, col: C.red, t: 0.7 }; return; }
       // Too far from any pass of the called lamp. The coming gate is spent too, so one mistake costs one shield.
       const next = this.sw.gate;
-      const spent = next && !next.done && next.t - this.rt < 0.45;
+      const spent = next && !next.done && next.t - at < 0.45;
       if (spent) next.done = true;
       this.penalty("WIDE", next?.practice ?? this.gates <= PRACTICE);
       if (spent && this.phase === "play") this.call();
@@ -399,19 +408,19 @@ export class Meridian {
     }
     g.done = true;
     if (g.kind === "red") { this.penalty("BURNED", g.practice); return; }
-    this.hit(g, err <= WIN[0] * k ? 0 : err <= WIN[1] * k ? 1 : 2);
+    this.hit(g, err <= WIN[0] * k ? 0 : err <= WIN[1] * k ? 1 : 2, at);
   }
-  nearestGate() {
+  nearestGate(at = this.rt) {
     let best = null;
     for (const g of [this.prev, this.sw.gate]) {
       if (!g || g.done) continue;
-      if (!best || Math.abs(this.rt - g.t) < Math.abs(this.rt - best.t)) best = g;
+      if (!best || Math.abs(at - g.t) < Math.abs(at - best.t)) best = g;
     }
     return best;
   }
-  hit(g, grade) {
+  hit(g, grade, at = this.rt) {
     const sp = this.spec();
-    const ms = Math.round((this.rt - g.t) * 1000);
+    const ms = Math.round((at - g.t) * 1000);
     this.offs.push(ms);
     if (this.offs.length > 12) this.offs.shift();
     this.R.offSum += ms; this.R.offN++;
@@ -600,9 +609,9 @@ export class Meridian {
     this.rt += dt;
     if (this.mode === "sprint") { this.clock -= dt; if (this.clock <= 0) { this.clock = 0; this.finish(); return; } }
     for (let i = 0; i < 4 && this.rt >= this.sw.t0 + this.sw.D; i++) this.nextSwing();
-    const late = WIN[2] * this.spec().win;
+    const late = WIN[2] * this.spec().win, lag = this.lag();
     for (const g of [this.prev, this.sw.gate]) {
-      if (!g || g.done || this.rt <= g.t + late) continue;
+      if (!g || g.done || this.rt <= g.t + late * (g.end ? END_WIN : 1) + lag) continue;
       g.done = true;
       if (g.kind === "red") this.held();
       else { this.penalty("LAPSE", g.practice); this.lapseAt = this.rt; if (this.phase === "play") this.call(); }
@@ -632,9 +641,10 @@ export class Meridian {
       if (this.newRecord) return lamps(null, dim(LAMP.amber, 0.08 + 0.12 * pulse(this.t, 0.5)), null);
       return spot(x / 2, dim(col, 0.06));
     }
-    // A faint cyan mark on the called lamp; the swinging light is red on a red swing.
-    const red = this.sw.red && this.gates > PRACTICE;
-    let out = only(this.target, LAMP.cyan, 0.08);
+    // A cyan mark on the called lamp, breathing so it reads as a marker and not as the light; the
+    // swinging light is red exactly when the screen says the swing must pass.
+    const g = this.sw.gate, red = !!g && g.kind === "red";
+    let out = only(this.target, LAMP.cyan, 0.16 + 0.08 * pulse(this.t, 1.5));
     if (!this.hidden(x)) out = lampMax(out, spot(x / 2, dim(red ? LAMP.red : col, 0.55)));
     return out;
   }
@@ -657,7 +667,7 @@ export class Meridian {
     g.globalAlpha = 1;
   }
   // The call, large, and the three lamps as still sockets with the called one marked. The swinging
-  // light is deliberately not drawn: it is on the lamps. A new call scales in; a sequence shows all
+  // light is not drawn when a node is attached: it is on the lamps. A new call scales in; a sequence shows all
   // its lamps with the one to catch now in full colour.
   drawLamps(g) {
     const gate = this.sw.gate, red = gate && gate.kind === "red" && !gate.done;
@@ -681,9 +691,16 @@ export class Meridian {
     }
     // A faint arc the light travels, and the sockets on it.
     g.strokeStyle = C.line; g.lineWidth = 2; g.beginPath(); g.moveTo(LX[0], LY); g.quadraticCurveTo(480, LY + 44, LX[2], LY); g.stroke();
+    const sim = !!this.c.simulated?.();
     for (let i = 0; i < 3; i++) {
       const on = i === this.target, f = this.sock[i] / 0.5, y = i === 1 ? LY + 22 : LY;
       g.fillStyle = C.bg; g.beginPath(); g.arc(LX[i], y, 30, 0, Math.PI * 2); g.fill();
+      // With no node attached the lamps exist only on screen: the sockets show them, at full size.
+      if (sim) {
+        const v = this.lampOut, k = 255 / Math.max(1, v[i * 3], v[i * 3 + 1], v[i * 3 + 2]);
+        const lvl = Math.max(v[i * 3], v[i * 3 + 1], v[i * 3 + 2]) / 255;
+        if (lvl > 0.02) { g.globalAlpha = Math.min(1, lvl * 1.6); circle(g, LX[i], y, 28, "rgb(" + Math.round(v[i * 3] * k) + "," + Math.round(v[i * 3 + 1] * k) + "," + Math.round(v[i * 3 + 2] * k) + ")", true); g.globalAlpha = 1; }
+      }
       if (f > 0) {
         g.globalAlpha = f * 0.8; circle(g, LX[i], y, 30, this.sockCol[i], true);
         g.globalAlpha = f; circle(g, LX[i], y, 30 + (1 - f) * 34, this.sockCol[i], false, 3);

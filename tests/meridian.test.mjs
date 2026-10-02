@@ -1,7 +1,7 @@
 // MERIDIAN: the swing, the called lamp, the judging, the stages, the observatory, the save, the lamps.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Meridian, migrateSave, swingX, gateTime, stageSpec, dailyGoal, starsEarned, skyPlace, WIN, PRACTICE, SIDE, STARS_PER, SKY_SIZE } from "../web/apps/meridian.js";
+import { Meridian, migrateSave, swingX, gateTime, stageSpec, dailyGoal, starsEarned, skyPlace, WIN, PRACTICE, SIDE, STARS_PER, SKY_SIZE, LAMP_LAG } from "../web/apps/meridian.js";
 import { appContext, fakeCanvas, run } from "./helpers/app-context.mjs";
 import { Random } from "../web/engine/math.js";
 
@@ -21,7 +21,7 @@ function bot(app, seed, sd, seconds, g) {
     const gate = open(app);
     if (gate && gate.kind === "normal") {
       if (target !== gate) { target = gate; off = (r.next() + r.next() + r.next() - 1.5) * sd * 2; }
-      if (app.rt + 1 / 120 >= gate.t + off) tap(app);
+      if (app.rt + 1 / 120 >= gate.t + off + app.lag()) tap(app);
     }
     app.update(1 / 60);
     if (g && i % 7 === 0) app.draw(g);
@@ -100,7 +100,7 @@ test("a strike is graded by its timing error; a late tap after a lapse is not ch
   tap(app);
   app.gates = PRACTICE + 1; // past practice
   const g = app.sw.gate;
-  run(app, g.t - app.rt + WIN[0] / 2 - 1 / 120);
+  run(app, g.t + app.lag() - app.rt + WIN[0] / 2 - 1 / 120);
   tap(app);
   assert.equal(app.fb.word, "PERFECT");
   assert.equal(app.combo, 1);
@@ -109,11 +109,63 @@ test("a strike is graded by its timing error; a late tap after a lapse is not ch
   while (!open(app)) app.update(1 / 60);
   const gate = open(app);
   gate.practice = false;
-  run(app, gate.t + WIN[2] * 1.35 - app.rt + 0.05);
+  run(app, gate.t + WIN[2] * 1.35 + app.lag() - app.rt + 0.02);
   assert.equal(app.shields, 2);
   tap(app);
   assert.equal(app.fb.word, "LATE");
   assert.equal(app.shields, 2);
+});
+
+test("latency: a tap is judged at its arrival minus the lamp lag and the console's calibration", () => {
+  const judge = (latencyMs, after) => {
+    const { app } = mount({ settings: { latencyMs } });
+    tap(app);
+    app.gates = PRACTICE + 1;
+    const g = app.sw.gate;
+    run(app, g.t + after - app.rt - 1 / 120);
+    tap(app);
+    return [app.fb.word, app.fb.ms];
+  };
+  assert.equal(LAMP_LAG, 0.035);
+  // 115 ms after the gate on the game clock: the lamp lag alone leaves 80 ms (GOOD on the middle lamp,
+  // PERFECT on an end lamp's wider window); a calibration of 80 ms makes it exact.
+  const [, raw] = judge(0, 0.115);
+  assert.ok(raw >= 70 && raw <= 85, "lamp lag taken off: " + raw);
+  const [word, ms] = judge(80, 0.115);
+  assert.equal(word, "PERFECT");
+  assert.ok(Math.abs(ms) <= 8, "calibrated: " + ms);
+  // Nonsense settings are clamped, never NaN.
+  const { app } = mount({ settings: { latencyMs: "x" } });
+  assert.equal(app.lag(), LAMP_LAG);
+  assert.equal(mount({ settings: { latencyMs: 5000 } }).app.lag(), LAMP_LAG + 0.3);
+  // A late, calibrated tap is not lapsed before it arrives.
+  const b = mount({ settings: { latencyMs: 120 } }).app;
+  tap(b); b.gates = PRACTICE + 1;
+  const g = b.sw.gate;
+  run(b, g.t + 0.1 - b.rt);
+  assert.ok(!g.done, "the gate is still open 100 ms after on a 120 ms console");
+});
+
+test("the lamps show red exactly when the screen calls a red swing, and the called lamp is marked clearly", () => {
+  const { app } = mount();
+  tap(app);
+  app.stage = 2; app.gates = 99;
+  let reds = 0;
+  for (let i = 0; i < 2400; i++) {
+    app.shields = 3;
+    app.update(1 / 60);
+    if (app.sw.gate?.kind === "red") reds++;
+    const g = app.sw.gate, v = app.lampOut;
+    const red = !!g && g.kind === "red";
+    const reddish = [0, 1, 2].some((k) => v[k * 3] > 60 && v[k * 3 + 1] < v[k * 3] / 3 && v[k * 3 + 2] < v[k * 3] / 3);
+    if (reddish && app.phase === "play" && !app.lamps.fx) assert.ok(red, "red lamp without a red call at frame " + i);
+  }
+  assert.ok(reds > 100, "red swings came up: " + reds);
+  const { app: b } = mount();
+  tap(b);
+  run(b, 0.05);
+  const m = b.lampOut.slice(b.target * 3, b.target * 3 + 3);
+  assert.ok(Math.max(...m) >= 30, "the marker is visible: " + m);
 });
 
 test("a red swing must pass: tapping it burns a shield, letting it go scores", () => {

@@ -49,7 +49,7 @@ Official peripheral documentation: [I²S](https://docs.espressif.com/projects/es
 
 ## The second node (board 2, 2026-10-02)
 
-Sam built a second node on the same ESP32-S3 N16R8 board type (MAC dc:da:0c:14:8f:c0): four RGB lamps, two INMP441 microphones (left and right) and the same arcade switch. It has no SHT3x; GPIO13 and GPIO14 carry the fourth lamp. The firmware is the same source built with `scripts/build-firmware.sh 2` (`NODE_BOARD=2` in `firmware/main/hardware.h`), and STATUS reports `board`, `lamps` and `mics` so the Pi knows which node it has. This table is Sam's wiring table; the colour order within each lamp has not yet been checked one output at a time, as it was on the first node.
+Sam built a second node on the same ESP32-S3 N16R8 board type (MAC dc:da:0c:14:8f:c0): four RGB lamps, two INMP441 microphones (left and right) and the same arcade switch. It has no SHT3x; GPIO13 and GPIO14 carry the fourth lamp. The firmware is the same source built with `scripts/build-firmware.sh 2` (`NODE_BOARD=2` in `firmware/main/hardware.h`), and STATUS reports `board`, `lamps` and `mics` so the Pi knows which node it has. This table is Sam's wiring table. Lighting one output at a time on 2026-10-02 showed red, blue, green on every lamp, so the firmware exchanges green and blue on all four (`NODE_LEDS` in `hardware.h`); the table below is the wiring as given, not the colour each pin carries.
 
 | Component | Signal | ESP32-S3 GPIO |
 | --- | --- | --- |

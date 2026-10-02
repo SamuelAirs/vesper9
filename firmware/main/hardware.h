@@ -41,7 +41,9 @@ static const int NODE_LEDS[9] = {15, 7, 16, 18, 17, 8, 11, 9, 10};
 #define NODE_I2S2_BCLK 47
 #define NODE_I2S2_WS 45
 #define NODE_I2S2_DIN 21
-static const int NODE_LEDS[12] = {7, 15, 16, 17, 18, 8, 9, 10, 11, 13, 14, 3};
+// Sam watched one output at a time on 2026-10-02: every lamp went red, blue, green against the
+// wiring table's red, green, blue, so green and blue are exchanged on all four.
+static const int NODE_LEDS[12] = {7, 16, 15, 17, 8, 18, 9, 11, 10, 13, 3, 14};
 #else
 #error "NODE_BOARD must be 1 or 2"
 #endif

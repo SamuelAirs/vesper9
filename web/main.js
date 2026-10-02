@@ -672,7 +672,7 @@ export class Vesper {
       },
       ...(this.app ? [{ label: "RESTART / " + this.meta.name, run: () => this.launch(this.meta.id) }, ...(this.app.menuActions?.() || []),
         ...(this.state.progress?.[this.meta.id]?.runs ? [{ label: 'FIELD RECORD / ' + this.state.progress[this.meta.id].runs + ' ENTRIES', run: () => this.fieldRecord() }] : [])] : []),
-      { label: "DASHBOARD", run: () => this.home() },
+      ...(this.app ? [{ label: "DASHBOARD", run: () => this.home() }] : []),
       { label: "MICROPHONE / " + mic.toUpperCase(), run: () => this.micMenu() },
       {
         label: this.meta ? "HOW TO PLAY / CONTROLS" : "HOW TO USE VESPER",

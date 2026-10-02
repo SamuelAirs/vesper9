@@ -326,7 +326,7 @@ test("lamp level applies to plain values and pattern colours, not to the reactio
   await d.flush();
   assert.equal(calls.at(-1)[1].values.join(), "100,50,0,0,0,0,1,0,128");
   d.setScale(0.2); // a changed level re-applies to what the app last asked for
-  assert.equal(d.desired.join(), "40,20,0,0,0,0,1,0,51");
+  assert.equal(d.desired.join(), "40,20,0,0,0,0,1,0,51,0,0,0", "kept as four lamps, the fourth dark");
   await d.effect("pattern", { repeat: 2, steps: [{ ms: 100, values: [255, 255, 255, 0, 0, 0, 10, 0, 0] }, { ms: 50, values: Array(9).fill(0) }] });
   const sent = calls.at(-1)[1];
   assert.equal(sent.repeat, 2);

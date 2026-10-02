@@ -346,7 +346,7 @@ test('late light ACK cannot overwrite a new generation cache or final output', a
   });
   l.set(Array(9).fill(80));const pending=l.flush();await Promise.resolve();await Promise.resolve();
   const release=l.release();resolve();await pending;await release;
-  assert.deepEqual(physical,Array(9).fill(0));assert.equal(l.sent,Array(9).fill(0).join(','));
+  assert.deepEqual(physical,Array(9).fill(0));assert.equal(l.sent,Array(12).fill(0).join(','));
 });
 test('Morse migrates history and saves each accepted learning outcome before exit', () => {
   const c=context();let saved;c.progress=()=>({index:0,correct:7,attempts:10});c.saveProgress=v=>{saved=structuredClone(v);};

@@ -168,15 +168,16 @@ test("F3 link trouble is retried, a rejection is not", async () => {
 });
 
 test("F3 ctx.leds values are rounded and clamped; malformed arrays are ignored", () => {
-  assert.deepEqual(normalizeLeds([0.5, 1.4, 254.6, 300, -20, 255, 0, 12, 99.99]), [1, 1, 255, 255, 0, 255, 0, 12, 100]);
+  // Nine values (three lamps) come back as twelve, the fourth lamp dark.
+  assert.deepEqual(normalizeLeds([0.5, 1.4, 254.6, 300, -20, 255, 0, 12, 99.99]), [1, 1, 255, 255, 0, 255, 0, 12, 100, 0, 0, 0]);
   for (const bad of [null, undefined, "x", [1, 2, 3], Array(10).fill(0), [NaN, 0, 0, 0, 0, 0, 0, 0, 0], ["1", 0, 0, 0, 0, 0, 0, 0, 0], [Infinity, 0, 0, 0, 0, 0, 0, 0, 0]])
     assert.equal(normalizeLeds(bad), null, JSON.stringify(bad));
   const l = new LightDirector(async () => {}, () => 0);
   l.set(Array(9).fill(9));
   l.set([1, 2, 3]);
-  assert.deepEqual(l.desired, Array(9).fill(9), "malformed input leaves the desired lamps alone");
+  assert.deepEqual(l.desired, [...Array(9).fill(9), 0, 0, 0], "malformed input leaves the desired lamps alone");
   l.set([0.5, 400, 0, 0, 0, 0, 0, 0, 0]);
-  assert.deepEqual(l.desired, [1, 255, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(l.desired, [1, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 });
 
 // F4 ---------------------------------------------------------------------------------------

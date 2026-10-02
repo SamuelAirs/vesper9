@@ -1267,7 +1267,9 @@ export class Vesper {
           this.ambientStep = step;
           ambient(this.ag, reduced ? 0 : now / 1000, 450, 300);
         }
-      } else if (!this.app.navigation && !this.faulted) {
+      } else if (!this.app.navigation && !this.faulted && !this.menu) {
+        // Behind the system menu the game is frozen: no update (paused) and no redraw, so the
+        // last frame stays and the menu's blurred backdrop is not recomposited every frame.
         if (!this.paused) {
           this.accumulator += dt;
           let steps = 0;

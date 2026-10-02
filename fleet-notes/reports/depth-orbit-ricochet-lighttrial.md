@@ -72,3 +72,19 @@ Shared pieces live in a new `web/apps/goals.js` (only these three games import i
 - Verification: JS 863 pass, 1 fail (the same Perihelion bot test as on main); Python OK; catalog
   check, demo build and all four browser suites pass. Screenshots of the Orbit result panel, a
   Ricochet chamber and the Light Trial title looked at. Not verified on the device.
+
+## Round 4 (the console logbook, PR #16)
+- Per the cut list in /mnt/project-files/platform-polish/platform-polish.md: each game's own daily
+  streak, feat ticker and feat-based rank are gone. Feats go to the logbook with `ctx.feat` (Orbit at
+  the recorded end of a run, through its GestureGuard; Ricochet and Light Trial at once, held by
+  AppGuard during a possible menu gesture). On the days the logbook picks one of these games, it
+  states its own order with `ctx.daily` and calls `ctx.dailyMet` when met; other days there is no order.
+- Kept: Orbit's Rush and Eclipse (skill-opened, they play differently), Ricochet's per-run upgrades,
+  Light Trial's rank from the best series median (a skill rating, not a feat count) and its log.
+- Saves move to schema 3 and drop `dl`, `st.daily` and the daily/streak feat ids, with tests that
+  load schema 1 and schema 2 saves. `tests/helpers/logbook-stub.mjs` stands in for the host's calls.
+- Without #16 the games still run (every logbook call is optional), but no order or feat is shown
+  anywhere, so PR #5 should merge after #16.
+- Verification: on this branch JS 862 pass, 1 fail (Perihelion bot, as on main), Python OK, catalog
+  check, demo build and all four browser suites pass. Merged with #16 in a scratch tree: JS 880 pass,
+  same 1 fail; the three titles screenshotted with no page errors. Not verified on the device.

@@ -1,10 +1,11 @@
-// Light Trial depth: series of five, ranks from the best series, feats, the day's series and its
-// streak, and the schema 2 save (a first-release save loads intact). The core rule is unchanged:
+// Light Trial depth: series of five, ranks from the best series, feats and today's order sent to the
+// console's logbook, and the schema 3 save (first-release and schema 2 saves load intact). The core rule is unchanged:
 // the host writes no light while a trial is armed or its cue is showing.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { LightTrial, migrateTrial, trialRank, TRIAL_FEATS, SERIES, LOG_SIZE, TOO_SLOW } from "../web/apps/reaction.js";
 import { makeCtx, step, DT } from "./audit/harness.mjs";
+import { withLogbook } from "./helpers/logbook-stub.mjs";
 
 // One trial on the simulator clock with a reaction of `ms`; returns the app.
 function trial(g, ms, { source = "simulator", delay } = {}) {
@@ -24,7 +25,7 @@ const textOf = (g) => {
 };
 
 test("five trials make a series, judged by its median; the next press starts a new one", () => {
-  const c = makeCtx(1, { progress: {} }), g = new LightTrial(c);
+  const c = withLogbook(makeCtx(1, { progress: {} })), g = new LightTrial(c);
   for (const ms of [240, 260, 500, 230, 250]) { assert.equal(g.done, null); trial(g, ms); }
   assert.ok(g.done, "the series did not finish");
   assert.equal(g.done.median, 250);
@@ -35,7 +36,7 @@ test("five trials make a series, judged by its median; the next press starts a n
   assert.equal(g.sv.bs.simulator, 250);
   const words = textOf(g).map((x) => x.s).join(" | ");
   assert.match(words, /SERIES MEDIAN 250 ms/);
-  assert.match(words, /FIRST SERIES|NEW FEAT/);
+  assert.deepEqual(c.book.feats.map(([id]) => id), ["t250", "series", "m300", "clean"], "the feats did not reach the logbook");
   trial(g, 300);
   assert.equal(g.done, null);
   assert.equal(g.series.length, 1);
@@ -100,28 +101,31 @@ test("UNMOVED: under 300 ms after one of the longest waits only", () => {
   for (let i = 0; i < 200; i++) { g.down({}); assert.ok(g.delay >= 1300 && g.delay <= 4200); g.abort(); }
 });
 
-test("the day's series: the first finished series meets it, the streak follows consecutive days", () => {
-  const c = makeCtx(8, { progress: { schema: 2, dl: { d: "2026-09-30", done: 1, streak: 2, last: "2026-09-30", best: 260 } } });
-  const g = new LightTrial(c); g.dayKey = () => "2026-10-01";
-  for (let i = 0; i < SERIES; i++) trial(g, 300);
+test("today's order: on a day the logbook picks Light Trial, the first finished series meets it", () => {
+  const c = withLogbook(makeCtx(8)), g = new LightTrial(c);
+  assert.equal(c.book.goal, "Finish a series of five.");
+  assert.match(textOf(g).map((x) => x.s).join(" | "), /TODAY: Finish a series of five/);
+  for (let i = 0; i < SERIES - 1; i++) trial(g, 300);
+  assert.equal(c.book.met, 0);
+  trial(g, 300);
   assert.equal(g.done.daily, true);
-  assert.equal(g.sv.dl.streak, 3);
-  assert.equal(g.sv.dl.best, 300);
-  assert.ok(g.sv.ft.includes("streak"));
+  assert.equal(c.book.met, 1);
+  assert.match(textOf(g).map((x) => x.s).join(" | "), /TODAY'S ORDER MET/);
   for (let i = 0; i < SERIES; i++) trial(g, 280);
   assert.equal(g.done.daily, false, "the same day counted twice");
-  assert.equal(g.sv.dl.best, 280);
-  assert.equal(g.sv.dl.streak, 3);
-  // A gap restarts the streak.
-  const h = new LightTrial(makeCtx(9, { progress: c.log.saves.at(-1) })); h.dayKey = () => "2026-10-05";
+  assert.equal(c.book.met, 1);
+  // Not picked today: no order, nothing met, nothing on the title.
+  const off = withLogbook(makeCtx(9), { picked: false }), h = new LightTrial(off);
+  assert.doesNotMatch(textOf(h).map((x) => x.s).join(" | "), /TODAY/);
   for (let i = 0; i < SERIES; i++) trial(h, 300);
-  assert.equal(h.sv.dl.streak, 1);
+  assert.equal(h.done.daily, false);
+  assert.equal(off.book.met, 0);
 });
 
-test("every valid trial is saved once, as schema 2, keeping the first release's fields", () => {
+test("every valid trial is saved once, as schema 3, keeping the first release's fields", () => {
   const old = { schema: 1, runs: 40, last: { metric: "physical", milliseconds: 231, summary: { count: 10, median: 240, best: 199, mean: 245 }, milestone: 10 }, milestone: 10 };
   const sv = migrateTrial(old);
-  assert.equal(sv.schema, 2);
+  assert.equal(sv.schema, 3);
   assert.equal(sv.runs, 40); assert.equal(sv.milestone, 10);
   assert.deepEqual(sv.last, old.last);
   assert.equal(sv.st.trials, 40, "trials before the series existed are counted from the old run count");
@@ -136,11 +140,17 @@ test("every valid trial is saved once, as schema 2, keeping the first release's 
   assert.equal(c.log.saves.length, 1, "a false start wrote a save");
   for (const junk of [null, 5, "x", [], { runs: -1, bs: { physical: "fast" }, ft: ["t200", "t200", "zzz"], dl: { best: NaN } }]) {
     const m = migrateTrial(junk);
-    assert.equal(m.schema, 2);
-    assert.ok(m.runs >= 0 && m.bs.physical >= 0 && m.dl.best >= 0);
+    assert.equal(m.schema, 3);
+    assert.ok(m.runs >= 0 && m.bs.physical >= 0);
+    assert.equal(m.dl, undefined);
     assert.deepEqual(m.ft, junk?.ft ? ["t200"] : []);
   }
   assert.ok(JSON.stringify(save).length < 2048);
+  // Schema 2 kept its own streak and a streak feat; the logbook has them now, so they go.
+  const two = migrateTrial({ schema: 2, runs: 30, ft: ["series", "streak"], st: { series: 4, trials: 30 }, bs: { physical: 260 }, dl: { d: "2026-10-01", done: 1, streak: 3, best: 270 }, log: [{ d: "2026-10-01", m: 270, k: "physical" }] });
+  assert.deepEqual(two.ft, ["series"]);
+  assert.equal(two.dl, undefined);
+  assert.deepEqual([two.runs, two.st.series, two.bs.physical, two.log.length], [30, 4, 260, 1]);
 });
 
 test("lamps: dark while armed and on the cue; a finished series runs its grade across the lamps, then dark", () => {
@@ -163,11 +173,12 @@ test("lamps: dark while armed and on the cue; a finished series runs its grade a
   assert.ok(c.ledsNow.every((v) => v === 0), "lamps lit after the series");
 });
 
-test("title: rank, best series, today's series and a feat; all text at least 16 px in every phase", () => {
-  const c = makeCtx(12), g = new LightTrial(c);
+test("title: rank, best series, today's order and no feat list or streak; all text at least 16 px in every phase", () => {
+  const c = withLogbook(makeCtx(12)), g = new LightTrial(c);
   let words = textOf(g);
   assert.match(words.map((x) => x.s).join(" | "), /RANK UNRANKED.*NO SERIES YET/);
-  assert.match(words.map((x) => x.s).join(" | "), /TODAY: FINISH A SERIES/);
+  assert.match(words.map((x) => x.s).join(" | "), /TODAY: Finish a series/);
+  assert.doesNotMatch(words.map((x) => x.s).join(" | "), /FEATS|STREAK/);
   assert.ok(words.every((x) => x.size >= 16));
   for (let i = 0; i < SERIES; i++) trial(g, 240);
   words = textOf(g);
@@ -191,7 +202,7 @@ test("training log: every finished series is kept (the last twenty), shown on th
   g.phase = "title"; g.t = 1;
   assert.match(textOf(g).map((x) => x.s).join(" | "), /LAST 20 SERIES/);
   g.t = 10;
-  assert.doesNotMatch(textOf(g).map((x) => x.s).join(" | "), /LAST 20 SERIES/, "the feats never get a turn");
+  assert.match(textOf(g).map((x) => x.s).join(" | "), /LAST 20 SERIES/, "the log no longer takes turns with a feat list");
 });
 
 test("while armed the screen shows the series to beat, and the lamps stay dark", () => {

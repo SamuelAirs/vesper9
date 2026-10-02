@@ -16,13 +16,14 @@
 // Within a run: after each chamber from the second, a choice of two upgrades (tap switches, hold
 // takes; lamp I or III shows which is highlighted, so it can be chosen by the lamps alone).
 // Between runs: charge cells from chamber 4 (breaking one breaks its eight neighbours, and a
-// charge can set off another), seventeen feats (two hidden), a daily order with a streak, and a
-// rank from feats, in a versioned save (schema 2) that keeps the first release's fields.
+// charge can set off another), sixteen feats (two hidden) sent to the console's logbook, and an
+// order of its own on the days the logbook picks Ricochet, in a versioned save (schema 3) that keeps
+// the first release's fields.
 import { clamp } from "../engine/math.js";
 import { C, text, line, circle, diamond, space, banner } from "../engine/draw.js";
 import { LAMP, lamps, spot, ramp, dim, pulse, chase, lightsOff } from "../engine/lightshow.js";
 import { AppGuard } from "../engine/input.js";
-import { num, hashText, dateKey, cleanDaily, meetDaily, dailyDone, liveStreak, cleanFeats, newlyMet, closestFeat, rankOf, nextRank, drawFeatTicker, panel } from "./goals.js";
+import { num, hashText, dateKey, cleanFeats, newlyMet, todayOrder, panel, drawToday } from "./goals.js";
 
 // Chamber geometry in the 960 x 540 logical space.
 const L = 120, R = 840, TOP = 40; // side walls and ceiling
@@ -70,7 +71,8 @@ export const PICK_TIME = 8;   // left alone, the highlighted upgrade is taken af
 const THEMES = [["#223b29", "#1d3323", "#d6efa4"], ["#1d3638", "#18302f", "#8fcbc5"], ["#2b2640", "#241f37", "#b7a6e8"],
   ["#3a2a1e", "#32241a", "#e7b879"], ["#203327", "#1a2b21", "#a8e0b0"], ["#35202a", "#2d1b23", "#eb947a"]];
 
-// ---- feats, ranks and the daily order --------------------------------------------------------
+// ---- feats and today's order ---------------------------------------------------------------
+// Feats go to the console's logbook (ctx.feat); the save only remembers which were sent.
 const life = (a, key) => (a.sv.st[key] || 0) + (a.R[key] || 0);
 export const RICOCHET_FEATS = [
   { id: "practice", name: "QUICK STUDY", text: "Clear chamber 1 without losing a ball.", n: 1, prog: (a) => a.R.practice },
@@ -86,15 +88,12 @@ export const RICOCHET_FEATS = [
   { id: "s5k", name: "FIVE THOUSAND", text: "Score 5000 in one run.", n: 5000, prog: (a) => a.score },
   { id: "s10k", name: "TEN THOUSAND", text: "Score 10000 in one run.", n: 10000, prog: (a) => a.score },
   { id: "cells", name: "WRECKER", text: "Break 1000 cells in all.", n: 1000, prog: (a) => life(a, "cells") },
-  { id: "daily", name: "ON ORDERS", text: "Meet a daily order.", n: 1, prog: (a) => life(a, "daily") },
-  { id: "streak", name: "ROUTINE", text: "Meet the daily order 3 days running.", n: 3, prog: (a) => a.sv.dl.streak },
   { id: "fitted", name: "OUTFITTED", text: "Take 5 upgrades in one run.", n: 5, prog: (a) => a.R.picks },
   { id: "few", name: "FEW RETURNS", text: "Clear a chamber in 6 paddle touches or fewer.", hint: "Some chambers fall to a handful of returns.", n: 1, hidden: true, prog: (a) => a.R.few },
   { id: "lastball", name: "LAST LIGHT", text: "Clear a chamber on the last ball.", hint: "The last ball can still finish the job.", n: 1, hidden: true, prog: (a) => a.R.lastBall },
 ];
 const FEAT_IDS = RICOCHET_FEATS.map((f) => f.id);
-export const RICOCHET_RANKS = [[0, "APPRENTICE"], [2, "BREAKER"], [5, "MASON"], [8, "SAPPER"], [11, "DEMOLISHER"], [14, "ARCHITECT"], [18, "LATTICE LORD"]];
-// Today's order, the same for everyone on the same date.
+// Ricochet's own order for a date, stated to the logbook on the days it picks Ricochet.
 export function ricochetOrder(key) {
   const h = hashText("ricochet" + key), kind = h % 5, v = (h >>> 8) % 3;
   if (kind === 0) return { kind: "chamber", n: 3 + v, text: "Reach chamber " + (3 + v) + "." };
@@ -103,19 +102,19 @@ export function ricochetOrder(key) {
   if (kind === 3) return { kind: "cells", n: 60 + 30 * v, text: "Break " + (60 + 30 * v) + " cells in one run." };
   return { kind: "sweep", n: 1, text: "Clear a chamber after the first without losing a ball." };
 }
-// Bring any stored shape (nothing, schema 1 from recordRun, schema 2) to schema 2.
+// Bring any stored shape (nothing, schema 1 from recordRun, schema 2 with its own daily streak and
+// ranks) to schema 3. The streak and the daily feats now live in the console's logbook, so they go.
 export function migrateRicochet(raw) {
   const r = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
   const st = r.st && typeof r.st === "object" ? r.st : {};
   const n = (v) => Math.max(0, Math.floor(num(v)));
   return {
-    schema: 2,
+    schema: 3,
     runs: n(r.runs),
     last: r.last && typeof r.last === "object" ? r.last : {},
     milestone: n(r.milestone),
     ft: cleanFeats(r.ft, FEAT_IDS),
-    st: { cells: n(st.cells), chambers: n(st.chambers), daily: n(st.daily), far: Math.max(n(st.far), n(r.milestone)) },
-    dl: cleanDaily(r.dl),
+    st: { cells: n(st.cells), chambers: n(st.chambers), far: Math.max(n(st.far), n(r.milestone)) },
   };
 }
 
@@ -193,15 +192,17 @@ export class Ricochet {
     this.blastCol = 1;
     this.blasts = [];
     for (const p of this.parts) p.life = 0;
-    // This run's tallies, for feats and the daily order.
+    // This run's tallies, for feats and today's order.
     this.mods = Object.fromEntries(UPGRADES.map((u) => [u.id, 0]));
     this.offer = null;      // the two upgrades on offer: { ids, cur, t }
     this.chainKept = false; // STEADY CHAIN: the chain has already survived a touch since the last break
     this.servedCharge = false;
     this.shake = 0;
-    this.R = { picks: 0, practice: 0, bonuses: 0, twin: 0, sweep: 0, blast: 0, relay: 0, few: 0, lastBall: 0, cells: 0, daily: 0, lostHere: 0, touchesHere: 0 };
+    this.R = { picks: 0, practice: 0, bonuses: 0, twin: 0, sweep: 0, blast: 0, relay: 0, few: 0, lastBall: 0, cells: 0, lostHere: 0, touchesHere: 0 };
     this.fresh = [];
     this.orderMet = false;
+    // Today's order, only on the days the logbook picks Ricochet and while it is not yet met.
+    this.order = todayOrder(this.ctx, ricochetOrder(this.dayKey()));
     this.news = null;
   }
   dayKey() { return dateKey(); }
@@ -362,7 +363,7 @@ export class Ricochet {
   pause() { this.guard.settle(); this.cancel(); }
   dispose() {
     this.guard.settle();
-    // Leaving for good mid-run: a daily order met or a feat earned on the way is kept.
+    // Leaving for good mid-run: today's order met or a feat earned on the way is kept.
     if (this.phase === "play" && (this.orderMet || this.fresh.length)) this.persist();
     this.pressing = false;
     this.ctx.synth?.stopTone?.();
@@ -796,10 +797,11 @@ export class Ricochet {
     this.setHint("Chamber cleared.");
     this.checkGoals();
   }
-  // The daily order and feats, checked whenever a tally moves. News shows under the clear banner or
-  // in the announcement slot.
+  // Today's order and feats, checked whenever a tally moves. News shows under the clear banner or
+  // in the announcement slot. Both reach the logbook at once (AppGuard holds them while a menu
+  // gesture is still possible, and drops them if it rewinds).
   orderDone() {
-    const o = ricochetOrder(this.dayKey());
+    const o = this.order;
     if (o.kind === "chamber") return this.chamber >= o.n;
     if (o.kind === "chain") return this.bestChain >= o.n;
     if (o.kind === "bonuses") return this.R.bonuses >= o.n;
@@ -808,17 +810,17 @@ export class Ricochet {
   }
   checkGoals() {
     if (this.phase !== "play") return;
-    if (!this.orderMet && this.orderDone()) {
+    if (this.order && !this.orderMet && this.orderDone()) {
       this.orderMet = true;
-      if (meetDaily(this.sv.dl, this.dayKey())) {
-        this.R.daily = 1;
-        this.tell("DAILY ORDER MET" + (this.sv.dl.streak > 1 ? " / STREAK " + this.sv.dl.streak : ""));
-        this.ctx.tone(784, 0.1, "sine"); this.ctx.tone(1047, 0.18, "sine");
-      }
+      this.ctx.dailyMet?.();
+      this.tell("TODAY'S ORDER MET");
+      this.ctx.tone(784, 0.1, "sine"); this.ctx.tone(1047, 0.18, "sine");
     }
     for (const id of newlyMet(RICOCHET_FEATS, this.sv.ft, this)) {
+      const name = RICOCHET_FEATS.find((f) => f.id === id).name;
       this.sv.ft.push(id); this.fresh.push(id);
-      this.tell("FEAT: " + RICOCHET_FEATS.find((f) => f.id === id).name);
+      this.ctx.feat?.(id, name);
+      this.tell("FEAT: " + name);
     }
   }
   tell(message) {
@@ -833,9 +835,9 @@ export class Ricochet {
     this.ctx.score(this.score);
     const sv = this.sv, R = this.R;
     sv.runs++;
-    sv.st.cells += R.cells; sv.st.chambers += this.chamber - 1; sv.st.daily += R.daily;
+    sv.st.cells += R.cells; sv.st.chambers += this.chamber - 1;
     sv.st.far = Math.max(sv.st.far, this.chamber);
-    R.cells = 0; R.daily = 0; // now in the lifetime tallies
+    R.cells = 0; // now in the lifetime tallies
     sv.last = { score: this.score, chamber: this.chamber, cells: this.cellsBroken, chain: this.bestChain, milestone: this.chamber };
     sv.milestone = Math.max(sv.milestone, this.chamber);
     this.persist();
@@ -1113,22 +1115,18 @@ export class Ricochet {
     text(g, "RECORD " + this.ctx.best(), 480, 378, 18, C.amber, "center");
     if (this.t - this.endedAt > 0.8) text(g, "PRESS TO PLAY AGAIN", 480, 406, 18, C.amber, "center");
     const lines = [];
-    if (this.orderMet) lines.push(["DAILY ORDER MET" + (this.sv.dl.streak > 1 ? " / STREAK " + this.sv.dl.streak : ""), C.cyan]);
-    else lines.push(["TODAY: " + ricochetOrder(this.dayKey()).text, C.muted]);
-    for (const id of this.fresh.slice(0, 2)) lines.push(["NEW FEAT: " + RICOCHET_FEATS.find((f) => f.id === id).name, C.amber]);
-    if (this.fresh.length > 2) lines.push(["AND " + (this.fresh.length - 2) + " MORE FEATS", C.amber]);
-    const close = closestFeat(RICOCHET_FEATS, this.sv.ft, this);
-    if (close && lines.length < 3) lines.push([close, C.muted]);
+    if (this.orderMet) lines.push(["TODAY'S ORDER MET", C.cyan]);
+    else if (this.order) lines.push(["TODAY: " + this.order.text, C.muted]);
+    if (this.sv.st.far > 1) lines.push(["FURTHEST CHAMBER " + this.sv.st.far, C.muted]);
     panel(g, 430, 442 + lines.length * 28);
     lines.forEach(([s, col], i) => text(g, s, 480, 450 + i * 28, 18, col, "center"));
   }
-  // Rank, today's order and one feat at a time (title screen).
+  // Best run, furthest chamber and today's order (title screen).
   drawGoals(g, y) {
-    const sv = this.sv, n = sv.ft.length, key = this.dayKey(), next = nextRank(RICOCHET_RANKS, n), streak = liveStreak(sv.dl, key);
-    panel(g, y - 20, y + 112);
-    text(g, "RANK " + rankOf(RICOCHET_RANKS, n) + "   FEATS " + n + " / " + RICOCHET_FEATS.length + (next ? "   NEXT RANK AT " + next[0] : ""), 480, y, 18, C.ink, "center");
-    text(g, (dailyDone(sv.dl, key) ? "TODAY'S ORDER MET" : "TODAY: " + ricochetOrder(key).text) + (streak > 1 ? "   STREAK " + streak : ""), 480, y + 28, 18, dailyDone(sv.dl, key) ? C.cyan : C.amber, "center");
-    drawFeatTicker(g, RICOCHET_FEATS, sv.ft, this.t, y + 60);
+    const sv = this.sv, today = !!this.order || !!this.ctx.today?.()?.done;
+    panel(g, y - 20, y + (today ? 44 : 16));
+    text(g, "RECORD " + (this.ctx.best?.() ?? 0) + "   FURTHEST CHAMBER " + Math.max(1, sv.st.far) + (sv.runs ? "   RUNS " + sv.runs : ""), 480, y, 18, C.ink, "center");
+    drawToday(g, this.ctx, this.order, y + 28);
   }
 }
 

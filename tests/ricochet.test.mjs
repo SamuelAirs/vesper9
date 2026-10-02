@@ -4,6 +4,7 @@ import { Ricochet, RICOCHET_FEATS, CHARGE_FROM, migrateRicochet, ricochetOrder, 
 import { appContext, fakeCanvas, run } from "./helpers/app-context.mjs";
 import { makeRig } from "./audit/harness.mjs";
 import { gestureWithUpdates } from "./audit/bots.mjs";
+import { withLogbook } from "./helpers/logbook-stub.mjs";
 
 const G = Ricochet.GEOM;
 const lampsOk = (ctx) => ctx.calls.leds.every((v) => v.length === 9 && v.every((x) => Number.isInteger(x) && x >= 0 && x <= 255));
@@ -669,42 +670,52 @@ test("feats for clearing chambers: practice, clean sweep, few returns, twin sign
   assert.match(words, /FEAT: /);
 });
 
-test("the daily order is met mid-run and the run is saved once as schema 2, keeping the first release's fields", () => {
+test("today's order is met mid-run on a day the logbook picks Ricochet; the run is saved once as schema 3", () => {
   const key = dayFor("chamber"), o = ricochetOrder(key);
-  const ctx = appContext({ seed: 24, progress: { schema: 1, runs: 12, last: { score: 2000, chamber: 5, cells: 100, chain: 6, milestone: 5 }, milestone: 7 } });
-  const app = new Ricochet(ctx); app.dayKey = () => key;
+  const ctx = withLogbook(appContext({ seed: 24, progress: { schema: 1, runs: 12, last: { score: 2000, chamber: 5, cells: 100, chain: 6, milestone: 5 }, milestone: 7 } }));
+  const app = new Ricochet(ctx); app.dayKey = () => key; app.reset();
+  assert.equal(ctx.book.goal, o.text, "the order was not stated to the logbook");
   assert.equal(app.sv.runs, 12); assert.equal(app.sv.st.far, 7);
   app.down(); run(app, 1.4);
   while (app.chamber < o.n) { app.cells.fill(0); app.remaining = 1; app.cells[0] = cell(); app.damage(0); run(app, 0.1); run(app, 3); }
   assert.equal(app.orderMet, true);
-  assert.equal(app.sv.dl.d, key);
+  assert.equal(ctx.book.met, 1);
+  assert.ok(ctx.book.feats.length >= 1, "no feat reached the logbook");
   assert.equal(ctx.calls.saved.length, 0);
   app.lives = 0; app.end();
   run(app, 3);
   assert.equal(ctx.calls.saved.length, 1);
   const save = ctx.calls.saved[0];
-  assert.equal(save.schema, 2);
+  assert.equal(save.schema, 3);
   assert.equal(save.runs, 13);
   assert.equal(save.milestone, 7);
   assert.deepEqual(Object.keys(save.last).sort(), ["cells", "chain", "chamber", "milestone", "score"]);
-  assert.equal(save.dl.done, 1); assert.equal(save.st.daily, 1);
-  assert.ok(save.ft.includes("daily"));
+  assert.equal(save.dl, undefined);
   assert.ok(save.st.cells >= o.n - 1);
   assert.ok(JSON.stringify(save).length < 2048);
-  // The next construction reads it back.
-  const again = new Ricochet(appContext({ progress: save }));
+  // The next construction reads it back, and the order, once met, is gone.
+  const again = new Ricochet(withLogbook(appContext({ progress: save }), { done: true }));
   assert.deepEqual(again.sv, migrateRicochet(save));
-  assert.ok(textOf(again).some((x) => /RANK /.test(x.s)));
+  assert.equal(again.order, null);
+  assert.ok(textOf(again).some((x) => /TODAY'S ORDER MET/.test(x.s)));
+  // Not picked today: no order at all.
+  const off = new Ricochet(withLogbook(appContext({}), { picked: false }));
+  assert.equal(off.order, null);
+  assert.ok(!textOf(off).some((x) => /TODAY/.test(x.s)));
 });
 
-test("migration copes with nothing, junk and repeated or unknown feats", () => {
+test("migration copes with nothing, junk, repeated or unknown feats, and drops schema 2's own streak", () => {
   for (const junk of [null, undefined, 7, "x", [], { runs: -3, ft: ["ch5", "ch5", "bogus"], st: { cells: "many" }, dl: { d: 9, streak: -2 } }]) {
     const m = migrateRicochet(junk);
-    assert.equal(m.schema, 2);
-    assert.ok(m.runs >= 0 && m.st.cells >= 0 && m.dl.streak >= 0);
+    assert.equal(m.schema, 3);
+    assert.ok(m.runs >= 0 && m.st.cells >= 0);
     assert.ok(m.ft.every((id) => RICOCHET_FEATS.some((f) => f.id === id)));
     assert.equal(new Set(m.ft).size, m.ft.length);
   }
+  const two = migrateRicochet({ schema: 2, runs: 4, ft: ["ch5", "daily", "streak"], st: { cells: 400, chambers: 20, daily: 2, far: 9 }, dl: { d: "2026-10-01", done: 1, streak: 2 } });
+  assert.deepEqual(two.ft, ["ch5"]);
+  assert.equal(two.dl, undefined);
+  assert.deepEqual(two.st, { cells: 400, chambers: 20, far: 9 });
 });
 
 test("leaving mid-run keeps a feat earned on the way; the menu gesture takes it back", () => {
@@ -717,16 +728,17 @@ test("leaving mid-run keeps a feat earned on the way; the menu gesture takes it 
   assert.ok(ctx.calls.saved[0].ft.includes("ch5"));
 });
 
-test("title and result: rank, today's order, a feat at a time; all text at least 16 px", () => {
-  const { app } = fresh(26);
+test("title and result: the record, today's order and no rank, feat list or streak; all text at least 16 px", () => {
+  const app = new Ricochet(withLogbook(appContext({ seed: 26 })));
   app.update(1 / 60);
   let painted = textOf(app);
-  assert.ok(painted.some((x) => /RANK APPRENTICE/.test(x.s)));
+  assert.ok(painted.some((x) => /RECORD 0/.test(x.s)));
   assert.ok(painted.some((x) => /TODAY: /.test(x.s)));
+  assert.ok(!painted.some((x) => /RANK|FEATS|STREAK/.test(x.s)));
   assert.ok(painted.every((x) => x.size >= 16));
   app.down(); run(app, 1.4); app.lives = 0; app.end();
   painted = textOf(app);
-  assert.ok(painted.some((x) => /TODAY: |DAILY ORDER MET/.test(x.s)));
+  assert.ok(painted.some((x) => /TODAY: |TODAY'S ORDER MET/.test(x.s)));
   assert.ok(painted.every((x) => x.size >= 16));
 });
 

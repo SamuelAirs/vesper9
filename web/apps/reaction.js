@@ -2,7 +2,7 @@ import { C, text, circle, space, grid, banner } from "../engine/draw.js";
 import { AppGuard } from "../engine/input.js";
 import { LAMP, fill, only } from "../engine/lightshow.js";
 import { LampBus } from "./game-kit.js";
-import { num, dateKey, cleanDaily, meetDaily, dailyDone, liveStreak, cleanFeats, newlyMet, drawFeatTicker } from "./goals.js";
+import { num, dateKey, cleanFeats, newlyMet, todayOrder, drawToday } from "./goals.js";
 
 export function reactionSummary(values) {
   if (!values.length) return { count: 0, median: null, best: null, mean: null };
@@ -23,7 +23,8 @@ export function reactionGrade(ms) {
 // ---- series, ranks and feats --------------------------------------------------------------------
 // Trials come in series of five on one clock. A series is judged by its median, so one slip does not
 // spoil it; the best series median on the most trustworthy clock sets the rank. False starts do not
-// count as trials but are remembered for the series. The daily part is simply: finish a series today.
+// count as trials but are remembered for the series. Feats go to the console's logbook (ctx.feat); on
+// the days the logbook picks Light Trial, its order is simply: finish a series.
 export const SERIES = 5;
 export const TRIAL_RANKS = [[Infinity, "NOVICE"], [450, "TRAINEE"], [380, "OBSERVER"], [320, "SPOTTER"], [280, "WATCHKEEPER"], [250, "SENTINEL"], [225, "VANGUARD"], [200, "QUICKSILVER"]];
 // The rank for a best series median (0 = no series yet).
@@ -47,12 +48,13 @@ export const TRIAL_FEATS = [
   { id: "m250", name: "KEEN", text: "A series median under 250 ms.", n: 1, prog: (a) => a.sv.st.m250 || 0 },
   { id: "steady", name: "STEADY HAND", text: "A series whose five trials lie within 60 ms.", n: 1, prog: (a) => a.sv.st.steady || 0 },
   { id: "clean", name: "COMPOSED", text: "A series without a false start.", n: 1, prog: (a) => a.sv.st.clean || 0 },
-  { id: "streak", name: "DAILY PRACTICE", text: "Finish a series 3 days running.", n: 3, prog: (a) => a.sv.dl.streak },
   { id: "hundred", name: "HUNDRED", text: "Make 100 trials in all.", n: 100, prog: (a) => a.sv.st.trials },
   { id: "unmoved", name: "UNMOVED", text: "Under 300 ms after one of the longest waits.", hint: "The longest waits test the most.", n: 1, hidden: true, prog: (a) => a.sv.st.unmoved || 0 },
 ];
 const FEAT_IDS = TRIAL_FEATS.map((f) => f.id);
-// Bring any stored shape (nothing, schema 1 from recordRun, schema 2) to schema 2.
+const ORDER = { text: "Finish a series of five." };
+// Bring any stored shape (nothing, schema 1 from recordRun, schema 2 with its own daily streak) to
+// schema 3. The streak now lives in the console's logbook, so it goes.
 export function migrateTrial(raw) {
   const r = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
   const st = r.st && typeof r.st === "object" ? r.st : {};
@@ -60,14 +62,13 @@ export function migrateTrial(raw) {
   const n = (v) => Math.max(0, Math.floor(num(v)));
   const flags = Object.fromEntries(["series", "t250", "t200", "m300", "m250", "steady", "clean", "unmoved"].map((k) => [k, n(st[k])]));
   return {
-    schema: 2,
+    schema: 3,
     runs: n(r.runs),
     last: r.last && typeof r.last === "object" ? r.last : {},
     milestone: n(r.milestone),
     ft: cleanFeats(r.ft, FEAT_IDS),
     st: { ...flags, trials: Math.max(n(st.trials), n(r.runs)), falses: n(st.falses) },
     bs: Object.fromEntries(CLOCKS.map((k) => [k, n(bs[k])])),
-    dl: { ...cleanDaily(r.dl), best: n(r.dl?.best) },
     // The training log: the last LOG_SIZE series as { d: day, m: median, k: clock }.
     log: (Array.isArray(r.log) ? r.log : []).filter((e) => e && typeof e === "object" && n(e.m) > 0 && CLOCKS.includes(e.k))
       .slice(-LOG_SIZE).map((e) => ({ d: typeof e.d === "string" ? e.d.slice(0, 10) : "", m: n(e.m), k: e.k })),
@@ -100,6 +101,8 @@ export class LightTrial {
     this.done = null;     // the series just finished: { median, spread, clean, best, rank, feats }
     this.delay = 0;       // the delay the current trial was armed with
     this.newFeats = [];
+    // Today's order, only on the days the logbook picks Light Trial and while it is not yet met.
+    this.order = todayOrder(ctx, ORDER);
     this.goAt = 0;        // this.t when the cue arrived, for the timeout when nobody presses
     this.c.hint(
       "Wait for the MIDDLE light. Press once it turns green. Early presses fail.",
@@ -223,13 +226,14 @@ export class LightTrial {
       if (best) bs[this.metric] = median;
       this.sv.log.push({ d: this.dayKey(), m: median, k: this.metric });
       this.sv.log = this.sv.log.slice(-LOG_SIZE);
-      const dl = this.sv.dl, daily = meetDaily(dl, this.dayKey());
-      dl.best = daily || !dl.best ? median : Math.min(dl.best, median);
+      const daily = !!this.order;
+      if (daily) { this.order = null; this.c.dailyMet?.(); }
       this.done = { median, spread, clean, best: best && !!before, first: !before, daily, rank: this.rank(), clock: this.metric };
       this.series = []; this.falses = 0;
     }
     const met = newlyMet(TRIAL_FEATS, this.sv.ft, this);
     this.sv.ft.push(...met);
+    for (const id of met) this.c.feat?.(id, TRIAL_FEATS.find((f) => f.id === id).name);
     this.newFeats = this.newFeats.concat(met);
     if (met.length) this.c.tone(988, 0.12, "sine");
     return finished;
@@ -375,22 +379,19 @@ export class LightTrial {
     text(g, "LAST " + log.length + " SERIES / TALLER IS SLOWER / BEST " + best + " ms", 480, y + h + 14, 16, C.muted, "center");
     return true;
   }
-  // Rank, best series, the day's practice and one feat at a time (title screen).
+  // Rank, best series, today's order and the training log (title screen).
   drawGoals(g, y) {
-    const sv = this.sv, key = this.dayKey(), clock = this.rankClock(), streak = liveStreak(sv.dl, key);
+    const sv = this.sv, clock = this.rankClock();
     const best = clock ? "BEST SERIES " + sv.bs[clock] + " ms" + (clock === "physical" ? "" : " (" + clock.toUpperCase() + ")") : "NO SERIES YET";
-    text(g, "RANK " + this.rank() + "   " + best + "   FEATS " + sv.ft.length + " / " + TRIAL_FEATS.length, 480, y, 18, C.ink, "center");
-    text(g, (dailyDone(sv.dl, key) ? "TODAY'S SERIES DONE / BEST " + sv.dl.best + " ms" : "TODAY: FINISH A SERIES OF FIVE") + (streak > 1 ? "   STREAK " + streak : ""), 480, y + 28, 18, dailyDone(sv.dl, key) ? C.cyan : C.amber, "center");
-    // With a training log the title shows it, and the feats take turns with it.
-    if (Math.floor(this.t / 9) % 2 === 0 && this.drawLog(g, y + 46, 54)) return;
-    drawFeatTicker(g, TRIAL_FEATS, sv.ft, this.t, y + 60);
+    text(g, "RANK " + this.rank() + "   " + best, 480, y, 18, C.ink, "center");
+    const row = drawToday(g, this.c, this.order, y + 28) ? y + 46 : y + 18;
+    this.drawLog(g, row, 54);
   }
   // A finished series: median, spread, rank and anything new.
   drawSeries(g) {
     const d = this.done, lines = [];
     lines.push(["SERIES MEDIAN " + d.median + " ms / SPREAD " + d.spread + " ms" + (d.clean ? "" : " / EARLY STARTS"), C.ink]);
-    lines.push([(d.best ? "NEW BEST SERIES / " : "") + "RANK " + d.rank + (d.daily ? " / TODAY'S SERIES DONE" : ""), d.best ? C.amber : C.cyan]);
-    for (const id of this.newFeats.slice(0, 2)) lines.push(["NEW FEAT: " + TRIAL_FEATS.find((f) => f.id === id).name, C.amber]);
+    lines.push([(d.best ? "NEW BEST SERIES / " : "") + "RANK " + d.rank + (d.daily ? " / TODAY'S ORDER MET" : ""), d.best ? C.amber : C.cyan]);
     const y = this.metric === "keyboard" ? 420 : 396;
     lines.forEach(([s, col], i) => text(g, s, 480, y + i * 26, 18, col, "center"));
     text(g, "PRESS TO START THE NEXT SERIES", 480, y + lines.length * 26 + 4, 18, C.amber, "center");

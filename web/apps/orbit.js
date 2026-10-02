@@ -2,7 +2,7 @@ import { TAU, clamp, wrapAngle } from "../engine/math.js";
 import { C, text, line, circle, space, banner } from "../engine/draw.js";
 import { LAMP, lamps, fill, only, dim, blend, pulse } from "../engine/lightshow.js";
 import { GestureGuard, LampBus, lampMax, announce, drawNote } from "./game-kit.js";
-import { num, hashText, dateKey, cleanDaily, meetDaily, dailyDone, liveStreak, cleanFeats, newlyMet, closestFeat, rankOf, nextRank, drawFeatTicker, panel } from "./goals.js";
+import { num, hashText, dateKey, cleanFeats, newlyMet, todayOrder, reportFeats, panel } from "./goals.js";
 
 // ---------------------------------------------------------------------------------------------
 // ORBIT LOCK. Press as the satellite crosses the amber gate. Around that unchanged core:
@@ -10,9 +10,10 @@ import { num, hashText, dateKey, cleanDaily, meetDaily, dailyDone, liveStreak, c
 //   absorbs the next mistimed press (not the slow decay of an idle hull);
 // - from the 30th lock every third gate is DARK: nothing on the screen, only lamp I rising as the
 //   satellite nears it;
-// - feats, a daily order (the same for everyone on a date) with a streak, and a rank from feats,
-//   kept in a versioned save (schema 2) that still carries the first release's fields;
-// - two more ways to play, earned with feats and chosen by holding on the title or result screen:
+// - feats, reported to the console's logbook, and an order of its own on the days the logbook picks
+//   Orbit Lock as one of today's three, kept in a versioned save (schema 3) that still carries the
+//   first release's fields;
+// - two more ways to play, earned by skill and chosen by holding on the title or result screen:
 //   RUSH (sixty seconds, no hull, a miss costs time; opens at a best of 20 locks) and ECLIPSE (every gate
 //   is dark from the start; opens after 25 dark gates in all).
 //   Only the standard game sets the console's best score; each mode keeps its own best.
@@ -43,7 +44,9 @@ export const MODE_HOLD = 0.45;
 // Each sector tints the ring's ticks, so the run visibly travels.
 const SECTOR_TINT = ["#314938", "#2f4a52", "#3f3a5a", "#523a40", "#4f4a2c", "#2c4f3e", "#46305a"];
 
-// ---- feats, ranks and the daily order --------------------------------------------------------
+// ---- feats and today's order ---------------------------------------------------------------
+// Feats go to the console's logbook (ctx.feat), which keeps one list for every game; the save only
+// remembers which ones were sent, so each is sent once.
 const life = (a, key) => (a.sv.st[key] || 0) + (a.R[key] || 0);
 export const ORBIT_FEATS = [
   { id: "l10", name: "FIRST CONTACT", text: "Make 10 locks in one run.", n: 10, prog: (a) => a.points },
@@ -56,8 +59,6 @@ export const ORBIT_FEATS = [
   { id: "clean", name: "UNTOUCHED", text: "Reach 20 locks without losing hull.", n: 20, prog: (a) => a.R.clean },
   { id: "dark1", name: "BLIND LOCK", text: "Lock a dark gate.", n: 1, prog: (a) => a.R.dark },
   { id: "dark5", name: "NIGHT WATCH", text: "Lock 8 dark gates in one run.", n: 8, prog: (a) => a.R.dark },
-  { id: "daily", name: "ON ORDERS", text: "Meet a daily order.", n: 1, prog: (a) => life(a, "daily") },
-  { id: "streak", name: "ROUTINE", text: "Meet the daily order 3 days running.", n: 3, prog: (a) => a.sv.dl.streak },
   { id: "rush25", name: "AGAINST THE CLOCK", text: "Make 25 locks in one rush.", n: 25, prog: (a) => (a.mode === "rush" ? a.points : 0) },
   { id: "eclipse15", name: "TOTALITY", text: "Make 15 locks in one eclipse.", n: 15, prog: (a) => (a.mode === "eclipse" ? a.points : 0) },
   { id: "veteran", name: "VETERAN", text: "Make 1000 locks in all.", n: 1000, prog: (a) => life(a, "locks") },
@@ -65,8 +66,7 @@ export const ORBIT_FEATS = [
   { id: "saved", name: "DEFLECTED", text: "Let a shield take a miss.", hint: "Some misses never land.", n: 1, hidden: true, prog: (a) => a.R.saves },
 ];
 const FEAT_IDS = ORBIT_FEATS.map((f) => f.id);
-export const ORBIT_RANKS = [[0, "CADET"], [2, "SPOTTER"], [4, "PILOT"], [7, "NAVIGATOR"], [10, "WAYFINDER"], [13, "ASTROGATOR"], [17, "FIXED STAR"]];
-// Today's order, the same for everyone on the same date.
+// Orbit Lock's own order for a date, stated to the logbook on the days it picks Orbit Lock.
 export function orbitOrder(key) {
   const h = hashText("orbit" + key), kind = h % 4, v = (h >>> 8) % 4;
   if (kind === 0) return { kind: "sector", n: 3 + v, text: "Reach sector " + (3 + v) + "." };
@@ -74,32 +74,40 @@ export function orbitOrder(key) {
   if (kind === 2) return { kind: "perfects", n: 6 + 2 * v, text: "Make " + (6 + 2 * v) + " perfect locks in one run." };
   return { kind: "clean", n: 8 + 3 * v, text: "Reach " + (8 + 3 * v) + " locks without losing hull." };
 }
-// Bring any stored shape (nothing, schema 1 from recordRun, schema 2) to schema 2.
+// Bring any stored shape (nothing, schema 1 from recordRun, schema 2 with its own daily streak and
+// ranks) to schema 3. The streak and the daily feats now live in the console's logbook, so they go.
 export function migrateOrbit(raw) {
   const r = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
   const st = r.st && typeof r.st === "object" ? r.st : {};
   const n = (v) => Math.max(0, Math.floor(num(v)));
   return {
-    schema: 2,
+    schema: 3,
     runs: n(r.runs),
     last: r.last && typeof r.last === "object" ? r.last : {},
     milestone: n(r.milestone),
     ft: cleanFeats(r.ft, FEAT_IDS),
-    st: { locks: n(st.locks), perfects: n(st.perfects), dark: n(st.dark), daily: n(st.daily), best: Math.max(n(st.best), n(r.last?.locks)) },
-    dl: cleanDaily(r.dl),
+    st: { locks: n(st.locks), perfects: n(st.perfects), dark: n(st.dark), best: Math.max(n(st.best), n(r.last?.locks)) },
     mb: { rush: n(r.mb?.rush), eclipse: n(r.mb?.eclipse) },
     mode: ORBIT_MODES.some((m) => m.id === r.mode) ? r.mode : "standard",
   };
 }
 
-// The finished run carries the save as it stood when the run ended; it is written once the gesture
-// window has passed (GestureGuard), so a run ended by the menu gesture's own taps never reaches it.
+// The finished run carries the save as it stood when the run ended, and the feats and order it met;
+// they are written once the gesture window has passed (GestureGuard), so a run ended by the menu
+// gesture's own taps never reaches the save or the logbook.
 class OrbitGuard extends GestureGuard {
   record(ended) {
     this.done.add(ended.id);
     if (ended.score.length) this.c.score(...ended.score);
     this.c.saveProgress?.(ended.run)?.catch?.(this.c.error);
+    report(this.c, ended.report);
   }
+}
+const FEAT_NAME = (id) => ORBIT_FEATS.find((f) => f.id === id).name;
+function report(ctx, rep) {
+  if (!rep) return;
+  reportFeats(ctx, rep.feats.map((id) => [id, FEAT_NAME(id)]));
+  if (rep.daily) ctx.dailyMet?.();
 }
 
 export class OrbitLock {
@@ -136,9 +144,11 @@ export class OrbitLock {
     this.clock = RUSH_TIME; // seconds left in a rush
     this.shake = 0;
     // This run's tallies, for feats and the daily order.
-    this.R = { perfects: 0, chainMax: 0, clean: 0, dark: 0, lastStand: 0, saves: 0, daily: 0, locks: 0, hurt: 0 };
+    this.R = { perfects: 0, chainMax: 0, clean: 0, dark: 0, lastStand: 0, saves: 0, locks: 0, hurt: 0 };
     this.fresh = [];   // feats earned this run
     this.orderMet = false;
+    // Today's order, only on the days the logbook picks Orbit Lock and while it is not yet met.
+    this.order = todayOrder(this.c, orbitOrder(this.dayKey()));
     this.best0 = this.c.best?.() ?? 0;
     this.note = ""; this.noteT = 0;
     this.feedback = "ACQUIRE THE AMBER GATE";
@@ -256,44 +266,42 @@ export class OrbitLock {
     this.lamps.flash(0.3, () => (kind === "early" ? only(0, LAMP.red, 0.8) : kind === "late" ? only(2, LAMP.red, 0.8) : fill(LAMP.red, 0.6)));
     if (!this.lives) this.finish();
   }
-  // Has the daily order been met during this run?
+  // Has today's order been met during this run?
   orderDone() {
-    const o = orbitOrder(this.dayKey()), R = this.R;
+    const o = this.order, R = this.R;
     if (o.kind === "sector") return Math.floor(this.points / 5) + 1 >= o.n;
     if (o.kind === "chain") return R.chainMax >= o.n;
     if (o.kind === "perfects") return R.perfects >= o.n;
     return R.clean >= o.n;
   }
   checkOrder(news = []) {
-    if (this.orderMet || !this.orderDone()) return;
+    if (!this.order || this.orderMet || !this.orderDone()) return;
     this.orderMet = true;
-    if (meetDaily(this.sv.dl, this.dayKey())) {
-      this.R.daily = 1;
-      news.unshift("DAILY ORDER MET" + (this.sv.dl.streak > 1 ? " / STREAK " + this.sv.dl.streak : ""));
-      this.c.tone(784, 0.1, "sine"); this.c.tone(1047, 0.18, "sine");
-    }
+    news.unshift("TODAY'S ORDER MET");
+    this.c.tone(784, 0.1, "sine"); this.c.tone(1047, 0.18, "sine");
   }
-  // Feats are marked the moment they are met; the save is written when the run is recorded.
+  // Feats are marked the moment they are met; they reach the logbook when the run is recorded.
   checkFeats(news) {
     for (const id of newlyMet(ORBIT_FEATS, this.sv.ft, this)) {
       this.sv.ft.push(id); this.fresh.push(id);
-      const name = ORBIT_FEATS.find((f) => f.id === id).name;
+      const name = FEAT_NAME(id);
       if (news) news.push("FEAT: " + name); else announce(this, "FEAT: " + name);
     }
   }
   finish() {
     const sv = this.sv, R = this.R;
     sv.runs++;
-    sv.st.locks += R.locks; sv.st.perfects += R.perfects; sv.st.dark += R.dark; sv.st.daily += R.daily;
+    sv.st.locks += R.locks; sv.st.perfects += R.perfects; sv.st.dark += R.dark;
     if (this.mode === "standard") sv.st.best = Math.max(sv.st.best, this.points);
     else { this.modeBest0 = sv.mb[this.mode]; sv.mb[this.mode] = Math.max(sv.mb[this.mode], this.points); }
     // Lifetime tallies are now in the save, so the feats that count them must not count this run twice.
-    R.locks = 0; R.daily = 0;
+    R.locks = 0;
     this.checkFeats();
     const last = { locks: this.points, milestone: Math.floor(this.points / 5), perfects: R.perfects, chain: R.chainMax, ...(this.mode === "standard" ? {} : { mode: this.mode }) };
     sv.last = last;
     if (this.mode === "standard") sv.milestone = Math.max(sv.milestone, last.milestone);
     this.guard.end(this.mode === "standard" ? [this.points] : [], JSON.parse(JSON.stringify(sv)));
+    this.ended.report = { feats: this.fresh.slice(), daily: this.orderMet };
     this.lamps.flash(0.6, (e, T) => fill(LAMP.red, 0.6 * (1 - e / T)));
   }
   up() {
@@ -313,11 +321,13 @@ export class OrbitLock {
     this.lamps.sleep();
   }
   resume() { this.lamps.wake(); }
-  // Leaving for good mid-run: a daily order met or a feat earned on the way is kept.
+  // Leaving for good mid-run: today's order met or a feat earned on the way is kept.
   dispose() {
     const keep = this.phase === "play" && (this.orderMet || this.fresh.length);
     this.pause();
-    if (keep) this.c.saveProgress?.(JSON.parse(JSON.stringify(this.sv)))?.catch?.(this.c.error);
+    if (!keep) return;
+    this.c.saveProgress?.(JSON.parse(JSON.stringify(this.sv)))?.catch?.(this.c.error);
+    report(this.c, { feats: this.fresh, daily: this.orderMet });
   }
   // Left lamp: amber ramp as the satellite nears the gate, bright while it is inside (white at its
   // centre once the gates go dark, where it is the only guide); middle: hull (green, amber, red), with a
@@ -482,25 +492,18 @@ export class OrbitLock {
     }
     if (this.shield) text(g, "SHIELD", 862, y + 82, 18, C.cyan, "center");
   }
-  // Rank, today's order, the mode and one feat at a time (title screen).
+  // Best, today's order (on the days the logbook picks Orbit Lock) and the mode (title screen).
   drawGoals(g, y) {
-    const sv = this.sv, n = sv.ft.length, key = this.dayKey(), next = nextRank(ORBIT_RANKS, n);
-    const open = this.modesOpen(), rows = open ? 5 : 4;
-    panel(g, y - 22, y + 30 * rows + 8);
-    text(g, "RANK " + rankOf(ORBIT_RANKS, n) + "   FEATS " + n + " / " + ORBIT_FEATS.length + (next ? "   NEXT RANK AT " + next[0] : ""), 480, y, 18, C.ink, "center");
-    const streak = liveStreak(sv.dl, key);
-    text(g, (dailyDone(sv.dl, key) ? "TODAY'S ORDER MET" : "TODAY: " + orbitOrder(key).text) + (streak > 1 ? "   STREAK " + streak : ""), 480, y + 28, 18, dailyDone(sv.dl, key) ? C.cyan : C.amber, "center");
-    let row = y + 56;
+    const sv = this.sv, open = this.modesOpen(), lines = [];
+    lines.push(["BEST " + sv.st.best + " LOCKS" + (sv.runs ? "   RUNS " + sv.runs : ""), C.ink, 18]);
+    if (this.order) lines.push(["TODAY: " + this.order.text, C.amber, 18]);
+    else if (this.c.today?.()?.done) lines.push(["TODAY'S ORDER MET", C.cyan, 18]);
     if (open) {
       const m = this.modeInfo(), best = this.mode === "standard" ? sv.st.best : sv.mb[this.mode];
-      text(g, "MODE " + m.name + (best ? "  BEST " + best : "") + "   HOLD: NEXT MODE", 480, row, 18, C.cyan, "center");
-      row += 28;
-    } else {
-      const m = ORBIT_MODES[1];
-      text(g, m.name + " MODE: " + m.how, 480, row, 16, C.muted, "center");
-      row += 26;
-    }
-    drawFeatTicker(g, ORBIT_FEATS, sv.ft, this.t, row + 6);
+      lines.push(["MODE " + m.name + (best ? "  BEST " + best : "") + "   HOLD: NEXT MODE", C.cyan, 18]);
+    } else lines.push([ORBIT_MODES[1].name + " MODE: " + ORBIT_MODES[1].how, C.muted, 16]);
+    panel(g, y - 22, y + 28 * lines.length - 8);
+    lines.forEach(([s, col, size], i) => text(g, s, 480, y + i * 28, size, col, "center"));
   }
   // The result: one banner line, then at most four short lines that always fit above the hint line.
   drawResult(g) {
@@ -509,15 +512,11 @@ export class OrbitLock {
     banner(g, title, `${standard ? "" : this.modeInfo().name + ": "}${this.points} locks${this.points > best0 && this.points > 0 ? " · NEW BEST" : ""}`, C.amber);
     const lines = [];
     lines.push(["PERFECT " + this.R.perfects + "   BEST CHAIN " + this.R.chainMax + (this.R.dark ? "   DARK GATES " + this.R.dark : ""), C.ink]);
-    if (this.orderMet) lines.push(["DAILY ORDER MET" + (this.sv.dl.streak > 1 ? " / STREAK " + this.sv.dl.streak : ""), C.cyan]);
-    else lines.push(["TODAY: " + orbitOrder(this.dayKey()).text, C.muted]);
-    if (this.fresh.length) {
-      const names = this.fresh.map((id) => ORBIT_FEATS.find((f) => f.id === id).name);
-      lines.push([(names.length > 1 ? "NEW FEATS: " : "NEW FEAT: ") + names.slice(0, 2).join(", ") + (names.length > 2 ? " +" + (names.length - 2) : ""), C.amber]);
-    } else {
-      const close = closestFeat(ORBIT_FEATS, this.sv.ft, this);
-      if (close) lines.push([close, C.muted]);
-    }
+    if (this.orderMet) lines.push(["TODAY'S ORDER MET", C.cyan]);
+    else if (this.order) lines.push(["TODAY: " + this.order.text, C.muted]);
+    // A mode not yet open says how close this run came to opening it.
+    const shut = ORBIT_MODES.find((m) => !this.unlocked(m.id));
+    if (shut) lines.push([shut.name + " MODE: " + shut.how, C.muted]);
     if (this.modesOpen()) lines.push(["TAP: PLAY " + this.modeInfo().name + "   HOLD: NEXT MODE", C.cyan]);
     panel(g, 362, 374 + lines.length * 28);
     lines.forEach(([s, col], i) => text(g, s, 480, 384 + i * 28, 18, col, "center"));

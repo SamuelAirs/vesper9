@@ -1,17 +1,22 @@
 #include "driver/gpio.h"
-#include "driver/i2c_master.h"
 #include "driver/i2s_std.h"
 #include "driver/ledc.h"
 #include "driver/mcpwm_prelude.h"
 #include "driver/uart.h"
 #include "driver/usb_serial_jtag.h"
 #include "esp_err.h"
+#include "esp_rom_gpio.h"
 #include "esp_rom_sys.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "soc/i2s_periph.h"
 #include "hardware.h"
+#if NODE_SENSOR
+#include "driver/i2c_master.h"
+#endif
+#define NODE_FIRMWARE "vesper-node-0.2.0"
 #include "knock.h"
 #include "protocol.h"
 #include <math.h>
@@ -50,9 +55,17 @@ static atomic_uint audio_drops = 0;
 static atomic_int sensor_address = 0, sensor_error = 0;
 static atomic_uint sensor_good = 0, sensor_bad = 0;
 static i2s_chan_handle_t microphone;
-static mcpwm_cmpr_handle_t ninth_comparator;
-static mcpwm_gen_handle_t ninth_generator;
-static uint8_t leds[9] = {0};
+#if NODE_MICS == 2
+static i2s_chan_handle_t microphone2;
+#endif
+static atomic_bool mic_stereo = false;
+#if NODE_MICS == 2
+static atomic_uint mic2_errors = 0;
+static atomic_int mic2_setup = 0; // esp_err_t of the second port's set-up, 0 = fine
+#endif
+static mcpwm_cmpr_handle_t extra_comparators[NODE_MCPWM_COUNT];
+static mcpwm_gen_handle_t extra_generators[NODE_MCPWM_COUNT];
+static uint8_t leds[NODE_LED_COUNT] = {0};
 // Protocol v1 is served on both the COM bridge (UART0) and the native USB
 // port (USB Serial/JTAG). The node answers on whichever link last delivered a
 // valid host frame; with no live host it announces itself on both.
@@ -70,7 +83,7 @@ static int64_t reaction_due = 0;
 static uint8_t reaction_led = 1, reaction_rgb[3] = {30, 255, 90};
 typedef struct {
   uint16_t ms;
-  uint8_t rgb[9];
+  uint8_t rgb[NODE_LED_COUNT];
 } pattern_step;
 static pattern_step steps[16];
 static uint8_t pattern_count = 0, pattern_index = 0, pattern_repeat = 0;
@@ -94,29 +107,44 @@ static void ack(uint16_t sequence, uint8_t kind, uint8_t result) {
 }
 
 static void set_leds(const uint8_t *values) {
-  memcpy(leds, values, 9);
-  for (int i = 0; i < 8; i++) {
+  memcpy(leds, values, NODE_LED_COUNT);
+  for (int i = 0; i < NODE_LEDC_COUNT; i++) {
     uint32_t duty = (uint32_t)lroundf(powf(values[i] / 255.0f, 2.2f) * 1023.0f);
     ledc_set_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i, duty);
     ledc_update_duty(LEDC_LOW_SPEED_MODE, (ledc_channel_t)i);
   }
-  if (values[8] == 0)
-    mcpwm_generator_set_force_level(ninth_generator, 0, true);
-  else if (values[8] == 255)
-    mcpwm_generator_set_force_level(ninth_generator, 1, true);
-  else {
-    uint32_t duty = (uint32_t)lroundf(powf(values[8] / 255.0f, 2.2f) * 1000.0f);
-    if (duty < 1)
-      duty = 1;
-    if (duty > 999)
-      duty = 999;
-    mcpwm_comparator_set_compare_value(ninth_comparator, duty);
-    mcpwm_generator_set_force_level(ninth_generator, -1, true);
+  for (int i = 0; i < NODE_MCPWM_COUNT; i++) {
+    const uint8_t value = values[NODE_LEDC_COUNT + i];
+    if (value == 0)
+      mcpwm_generator_set_force_level(extra_generators[i], 0, true);
+    else if (value == 255)
+      mcpwm_generator_set_force_level(extra_generators[i], 1, true);
+    else {
+      uint32_t duty = (uint32_t)lroundf(powf(value / 255.0f, 2.2f) * 1000.0f);
+      if (duty < 1)
+        duty = 1;
+      if (duty > 999)
+        duty = 999;
+      mcpwm_comparator_set_compare_value(extra_comparators[i], duty);
+      mcpwm_generator_set_force_level(extra_generators[i], -1, true);
+    }
   }
 }
 static void lights_off(void) {
-  uint8_t off[9] = {0};
+  uint8_t off[NODE_LED_COUNT] = {0};
   set_leds(off);
+}
+// Hosts written for three lamps send nine values: left, middle, right. On four lamps the middle
+// pair shows the middle value, so left stays left, right stays right and the row stays symmetric.
+static void expand_lamps(const uint8_t *nine, uint8_t *out) {
+#if NODE_LAMPS == 4
+  memcpy(out, nine, 3);
+  memcpy(out + 3, nine + 3, 3);
+  memcpy(out + 6, nine + 3, 3);
+  memcpy(out + 9, nine + 6, 3);
+#else
+  memcpy(out, nine, 9);
+#endif
 }
 
 static void setup_lights(void) {
@@ -126,7 +154,7 @@ static void setup_lights(void) {
                                .freq_hz = 4000,
                                .clk_cfg = LEDC_AUTO_CLK};
   ESP_ERROR_CHECK(ledc_timer_config(&timer));
-  for (int i = 0; i < 8; i++) {
+  for (int i = 0; i < NODE_LEDC_COUNT; i++) {
     ledc_channel_config_t channel = {.gpio_num = NODE_LEDS[i],
                                      .speed_mode = LEDC_LOW_SPEED_MODE,
                                      .channel = (ledc_channel_t)i,
@@ -143,45 +171,61 @@ static void setup_lights(void) {
                                  .count_mode = MCPWM_TIMER_COUNT_MODE_UP,
                                  .period_ticks = 1000};
   ESP_ERROR_CHECK(mcpwm_new_timer(&config, &pwm_timer));
-  mcpwm_oper_handle_t op;
-  mcpwm_operator_config_t operator_config = {.group_id = 0};
-  ESP_ERROR_CHECK(mcpwm_new_operator(&operator_config, &op));
-  ESP_ERROR_CHECK(mcpwm_operator_connect_timer(op, pwm_timer));
-  mcpwm_comparator_config_t comparator_config = {.flags.update_cmp_on_tez = true};
-  ESP_ERROR_CHECK(mcpwm_new_comparator(op, &comparator_config, &ninth_comparator));
-  mcpwm_generator_config_t generator_config = {.gen_gpio_num = NODE_LEDS[8]};
-  ESP_ERROR_CHECK(mcpwm_new_generator(op, &generator_config, &ninth_generator));
-  ESP_ERROR_CHECK(mcpwm_generator_set_action_on_timer_event(
-      ninth_generator,
-      MCPWM_GEN_TIMER_EVENT_ACTION(MCPWM_TIMER_DIRECTION_UP, MCPWM_TIMER_EVENT_EMPTY,
-                                   MCPWM_GEN_ACTION_HIGH)));
-  ESP_ERROR_CHECK(mcpwm_generator_set_action_on_compare_event(
-      ninth_generator, MCPWM_GEN_COMPARE_EVENT_ACTION(MCPWM_TIMER_DIRECTION_UP, ninth_comparator,
-                                                      MCPWM_GEN_ACTION_LOW)));
-  ESP_ERROR_CHECK(mcpwm_generator_set_force_level(ninth_generator, 0, true));
+  mcpwm_oper_handle_t op = NULL;
+  for (int i = 0; i < NODE_MCPWM_COUNT; i++) {
+    if (i % 2 == 0) { // each operator carries two comparators and two generators
+      mcpwm_operator_config_t operator_config = {.group_id = 0};
+      ESP_ERROR_CHECK(mcpwm_new_operator(&operator_config, &op));
+      ESP_ERROR_CHECK(mcpwm_operator_connect_timer(op, pwm_timer));
+    }
+    mcpwm_comparator_config_t comparator_config = {.flags.update_cmp_on_tez = true};
+    ESP_ERROR_CHECK(mcpwm_new_comparator(op, &comparator_config, &extra_comparators[i]));
+    mcpwm_generator_config_t generator_config = {.gen_gpio_num = NODE_LEDS[NODE_LEDC_COUNT + i]};
+    ESP_ERROR_CHECK(mcpwm_new_generator(op, &generator_config, &extra_generators[i]));
+    ESP_ERROR_CHECK(mcpwm_generator_set_action_on_timer_event(
+        extra_generators[i],
+        MCPWM_GEN_TIMER_EVENT_ACTION(MCPWM_TIMER_DIRECTION_UP, MCPWM_TIMER_EVENT_EMPTY,
+                                     MCPWM_GEN_ACTION_HIGH)));
+    ESP_ERROR_CHECK(mcpwm_generator_set_action_on_compare_event(
+        extra_generators[i],
+        MCPWM_GEN_COMPARE_EVENT_ACTION(MCPWM_TIMER_DIRECTION_UP, extra_comparators[i],
+                                       MCPWM_GEN_ACTION_LOW)));
+    ESP_ERROR_CHECK(mcpwm_generator_set_force_level(extra_generators[i], 0, true));
+  }
   ESP_ERROR_CHECK(mcpwm_timer_enable(pwm_timer));
   ESP_ERROR_CHECK(mcpwm_timer_start_stop(pwm_timer, MCPWM_TIMER_START_NO_STOP));
   lights_off();
 }
 
 static void status(uint8_t kind) {
-  char data[512];
+  char data[640], lamps[NODE_LED_COUNT * 4 + 1];
+  int at = 0;
+  for (int i = 0; i < NODE_LED_COUNT; i++)
+    at += snprintf(lamps + at, sizeof(lamps) - at, i ? ",%u" : "%u", leds[i]);
   int link = atomic_load(&active_link);
   int n = snprintf(data, sizeof(data),
-                   "{\"fw\":\"vesper-node-0.1.3\",\"link\":\"%s\",\"mic\":%s,\"button\":%s,\"audio_"
-                   "drops\":%u,\"rx_crc\":%lu,\"sensor\":{\"addr\":%d,\"ok\":%u,\"fail\":%u,\"err\":%d},\"leds\":[%"
-                   "u,%u,%u,%u,%u,%u,%u,%u,%u],\"knock\":{\"thr\":%u,\"n\":%lu,\"btn\":%lu,\"long\":%lu,"
-                   "\"bright\":%lu,\"peak\":%ld,\"hf\":%ld}}",
+                   "{\"fw\":\"" NODE_FIRMWARE "\",\"board\":%d,\"lamps\":%d,\"mics\":%d,\"link\":\"%s\",\"mic\":%s,"
+                   "\"stereo\":%s,\"button\":%s,\"audio_"
+                   "drops\":%u,\"rx_crc\":%lu,\"sensor\":{\"addr\":%d,\"ok\":%u,\"fail\":%u,\"err\":%d},\"leds\":[%s"
+                   "],\"knock\":{\"thr\":%u,\"n\":%lu,\"btn\":%lu,\"long\":%lu,"
+                   "\"bright\":%lu,\"peak\":%ld,\"hf\":%ld},\"mic2\":{\"setup\":%d,\"err\":%u}}",
+                   NODE_BOARD, NODE_LAMPS, NODE_MICS,
                    link == LINK_USB ? "usb" : link == LINK_UART ? "uart" : "none",
-                   atomic_load(&mic_active) ? "true" : "false", button_stable ? "true" : "false",
-                   atomic_load(&audio_drops),
+                   atomic_load(&mic_active) ? "true" : "false",
+                   atomic_load(&mic_active) && atomic_load(&mic_stereo) ? "true" : "false",
+                   button_stable ? "true" : "false", atomic_load(&audio_drops),
                    (unsigned long)(decoders[LINK_UART].errors + decoders[LINK_USB].errors),
                    atomic_load(&sensor_address), atomic_load(&sensor_good), atomic_load(&sensor_bad),
-                   atomic_load(&sensor_error), leds[0], leds[1],
-                   leds[2], leds[3], leds[4], leds[5], leds[6], leds[7], leds[8],
+                   atomic_load(&sensor_error), lamps,
                    atomic_load(&knock_threshold), (unsigned long)knock_sent, (unsigned long)knock_button,
                    (unsigned long)knock_sustained, (unsigned long)knock_bright, (long)knock_last_peak,
-                   (long)knock_last_hf);
+                   (long)knock_last_hf,
+#if NODE_MICS == 2
+                   atomic_load(&mic2_setup), atomic_load(&mic2_errors)
+#else
+                   0, 0u
+#endif
+                   );
   if (n > 0 && n < (int)sizeof(data))
     send_message(kind, data, (uint16_t)n, false);
 }
@@ -198,19 +242,26 @@ static void command(uint8_t kind, uint16_t sequence, const uint8_t *p, uint16_t 
     }
     status(V9_STATUS);
     return;
-  case V9_LEDS:
-    if (n != 9) {
+  case V9_LEDS: {
+    if (n != 9 && n != NODE_LED_COUNT) {
       ack(sequence, kind, 1);
       return;
     }
+    uint8_t values[NODE_LED_COUNT];
+    if (n == NODE_LED_COUNT)
+      memcpy(values, p, NODE_LED_COUNT);
+    else
+      expand_lamps(p, values);
     pattern_count = 0;
-    set_leds(p);
+    set_leds(values);
     break;
+  }
   case V9_MIC:
-    if (n != 1 || p[0] > 1) {
+    if (n != 1 || p[0] > (NODE_MICS == 2 ? 2 : 1)) {
       ack(sequence, kind, 1);
       return;
     }
+    atomic_store(&mic_stereo, p[0] == 2);
     atomic_store(&mic_wanted, p[0] != 0);
     if (!p[0])
       xQueueReset(audio_queue);
@@ -243,12 +294,14 @@ static void command(uint8_t kind, uint16_t sequence, const uint8_t *p, uint16_t 
     pattern_count = 0;
     break;
   case V9_PATTERN:
-    if (n < 13 || p[0] < 1 || p[0] > 8 || p[1] < 1 || p[1] > 16 || n != 2 + p[1] * 11) {
+    // A step is u16 ms plus nine values (three lamps) or, on a four-lamp board, twelve.
+    const int step = (n >= 2 && p[1] && n == 2 + p[1] * (2 + NODE_LED_COUNT)) ? 2 + NODE_LED_COUNT : 11;
+    if (n < 13 || p[0] < 1 || p[0] > 8 || p[1] < 1 || p[1] > 16 || n != 2 + p[1] * step) {
       ack(sequence, kind, 1);
       return;
     }
     for (int i = 0; i < p[1]; i++) {
-      uint16_t ms = v9_u16(p + 2 + i * 11);
+      uint16_t ms = v9_u16(p + 2 + i * step);
       if (ms < 10 || ms > 10000) {
         ack(sequence, kind, 1);
         return;
@@ -259,8 +312,11 @@ static void command(uint8_t kind, uint16_t sequence, const uint8_t *p, uint16_t 
     pattern_repeat = p[0];
     pattern_index = 0;
     for (int i = 0; i < pattern_count; i++) {
-      steps[i].ms = v9_u16(p + 2 + i * 11);
-      memcpy(steps[i].rgb, p + 4 + i * 11, 9);
+      steps[i].ms = v9_u16(p + 2 + i * step);
+      if (step == 11)
+        expand_lamps(p + 4 + i * step, steps[i].rgb);
+      else
+        memcpy(steps[i].rgb, p + 4 + i * step, NODE_LED_COUNT);
     }
     set_leds(steps[0].rgb);
     pattern_due = esp_timer_get_time() + (int64_t)steps[0].ms * 1000;
@@ -296,19 +352,44 @@ static void tx_task(void *unused) {
   }
 }
 
+// One-pole high-pass (about 25 Hz at 16 kHz) on the 24-bit signal: the INMP441 output carries an
+// offset that decays over seconds. Returns the sample as streamed, signed 16-bit.
+typedef struct {
+  float in, out;
+  bool primed;
+} dc_filter;
+static inline int16_t dc_push(dc_filter *f, int32_t raw) {
+  float in = (float)(raw >> 8);
+  if (!f->primed) {
+    f->in = in;
+    f->out = 0;
+    f->primed = true;
+  }
+  float out = in - f->in + 0.99f * f->out;
+  f->in = in;
+  f->out = out;
+  int32_t value = (int32_t)lroundf(out / 256.0f);
+  return (int16_t)(value > 32767 ? 32767 : value < -32768 ? -32768 : value);
+}
+
 static void microphone_task(void *unused) {
   (void)unused;
   // INMP441: 24-bit signed signal in a 32-bit left slot. Keep stereo clocks
   // (64 bit clocks per sample), discard the empty right slot, transmit s16le.
-  int32_t raw[NODE_AUDIO_SAMPLES * 2];
-  uint8_t payload[4 + NODE_AUDIO_SAMPLES * 2];
+  static int32_t raw[NODE_AUDIO_SAMPLES * 2];
+  static uint8_t payload[4 + NODE_AUDIO_SAMPLES * 2];
+#if NODE_MICS == 2
+  // The right microphone is a second port clocked by the first, so sample i of each is the same
+  // instant. Stereo goes out as AUDIO2: u32 index, then left/right pairs, half a read per message.
+  static int32_t raw2[NODE_AUDIO_SAMPLES * 2];
+  static int16_t left[NODE_AUDIO_SAMPLES], right[NODE_AUDIO_SAMPLES];
+  dc_filter filter2 = {0};
+#endif
   uint32_t index = 0;
-  // The INMP441 output starts with a large offset that decays over seconds.
-  // Discard the first 300 ms after enabling and remove DC with a one-pole
-  // high-pass (about 25 Hz at 16 kHz) on the 24-bit signal.
+  // Discard the first 300 ms after enabling (the offset is largest then).
   size_t settle = 0;
-  float previous_in = 0, previous_out = 0;
-  bool primed = false, running = false;
+  dc_filter filter = {0};
+  bool running = false;
   knock_detector knock;
   knock_init(&knock, 0);
   for (;;) {
@@ -322,12 +403,21 @@ static void microphone_task(void *unused) {
     if (!stream && !threshold) {
       if (running) {
         i2s_channel_disable(microphone);
+#if NODE_MICS == 2
+        if (microphone2)
+          i2s_channel_disable(microphone2);
+#endif
         running = false;
       }
       vTaskDelay(pdMS_TO_TICKS(10));
       continue;
     }
     if (!running) {
+#if NODE_MICS == 2
+      // The clocked port first: it waits for the clocks the other one is about to start.
+      if (microphone2 && i2s_channel_enable(microphone2) != ESP_OK)
+        atomic_fetch_add(&mic2_errors, 1);
+#endif
       if (i2s_channel_enable(microphone) != ESP_OK) {
         atomic_store(&mic_wanted, false);
         atomic_store(&knock_threshold, 0);
@@ -335,7 +425,10 @@ static void microphone_task(void *unused) {
       }
       running = true;
       settle = NODE_RATE * 3 / 10;
-      primed = false;
+      filter.primed = false;
+#if NODE_MICS == 2
+      filter2.primed = false;
+#endif
       knock_init(&knock, threshold);
     }
     if (stream)
@@ -349,26 +442,24 @@ static void microphone_task(void *unused) {
       continue;
     const int64_t read_at = esp_timer_get_time();
     const size_t samples = bytes / (2 * sizeof(int32_t));
+#if NODE_MICS == 2
+    size_t bytes2 = 0;
+    if (!microphone2 || i2s_channel_read(microphone2, raw2, bytes, &bytes2, 100) != ESP_OK || bytes2 != bytes) {
+      memset(raw2, 0, sizeof(raw2));
+      atomic_fetch_add(&mic2_errors, 1);
+    }
+#endif
     v9_put32(payload, index);
     knock_verdict verdict = KNOCK_NONE;
     for (size_t i = 0; i < samples; i++) {
-      float in = (float)(raw[i * 2] >> 8);
-      if (!primed) {
-        previous_in = in;
-        previous_out = 0;
-        primed = true;
-      }
-      float out = in - previous_in + 0.99f * previous_out;
-      previous_in = in;
-      previous_out = out;
-      int32_t value = (int32_t)lroundf(out / 256.0f);
-      if (value > 32767)
-        value = 32767;
-      if (value < -32768)
-        value = -32768;
-      v9_put16(payload + 4 + i * 2, (uint16_t)(int16_t)value);
+      const int16_t value = dc_push(&filter, raw[i * 2]);
+      v9_put16(payload + 4 + i * 2, (uint16_t)value);
+#if NODE_MICS == 2
+      left[i] = value;
+      right[i] = dc_push(&filter2, raw2[i * 2]);
+#endif
       if (!settle && threshold) {
-        knock_verdict v = knock_push(&knock, (int16_t)value);
+        knock_verdict v = knock_push(&knock, value);
         if (v != KNOCK_NONE)
           verdict = v;
       }
@@ -389,9 +480,23 @@ static void microphone_task(void *unused) {
     }
     if (!stream)
       continue;
+    if (atomic_load(&mic_wanted) && samples) {
+#if NODE_MICS == 2
+      if (atomic_load(&mic_stereo)) {
+        for (size_t from = 0; from < samples; from += NODE_AUDIO_SAMPLES / 2) {
+          const size_t count = samples - from < NODE_AUDIO_SAMPLES / 2 ? samples - from : NODE_AUDIO_SAMPLES / 2;
+          v9_put32(payload, index + (uint32_t)from);
+          for (size_t i = 0; i < count; i++) {
+            v9_put16(payload + 4 + i * 4, (uint16_t)left[from + i]);
+            v9_put16(payload + 6 + i * 4, (uint16_t)right[from + i]);
+          }
+          send_message(V9_AUDIO2, payload, 4 + count * 4, true);
+        }
+      } else
+#endif
+        send_message(V9_AUDIO, payload, 4 + samples * 2, true);
+    }
     index += (uint32_t)samples;
-    if (atomic_load(&mic_wanted) && samples)
-      send_message(V9_AUDIO, payload, 4 + samples * 2, true);
   }
 }
 
@@ -426,6 +531,7 @@ static void knock_decide(const knock_candidate *c) {
   send_message(V9_KNOCK, p, 11, false);
 }
 
+#if NODE_SENSOR
 static uint8_t sensor_crc(const uint8_t *p) {
   uint8_t crc = 0xff;
   for (int i = 0; i < 2; i++) {
@@ -495,6 +601,7 @@ static void sensor_task(void *unused) {
     vTaskDelay(pdMS_TO_TICKS(5000));
   }
 }
+#endif
 
 void app_main(void) {
   urgent_queue = xQueueCreate(24, sizeof(message));
@@ -547,9 +654,36 @@ void app_main(void) {
                    .din = NODE_I2S_DIN,
                    .invert_flags = {.mclk_inv = false, .bclk_inv = false, .ws_inv = false}}};
   ESP_ERROR_CHECK(i2s_channel_init_std_mode(microphone, &mic));
+#if NODE_MICS == 2
+  // The right microphone: a second port in slave mode on its own pins, and the first port's clock
+  // outputs routed to those same pins as well. A failure here leaves a one-microphone node, reported
+  // in STATUS, rather than a node that cannot start.
+  i2s_chan_config_t channel2 = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_1, I2S_ROLE_SLAVE);
+  channel2.dma_desc_num = 6;
+  channel2.dma_frame_num = NODE_AUDIO_SAMPLES;
+  esp_err_t second = i2s_new_channel(&channel2, NULL, &microphone2);
+  if (second == ESP_OK) {
+    i2s_std_config_t mic2 = mic;
+    mic2.gpio_cfg.bclk = NODE_I2S2_BCLK;
+    mic2.gpio_cfg.ws = NODE_I2S2_WS;
+    mic2.gpio_cfg.din = NODE_I2S2_DIN;
+    second = i2s_channel_init_std_mode(microphone2, &mic2);
+  }
+  if (second == ESP_OK) {
+    gpio_set_direction(NODE_I2S2_BCLK, GPIO_MODE_INPUT_OUTPUT);
+    esp_rom_gpio_connect_out_signal(NODE_I2S2_BCLK, i2s_periph_signal[0].m_rx_bck_sig, false, false);
+    gpio_set_direction(NODE_I2S2_WS, GPIO_MODE_INPUT_OUTPUT);
+    esp_rom_gpio_connect_out_signal(NODE_I2S2_WS, i2s_periph_signal[0].m_rx_ws_sig, false, false);
+  } else {
+    microphone2 = NULL;
+    atomic_store(&mic2_setup, second);
+  }
+#endif
   xTaskCreate(tx_task, "v9_tx", 4096, NULL, 12, NULL);
   xTaskCreate(microphone_task, "v9_mic", 8192, NULL, 8, NULL);
+#if NODE_SENSOR
   xTaskCreate(sensor_task, "v9_sensor", 4096, NULL, 3, NULL);
+#endif
   status(V9_HELLO);
   uint8_t incoming[256];
   for (;;) {
@@ -599,8 +733,10 @@ void app_main(void) {
       button_inhibit = button_stable;
     }
     if (reaction_armed && now >= reaction_due) {
-      uint8_t values[9] = {0};
-      memcpy(values + reaction_led * 3, reaction_rgb, 3);
+      // light_index is one of the three logical lamps (left, middle, right) on every board.
+      uint8_t nine[9] = {0}, values[NODE_LED_COUNT];
+      memcpy(nine + reaction_led * 3, reaction_rgb, 3);
+      expand_lamps(nine, values);
       set_leds(values);
       uint64_t activated = esp_timer_get_time();
       reaction_armed = false;

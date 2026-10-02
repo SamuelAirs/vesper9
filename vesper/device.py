@@ -1,7 +1,9 @@
 """An explicit simulator and a reconnecting USB-serial transport."""
 import asyncio
 import collections
+import array
 import contextlib
+import glob
 import json
 import logging
 import math
@@ -24,6 +26,10 @@ KNOCK_THRESHOLDS = {"off": 0, "low": 8000, "medium": 4000, "high": 3000}
 # KNOCK_GUARD_BEFORE_US before any button edge, or up to KNOCK_GUARD_AFTER_US after one.
 KNOCK_GUARD_BEFORE_US = 60_000
 KNOCK_GUARD_AFTER_US = 200_000
+# A two-microphone node (board 2) streams both channels; speech and sound analysis get one. "sum" is
+# the average of the two, which keeps a voice in front of the box and halves each microphone's own
+# noise; "left" and "right" are for comparing them.
+MIC_MIXES = ("sum", "left", "right")
 WRITE_FAILURES_LIMIT = 3   # consecutive failed writes before the link is torn down and reopened
 REPEAT_LOG_EVERY = 30      # a link that stays down is logged on the first failure, then every 30th
 
@@ -136,6 +142,8 @@ class SerialDevice:
     def __init__(self, port, baud, emit):
         # Several comma-separated candidates may be given (the node's COM bridge
         # and its native USB port); the first one present is used on each attempt.
+        # A candidate may be a pattern (…/usb-Espressif_USB_JTAG_serial_debug_unit_*), so a
+        # different node on the same cable is found without editing the service.
         self.ports = [candidate.strip() for candidate in port.split(",") if candidate.strip()] or [port]
         self.port = self.ports[0]
         self.baud = baud
@@ -162,6 +170,24 @@ class SerialDevice:
         self.button_edges = collections.deque(maxlen=16)  # (node at_us, pressed) of recent button edges
         self.knock_guarded = 0      # knocks dropped as the button's own sound
         self.attempt_failures = 0   # consecutive connection attempts that never heard the node
+        self.mic_mix = "sum"        # which microphone(s) of a two-microphone node feed speech and analysis
+
+    @property
+    def lamps(self):
+        """Physical lamps on the connected node: 3, or 4 on the second board."""
+        return int((self.status or {}).get("lamps", 3) or 3)
+
+    @property
+    def mics(self):
+        return int((self.status or {}).get("mics", 1) or 1)
+
+    def candidates(self):
+        """The port candidates with patterns expanded, in the order given."""
+        found = []
+        for candidate in self.ports:
+            matches = sorted(glob.glob(candidate)) if any(ch in candidate for ch in "*?[") else [candidate]
+            found.extend(match for match in matches if match not in found)
+        return found
 
     @property
     def crc_errors(self):
@@ -196,6 +222,8 @@ class SerialDevice:
         async with self.write_lock:
             if not self.serial or not self.connected:
                 raise ConnectionError("Node is disconnected")
+            if kind == Kind.MIC and payload == b"\x01" and self.mics == 2:
+                payload = b"\x02"  # both microphones; packet() mixes them down
             sequence = self.sequence
             self.sequence = (sequence + 1) & 65535
             future = asyncio.get_running_loop().create_future()
@@ -221,7 +249,8 @@ class SerialDevice:
                 # protocol packet, then explicitly renegotiate a muted session.
                 # Each attempt that never hears the node moves on to the next
                 # candidate port, so a present but silent first port cannot block a working one.
-                present = [candidate for candidate in self.ports if os.path.exists(candidate)] or self.ports
+                candidates = self.candidates()
+                present = [candidate for candidate in candidates if os.path.exists(candidate)] or candidates or self.ports
                 self.port = present[self.attempt_failures % len(present)]
                 self.name = self.port
                 link = serial.Serial()
@@ -352,6 +381,23 @@ class SerialDevice:
                 self.audio_expected = (index + (len(p) - 4) // 2) & 0xFFFFFFFF
                 self.audio_bytes += len(p) - 4
                 await self.emit({"type": "audio", "pcm": p[4:]})
+            elif kind == Kind.AUDIO2 and len(p) >= 8 and len(p) % 4 == 0:
+                # Two microphones, left/right pairs. Consumers get one channel, as from a one-microphone node.
+                index = struct.unpack_from("<I", p)[0]
+                frames = (len(p) - 4) // 4
+                if self.audio_expected is not None and index != self.audio_expected:
+                    gap = (index - self.audio_expected) & 0xFFFFFFFF
+                    self.audio_missing += gap if gap < 160000 else 0
+                self.audio_expected = (index + frames) & 0xFFFFFFFF
+                self.audio_bytes += frames * 2
+                pairs = array.array("h", p[4:])
+                if self.mic_mix == "left":
+                    mono = pairs[0::2]
+                elif self.mic_mix == "right":
+                    mono = pairs[1::2]
+                else:
+                    mono = array.array("h", [(pairs[i] + pairs[i + 1]) // 2 for i in range(0, len(pairs), 2)])
+                await self.emit({"type": "audio", "pcm": mono.tobytes()})
             elif kind == Kind.KNOCK and len(p) in (10, 11):
                 at, peak = struct.unpack_from("<QH", p)
                 event = {"type": "knock", "at_us": at, "peak": peak, "source": "node", "generation": self.generation}
@@ -378,7 +424,10 @@ class SerialDevice:
                 self.mic = bool(state.get("mic", False))
                 self.pressed = bool(state.get("button", False))
                 if "leds" in state:
-                    self.leds = state["leds"]
+                    values = state["leds"]
+                    # Four lamps: the console still thinks in left, middle, right (the node shows the
+                    # middle value on both middle lamps), so report lamps 1, 2 and 4.
+                    self.leds = values[0:6] + values[9:12] if len(values) == 12 else values
                 # A node that lost the setting (it resets it after 3 s without the host, and at boot) is
                 # told again. Firmware without knock detection has no "knock" field and is left alone.
                 knock = state.get("knock")

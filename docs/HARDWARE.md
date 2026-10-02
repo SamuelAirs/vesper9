@@ -46,3 +46,24 @@ UART43/44 is the usual S3 UART0 mapping used for a COM bridge, but the exact boa
 Compilation verifies APIs and target compatibility, not electrical behavior. On the actual assembled node, verify each channel in Node Scope, audible/visible Morse timing, sensible sensor readings, voice input level, a 30-second timer during gameplay, and recovery after unplug/replug. Keep the full-flash backup made by the installer until this check is complete.
 
 Official peripheral documentation: [I²S](https://docs.espressif.com/projects/esp-idf/en/v5.4.2/esp32s3/api-reference/peripherals/i2s.html), [LEDC](https://docs.espressif.com/projects/esp-idf/en/v5.4.2/esp32s3/api-reference/peripherals/ledc.html), [MCPWM](https://docs.espressif.com/projects/esp-idf/en/v5.4.2/esp32s3/api-reference/peripherals/mcpwm.html).
+
+## The second node (board 2, 2026-10-02)
+
+Sam built a second node on the same ESP32-S3 N16R8 board type (MAC dc:da:0c:14:8f:c0): four RGB lamps, two INMP441 microphones (left and right) and the same arcade switch. It has no SHT3x; GPIO13 and GPIO14 carry the fourth lamp. The firmware is the same source built with `scripts/build-firmware.sh 2` (`NODE_BOARD=2` in `firmware/main/hardware.h`), and STATUS reports `board`, `lamps` and `mics` so the Pi knows which node it has. This table is Sam's wiring table; the colour order within each lamp has not yet been checked one output at a time, as it was on the first node.
+
+| Component | Signal | ESP32-S3 GPIO |
+| --- | --- | --- |
+| Left microphone | SCK / WS / SD | 4 / 5 / 6 |
+| Right microphone | SCK / WS / SD | 47 / 45 / 21 |
+| Lamp 1 (left) | R / G / B | 7 / 15 / 16 |
+| Lamp 2 | R / G / B | 17 / 18 / 8 |
+| Lamp 3 | R / G / B | 9 / 10 / 11 |
+| Lamp 4 (right) | R / G / B | 13 / 14 / 3 |
+| Button | one tab / other tab | 12 / 46 |
+
+Both microphones take 3.3 V and ground; all grounds and the lamps' shared ground are common.
+
+- **Two microphones on one clock.** The right microphone has its own clock pins. The firmware routes the left port's bit and word clocks to those pins as well (GPIO matrix) and reads the right microphone with the second I²S port in slave mode on the same pins, so both sample on the same edges and sample *i* of each channel is the same instant. If the second port cannot be set up the node runs as a one-microphone node and says so in STATUS (`mic2`).
+- **Twelve outputs.** LEDC drives the first eight colour legs; the last four (lamp 3 blue and all of lamp 4) use two MCPWM operators with two generators each, at the same 4 kHz.
+- **Three logical lamps.** Everything written for three lamps still sends nine values. The node shows the middle value on lamps 2 and 3, so left stays left, right stays right and the row stays symmetric. Twelve values address the four lamps directly.
+- **Strapping pins.** GPIO3 (lamp 4 blue), GPIO45 (right microphone WS) and GPIO46 (button return) are strapping pins. GPIO46 is wired as on the first node. GPIO45 selects the flash voltage at reset and must not be pulled high then; the microphone's WS pin is an input and does not drive it. GPIO3 only matters with a JTAG eFuse setting this board does not use.

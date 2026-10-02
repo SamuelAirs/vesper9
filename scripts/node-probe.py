@@ -41,6 +41,12 @@ class Probe:
         self.last_ping = 0
         self.presses = 0
         self.knocks = 0
+        self.stereo = [array.array("h"), array.array("h")]  # left, right: kept in memory for the statistics only
+
+    @property
+    def outputs(self):
+        """Lamp outputs on this node: 9 on the first board, 12 on the four-lamp one."""
+        return 3 * int((self.status or {}).get("lamps", 3))
 
     def send(self, kind, payload=b""):
         sequence = self.sequence
@@ -91,6 +97,16 @@ class Probe:
             self.audio_samples += len(samples)
             self.sum_squares += sum(s * s for s in samples)
             self.peak = max(self.peak, max(abs(s) for s in samples))
+        elif kind == Kind.AUDIO2 and len(p) >= 8:
+            index = struct.unpack_from("<I", p)[0]
+            pairs = array.array("h", p[4:])
+            frames = len(pairs) // 2
+            if self.audio_next is not None and index != self.audio_next:
+                self.audio_gaps += (index - self.audio_next) & 0xFFFFFFFF
+            self.audio_next = (index + frames) & 0xFFFFFFFF
+            self.audio_samples += frames
+            self.stereo[0].extend(pairs[0::2])
+            self.stereo[1].extend(pairs[1::2])
 
     def command(self, kind, payload=b"", wait=1.5):
         sequence = self.send(kind, payload)
@@ -104,7 +120,7 @@ class Probe:
             self.send(Kind.MIC, b"\x00")
             self.send(Kind.KNOCK_SET, b"\x00\x00")
             self.send(Kind.CANCEL)
-            self.send(Kind.LEDS, bytes(9))
+            self.send(Kind.LEDS, bytes(9))  # nine values are accepted by every board
             self.link.flush()
         finally:
             self.link.close()
@@ -120,6 +136,7 @@ def main():
     parser.add_argument("--mic", type=float, default=0, help="seconds of microphone level statistics")
     parser.add_argument("--identify", action="store_true",
                         help="light one output at a time; each button press advances (maps real lamp/colour per GPIO)")
+    parser.add_argument("--mono", action="store_true", help="with --mic on a two-microphone node: the left microphone only")
     parser.add_argument("--knock", type=float, default=0,
                         help="seconds to listen for knocks on the case (prints each one, then the node's counters)")
     parser.add_argument("--threshold", type=int, default=4000,
@@ -131,19 +148,20 @@ def main():
         print("STATUS", probe.status)
         print("ACK lights-off:", probe.command(Kind.LEDS, bytes(9)))
         if args.leds:
-            names = [f"{side} {color}" for side in ("LEFT", "MIDDLE", "RIGHT") for color in ("red", "green", "blue")]
+            sides = ("LEFT", "MIDDLE", "RIGHT") if probe.outputs == 9 else ("LAMP 1 (left)", "LAMP 2", "LAMP 3", "LAMP 4 (right)")
+            names = [f"{side} {color}" for side in sides for color in ("red", "green", "blue")]
             for index, name in enumerate(names):
-                values = bytearray(9)
+                values = bytearray(probe.outputs)
                 values[index] = 255
                 print(f"LED {index} {name}: ack {probe.command(Kind.LEDS, bytes(values))}", flush=True)
                 probe.pump(args.step)
             for level in (255, 64, 8):
-                print(f"ALL at {level}: ack {probe.command(Kind.LEDS, bytes([level] * 9))}", flush=True)
+                print(f"ALL at {level}: ack {probe.command(Kind.LEDS, bytes([level] * probe.outputs))}", flush=True)
                 probe.pump(args.step)
             probe.command(Kind.LEDS, bytes(9))
         if args.identify:
-            for index in range(9):
-                values = bytearray(9)
+            for index in range(probe.outputs):
+                values = bytearray(probe.outputs)
                 values[index] = 255
                 probe.command(Kind.LEDS, bytes(values))
                 print(f"STEP {index + 1}: output index {index} lit; waiting for a button press", flush=True)
@@ -156,7 +174,36 @@ def main():
                 probe.pump(.4, show=False)
             probe.command(Kind.LEDS, bytes(9))
             print("IDENTIFY finished", flush=True)
-        if args.mic:
+        if args.mic and int((probe.status or {}).get("mics", 1)) == 2 and not args.mono:
+            # Two microphones: both channels, their levels, and how they line up in time. The lag is
+            # where the cross-correlation of the two channels peaks (positive: the right one hears later).
+            print("ACK mic on (stereo):", probe.command(Kind.MIC, b"\x02"))
+            start = time.monotonic()
+            probe.pump(args.mic, show=False)
+            elapsed = time.monotonic() - start
+            print("ACK mic off:", probe.command(Kind.MIC, b"\x00"))
+            left, right = probe.stereo
+            n = len(left)
+            for name, channel in (("LEFT", left), ("RIGHT", right)):
+                rms = math.sqrt(sum(v * v for v in channel) / n) if n else 0
+                print(f"MIC {name}: {n} samples in {elapsed:.2f} s ({n / elapsed:.0f}/s), rms {rms:.0f}"
+                      f" ({20 * math.log10(rms / 32768) if rms else -99:.1f} dBFS), peak {max(map(abs, channel), default=0)},"
+                      f" missing {probe.audio_gaps}")
+            try:
+                import numpy
+                a, b = numpy.array(left, dtype=float), numpy.array(right, dtype=float)
+                a -= a.mean(); b -= b.mean()
+                span = 48
+                lags = range(-span, span + 1)
+                scores = [float((a[span:-span] * b[span + lag:len(b) - span + lag]).sum()) for lag in lags]
+                best = max(range(len(scores)), key=lambda i: scores[i])
+                norm = math.sqrt(float((a * a).sum()) * float((b * b).sum())) or 1
+                print(f"MIC PAIR: correlation {scores[best] / norm:.2f} at lag {lags[best]} samples"
+                      f" ({lags[best] / 16:.2f} ms); at lag 0 it is {scores[span] / norm:.2f}")
+            except ImportError:
+                print("MIC PAIR: numpy not available, no lag estimate")
+            probe.pump(1.5, show=False)
+        elif args.mic:
             print("ACK mic on:", probe.command(Kind.MIC, b"\x01"))
             start = time.monotonic()
             probe.pump(args.mic, show=False)

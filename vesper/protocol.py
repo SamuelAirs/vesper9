@@ -22,6 +22,7 @@ class Kind(enum.IntEnum):
     STATUS = 6
     ACK = 7
     KNOCK = 8
+    AUDIO2 = 9
     PING = 16
     LEDS = 17
     MIC = 18

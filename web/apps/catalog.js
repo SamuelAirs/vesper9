@@ -22,12 +22,21 @@ export const CARTRIDGES = [
   {
     "id": "runner",
     "name": "MOONRUNNER",
-    "subtitle": "Leave footprints in the dark.",
-    "description": "Cross a crystal desert with a stubborn little survey robot. Tap to hop; hold for height, because tall walls and long mesas need a held jump. Two shields forgive early mistakes. The lamps fill as the next obstacle closes. Your best distance is saved.",
-    "controls": "TAP TO JUMP · HOLD FOR HEIGHT",
+    "subtitle": "Dive the slopes. Fly the crests.",
+    "description": "Fly a survey sled over the rolling hills of the moon before the night catches it. Hold to make the sled heavy and dive down a slope; let go to make it light and fly off the crest. Come down along a downslope for a perfect slide and a burst of speed; three in a row is fever. Every zone reached buys more daylight. Dust pits, rilles to fly over, boost crystals and gas vents; survey orders that unlock sleds and zen riding, a workshop and a daily run. In the air the middle lamp turns green when a landing would be perfect; the right lamp is the daylight.",
+    "controls": "HOLD TO DIVE · LET GO TO FLY",
     "category": "PLAY / RUNNER",
     "glyph": 1,
     "factory": "Moonrunner",
+    "record": {
+      "score": "Score",
+      "metres": "Distance / m",
+      "perfects": "Perfect slides",
+      "chain": "Best chain",
+      "shards": "Shards",
+      "top": "Top speed / km/h",
+      "zone": "Furthest zone"
+    },
     "voice": [
       "runner"
     ],
@@ -182,9 +191,7 @@ export const CARTRIDGES = [
       "sites": "Sites cleared",
       "fuel": "Best fuel left %"
     },
-    "voice": [
-      "lander"
-    ],
+    "voice": [],
     "capabilities": [
       "button",
       "lights",
@@ -381,9 +388,7 @@ export const CARTRIDGES = [
     "category": "INSTRUMENT / ENVIRONMENT",
     "glyph": 4,
     "factory": "Environment",
-    "voice": [
-      "environment"
-    ],
+    "voice": [],
     "capabilities": [
       "sensor"
     ]
@@ -533,7 +538,7 @@ export const CARTRIDGES = [
     ]
   }
 ];
-export const SECTORS = [{"name": "PLAY", "apps": ["perihelion", "orbit", "runner", "pulsar", "tideline"]}, {"name": "PLAY II", "apps": ["drift", "descent", "ballista", "ricochet", "helix"]}, {"name": "PLAY III", "apps": ["outpost", "reaction", "echo", "glyphs"]}, {"name": "INSTRUMENTS", "apps": ["morse", "cadence", "transcribe", "environment"]}, {"name": "INSTRUMENTS II", "apps": ["lantern", "resonance", "oracle"]}];
+export const SECTORS = [{"name": "VOYAGES", "tagline": "Long games to sink an evening into.", "apps": ["perihelion", "outpost", "drift", "ballista", "tideline"]}, {"name": "ARCADE", "tagline": "Quick runs for sharp hands.", "apps": ["orbit", "ricochet", "runner"]}, {"name": "LAMPS", "tagline": "Played on the three lamps.", "apps": ["reaction"]}, {"name": "MIND", "tagline": "Memory, reading and pattern.", "apps": ["echo", "glyphs"]}, {"name": "TOOLS", "tagline": "Useful things for the desk.", "apps": ["lantern", "cadence", "oracle", "morse"]}, {"name": "LISTEN", "tagline": "What the node hears.", "apps": ["resonance", "transcribe"]}];
 export const SYSTEM_APPS = ["settings", "diagnostics", "telemetry"];
 export const DEFAULT_SETTINGS = {
   "sound": true,
@@ -547,5 +552,7 @@ export const DEFAULT_SETTINGS = {
   "tempUnit": "F",
   "tempOffset": 0,
   "lampLevel": "medium",
-  "lampAmbient": true
+  "lampAmbient": true,
+  "latencyMs": 0,
+  "renderQuality": "auto"
 };

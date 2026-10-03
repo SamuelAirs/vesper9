@@ -2,7 +2,7 @@ import { Bridge } from "./engine/bridge.js";
 import { DemoBridge } from "./engine/demo.js";
 import { InputRouter, GESTURE_TAPS } from "./engine/input.js";
 import { Synth, BrowserMicrophone } from "./engine/audio.js";
-import { Random, escapeHTML as esc, formatTime, formatSensorTemp, tempUnit } from "./engine/math.js";
+import { Random, escapeHTML as esc, formatTime } from "./engine/math.js";
 import { ambient, glyph, C, text, space } from "./engine/draw.js";
 import { APPS } from "./apps/registry.js";
 import { DEFAULT_SETTINGS as DEFAULT, SECTORS, SYSTEM_APPS } from "./apps/catalog.js";
@@ -10,6 +10,10 @@ import { LightDirector } from "./engine/lights.js";
 import { HostLamps, levelScale } from "./engine/ambient.js";
 import { microphoneStatus } from "./engine/status.js";
 import { planVoice } from "./engine/voice.js";
+import { LOGICAL_W, LOGICAL_H, renderFactor } from "./engine/render.js";
+import { SLOT_COUNT, SLOTS_ID, slotKey, cleanSlots, activeSlot, setActive, isEmpty, noteSaved, forget, describeSlot, firstEmpty } from "./engine/slots.js";
+import { cleanLogbook, ensureDay, dateKey, pickOf, ownOrder, meetOrder, noteScore, addFeat, streak, doneCount, PICKS } from "./engine/logbook.js";
+const Log = { cleanLogbook, ensureDay, dateKey, pickOf, ownOrder, meetOrder, noteScore, addFeat, streak, doneCount, PICKS };
 
 const $ = (id) => document.getElementById(id);
 // Assigning identical text still replaces the text node and dirties layout, so
@@ -33,7 +37,7 @@ function icon(app) {
 
 // The dashboard's pages, from the catalog's explicit sectors: each is a named list of app ids in order.
 // An app in no sector is not on the dashboard (it stays launchable by id, by voice and from the menu).
-const PAGES = SECTORS.map((sector) => ({ name: sector.name, apps: sector.apps.map((id) => APPS.find((a) => a.id === id)).filter(Boolean) }))
+const PAGES = SECTORS.map((sector) => ({ name: sector.name, tagline: sector.tagline || "", apps: sector.apps.map((id) => APPS.find((a) => a.id === id)).filter(Boolean) }))
   .filter((page) => page.apps.length);
 function locateCard(id) {
   for (let page = 0; page < PAGES.length; page++) {
@@ -41,6 +45,16 @@ function locateCard(id) {
     if (index >= 0) return { page, index };
   }
   return null;
+}
+
+// The card's small kind label: the part of the category after the slash ("PLAY / MOMENTUM" → MOMENTUM).
+const kind = (app) => (app.category.split("/").pop() || "").trim();
+const isGame = (app) => app.category.startsWith("PLAY");
+function standing(best, runs) {
+  const parts = [];
+  if (best > 0) parts.push("BEST " + Math.round(best).toLocaleString("en-US"));
+  if (runs > 0) parts.push(runs + (runs === 1 ? " RUN" : " RUNS"));
+  return parts.length ? parts.join(" · ") : "UNCHARTED";
 }
 
 export class Vesper {
@@ -71,7 +85,11 @@ export class Vesper {
     this.accumulator = 0;
     this.last = 0;
     this.hudValue = "";
-    this.lights = new LightDirector((cmd, data) => this.bridge.command(cmd, data));
+    // The service says how many lamps the node has (state.lamps.count: 3 on the first node, 4 on the
+    // current one) and whether it has a board LED (state.lamps.board is [r, g, b], or null without
+    // one). Until it says, three and no.
+    this.lights = new LightDirector((cmd, data) => this.bridge.command(cmd, data), undefined, undefined,
+      { lamps: () => this.lampCount(), board: () => this.hasBoardLed() });
     // Host-owned lamp feedback (navigation, holds, clicks, acknowledgements, ambient, mic live).
     this.hostLamps = new HostLamps();
     this.clickState = null;
@@ -79,6 +97,9 @@ export class Vesper {
     this.ambientStep = -1;
     this.loaded = false;
     this.errors = [];
+    this.renderScale = 1;
+    this.renderSteps = new Map();
+    this.renderWindow = null;
     this.g = $("game").getContext("2d", { alpha: false });
     this.ag = $("ambient").getContext("2d");
     this.buildHome();
@@ -136,6 +157,10 @@ export class Vesper {
     if (focus && !this.menu) this.restoreFocus(focus);
     this.systemMenu();
   }
+  // In the system menu (and the pages it opens) the gesture is off: a hold there chooses on release.
+  gestureOff() {
+    return !!this.menu;
+  }
   inputMode() {
     return this.menu || !this.app || this.app.navigation ? "menu" : "raw";
   }
@@ -174,6 +199,35 @@ export class Vesper {
       this.fail(error);
     }
   }
+  rawKnock(e) {
+    try {
+      this.app?.knock?.(e);
+    } catch (error) {
+      this.fail(error);
+    }
+  }
+  // Two knocks on the case outside a game (engine/input.js knock()): close the system menu, step an
+  // instrument back to its own previous page (its back() returns true), or leave it for the dashboard;
+  // on the dashboard, go to the previous sector.
+  back(source = "api") {
+    if (this.menu) { this.closeMenu(); return; }
+    if (this.app) {
+      let handled = false;
+      try { handled = !!this.app.back?.(); } catch (error) { this.fail(error); return; }
+      if (!handled) this.home();
+      return;
+    }
+    if (PAGES.length > 1) {
+      this.page = (this.page + PAGES.length - 1) % PAGES.length;
+      this.buildHome();
+    }
+  }
+  // The first of two knocks: say what a second one would do.
+  knockVisual(waiting) {
+    if (!$("escape-hint")) return;
+    if (waiting) $("escape-hint").textContent = "KNOCK AGAIN: BACK";
+    else if (!this.clickState) $("escape-hint").textContent = this.menuHint();
+  }
   rawCancel() {
     this.lifecycle("cancel");
     this.synth.stopTone();
@@ -205,6 +259,12 @@ export class Vesper {
         at_us: performance.now() * 1000,
       });
   }
+  // K on the keyboard: a knock on the case, for the simulator and for trying a game without the node.
+  softwareKnock() {
+    if (this.state.controller === false) return;
+    if (this.state.simulated) this.bridge.command("knock", {}, true).catch(() => {});
+    else this.event({ type: "knock", at_us: performance.now() * 1000, peak: 20000, source: "keyboard" });
+  }
   bind() {
     const bindButton = (element) => {
       element.addEventListener("pointerdown", (e) => {
@@ -228,6 +288,10 @@ export class Vesper {
       if (e.code === "Space") {
         e.preventDefault();
         if (!e.repeat) this.softwareButton(true);
+      }
+      if (e.code === "KeyK" && !e.repeat) {
+        e.preventDefault();
+        this.softwareKnock();
       }
       if (e.code === "Escape") {
         e.preventDefault();
@@ -256,6 +320,7 @@ export class Vesper {
         this.input.cancel();
       }
     });
+    window.addEventListener("resize", () => this.fitCanvas());
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) {
         this.softwareButton(false);
@@ -364,17 +429,26 @@ export class Vesper {
     $("app-grid").innerHTML = collection
       .map(
         (app, i) =>
-          `<button class="app-card" type="button" data-app="${app.id}"><span class="card-number">${String(i + 1).padStart(2, "0")}</span><span class="app-icon">${icon(app)}</span><span class="card-name">${app.name}</span><span class="card-desc">${app.subtitle}</span></button>`,
+          `<button class="app-card" type="button" data-app="${app.id}"><span class="card-number">${String(i + 1).padStart(2, "0")} · ${esc(kind(app))}</span><span class="app-icon">${icon(app)}</span><span class="card-name">${app.name}</span><span class="card-desc">${app.subtitle}</span><span class="card-stat"></span></button>`,
       )
-      .join("");
+      .join("") + '<div class="app-slot" aria-hidden="true">◇ OPEN BAY</div>'.repeat((3 - (collection.length % 3)) % 3);
     const pages = PAGES.length;
-    const name = PAGES[this.page]?.name || "EXPANSION";
-    $("collection-title").textContent =
-      name + " / " + collection.length + " CHANNELS";
+    const sector = PAGES[this.page] || { name: "EXPANSION" };
+    const next = PAGES[(this.page + 1) % pages];
+    $("collection-title").textContent = collection.length + (collection.length === 1 ? " CHANNEL" : " CHANNELS");
     $("sector-label").textContent =
-      "SECTOR " + String(this.page + 1).padStart(2, "0") + " / " + name;
-    $("sector-button").textContent =
-      "NEXT SECTOR → " + (PAGES[(this.page + 1) % pages]?.name || "EXPANSION");
+      "SECTOR " + String(this.page + 1).padStart(2, "0") + " / " + sector.name;
+    $("sector-title").textContent = sector.name.charAt(0) + sector.name.slice(1).toLowerCase();
+    $("sector-tagline").textContent = sector.tagline || "";
+    // Every sector at a glance: this one lit, the one NEXT SECTOR goes to marked. The tabs are a
+    // pointer shortcut only; the button reaches every sector through NEXT SECTOR.
+    $("sector-strip").innerHTML = PAGES.map((p, i) =>
+      `<button type="button" tabindex="-1" class="sector-tab${i === this.page ? " is-current" : ""}${pages > 1 && i === (this.page + 1) % pages ? " is-next" : ""}" data-page="${i}">${esc(p.name)}</button>`).join("");
+    $("sector-strip").querySelectorAll("button").forEach((tab) => {
+      tab.onclick = () => { this.page = Number(tab.dataset.page); this.buildHome(); };
+    });
+    $("sector-button").textContent = "NEXT SECTOR → " + (next?.name || "EXPANSION");
+    this.cardStats();
     const nav = [...$("app-grid").querySelectorAll("button")].map(
       (element, i) => ({ element, run: () => this.launch(collection[i].id) }),
     );
@@ -390,6 +464,18 @@ export class Vesper {
     );
     this.setNav(nav, index);
   }
+  // Each game card carries its standing: the best score and the runs logged, or UNCHARTED.
+  // Instruments keep their subtitle alone. Rewritten in place when scores or progress arrive.
+  cardStats() {
+    for (const card of $("app-grid").querySelectorAll(".app-card")) {
+      const app = APPS.find((a) => a.id === card.dataset.app);
+      const stat = card.querySelector(".card-stat");
+      if (!app || !stat) continue;
+      const value = isGame(app) ? standing(this.state.scores?.[app.id], this.saved(app.id).runs) : "";
+      if (stat.textContent !== value) stat.textContent = value;
+      card.classList.toggle("is-uncharted", value === "UNCHARTED");
+    }
+  }
   home() {
     // Come back to the card the player just left, on its own sector. An app that is not on the
     // dashboard (a system tool opened from the menu) returns to where the dashboard stood before.
@@ -398,7 +484,7 @@ export class Vesper {
     this.closeMenu(false);
     this.unmount();
     this.page = Math.min(left.page, PAGES.length - 1);
-    $("console").classList.remove("playing");
+    this.stage();
     $("dashboard").hidden = false;
     $("application").hidden = true;
     this.buildHome(left.index);
@@ -420,6 +506,7 @@ export class Vesper {
     this.accumulator = 0;
     this.paused = false;
     this.lights.release().catch(() => {});
+    this.boardVisual();
     this.hudValue = "";
     this.hudLabels = "";
     this.silentTicks = false;
@@ -433,8 +520,10 @@ export class Vesper {
     // The new app starts with nothing highlighted from the last screen: its first action is row 0.
     this.nav = { items: [], index: 0 };
     this.meta = meta;
+    if (!SYSTEM_APPS.includes(meta.id)) this.lastApp = meta.id;
     const token = this.token;
     const alive = () => this.token === token;
+    const slot = this.slotOf(meta.id), fresh = isEmpty(this.state.progress?.[slotKey(meta.id, slot)]);
     let lastContent = null;
     const guarded = fn => (...args) => alive() ? fn(...args) : undefined;
     const command = (cmd, data) => {
@@ -458,6 +547,8 @@ export class Vesper {
       rng: Random.warm(),
       // True while the app's taps are musical: the host's own step tick would sound with them.
       silentTicks: guarded((on = true) => { this.silentTicks = !!on; }),
+      // Whether knock-on-the-case input is switched on (Calibration). An app that uses knock() can say so.
+      knockInput: () => (this.state.settings.knock || "medium") !== "off",
       // The menu gesture as the router sees it right now (a third press being counted), for apps
       // that show or sound something on a long press (the Morse sidetone).
       menuGesture: () => (alive() ? this.input.gestureState() : { armed: false, elapsedMs: 0, thresholdMs: 0, progress: 0 }),
@@ -470,21 +561,63 @@ export class Vesper {
       get: (path) => this.bridge.get(path),
       best: (metric = "default") => this.state.scores[metric === "default" ? meta.id : meta.id + ":" + metric] || 0,
       score: (score, metric = "default") => {
-        if (alive()) this.bridge.command("score", { app: meta.id, score, metric }, true);
+        if (!alive()) return;
+        this.bridge.command("score", { app: meta.id, score, metric }, true);
+        const book = this.logbook();
+        if (Log.noteScore(book, meta.id, score, metric)) this.orderMet(meta);
       },
-      progress: () => this.state.progress?.[meta.id] || {},
-      saveProgress: (value) => {
+      // The console logbook (engine/logbook.js). today(): this game's order for today, or null when
+      // it is not one of today's three. daily(text): state the game's own order (a daily run).
+      // dailyMet(): the game's own order is met. feat(id, name): a feat, kept once.
+      today: () => {
+        const p = Log.pickOf(this.logbook(), meta.id);
+        return p ? { goal: p.goal, done: !!p.done, own: !!p.own } : null;
+      },
+      daily: (text) => {
+        if (alive() && Log.ownOrder(this.logbook(), meta.id, text)) this.saveBook();
+      },
+      dailyMet: () => {
+        if (alive() && Log.meetOrder(this.logbook(), meta.id)) this.orderMet(meta);
+      },
+      feat: (id, name) => {
+        if (!alive()) return false;
+        const book = this.logbook();
+        if (!Log.addFeat(book, meta.id, id, name, book.day)) return false;
+        this.saveBook();
+        this.toast("FEAT · " + String(name || id).toUpperCase() + " · " + meta.name);
+        return true;
+      },
+      // The active save slot's progress (engine/slots.js): slot 1 is the save the game always had.
+      progress: () => this.state.progress?.[slotKey(meta.id, slot)] || {},
+      // The optional second argument's label (24 characters at most) names the save on its slot row.
+      saveProgress: (value, { label } = {}) => {
         if (!alive()) return Promise.resolve({ ignored: true });
-        this.state.progress[meta.id] = value;
-        return this.bridge.command("progress", { app: meta.id, value }, true);
+        const key = slotKey(meta.id, slot);
+        this.state.progress[key] = value;
+        if (noteSaved(this.slotBook(), meta.id, slot, Log.dateKey(), label)) this.saveSlotBook();
+        return this.bridge.command("progress", { app: key, value }, true);
       },
+      // Which save slot this run is on: { index: 1..count, count, fresh: the slot was empty at launch }.
+      slot: () => ({ index: slot, count: SLOT_COUNT, fresh }),
       tone: guarded((...args) => this.synth.tone(...args)),
+      // Nine values (three lamps, as every game was written) or twelve (four). On a four-lamp node
+      // a nine-value frame leaves the fourth lamp dark; on a three-lamp node the fourth is dropped.
       leds: (values) => {
         if (alive()) this.lights.set(values);
       },
+      // How many lamps the node has: pass it to the lightshow helpers to use all of them.
+      lampCount: () => this.lampCount(),
+      // The ESP32's own board LED: an extra accent, not a lamp. [r, g, b]; dark unless an app sets it,
+      // and dark again when the app is left. hasBoardLed() says whether this node has one.
+      board: (rgb) => {
+        if (alive()) { this.lights.setBoard(rgb); this.boardVisual(); }
+      },
+      hasBoardLed: () => this.hasBoardLed(),
       pattern: steps => command("pattern", { steps }),
       hud: guarded(items => this.hud(items)),
       controls: guarded(message => this.hint(message)),
+      // An instrument that switches between its panel and the canvas (navigation true or false) says so.
+      restage: guarded(() => { this.input.cancel(this.input.blocked || !!this.input.press, this.input.blockSource || this.input.press?.event.source); this.accumulator = 0; this.stage(); }),
       hint: (message) => {
         if (this.token === token) $("app-readout").textContent = message;
       },
@@ -499,6 +632,8 @@ export class Vesper {
       actions: (items, { focus } = {}) => {
         if (this.token !== token) return;
         const container = $("utility-actions");
+        // A long list (Calibration, Node Scope) goes to three columns so it fits above the fold.
+        container.classList.toggle("dense", items.length > 10);
         const unchanged =
           container.children.length === items.length &&
           [...container.children].every(
@@ -545,13 +680,202 @@ export class Vesper {
       this.fail(error);
       return;
     }
-    $("game-stage").hidden = !!this.app.navigation;
-    $("utility-stage").hidden = !this.app.navigation;
-    $("hud").hidden = !!this.app.navigation;
-    $("console").classList.toggle("playing", !this.app.navigation);
+    // A game that no longer offers save slots goes back to its first save.
+    if (slot > 1 && !this.app.saveSlots && !this.app.constructor?.saveSlots) {
+      setActive(this.slotBook(), meta.id, 1);
+      this.saveSlotBook();
+      return this.launch(meta.id);
+    }
+    this.stage();
     window.scrollTo(0, 0);
     this.bridge.command("focus", { app: meta.id }, true);
     this.clickVisual(0);
+  }
+  // Which stage the app shows: the canvas (a game, or an instrument in a raw-input moment such as
+  // Calibration's tap-along) or its panel. Play mode folds the console's chrome away (style.css).
+  stage() {
+    const nav = !!this.app?.navigation, playing = !!this.app && !nav;
+    $("game-stage").hidden = nav;
+    $("utility-stage").hidden = !nav;
+    $("hud").hidden = nav;
+    $("console").classList.toggle("playing", playing);
+    document.body.classList.toggle("playing", playing);
+    this.fitCanvas();
+  }
+  // The game canvas holds the pixels it is shown at (times the device pixel ratio, at most twice the
+  // logical 960 × 540) and no more: anything beyond that is painted and then thrown away when the
+  // browser scales the picture down. Apps keep drawing in 960 × 540; frame() applies the scale.
+  // RENDER QUALITY in Calibration: SHARP draws every shown pixel, FAST draws 70% of them and lets the
+  // browser scale up, AUTO starts sharp and steps down while a game keeps missing frames (adaptRender).
+  fitCanvas() {
+    const canvas = $("game");
+    if (!this.app || this.app.navigation) return;
+    const box = canvas.getBoundingClientRect();
+    if (!(box.width > 0 && box.height > 0)) return;
+    const shown = Math.min(box.width / LOGICAL_W, box.height / LOGICAL_H) * (window.devicePixelRatio || 1);
+    const scale = Math.max(0.35, Math.min(2, shown * renderFactor(this.state.settings.renderQuality, this.autoRender())));
+    const w = Math.round(LOGICAL_W * scale), h = Math.round(LOGICAL_H * scale);
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+    this.renderScale = w / LOGICAL_W;
+  }
+  // AUTO's current step for this app (remembered for the session, so a heavy game starts where it settled).
+  autoRender() {
+    return this.state.settings.renderQuality === "auto" || !this.state.settings.renderQuality ? this.renderSteps.get(this.meta?.id) ?? 1 : 1;
+  }
+  // AUTO: after the first second of a game, judge each 2-second window. When more than a quarter of
+  // its frames missed (over 20 ms), draw 15% fewer pixels, down to 55% of the shown size. It never
+  // steps back up during a session: a picture that sharpens and blurs by turns is worse than either.
+  adaptRender(frameMs) {
+    const quality = this.state.settings.renderQuality || "auto";
+    if (quality !== "auto" || !this.app || this.app.navigation || this.paused) { this.renderWindow = null; return; }
+    const w = (this.renderWindow ||= { skip: 60, n: 0, slow: 0 });
+    if (w.skip > 0) { w.skip--; return; }
+    w.n++;
+    if (frameMs > 20) w.slow++;
+    if (w.n < 120) return;
+    const step = this.autoRender();
+    if (w.slow / w.n > 0.25 && step > 0.56) {
+      this.renderSteps.set(this.meta.id, Math.max(0.55, step * 0.85));
+      this.fitCanvas();
+      w.skip = 30;
+    }
+    w.n = w.slow = 0;
+  }
+  // The console logbook, started for today (a new date picks a new three).
+  logbook() {
+    this.book ||= Log.cleanLogbook(this.state.progress?.console);
+    const games = PAGES.flatMap((p) => p.apps).filter(isGame).map((a) => a.id);
+    if (Log.ensureDay(this.book, Log.dateKey(), games, (id) => this.state.scores?.[id] || 0)) {
+      this.saveBook();
+      this.todayLine();
+    }
+    return this.book;
+  }
+  saveBook() {
+    if (!this.loaded || this.state.controller === false) return;
+    this.state.progress.console = this.book;
+    this.bridge.command("progress", { app: "console", value: this.book }, true)?.catch?.(() => {});
+  }
+  orderMet(meta) {
+    this.saveBook();
+    this.todayLine();
+    const book = this.book, n = Log.doneCount(book);
+    this.toast("TODAY'S ORDER MET · " + meta.name + (n === Log.PICKS ? " · ALL THREE" : " · " + n + " OF " + Log.PICKS));
+  }
+  // The dashboard's one line for today: the three games and which are done, and the streak.
+  todayLine() {
+    const el = $("today-line");
+    if (!el || !this.book) return;
+    const book = this.book, name = (id) => APPS.find((a) => a.id === id)?.name || id;
+    const days = Log.streak(book, book.day);
+    const value = book.picks.length ? "TODAY · " + book.picks.map((p) => (p.done ? "◆ " : "◇ ") + name(p.a)).join("  ") +
+      (days ? "  · STREAK " + days : "") : "";
+    if (el.textContent !== value) el.textContent = value;
+  }
+  // Save slots (engine/slots.js), for a game with saveSlots = true. The active slot per game and each
+  // slot's last save date are the progress of the reserved id "slots".
+  slotBook() {
+    this.slots ||= cleanSlots(this.state.progress?.[SLOTS_ID]);
+    return this.slots;
+  }
+  saveSlotBook() {
+    if (!this.loaded || this.state.controller === false) return;
+    this.state.progress[SLOTS_ID] = this.slots;
+    this.bridge.command("progress", { app: SLOTS_ID, value: this.slots }, true)?.catch?.(() => {});
+  }
+  slotOf(id) {
+    return id ? activeSlot(this.slotBook(), id) : 1;
+  }
+  saved(id) {
+    return (id && this.state.progress?.[slotKey(id, this.slotOf(id))]) || {};
+  }
+  hasSlots() {
+    return !!(this.app && (this.app.saveSlots || this.app.constructor?.saveSlots));
+  }
+  slotRow(id, n) {
+    let summary = null;
+    try { summary = this.app?.slotSummary?.bind(this.app); } catch {}
+    const key = slotKey(id, n);
+    return describeSlot(this.state.progress?.[key], this.slotBook().at[key], summary, this.slotBook().label[key]);
+  }
+  // Choose a slot: the active one carries on, any other relaunches the game on it (an empty one is a new save).
+  slotMenu() {
+    const id = this.meta.id, name = this.meta.name, active = this.slotOf(id);
+    const rows = Array.from({ length: SLOT_COUNT }, (_, i) => i + 1);
+    const used = rows.filter((n) => !isEmpty(this.state.progress?.[slotKey(id, n)]));
+    const empty = firstEmpty(id, this.state.progress);
+    this.openMenu("Save slots / " + name, `Playing slot ${active}. Choose another slot to switch to it; NEW SAVE starts a fresh one and keeps the others. Each slot keeps its own save; best scores and the logbook are shared.`, [
+      ...rows.map((n) => ({
+        label: (n === active ? "▸ SLOT " : "SLOT ") + n + " / " + this.slotRow(id, n),
+        run: () => (n === active ? this.closeMenu() : this.switchSlot(n)),
+      })),
+      { label: empty ? "NEW SAVE / SLOT " + empty : "NEW SAVE / REPLACE A SLOT", run: () => (empty ? this.switchSlot(empty) : this.replaceSlotMenu()) },
+      ...(used.length ? [{ label: "CLEAR A SLOT", run: () => this.clearSlotMenu() }] : []),
+      { label: "BACK", run: () => this.systemMenu() },
+    ]);
+  }
+  // Leave the game (its last save goes to the slot it was opened on), then open it on slot n.
+  switchSlot(n) {
+    const id = this.meta.id, name = this.meta.name;
+    this.closeMenu(false);
+    this.unmount();
+    setActive(this.slotBook(), id, n);
+    this.saveSlotBook();
+    this.toast("SLOT " + n + " · " + name);
+    this.launch(id);
+  }
+  // Every slot holds a save: NEW SAVE replaces one, after asking.
+  replaceSlotMenu() {
+    const id = this.meta.id, rows = Array.from({ length: SLOT_COUNT }, (_, i) => i + 1);
+    this.openMenu("New save", "Every slot holds a save. Choose one to replace with a new save; you will be asked again.", [
+      ...rows.map((n) => ({ label: "SLOT " + n + " / " + this.slotRow(id, n), run: () => this.confirmClear(n, true) })),
+      { label: "BACK", run: () => this.slotMenu() },
+    ]);
+  }
+  clearSlotMenu() {
+    const id = this.meta.id, rows = Array.from({ length: SLOT_COUNT }, (_, i) => i + 1);
+    const used = rows.filter((n) => !isEmpty(this.state.progress?.[slotKey(id, n)]));
+    this.openMenu("Clear a slot", "Clearing a slot deletes that save. It cannot be undone.", [
+      ...used.map((n) => ({ label: "SLOT " + n + " / " + this.slotRow(id, n), run: () => this.confirmClear(n) })),
+      { label: "BACK", run: () => this.slotMenu() },
+    ]);
+  }
+  // Clear slot n after asking; `start` then opens the game on it as a new save.
+  confirmClear(n, start = false) {
+    const id = this.meta.id, name = this.meta.name;
+    this.openMenu((start ? "Replace slot " : "Clear slot ") + n + "?", "Slot " + n + " of " + this.meta.name + " (" + this.slotRow(id, n) + ") will be deleted" + (start ? " and a new save started there." : "."), [
+      { label: "KEEP SLOT " + n, run: () => this.slotMenu() },
+      {
+        label: (start ? "REPLACE SLOT " : "CLEAR SLOT ") + n,
+        run: () => {
+          const key = slotKey(id, n), playing = start || n === this.slotOf(id);
+          // Leave the game first when it is on that slot: whatever it saves on the way out must not refill it.
+          if (playing) { this.closeMenu(false); this.unmount(); }
+          this.state.progress[key] = {};
+          this.bridge.command("progress", { app: key, value: {} }, true)?.catch?.(() => {});
+          const dropped = forget(this.slotBook(), id, n);
+          this.toast("SLOT " + n + (start ? " · NEW SAVE · " : " CLEARED · ") + name);
+          // The game on that slot starts again from nothing; another slot's game carries on.
+          if (start) setActive(this.slotBook(), id, n);
+          if (start || dropped) this.saveSlotBook();
+          if (playing) this.launch(id);
+          else this.slotMenu();
+        },
+      },
+    ]);
+  }
+  // The logbook in the system menu: today's three (each one launches), the streak, the feats.
+  logbookMenu() {
+    const book = this.logbook(), name = (id) => APPS.find((a) => a.id === id)?.name || id;
+    const days = Log.streak(book, book.day), done = Log.doneCount(book);
+    const recent = book.feats.slice(-6).reverse().map((f) => f.n + " (" + name(f.a) + ")").join(", ");
+    this.openMenu("Logbook", `Today's three: ${done} of ${Log.PICKS} met. ${days ? "Streak: " + days + (days === 1 ? " day." : " days.") : "Meet one order to start a streak."} Feats: ${book.feats.length}${recent ? ". Latest: " + recent + "." : "."}`, [
+      ...book.picks.map((p) => ({ label: (p.done ? "◆ " : "◇ ") + name(p.a) + " / " + p.goal.toUpperCase(), run: () => this.launch(p.a) })),
+      { label: "BACK", run: () => this.systemMenu() },
+    ]);
   }
   hint(message) {
     $("control-hint").textContent = message;
@@ -636,20 +960,24 @@ export class Vesper {
     const mic = this.state.mic.mode;
     this.openMenu("System channel", "Tap to move. Hold and release to choose. Open it: tap, tap, hold.", [
       {
-        label: this.app ? "RESUME / " + this.meta.name : "RETURN TO DASHBOARD",
+        label: this.app ? "RESUME / " + this.meta.name : "CLOSE MENU",
         run: () => this.closeMenu(),
       },
+      // The last app played, one choice away from the dashboard.
+      ...(!this.app && this.lastApp && APPS.some((a) => a.id === this.lastApp) ? [{ label: "CONTINUE / " + APPS.find((a) => a.id === this.lastApp).name, run: () => this.launch(this.lastApp) }] : []),
       ...(this.app ? [{ label: "RESTART / " + this.meta.name, run: () => this.launch(this.meta.id) }, ...(this.app.menuActions?.() || []),
-        ...(this.state.progress?.[this.meta.id]?.runs ? [{ label: 'FIELD RECORD / ' + this.state.progress[this.meta.id].runs + ' ENTRIES', run: () => this.fieldRecord() }] : [])] : []),
-      { label: "DASHBOARD", run: () => this.home() },
+        ...(this.hasSlots() ? [{ label: "SAVE SLOT / " + this.slotOf(this.meta.id) + " OF " + SLOT_COUNT, run: () => this.slotMenu() }] : []),
+        ...(this.saved(this.meta.id).runs ? [{ label: 'FIELD RECORD / ' + this.saved(this.meta.id).runs + ' ENTRIES', run: () => this.fieldRecord() }] : [])] : []),
+      ...(this.app ? [{ label: "DASHBOARD", run: () => this.home() }] : []),
+      { label: "LOGBOOK / TODAY " + Log.doneCount(this.logbook()) + " OF " + Log.PICKS, run: () => this.logbookMenu() },
       { label: "MICROPHONE / " + mic.toUpperCase(), run: () => this.micMenu() },
       {
         label: this.meta ? "HOW TO PLAY / CONTROLS" : "HOW TO USE VESPER",
         run: () =>
           this.help(
             this.meta
-              ? this.meta.description + " To open the menu from anywhere: tap, tap, then press and hold for about a second. The two taps and the hold reach the app first; when the menu opens, the app puts back anything they changed."
-              : "Tap to move between items. Hold and release to select. To open the system menu from anywhere, in any app: tap, tap, then press and hold for about a second. Space or the on-screen arcade button also works. Games come first on the dashboard, then the instruments; Calibration, Node Scope and Telemetry are under SYSTEM TOOLS in the system menu.",
+              ? this.meta.description + " To open the menu from anywhere: tap, tap, then press and hold (about a second in menus, 1.6 seconds inside a game). The two taps and the hold reach the app first; when the menu opens, the app puts back anything they changed."
+              : "Tap to move between items. Hold and release to select. To open the system menu from anywhere, in any app: tap, tap, then press and hold for about a second. Space or the on-screen arcade button also works. The dashboard's sectors are " + PAGES.map((p) => p.name.charAt(0) + p.name.slice(1).toLowerCase()).join(", ") + ": the games come first, then the instruments. Calibration, Node Scope and Telemetry are under SYSTEM TOOLS in the system menu.",
           ),
       },
       { label: "CALIBRATION / SETTINGS", run: () => this.launch("settings") },
@@ -665,7 +993,7 @@ export class Vesper {
     ]);
   }
   fieldRecord() {
-    const saved = this.state.progress?.[this.meta?.id] || {}, last = saved.last || {};
+    const saved = this.saved(this.meta?.id), last = saved.last || {};
     const labels = { locks: 'Locks', metres: 'Metres', relics: 'Relics', passages: 'Passages', sequences: 'Sequences', inscriptions: 'Inscriptions', milliseconds: 'Reaction / ms', metric: 'Timing source', scanMs: 'Scan / ms', reason: 'Last signal', error: 'Last signal', ...(this.meta?.record || {}) };
     const detail = Object.entries(labels).filter(([key]) => last[key] !== undefined).map(([key,label]) => `${label}: ${last[key]}`).join('. ');
     this.help(`${saved.runs || 0} field entries. Highest milestone: ${saved.milestone || 0}. Last entry — ${detail || 'No result yet.'}`);
@@ -799,7 +1127,7 @@ export class Vesper {
   faultMenu() {
     let extra = [];
     try { extra = this.app?.menuActions?.() || []; } catch {}
-    const runs = this.state.progress?.[this.meta?.id]?.runs;
+    const runs = this.saved(this.meta?.id).runs;
     this.openMenu("Application stopped", this.faultMessage || "", [
       // One restart entry: named for the app when it mounted, generic when it never did.
       { label: this.app ? "RESTART / " + this.meta.name : "RESTART APP", run: () => this.launch(this.meta.id) },
@@ -813,10 +1141,35 @@ export class Vesper {
     if (!this.synth.enabled) this.synth.stopTone();
     $("console").classList.toggle("crt", this.state.settings.crt);
     this.lights.setScale(levelScale(this.state.settings.lampLevel));
+    this.fitCanvas();
+  }
+  lampCount() {
+    return (this.state.lamps?.count ?? this.state.device?.lamps) === 4 ? 4 : 3;
+  }
+  hasBoardLed() {
+    return Array.isArray(this.state.lamps?.board) || this.state.device?.boardLed === true;
+  }
+  // Every physical lamp value from a leds event or state (lamps), else the nine logical ones.
+  physicalLeds(e) {
+    if (Array.isArray(e?.lamps)) return e.lamps;
+    if (Array.isArray(e?.lamps?.values)) return e.lamps.values;
+    return e?.leds ?? e?.values;
+  }
+  // The on-screen board LED pip mirrors what an app asked for (the node does not echo it).
+  boardVisual() {
+    const pip = $("lamp-board");
+    if (!pip) return;
+    const rgb = this.lights.boardDesired, on = this.hasBoardLed() && rgb.some((v) => v > 0);
+    pip.hidden = !this.hasBoardLed();
+    pip.style.background = on ? `rgb(${rgb.join(",")})` : "";
+    pip.style.boxShadow = on ? `0 0 9px rgba(${rgb.join(",")},.35)` : "";
   }
   lightVisual(values) {
-    if (!Array.isArray(values) || values.length !== 9) return;
-    for (let i = 0; i < 3; i++) {
+    if (!Array.isArray(values) || (values.length !== 9 && values.length !== 12)) return;
+    const count = values.length / 3;
+    $("lamp-3").hidden = this.lampCount() < 4;
+    for (let i = 0; i < 4; i++) {
+      if (i >= count) { $("lamp-" + i).style.background = ""; $("lamp-" + i).style.color = ""; $("lamp-" + i).style.boxShadow = ""; continue; }
       const rgb = values.slice(i * 3, i * 3 + 3),
         on = Math.max(...rgb) > 0,
         lamp = $("lamp-" + i);
@@ -825,7 +1178,7 @@ export class Vesper {
       lamp.style.boxShadow = on ? `0 0 13px rgba(${rgb.join(",")},.3)` : "";
       lamp.setAttribute(
         "aria-label",
-        ["Left", "Middle", "Right"][i] + " light " + (on ? "on" : "off"),
+        (count === 4 ? ["First", "Second", "Third", "Fourth"] : ["Left", "Middle", "Right"])[i] + " light " + (on ? "on" : "off"),
       );
     }
   }
@@ -838,8 +1191,13 @@ export class Vesper {
           progress: e.progress || {},
         };
         this.loaded = true;
+        this.book = Log.cleanLogbook(this.state.progress.console);
+        this.slots = cleanSlots(this.state.progress[SLOTS_ID]);
+        this.logbook();
+        this.cardStats();
         this.settings();
-        this.lightVisual(e.leds);
+        this.lightVisual(this.physicalLeds(e));
+        this.boardVisual();
         this.status();
         this.input.cancel(!!e.device.button, e.simulated ? "simulator" : "node");
         this.lights.invalidate();
@@ -857,6 +1215,9 @@ export class Vesper {
         Object.assign(this.state.device, e);
         this.lights.invalidate();
         this.status();
+        // A node with a different lamp count or board LED shows it at once.
+        $("lamp-3").hidden = this.lampCount() < 4;
+        this.boardVisual();
         if (!e.connected) {
           this.input.cancel(true, this.state.simulated ? "simulator" : "node");
           this.browserMic.stop();
@@ -876,20 +1237,32 @@ export class Vesper {
           this.input.down(e);
         } else this.input.up(e);
         break;
+      case "knock":
+        this.hostLamps.touch(performance.now());
+        this.input.knock(e);
+        break;
       case "sensor":
         this.state.sensor = e;
         this.status();
         break;
-      case "leds":
+      case "leds": {
+        // e.values stays the nine logical lamps; e.lamps (new service) is every physical value.
+        const physical = this.physicalLeds(e);
         this.state.leds = e.values;
-        this.lights.observe(e.values);
-        this.lightVisual(e.values);
+        if (Array.isArray(e.lamps) && this.state.lamps) this.state.lamps.values = e.lamps;
+        this.lights.observe(physical);
+        this.lightVisual(physical);
+        break;
+      }
+      case "board_led":
+        if (this.state.lamps && Array.isArray(e.values)) this.state.lamps.board = e.values;
+        this.boardVisual();
         break;
       case "node_status":
         this.input.reconcile(e.button, this.state.simulated ? "simulator" : "node");
         this.state.device.button = e.button;
         this.state.device.generation = e.generation;
-        this.lights.observe(e.leds);
+        this.lights.observe(this.physicalLeds(e));
         this.state.device.capture = e.mic;
         this.state.device.audioBytes =
           e.audioBytes ?? this.state.device.audioBytes;
@@ -897,7 +1270,14 @@ export class Vesper {
           e.crcErrors ?? this.state.device.crcErrors;
         this.state.device.missingSamples =
           e.missingSamples ?? this.state.device.missingSamples;
-        if (e.leds) this.lightVisual(e.leds);
+        // A node's STATUS says how many lamps it has and, when it has one, the board LED's colour, so a
+        // node plugged in after the page loaded is driven at its own count.
+        if (typeof e.lamps === "number") {
+          const before = this.lampCount() + "/" + this.hasBoardLed();
+          this.state.lamps = { count: e.lamps, values: e.leds, board: Array.isArray(e.board_led) ? e.board_led : null };
+          if (before !== this.lampCount() + "/" + this.hasBoardLed()) { this.lights.invalidate(); this.boardVisual(); }
+        }
+        if (e.leds || e.lamps) this.lightVisual(this.physicalLeds(e));
         break;
       case "mic":
         this.state.mic = {
@@ -930,6 +1310,8 @@ export class Vesper {
         break;
       case "scores":
         this.state.scores = e.scores;
+        this.cardStats();
+        this.todayLine();
         break;
       case "settings":
         this.state.settings = { ...DEFAULT, ...e.settings };
@@ -974,18 +1356,6 @@ export class Vesper {
         : s.simulated
           ? "SIMULATOR"
           : "HARDWARE");
-    const unit = (s.settings || DEFAULT).tempUnit;
-    setText("temp-mini", s.sensor
-      ? formatSensorTemp(s.sensor.temperature, unit, 1, s.settings || DEFAULT)
-      : "— " + tempUnit(unit));
-    setText("rh-mini", s.sensor
-      ? s.sensor.humidity.toFixed(0) + " % RH"
-      : "— % RH");
-    const stale = !connected || !s.sensor?.at || Date.now() / 1000 - s.sensor.at > 15;
-    $("temp-mini").classList.toggle("stale", stale);
-    $("rh-mini").classList.toggle("stale", stale);
-    const tempTitle = stale ? "Last reading / stale or unavailable" : "Live reading";
-    if ($("temp-mini").title !== tempTitle) $("temp-mini").title = tempTitle;
     const micStatus = microphoneStatus(s), active = micStatus.active;
     $("mic-button").classList.toggle("active", active);
     setText("mic-text", micStatus.label);
@@ -1026,6 +1396,7 @@ export class Vesper {
       press: hold, clicks: this.clickState, timerRemaining: remaining,
       // Confirmed capture from the node, not the requested mode.
       mic: !!s.device.connected && !!s.device.capture,
+      lamps: this.lampCount(),
     }));
   }
   frameStats() {
@@ -1037,6 +1408,7 @@ export class Vesper {
     const dt = Math.min(0.1, Math.max(0, (now - (this.last || now)) / 1000));
     if (this.last && !document.hidden) {
       this.frameTimes.push(now - this.last);
+      this.adaptRender(now - this.last);
       if (this.frameTimes.length > 600) this.frameTimes.shift();
     }
     this.last = now;
@@ -1054,7 +1426,9 @@ export class Vesper {
           this.ambientStep = step;
           ambient(this.ag, reduced ? 0 : now / 1000, 450, 300);
         }
-      } else if (!this.app.navigation && !this.faulted) {
+      } else if (!this.app.navigation && !this.faulted && !this.menu) {
+        // Behind the system menu the game is frozen: no update (paused) and no redraw, so the
+        // last frame stays and the menu's blurred backdrop is not recomposited every frame.
         if (!this.paused) {
           this.accumulator += dt;
           let steps = 0;
@@ -1068,7 +1442,8 @@ export class Vesper {
           }
         }
         try {
-          this.g.setTransform(1, 0, 0, 1, 0, 0);
+          const scale = this.renderScale || 1;
+          this.g.setTransform(scale, 0, 0, scale, 0, 0);
           this.g.globalAlpha = 1;
           this.app.draw?.(this.g);
         } catch (error) {

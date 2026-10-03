@@ -2,8 +2,7 @@
 // All runs use the fixed 1/60 s step and seeded rngs; nothing here uses wall time.
 // BALANCE_SEEDS=12 runs fewer seeds; BALANCE_ONLY=orbit,runner,undertow,echo,glyph,morse picks games.
 import { orbitWindow, orbitSpeed } from "../../web/apps/orbit.js";
-import { mean, median, pct, playOrbit, playRunner, playUndertow, playEcho, playGlyph, playMorse,
-  runnerWindow, RUNNER_SHAPES } from "./bots.mjs";
+import { mean, median, pct, playOrbit, playRunner, playUndertow, playEcho, playGlyph, playMorse } from "./bots.mjs";
 
 const SEEDS = Array.from({ length: Number(process.env.BALANCE_SEEDS || 40) }, (_, i) => i + 1);
 const ONLY = process.env.BALANCE_ONLY ? process.env.BALANCE_ONLY.split(",") : null;
@@ -37,25 +36,17 @@ if (want("orbit")) {
 }
 
 if (want("runner")) {
-  console.log("\n## Moonrunner (score = metres)");
+  console.log("\n## Moonrunner (score = metres + perfect slides + shards; the run lasts as long as the daylight)");
   head(H);
-  for (const [n, p] of [["competent (sd 2.4 frames = 40 ms)", { kind: "timed", sigmaFrames: 2.4 }],
-    ["average (sd 4.8 frames = 80 ms)", { kind: "timed", sigmaFrames: 4.8 }], ["casual (sd 6 frames = 100 ms)", { kind: "timed", sigmaFrames: 6 }], ["naive (sd 9 frames = 150 ms)", { kind: "timed", sigmaFrames: 9 }],
+  for (const [n, p] of [["times every dive (late by 0 frames)", { kind: "timed", sigmaFrames: 0 }],
+    ["times every dive, 150 ms late", { kind: "timed", sigmaFrames: 9 }], ["times every dive, 250 ms late", { kind: "timed", sigmaFrames: 15 }], ["dives by eye", { kind: "eye" }],
     ["never press", { kind: "never" }], ["always hold", { kind: "hold" }],
-    ["tap every 2.25 s (= mean spacing)", { kind: "rhythm", period: 2.25 }], ["tap every 1.0 s", { kind: "rhythm", period: 1 }],
-    ["mash 8 Hz", { kind: "mash", hz: 8 }], ["mash 4 Hz", { kind: "mash", hz: 4 }]])
+    ["tap every 1.0 s", { kind: "rhythm", period: 1 }], ["mash 4 Hz", { kind: "mash", hz: 4 }]])
     summarize(n, SEEDS.map((s) => playRunner(s, p, CAP)), "metres");
-  console.log("\nClearing windows (launch frames that clear, tap vs hold; one frame = 16.7 ms):");
-  head(["shape", "relics", "speed px/s", "tap window ms", "hold window ms"]);
-  for (const sh of RUNNER_SHAPES) for (const p of [0, 6, 14, 30]) {
-    const speed = 250 + Math.min(p * 5, 150);
-    row([sh.name, p, speed, f(runnerWindow(sh, p, "tap").length * 1000 / 60, 0), f(runnerWindow(sh, p, "hold").length * 1000 / 60, 0)]);
-  }
-  for (const [n, p] of [["competent", { kind: "timed", sigmaFrames: 2.4 }], ["average", { kind: "timed", sigmaFrames: 4.8 }]]) {
+  for (const [n, p] of [["timed", { kind: "timed", sigmaFrames: 0 }], ["150 ms late", { kind: "timed", sigmaFrames: 9 }], ["250 ms late", { kind: "timed", sigmaFrames: 15 }], ["by eye", { kind: "eye" }]]) {
     const runs = SEEDS.map((s) => playRunner(s, p, CAP));
-    console.log(`${n}: ${runs.filter((r) => !r.over).length}/${runs.length} runs survive the full ${CAP} s.`);
     const at = (k) => f(median(runs.map((r) => r.at[k]).filter(Number.isFinite)));
-    console.log(`${n}: median time of the 3rd / 6th (first wall) / 14th (first mesa) / 30th relic: ${at(3)} / ${at(6)} / ${at(14)} / ${at(30)} s`);
+    console.log(`${n}: median time to reach zones II..VI: ${[1, 2, 3, 4, 5].map(at).join(" / ")} s; reached VI ${runs.filter((r) => Number.isFinite(r.at[5])).length}/${runs.length}`);
   }
 }
 

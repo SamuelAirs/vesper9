@@ -62,3 +62,77 @@ The long integrated run was started while final review continued. The final held
 - Browser workflow and extension tests pass on this Pi with Playwright 1.63 driving the system Chromium 151 (32 s). Tests now take a free port each and mute audio so several checkouts can run them at once.
 - Project placed under local git: `v0.2.0-as-delivered`, then bring-up commits. The generated simulator is no longer tracked.
 - Sam's feedback after playing: fun; the lamps are underused; dictation a little inaccurate; wants more games and instruments. Plan for the overnight agent fleet: `../fleet/PLAN.md`.
+
+## 2026-10-03 — Moonrunner: Sam's playtest and four lamps (desktop/cloud session)
+
+- Sam: "maybe a little too easy now, and there are times where it feels like I should hit a perfect [slide] but I kind of bounce down the slope." Measured with bots: a fast sled skipped off the curve of crests and downslopes in 0.02 s hops even while held, and about a third of missed landings were dives only up to 0.15 rad too steep.
+- Fixes: a held sled, or one on a downslope steeper than `GLUE` (0.12 rad), stays on the ground; a dive up to `STEEP_OK` (0.12 rad) steeper than the window is still perfect. A notch harder: a thud keeps only `THUD_KEEP` (55 percent) of the speed, the run starts with 35 s (was 40) and zone II gives 22 s (was 25).
+- Four lamps (helpers from PR #16, merged in): on a four-lamp node the third lamp is the chain and fever and the fourth the daylight, so the landing lamp is never hidden by the fever chase. Three-lamp nodes look as before.
+- Bots, 8 seeds, score (metres): precise about 48 000 (7 700); 150 ms late 34 400 (7 500); 250 ms late 6 300 (2 800, reaches V 2/8, VI 0/8); by eye 13 300 (5 300, VI 3/8); never pressing 370 in 36 s.
+- Save slots (PR #16's API): `static saveSlots = true`, and `slotSummary()` labels a slot "LEVEL 5 · THE RILLES".
+- Not verified on the device.
+
+## 2026-10-02 — Moonrunner: fixes from the platform review (desktop/cloud session)
+
+- The review (`/mnt/project-files/reviews/platform-review-2026-10-02.md`) found Moonrunner too easy and upgrade-driven: a laggy bot reached The Far Side every run, and the battery's daylight made the best score grow with grinding.
+- Skill: from zone IV the dive assist weakens (`GRIP`: 60, 40, 30 percent) and the perfect window narrows (0.42, 0.38, 0.35 rad); daylight per new zone is `ZONE_T` = 25, 20, 10, 6, 4 s; V moved to 3400 m and VI to 5400 m.
+- Gear: the battery became the GRAPPLE (a rille fall costs 3 s less a tier), the fever coil keeps the chain through one miss a fever, shards score nothing, and a surveyed zone pays 60 shards instead of daylight. A test checks that full gear scores the same as none. Old saves keep their tiers.
+- Fixed the fever notice colour (`startsWith("FEVER")`) and the ground seams (one piece per zone, a world-fixed gradient for the blend).
+- Bots, 8 seeds, score (metres): precise about 53 400 (8 600), 150 ms late 27 600 (7 600), 250 ms late 11 800 (5 700), by eye 15 000 (6 300); before, 250 ms late scored 56 percent of precise, now 22 percent. The precise bot reaches VI 8/8, 250 ms late 4/8. Runs last about 140 to 165 s (were about 250 s).
+- Console logbook (PR #16's cut list): the game's own daily streak and the rank names are gone. The daily run states its goal with `ctx.daily()` and reports it with `ctx.dailyMet()` (both optional, so the game also runs without #16); the goal pays 60 shards once a day. Old saves drop the streak.
+- Not verified on the device.
+
+## 2026-10-01 — Moonrunner: depth and visuals (desktop/cloud session)
+
+- Sam asked for better visuals across the board and games with life and depth you can sink time into. Changes stay inside `web/apps/runner.js` (the dashboard and catalog belong to another thread).
+- Visuals: each zone has its own palette (sky gradient, three ridge layers, layered soil with bands), blended over the first 80 m of a zone; twinkling stars, an Earth crescent with weather (a galaxy band on the far side), craters, a sled with runners, cab and antenna, fever glow, and rings on perfect slides. The camera takes in the valley ahead.
+- Depth: fever now climbs from x2 to x5 with every three further perfect slides (+2 s each); sunstones float above some crests (+4 s of daylight); every zone hides three survey beacons high above the hills (18 in all, +30 shards each, and a complete zone gives +2 s daylight to every run). New orders (sunstones, fever level, beacons); the log shows beacons per zone, sunstones and the best distance. Save schema 3 keeps old saves (new fields default to 0).
+- Balance (`BALANCE_SEEDS=6`): by eye about 11 500 in 242 s; a bot timing each dive about 12 750 in 251 s; never pressing about 650 in 66 s. Gesture audit 0/60.
+- Not verified on the device.
+
+## 2026-10-01 — Moonrunner: rhythm and flow (desktop/cloud session)
+
+- Sam: "Moonrunner doesn't quite have the right rhythm. It's really hard to get a flow going." Measured with the by-eye bot (hold over a downhill, let go over an uphill): 77 percent of its landings hit the next climb, because flights off steep upslopes sailed past the downslope, and the time between presses varied by 41 percent.
+- Changes in `web/apps/runner.js`: hills come in sets of 3 to 5 matching hills (`SET`), each set's length sized to the sled's speed smoothed over 2.5 s (`TEMPO.k * speed`, within 0.8x to 2.2x of the zone's range), with the zone's height-to-length shape; a dive anywhere above a downslope closes in on it (aims 0.2 rad steeper than the slope, only steepening until 40 px above, then runs along it; 3 rad/s); diving in the air is 0.9x the sled's dive gravity; the camera also pulls back for a deep valley just ahead; `AHEAD` is 2400 px so new sets follow the speed sooner.
+- By-eye bot (seeds 1-6): perfect slides 13 to 74 percent of landings, landings on a climb 77 to 7 percent, press timing variation 41 to 18 percent. Balance (`BALANCE_SEEDS=6`): by eye about 10 300 in 217 s; a bot timing each dive about 12 700 in 249 s; 150 ms late about 11 400; never pressing about 630 in 65 s.
+- The daily run's hill lengths now follow each rider's speed, so riders share the date's features and draws but not the exact hills.
+- Not verified on the device.
+
+## 2026-10-01 — Moonrunner: more air, bigger hills (desktop/cloud session)
+
+- Sam played the hill-flyer on the console: "a lot better, but it's pretty difficult. It should be closer to tiny wings. It's super hard to get air on it, and the hills are all very shallow." Measured with the by-eye bot: about 11 flights a minute, 18 percent of the time in the air.
+- Changes in `web/apps/runner.js`: hills about 1.5x longer and 1.4x taller (steepest about 55 degrees, `H <= 0.9 L`); a released sled is light on the ground too (`ride.air`), so it leaves crests from about 110 km/h; a dive within 140 px above a downslope bends the sled's line toward the slope (2.2 rad/s); the perfect window is 0.5 rad; any landing keeps at least 70 percent of the flight speed.
+- Balance (`BALANCE_ONLY=runner BALANCE_SEEDS=6`): by eye about 5 600 in 167 s and about half the time in the air; a bot timing each dive about 11 000 in 229 s; 150 ms late about 6 900; never pressing about 660 in 66 s.
+- Not verified on the device.
+
+## 2026-10-01 — Moonrunner reworked as a hill-flyer (desktop/cloud session)
+
+- Sam played the downhill build: "a good mvp, but kind of a flop. The flipping is too fast and linear, and there's no sense of speed or obstacles. Maybe it should be closer to tiny wings than alto." `web/apps/runner.js` is now a Tiny Wings-style hill-flyer: hold to dive (gravity x3 on the ground for the SURVEYOR), let go to fly (x0.7 in the air); the hills are cosine half-waves between key points with a slight overall descent. A landing within 0.42 rad of a downslope is a perfect slide (x1.08 + 60 px/s, +0.5 s daylight, chain points); three in a row is fever (5 s, double points, +250 px/s top speed). The run is timed by daylight (40 s, +25 s per new zone; at night the sled coasts to a stop), which replaces crashing.
+- Obstacles by zone: dust pits (II, 400 m), rilles past the crests with a throwing rim (III, 1000 m; need about 420 px/s, falling costs 8 s), boost crystals (IV, 1800 m), gas vents (V, 2800 m), all of them on the far side (VI, 4000 m). Sense of speed: camera zoom with speed and height, screen-space streaks, km/h in the HUD, the terminator darkening from the left as the daylight runs out.
+- Kept: survey orders (new kinds: perfects, chain, fever, high, long, speed, pads, vent), levels, sleds (SURVEYOR, SKIMMER floats, HAULER dives), trails, workshop (magnet, battery, fever coil), daily run, zen, depot, `AppGuard`, `LampBus`. Save schema 3 migrates schema 1 (first release) and schema 2 (the downhill build: level, shards, sleds, records kept; orders of the level restart; hover pads and headlamp refunded as shards).
+- Tuning was done with the bots in `tests/helpers/runner-bot.mjs`: launches off crests needed a much smaller take-off threshold (0.05 px a step, not 0.6), and flights shorter than 0.12 s do not count as landings. Balance (`BALANCE_ONLY=runner BALANCE_SEEDS=6 node tests/audit/balance.mjs`): never pressing ends at about 740 points in 65 s; diving by eye about 3 800 in about 2 minutes; a bot that times each dive about 6 900 in nearly 3 minutes; the same bot 150 ms late about 4 600.
+- Not verified on the device: feel, frame smoothness on the Pi's display, lamp brightness and colours, sound levels.
+
+## 2026-10-01 — Moonrunner rebuilt as a downhill run (desktop/cloud session)
+
+- Sam's feedback: Moonrunner had potential but the background scrolling was jerky; make it closer to Alto's Adventure. `web/apps/runner.js` is now a one-button downhill run: tap to jump, hold in the air to flip, land flat (clean within 0.5 rad of the slope, stumble to 1.0, crash beyond). Combo, six zones (boulders from 500 m, rilles 1200 m, cables 2100 m, rims and vents 3200 m, far side 4500 m), survey orders (three per level) unlocking zen riding, two more sleds and trails, a workshop bought with shards, a daily run and a depot (hold on title or result). Save schema 2 migrates the first release's `{ schema: 1, runs, last, milestone }`.
+- Jerk: the old far hills were drawn per screen slot with `distance % 110`, so their shapes changed when the slot wrapped. Every layer is now a function of world position, the terrain a Catmull-Rom curve through fixed control points, and `draw()` extrapolates the camera by the wall time since the last fixed update, so a frame that runs zero or two updates (the host's accumulator in `web/main.js`) no longer steps the picture. A host-level interpolation factor passed to `draw()` would be the cleaner general fix; not done here (shared file).
+- Gesture safety moved from `GestureGuard` (fixed field list) to `AppGuard`, so `tests/gesture-apps.test.mjs` now checks every field of Moonrunner. Old Moonrunner mechanic tests (shapes, shields, hold-to-clear) were removed with the mechanics; the shared lamp, F2/F3/F4 and gesture tests now drive the new game; new tests in `tests/runner.test.mjs`.
+- Balance (`BALANCE_ONLY=runner BALANCE_SEEDS=4 node tests/audit/balance.mjs`): never pressing ends at about 570 points in 28 s (zone II's first boulders); a careful bot scores about 15 000 and rides for minutes; jump timing noise of 80 ms cuts that to about 4 000, 150 ms to about 850.
+- Not verified on the device: feel, frame smoothness on the Pi's display, lamp brightness and colours, sound levels.
+## 2026-10-01 — dashboard tidy (desktop, not verified on the device)
+
+- Sectors regrouped by kind instead of PLAY / PLAY II / PLAY III and INSTRUMENTS / II: VOYAGES (Perihelion, Outpost, Undertow, Ballista, Tideline), ARCADE (Orbit Lock, Ricochet, Moonrunner, Light Trial, Descent), MIND (Echo Vault, Glyph Archive), TOOLS (Lantern, Cadence, Oracle, Signal School), SENSORS (Atmosphere, Resonance, Field Notes). Pulsar and Helix (retired by Sam) are off the dashboard; their own pull requests remove them. Sectors may carry an optional `tagline`.
+- The decorative hero became a sector header (serif sector name, tagline, the orrery) and a strip of every sector with the current one lit; with NEXT SECTOR highlighted, the sector it leads to is marked in amber. Game cards show their kind, best score and runs (or UNCHARTED); part-filled pages square off with empty bays. Headless 1024 × 600, 800 × 900 and 400 × 800 screenshots looked at.
+- Storage migration `ballista_metres_v2`: the old artillery best moves to `ballista:artillery` once, so the rebuilt launcher's metres start a fresh best (tests/test_storage_migrations.py).
+
+## 2026-10-02 — platform polish from the review (desktop, not verified on the device)
+
+- Play mode: the console's chrome folds into a 34 px top row and a 26 px bottom row while a game runs, so on 1024 × 600 the game is shown at 960 × 540 instead of about 670 × 377. The canvas backing store follows the shown size; RENDER QUALITY (auto, sharp, fast) can draw fewer pixels. Headless Chromium at 12× CPU throttling: Perihelion's slow frames 37/147 sharp, 21/165 fast; Ballista 12/174 and 2/182. Not a Pi measurement.
+- The menu gesture's final hold is 600 ms longer inside a game (1.6 s at the standard pace); menus keep 1 s. `SETTLE` is 2.8 s.
+- TIMING OFFSET in Calibration (`latencyMs`, tap-along), two knocks on the case go back outside a game (needs PR #4's firmware and service), and the console logbook (today's three, streak, feats; progress id `console`, version 1).
+- Report and per-game cut list: `fleet-notes/reports/platform-polish.md`.
+- Later the same night: a LAMPS sector (Meridian, Relay, Light Trial) after ARCADE, and The Stacks on TOOLS. Sectors may name a cartridge that is not in the catalog yet; it is left out until its pull request adds it, so each draft merges with its catalog entry alone. The dashboard's system menu no longer lists DASHBOARD beside RETURN TO DASHBOARD.
+- 2026-10-02: Descent is on hold (Sam): off the dashboard and without its voice name; its code and saves stay and it still launches by id.
+- 2026-10-03: the new node has no temperature/humidity sensor (Sam). Atmosphere is off the dashboard and voice (still registered, its history untouched); SENSORS became LISTEN (Resonance, Field Notes); the top bar's temperature/humidity readout is hidden in index.html. main.js still writes to the hidden readout, and Node Scope and Telemetry still show sensor rows.
+- 2026-10-03 (platform polish): inside the system menu tap, tap, hold no longer reopens the menu (Sam: choosing DASHBOARD, the third row, opened the menu again). Save slots for games that opt in (`saveSlots = true`; `engine/slots.js`, progress ids `<id>#2..4` and `slots`); Outpost wires them first. The sensor rows are gone from the top bar code, Node Scope (it shows the lamp count and the current node's wiring), Telemetry and Calibration's TEMPERATURE unit; Atmosphere keeps its own. Not verified on the device.

@@ -14,6 +14,8 @@ The project includes a custom 2D game engine, a dashboard, six original games, s
 
 Open **`VESPER-9-Simulator.html`** in a desktop browser. It is self-contained and needs no installation or internet connection. Use **Space** or the circular on-screen button. Click a card for direct access.
 
+On a phone, tablet or Steam Deck, open the published copy at **https://samuelairs.github.io/vesper9/** (rebuilt from `main` by `.github/workflows/pages.yml`). Tap the on-screen button or the game itself; on iOS, Share › Add to Home Screen opens it full screen. Saves stay in that browser and are separate from the Pi's.
+
 | Gesture | Dashboard, instruments and menus | Inside a game |
 | --- | --- | --- |
 | Short press | Next item | The game's action |

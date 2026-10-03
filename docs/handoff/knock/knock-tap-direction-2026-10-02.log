@@ -1,0 +1,115 @@
+NODE {'fw': 'vesper-node-0.2.0', 'board': 2, 'lamps': 4, 'mics': 2, 'mic2': {'setup': 0, 'err': 0}}
+PHASE left-side: lamp 1, 25 s, started 19:46:39
+  396160 frames, 0 missing, 31 taps (1 of them lasting sounds)
+  TAP at   0.89 s  peaks L 24440 R 32767  level  +0.3 dB  lag  +3.18  onset  +3  corr 0.39
+  TAP at   1.74 s  peaks L 31604 R 26110  level  -2.1 dB  lag  +2.95  onset  +3  corr 0.50
+  TAP at   2.58 s  peaks L  6812 R  8360  level  -0.5 dB  lag  +2.82  onset  +3  corr 0.53
+  TAP at   3.34 s  peaks L  8568 R  9246  level  -1.6 dB  lag  +2.38  onset  +3  corr 0.47
+  TAP at   4.15 s  peaks L 23788 R 28125  level  -0.6 dB  lag  +2.47  onset  +3  corr 0.64
+  TAP at   5.00 s  peaks L 11925 R  9496  level  -1.7 dB  lag  +2.15  onset  +3  corr 0.43
+  TAP at   5.81 s  peaks L 14508 R 21371  level  +0.9 dB  lag  +2.79  onset  +3  corr 0.44
+  TAP at   6.63 s  peaks L 26235 R 30269  level  +1.8 dB  lag +19.53  onset  +3  corr 0.38
+  TAP at   7.46 s  peaks L 14079 R 20927  level  -0.1 dB  lag  +2.46  onset  +3  corr 0.50
+  TAP at   8.30 s  peaks L 10118 R 15673  level  -0.7 dB  lag  +2.15  onset  +3  corr 0.51
+  TAP at   9.15 s  peaks L 14058 R 21383  level  +1.0 dB  lag  +2.57  onset  +4  corr 0.51
+  TAP at   9.96 s  peaks L 17107 R 23565  level  +2.1 dB  lag  +2.83  onset  +3  corr 0.54
+  TAP at  10.28 s  peaks L  2023 R  2973  level  +2.0 dB  lag  +1.73  onset  +4  corr 0.77  (lasting)
+  TAP at  10.76 s  peaks L 21017 R 31301  level  +1.3 dB  lag  +3.01  onset  +3  corr 0.41
+  TAP at  11.63 s  peaks L 11908 R 17183  level  -1.0 dB  lag  +2.22  onset  +3  corr 0.66
+  TAP at  12.45 s  peaks L  9949 R  8311  level  -1.5 dB  lag  +2.38  onset  +2  corr 0.60
+  TAP at  13.27 s  peaks L 27499 R 21211  level  -0.6 dB  lag  +2.47  onset  +2  corr 0.68
+  TAP at  14.00 s  peaks L  2745 R  2329  level  +0.5 dB  lag  +1.52  onset  +3  corr 0.83
+  TAP at  14.48 s  peaks L  2702 R  2171  level  +0.7 dB  lag  +1.31  onset  +2  corr 0.83
+  TAP at  14.97 s  peaks L 24007 R 25479  level  +0.9 dB  lag  +2.97  onset  +2  corr 0.67
+  TAP at  15.84 s  peaks L 17078 R 19241  level  -0.6 dB  lag  +2.02  onset  +3  corr 0.69
+  TAP at  16.76 s  peaks L 13934 R 19602  level  -0.9 dB  lag  +2.37  onset  +3  corr 0.67
+  TAP at  17.62 s  peaks L 15621 R 24185  level  +0.2 dB  lag  +2.73  onset  +4  corr 0.66
+  TAP at  18.43 s  peaks L 13066 R 16171  level  +0.0 dB  lag  +2.74  onset  +3  corr 0.53
+  TAP at  19.32 s  peaks L 15378 R 10697  level  -2.1 dB  lag  +1.58  onset  +3  corr 0.62
+  TAP at  20.27 s  peaks L 19358 R 15465  level  -1.5 dB  lag  +2.06  onset  +2  corr 0.67
+  TAP at  21.15 s  peaks L 13173 R 16264  level  -0.8 dB  lag  +2.44  onset  +3  corr 0.52
+  TAP at  22.02 s  peaks L 12707 R 14853  level  -1.1 dB  lag  +2.47  onset  +3  corr 0.58
+  TAP at  22.87 s  peaks L 12522 R 16346  level  -0.2 dB  lag  +3.06  onset  +3  corr 0.51
+  TAP at  23.73 s  peaks L 17557 R 16436  level  -0.8 dB  lag  +2.22  onset  +3  corr 0.64
+  TAP at  24.58 s  peaks L 12719 R 22719  level  -0.5 dB  lag  +2.12  onset  +3  corr 0.61
+PHASE right-side: lamp 4, 25 s, started 19:47:06
+  395840 frames, 0 missing, 35 taps (0 of them lasting sounds)
+  TAP at   0.40 s  peaks L 11286 R 13799  level  +1.8 dB  lag  +2.78  onset  +0  corr 0.72
+  TAP at   1.21 s  peaks L  9514 R 10315  level  +3.3 dB  lag  +2.70  onset  -6  corr 0.33
+  TAP at   2.00 s  peaks L  8669 R  9878  level  +4.1 dB  lag  +2.70  onset  +2  corr 0.33
+  TAP at   2.80 s  peaks L  8536 R 10737  level  +3.9 dB  lag  +2.83  onset  -4  corr 0.50
+  TAP at   3.60 s  peaks L 11084 R 12967  level  +2.9 dB  lag  +2.74  onset  -6  corr 0.54
+  TAP at   4.37 s  peaks L  9317 R 12249  level  +4.0 dB  lag  +2.80  onset  -4  corr 0.35
+  TAP at   5.13 s  peaks L 12343 R 14778  level  +2.9 dB  lag  +2.76  onset  -9  corr 0.63
+  TAP at   5.90 s  peaks L  9318 R 14745  level  +3.3 dB  lag  +2.69  onset  +1  corr 0.46
+  TAP at   6.71 s  peaks L  8245 R 12117  level  +5.4 dB  lag  +2.86  onset  +0  corr 0.30
+  TAP at   7.47 s  peaks L 15264 R 18933  level  +3.5 dB  lag  +2.76  onset  -4  corr 0.60
+  TAP at   8.26 s  peaks L 10038 R 12806  level  +3.4 dB  lag  +2.67  onset  -4  corr 0.37
+  TAP at   9.09 s  peaks L 13970 R 15834  level  +1.9 dB  lag  +2.59  onset  -4  corr 0.38
+  TAP at   9.96 s  peaks L  6727 R 10844  level  +4.7 dB  lag  +2.83  onset  +1  corr 0.27
+  TAP at  10.77 s  peaks L  7456 R 12168  level  +3.6 dB  lag  +2.67  onset  +4  corr 0.41
+  TAP at  11.52 s  peaks L 11572 R 11767  level  +3.3 dB  lag  +2.84  onset  -8  corr 0.38
+  TAP at  12.35 s  peaks L  9463 R 10217  level  +2.7 dB  lag  +2.88  onset  -6  corr 0.48
+  TAP at  13.12 s  peaks L  9917 R 10739  level  +3.4 dB  lag  +2.82  onset  -4  corr 0.48
+  TAP at  13.87 s  peaks L 10135 R 10983  level  +3.9 dB  lag  +2.88  onset  -4  corr 0.40
+  TAP at  14.66 s  peaks L  5463 R  8112  level  +3.9 dB  lag  +2.88  onset  -2  corr 0.28
+  TAP at  15.51 s  peaks L  6605 R  9716  level  +3.6 dB  lag  +2.85  onset  +4  corr 0.31
+  TAP at  16.28 s  peaks L  8264 R 12859  level  +4.0 dB  lag  +2.97  onset +11  corr 0.48
+  TAP at  17.02 s  peaks L  8816 R 10224  level  +2.5 dB  lag  +2.75  onset -13  corr 0.38
+  TAP at  17.72 s  peaks L  4366 R  5093  level  +2.4 dB  lag  +3.02  onset  +1  corr 0.55
+  TAP at  18.53 s  peaks L  8590 R  9725  level  +3.0 dB  lag  +2.96  onset  -4  corr 0.27
+  TAP at  19.28 s  peaks L  8855 R 12205  level  +2.9 dB  lag  +2.98  onset  -4  corr 0.47
+  TAP at  20.13 s  peaks L  9937 R 16891  level  +1.8 dB  lag  +2.91  onset  +0  corr 0.58
+  TAP at  20.95 s  peaks L 12115 R 17848  level  +1.2 dB  lag  +2.99  onset  +1  corr 0.67
+  TAP at  21.78 s  peaks L 13934 R 17648  level  +0.5 dB  lag  +2.87  onset  -1  corr 0.72
+  TAP at  22.29 s  peaks L  7762 R  9338  level  +0.6 dB  lag  -0.23  onset  +4  corr 0.67
+  TAP at  22.50 s  peaks L 15217 R 19426  level  +1.0 dB  lag  +2.95  onset  -2  corr 0.78
+  TAP at  22.67 s  peaks L  6878 R  7860  level  +0.5 dB  lag  +1.64  onset  +4  corr 0.71
+  TAP at  23.09 s  peaks L  4394 R  6590  level  +1.0 dB  lag  -0.15  onset  +5  corr 0.76
+  TAP at  23.25 s  peaks L 17525 R 20686  level  +2.3 dB  lag  +2.98  onset  -1  corr 0.56
+  TAP at  23.68 s  peaks L  2518 R  3059  level  +1.0 dB  lag  +2.14  onset  +4  corr 0.77
+  TAP at  24.17 s  peaks L 13071 R 16845  level  +2.6 dB  lag  +2.82  onset  +4  corr 0.58
+PHASE top: lamp 2, 25 s, started 19:47:32
+  396480 frames, 0 missing, 33 taps (0 of them lasting sounds)
+  TAP at   0.16 s  peaks L  1880 R  5566  level  +8.3 dB  lag -20.43  onset  -3  corr 0.26
+  TAP at   0.95 s  peaks L  7410 R  9675  level  +2.6 dB  lag  +2.05  onset  -2  corr 0.52
+  TAP at   1.72 s  peaks L  8939 R  8256  level  -0.1 dB  lag  +1.20  onset  -1  corr 0.65
+  TAP at   2.47 s  peaks L  8461 R 10157  level  +0.7 dB  lag  +0.98  onset  -2  corr 0.67
+  TAP at   3.26 s  peaks L  7402 R  7964  level  +1.7 dB  lag  +1.43  onset  +0  corr 0.58
+  TAP at   3.97 s  peaks L  8880 R 11075  level  +1.3 dB  lag  +1.39  onset  +0  corr 0.56
+  TAP at   4.70 s  peaks L 10739 R 13884  level  +1.9 dB  lag  +1.93  onset  -1  corr 0.50
+  TAP at   5.46 s  peaks L 10883 R 10256  level  +0.4 dB  lag  +1.27  onset  +0  corr 0.70
+  TAP at   6.24 s  peaks L  6545 R  9352  level  +1.7 dB  lag  +1.35  onset  +0  corr 0.56
+  TAP at   7.00 s  peaks L 10036 R 12647  level  +0.5 dB  lag  +1.36  onset  -2  corr 0.62
+  TAP at   7.75 s  peaks L  7266 R  8989  level  +2.0 dB  lag -14.86  onset  -2  corr 0.53
+  TAP at   8.54 s  peaks L  5165 R  8445  level  +2.5 dB  lag  +1.14  onset  -1  corr 0.47
+  TAP at   9.34 s  peaks L  4400 R  8436  level  +4.1 dB  lag -15.12  onset  -2  corr 0.38
+  TAP at  10.11 s  peaks L  6157 R 11089  level  +2.8 dB  lag -14.90  onset  -2  corr 0.44
+  TAP at  10.87 s  peaks L  5497 R  9910  level  +3.3 dB  lag -14.99  onset  -2  corr 0.40
+  TAP at  11.67 s  peaks L  7472 R  8507  level  +2.2 dB  lag -14.94  onset  -2  corr 0.48
+  TAP at  12.44 s  peaks L  5129 R  8321  level  +3.4 dB  lag  +1.97  onset  -2  corr 0.52
+  TAP at  13.13 s  peaks L  7848 R 13163  level  +3.3 dB  lag -14.94  onset  -2  corr 0.40
+  TAP at  13.89 s  peaks L  5809 R 11741  level  +6.0 dB  lag  +2.35  onset  -3  corr 0.35
+  TAP at  14.69 s  peaks L  8302 R 11933  level  +4.8 dB  lag  +2.39  onset  -3  corr 0.29
+  TAP at  15.39 s  peaks L  9803 R 12845  level  +1.8 dB  lag  +1.59  onset  -2  corr 0.47
+  TAP at  16.16 s  peaks L  9450 R 14607  level  +2.6 dB  lag  +2.04  onset  -1  corr 0.44
+  TAP at  16.92 s  peaks L  6604 R 10981  level  +4.2 dB  lag  +2.02  onset  -1  corr 0.44
+  TAP at  17.68 s  peaks L  6628 R 10928  level  +6.4 dB  lag -20.47  onset  -4  corr 0.05
+  TAP at  18.41 s  peaks L  6934 R 11732  level  +6.5 dB  lag -20.21  onset  -3  corr 0.06
+  TAP at  19.13 s  peaks L  5686 R  8385  level  +4.9 dB  lag  +2.24  onset  -3  corr 0.28
+  TAP at  19.90 s  peaks L  7165 R 11005  level  +4.9 dB  lag  +2.52  onset  -3  corr 0.22
+  TAP at  20.70 s  peaks L  9172 R 14902  level  +6.1 dB  lag  +2.47  onset  -3  corr 0.30
+  TAP at  21.47 s  peaks L  6618 R  8796  level  +5.0 dB  lag  +2.30  onset  -3  corr 0.34
+  TAP at  22.22 s  peaks L  7900 R 11731  level  +5.2 dB  lag  +2.46  onset  -3  corr 0.27
+  TAP at  22.94 s  peaks L 11076 R 16454  level  +5.0 dB  lag  +2.67  onset  -3  corr 0.29
+  TAP at  23.66 s  peaks L 13003 R 20895  level  +4.7 dB  lag  -3.15  onset  -2  corr 0.37
+  TAP at  24.39 s  peaks L  8239 R 12559  level  +5.4 dB  lag  +2.58  onset  -2  corr 0.29
+FINAL {'fw': 'vesper-node-0.2.0', 'audio_drops': 0, 'rx_crc': 0, 'mic2': {'setup': 0, 'err': 0}} host crc errors 0
+
+SUMMARY (taps that were not lasting sounds)
+  left-side    n  30   level dB median -0.5  (10% -1.6, 90% +1.3)   lag median +2.5  (10% +2.0, 90% +3.1)   onset median +3.0  (10% +2.0, 90% +3.0)
+  right-side   n  35   level dB median +2.9  (10% +1.0, 90% +4.0)   lag median +2.8  (10% +2.1, 90% +3.0)   onset median -1.0  (10% -6.0, 90% +4.0)
+  top          n  33   level dB median +3.3  (10% +0.7, 90% +6.1)   lag median +1.4  (10% -15.1, 90% +2.5)   onset median -2.0  (10% -3.0, 90% +0.0)
+  by level_db: order left-side < right-side < top; cut-offs [1.17, 3.1]; 58 of 98 taps fall in their own band
+  by lag     : order top < left-side < right-side; cut-offs [1.93, 2.64]; 65 of 98 taps fall in their own band
+  by onset   : order top < right-side < left-side; cut-offs [-1.5, 1.0]; 59 of 98 taps fall in their own band

@@ -69,6 +69,10 @@ Per the platform cut list (`/mnt/project-files/platform-polish/platform-polish.m
 - Tideline has no feat list or streak of its own, so nothing else moved. Rank, the notice board, chests and rests stay because they change what and how you fish.
 - Checked merged with #16's branch: Tideline's tests and the browser smoke pass. The only conflict is `docs/WORKLOG.md` (both append lines).
 
+## Retired (2026-10-03)
+
+Sam, after playtesting: "Tideline is what I asked for, it's just not very fun. Let's ditch it." It is off the dashboard (out of the PLAY sector, no voice name) but still registered with its code, tests and saves, the same way Descent went on hold. No further Tideline work is planned. The Outpost changes on this branch are unaffected.
+
 ## Shared code touched
 
 `web/engine/audio.js`: `Synth.tone(hz, seconds, type, gain = 1)`; one multiplication, default unchanged for every other app. `docs/ENGINE.md` row updated. `docs/WORKLOG.md` entry. Nothing else outside the two games, their tests, `tests/helpers/outpost-bot.mjs` and a new fixture.

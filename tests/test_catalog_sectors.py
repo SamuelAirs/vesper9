@@ -17,7 +17,7 @@ from vesper.storage import Store  # noqa: E402
 
 IDS = [app['id'] for app in CATALOG['apps']]
 GAMES = ['orbit', 'runner', 'drift', 'echo', 'reaction', 'glyphs', 'pulsar', 'perihelion', 'descent', 'ricochet',
-         'helix', 'ballista', 'tideline', 'outpost']
+         'helix', 'ballista', 'outpost']
 
 
 class Layout(unittest.TestCase):
@@ -60,7 +60,15 @@ class Layout(unittest.TestCase):
         self.assertEqual(ephemeris['voice'], [], 'its voice name is gone')
         self.assertEqual(ephemeris['factory'], 'Ephemeris', 'but it is still registered and launchable by id')
         # Everything that is not on the dashboard is a system tool or retired (Ephemeris, Chronometer).
-        self.assertEqual({i for i in IDS if i not in on_dashboard}, {'settings', 'diagnostics', 'telemetry', 'ephemeris', 'timers'})
+        # Tideline is retired from the dashboard (Sam, 2026-10-03): off the dashboard, without a voice name.
+        self.assertEqual({i for i in IDS if i not in on_dashboard}, {'settings', 'diagnostics', 'telemetry', 'ephemeris', 'timers', 'tideline'})
+
+    def test_tideline_is_off_the_dashboard_but_still_registered(self):
+        on_dashboard = {i for s in CATALOG['sectors'] for i in s['apps']}
+        tideline = next(app for app in CATALOG['apps'] if app['id'] == 'tideline')
+        self.assertNotIn('tideline', on_dashboard)
+        self.assertEqual(tideline['voice'], [], 'its voice name is gone')
+        self.assertEqual(tideline['factory'], 'Tideline', 'its code and saves stay, launchable by id')
 
     def test_the_catalog_no_longer_carries_a_menu_policy(self):
         self.assertTrue(all('escape' not in app for app in CATALOG['apps']))

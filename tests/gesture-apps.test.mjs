@@ -57,6 +57,8 @@ const PER_APP = {
   tideline: { ignore: ["done", "grace"] },
   // An armed trial is cancelled by every pause (the node's timing is gone), so it returns to the title.
   reaction: { skipResume: true },
+  // Resuming mid-run drops the round in progress and calls it again after a four-beat count-in.
+  relay: { skipResume: true },
   // Resuming a signal that was playing or being keyed replays it from its start.
   echo: { skipResume: true },
   morse: { listenResume: true },
@@ -122,7 +124,7 @@ const GAMES = APPS.filter((a) => {
 
 test("every registered game is covered by the tolerance test", () => {
   assert.deepEqual(GAMES.slice().sort(), ["ballista", "descent", "drift", "echo", "glyphs", "helix", "morse", "orbit",
-    "outpost", "perihelion", "pulsar", "reaction", "ricochet", "runner", "tideline"]);
+    "outpost", "perihelion", "pulsar", "reaction", "relay", "ricochet", "runner", "tideline"]);
 });
 
 for (const id of GAMES) {

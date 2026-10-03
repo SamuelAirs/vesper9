@@ -3,6 +3,7 @@ import { Moonrunner } from "./runner.js";
 import { Undertow } from "./undertow.js";
 import { EchoVault } from "./echo.js";
 import { LightTrial } from "./reaction.js";
+import { Relay } from "./relay.js";
 import { GlyphVault } from "./glyphs.js";
 import { MorseSchool } from "./morse.js";
 import {
@@ -27,7 +28,7 @@ import { Resonance } from "./resonance.js";
 import { Oracle } from "./oracle.js";
 import { Telemetry } from "./telemetry.js";
 import { CARTRIDGES } from "./catalog.js";
-const FACTORIES = { OrbitLock, Moonrunner, Undertow, EchoVault, LightTrial, GlyphVault,
+const FACTORIES = { OrbitLock, Moonrunner, Undertow, EchoVault, LightTrial, Relay, GlyphVault,
   MorseSchool, Timers, Transcription, Environment, Diagnostics, Settings,
   Pulsar, Perihelion, Descent, Ricochet, Helix, Ballista,
   Tideline, Outpost,

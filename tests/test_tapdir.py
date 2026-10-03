@@ -100,6 +100,23 @@ class Deciding(unittest.TestCase):
         self.assertLess(placed, 0.75, "if this rises, the drift finding in the report needs revisiting")
 
 
+    def test_the_pi_session_of_2026_10_03_back_left_right(self):
+        """The second sitting, measured from its clips by this module: back, left and right are placed
+        well both left-out and from one half of the sitting to the other."""
+        taps = json.loads((SESSION.parent / "tap-direction-2026-10-03.json").read_text())["taps"]
+        self.assertEqual({t["side"] for t in taps}, {"back", "left", "right"})
+        check = Classifier(taps).leave_one_out()
+        self.assertGreaterEqual(sum(r["right"] for r in check.values()) / len(taps), 0.88)
+        first, second = [], []
+        for side in ("back", "left", "right"):
+            mine = [t for t in taps if t["side"] == side]
+            first += mine[:len(mine) // 2]
+            second += mine[len(mine) // 2:]
+        for train, test in ((first, second), (second, first)):
+            classifier = Classifier(train)
+            self.assertGreaterEqual(sum(classifier.classify(t)[0] == t["side"] for t in test) / len(test), 0.8)
+
+
 class Calibration(unittest.TestCase):
     def test_label_save_classify_clear(self):
         store = MemoryStore()

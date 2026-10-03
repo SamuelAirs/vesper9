@@ -56,6 +56,25 @@ simulator screenshots at 1024 x 600.
   fins, a cockpit window and a blinking stern light. The result card suggests the next thing to buy.
 - Save schema 3 (adds `up`, `sp`, `dm`); schema 1 and schema 2 saves migrate, with tests.
 
+## Undertow third pass (Sam's 2026-10-03 playtest: "good but pretty easy"; "pretty much impossible to catch a fish")
+- Catching: a creature not yet in the guide is curious. It swims with the current (crosses the screen
+  about 100-140 px/s slower than the columns) and holds its line instead of fleeing. Touching it (40 px)
+  logs it at once; passing within 100 px fills the ring in 0.28 s, and the ring keeps what it gathered.
+  Logged ones still scatter. A second creature of a species just logged no longer pays twice. A
+  200 ms-lag bot steering for creatures logs 19 of 20 it meets (the test asks for over 75 %).
+- Harder: speed 250 + 3.6/passage up to 440 px/s (was 235 + 3.2 up to 400); a column every 1.5 s
+  falling to 1.05 s (was 1.6 to 1.15); the gap narrows from 232 to 100 px (was 250 to 105); openings
+  drift from passage 6, up to 80 px (was 8, 70 px); the centre moves up to 60 + 2/passage px (cap 85).
+  A 220 ms-lag bot's median dive fell from 45 to 31 passages; a 150 ms one is about the same as before.
+- Four lamps (on #16's helpers, merged in): lamps 1-3 stay the depth gauge. Lamp 4 is the finder:
+  green pulsing faster and brighter as an unlogged creature closes, white on a catch; otherwise white
+  with a shield, a red heartbeat on the last hull, or the zone colour dimly. A three-lamp node gets the
+  same nine values as before. The board LED is not used.
+- Fix: the Abyss sonar could skip a column close to the craft (the ring and the column moved past each
+  other in one frame); each ping now lights each column once when it reaches it.
+- Shared test edited: `tests/engine.test.mjs` "a fixed-step pilot can traverse seeded layouts" now runs
+  75 s instead of 120 s, because the lag-free bot meets the Deep (and dies) at about 90-150 s now.
+
 ## Helix: removed
 Sam's playtest (2026-10-01): "Helix is not good, let's ditch it." The two-way rebuild that was on this
 branch (commit 2da736b and part of b68e604) is dropped, and Helix is taken out of the console:

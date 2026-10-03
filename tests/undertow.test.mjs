@@ -326,15 +326,23 @@ test("sea life: each zone has its own two species; flying close logs one once an
   run(g, 3, () => { g.y = 270; g.vy = 0; g.grace = 1; });
   assert.ok(g.life.length >= 1, "no sea life came in the first three seconds");
   assert.ok(g.life.every((f) => SPECIES.find((s) => s.id === f.id).zone === 0), "a creature from another zone");
-  // Park a creature next to the craft: it is logged after a moment, and only once.
-  g.life = [{ id: "moon", x: CX_TEST, y: 280, vx: 0, ph: 0, scan: 0, done: 0, fl: 0 }];
-  const keep = () => { g.y = 270; g.vy = 0; g.grace = 1; g.life[0].x = CX_TEST; g.life[0].y = 280; };
-  run(g, 0.3, keep);
+  // A creature 80 px from the craft (inside the scan radius, not touching) is logged once the ring
+  // fills, after about a quarter of a second; a touch logs at once; a species pays only once, even
+  // when two of it are on screen.
+  g.life = [{ id: "moon", x: CX_TEST + 80, y: 270, vx: 0, ph: 0, scan: 0, done: 0, fl: 0 },
+    { id: "moon", x: 700, y: 270, vx: 0, ph: 0, scan: 0, done: 0, fl: 0 }];
+  const keep = () => { g.y = 270; g.vy = 0; g.grace = 1; g.life[0].x = CX_TEST + 80; g.life[0].y = 270; };
+  run(g, 0.15, keep);
   assert.equal(g.R.found.length, 0, "logged too soon");
-  run(g, 0.3, keep);
+  run(g, 0.2, keep);
   assert.deepEqual(g.R.found, ["moon"]);
-  run(g, 1, keep);
+  g.life[1].x = CX_TEST; g.life[1].y = 270;
+  run(g, 0.5, () => { g.y = 270; g.vy = 0; g.grace = 1; });
   assert.equal(g.R.lifeP, 10, "a species paid twice");
+  g.life = [{ id: "shoal", x: CX_TEST + 10, y: 280, vx: 0, ph: 0, scan: 0, done: 0, fl: 0 }];
+  g.update(DT);
+  assert.deepEqual(g.R.found, ["moon", "shoal"], "a touch did not log at once");
+  g.R.found = ["moon"]; g.R.lifeP = 10;
   const bank = g.sv.bank;
   g.hull = 1; g.grace = 0; g.y = 600; g.update(DT); run(g, 1);
   assert.equal(g.sv.bank, bank + g.R.pearls + 10);
@@ -412,4 +420,61 @@ test("the Trench eases its currents in: none on its first columns, rarer and gen
   assert.ok(early.share < late.share - 0.15, "early " + early.share + " late " + late.share);
   assert.ok(early.mean < 170 && late.mean > 210, "early " + early.mean + " late " + late.mean);
   assert.ok(deep.share > 0.4 && deep.mean >= 300);
+});
+
+test("sea life can be caught in passing: a laggy pilot that steers for creatures logs most of them", () => {
+  // Sam (2026-10-03): "it's pretty much impossible to catch a fish, you swing past it". A pilot with
+  // 200 ms of lag that steers for the next unlogged creature when no column is close.
+  let seen = 0, caught = 0;
+  for (const seed of [31, 32, 33, 34]) {
+    const { g } = dive(seed);
+    const lag = 12, q = [], missed = new Set();
+    for (let i = 0; i < 40 * 60 && g.phase === "play"; i++) {
+      g.grace = 1; // this test is about catching, not columns
+      const f = g.life.find((o) => !o.done && o.x > CX_TEST && o.x < 960);
+      const gate = g.gates.find((o) => o.x + 65 > 202);
+      const target = f && (!gate || gate.x - 202 > f.x - CX_TEST) ? f.y : gate ? gate.center : 270;
+      q.push(g.y + g.vy * 0.36 > target);
+      const want = q.length > lag ? q[q.length - 1 - lag] : false;
+      if (want && !g.held) g.down(); else if (!want && g.held) g.up();
+      for (const o of g.life) if (!o.done && o.x < CX_TEST - 60) missed.add(o); // got past the craft
+      g.update(DT);
+    }
+    seen += g.R.found.length + missed.size;
+    caught += g.R.found.length;
+  }
+  assert.ok(caught >= 8 && caught / seen > 0.75, "caught " + caught + " of " + seen);
+});
+
+test("four lamps: the gauge stays on lamps 1-3 and lamp 4 is the finder; three-lamp nodes are unchanged", () => {
+  const ctx = appContext({ seed: 41 });
+  ctx.lampCount = () => 4;
+  const g = new Undertow(ctx);
+  g.update(DT);
+  tap(g);
+  g.parked = 0; g.next = 99;
+  g.life = [];
+  run(g, 0.5, () => { g.y = 270; g.vy = 0; });
+  const fourth = () => ctx.calls.leds.at(-1).slice(9);
+  assert.ok(ctx.calls.leds.every((v) => v.length === 12 && v.every((x) => Number.isInteger(x) && x >= 0 && x <= 255)));
+  assert.ok(fourth().some((x) => x > 0), "with nothing about, lamp 4 should show the zone's colour, dimly");
+  // An unlogged creature ahead: green, brighter as it closes.
+  g.life = [{ id: "moon", x: 800, y: 270, vx: 0, ph: 0, scan: 0, done: 0, fl: 0 }];
+  let far = 0, close = 0;
+  run(g, 0.6, () => { g.y = 270; g.vy = 0; g.grace = 1; g.life[0].x = 800; g.life[0].y = 270; far = Math.max(far, ctx.calls.leds.at(-1)[10]); });
+  run(g, 0.6, () => { g.y = 270; g.vy = 0; g.grace = 1; g.life[0].x = 420; g.life[0].y = 270; g.life[0].scan = 0; close = Math.max(close, ctx.calls.leds.at(-1)[10]); });
+  assert.ok(far > 0 && close > far, "the finder did not brighten: " + far + " / " + close);
+  // A catch flashes it white (red and green both high).
+  g.life[0].x = 225; g.life[0].y = 270; g.update(DT);
+  const [r, gr] = fourth();
+  assert.ok(g.R.found.includes("moon") && r > 150 && gr > 100, "no white flash on a catch: " + fourth());
+  // Dark after cancel, and on the result screen.
+  g.cancel();
+  assert.ok(dark(ctx.calls.leds.at(-1)) && ctx.calls.leds.at(-1).length === 12);
+  g.hull = 1; g.grace = 0; g.y = 600; g.update(DT); run(g, 1);
+  assert.ok(dark(ctx.calls.leds.at(-1)));
+  // A three-lamp node gets nine values, as before.
+  const { ctx: c3, g: h } = dive(42);
+  run(h, 1);
+  assert.ok(c3.calls.leds.length > 0 && c3.calls.leds.every((v) => v.length === 9));
 });

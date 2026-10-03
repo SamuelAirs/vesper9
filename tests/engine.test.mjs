@@ -384,7 +384,9 @@ test('flight gate changes are bounded and a fixed-step pilot can traverse seeded
   const rng=new Random(91);let center=270;
   for(let i=0;i<1000;i++){const gate=nextGate(center,i,rng);assert.ok(Math.abs(gate.center-center)<=85.001);assert.ok(gate.gap>=100);center=gate.center;}
   const g=new Undertow(context());g.down();g.up();
-  for(let i=0;i<120*60&&g.phase==='play';i++){
+  // 75 s: Undertow was made harder after Sam's 2026-10-03 playtest, and this lag-free bot now meets
+  // the Deep at about 90-150 s; the layouts it must traverse are the first five zones.
+  for(let i=0;i<75*60&&g.phase==='play';i++){
     const target=g.gates.find(gate=>gate.x+65>202)?.center||270;
     // Aim with braking distance, retaining the same binary acceleration controls.
     g.held=g.y+g.vy*.42>target;

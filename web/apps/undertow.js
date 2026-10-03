@@ -22,7 +22,7 @@
 // is lined up; red at the end lamp near the surface or the floor.
 import { TAU, clamp, mixSeed, Random } from "../engine/math.js";
 import { C, text, line, circle, diamond } from "../engine/draw.js";
-import { LAMP, fill, only, spot, blink, dim, chase } from "../engine/lightshow.js";
+import { LAMP, fill, only, spot, blink, pulse, dim, chase } from "../engine/lightshow.js";
 import { AppGuard } from "../engine/input.js";
 import { LampBus, lampMax, LOCKOUT } from "./game-kit.js";
 
@@ -36,6 +36,7 @@ const MAX_PARTS = 64, MAX_PEARLS = 24, MAX_GATES = 8;
 const PEARL_R = 22; // collect radius
 const SKIM = 9; // px of clearance or less at a column edge counts as a skim
 const MAX_LIFE = 6; // creatures on screen at once
+const SCAN_R = 100, CATCH_R = 40; // px: a pass this close fills the scan ring; a touch logs at once
 const SPECIES_PEARLS = 10; // banked for each new species logged
 const METRES = 6; // px travelled per metre of depth on the gauge
 
@@ -87,12 +88,12 @@ const SPECIES_BY = Object.fromEntries(SPECIES.map((s) => [s.id, s]));
 const lifeRng = new Random(1);
 
 // The next column, given the last opening's centre and the passages so far. The centre moves by at
-// most 85 px between columns; the gap narrows from 250 px to 105 px; openings drift from the Kelp
-// Run on. `rng` is the run's generator (the daily dive has its own).
+// most 85 px between columns; the gap narrows from 232 px to 100 px (by passage 47); openings drift
+// from passage 6, just before the Kelp Run. `rng` is the run's generator (the daily dive has its own).
 export function nextGate(center, points, rng) {
-  const reach = Math.min(85, 50 + points * 2);
+  const reach = Math.min(85, 60 + points * 2);
   const base = clamp(center + rng.range(-reach, reach), 165, 375);
-  const amp = points >= 8 ? Math.min(70, 14 + (points - 8) * 2.5) : 0;
+  const amp = points >= 6 ? Math.min(80, 16 + (points - 6) * 3) : 0;
   const z = zoneAt(points);
   // Currents from the Trench. They ease in: none on its first two columns, then rarer and gentler
   // (a third of the columns at 120 px/s^2) growing to most columns at 260 by its end; half of the
@@ -103,10 +104,10 @@ export function nextGate(center, points, rng) {
   // Breathing openings in the Vent Field and the Deep.
   const breathe = z >= 4 && rng.next() < 0.75 ? 26 + Math.min(16, (points - 50)) : 0;
   return { x: 1010, center: base, base, amp: z === 3 ? amp * 0.5 : amp, phase: rng.range(0, TAU), age: 0,
-    gap: Math.max(105, 250 - points * 2.6), size: 0, passed: false, cur, breathe, margin: 999, lit: 0, ring: 0 };
+    gap: Math.max(100, 232 - points * 2.8), size: 0, passed: false, cur, breathe, margin: 999, lit: 0, ring: 0 };
 }
-export const undertowSpeed = (points) => 235 + Math.min(points * 3.2, 165);
-export const gateInterval = (points) => Math.max(1.15, 1.6 - points * 0.012);
+export const undertowSpeed = (points) => 250 + Math.min(points * 3.6, 190);
+export const gateInterval = (points) => Math.max(1.05, 1.5 - points * 0.013);
 // The distance a dive covers to reach a passage count, so a dive started in a later zone reads the
 // right depth on the gauge.
 const reachDist = (points) => { let d = 0; for (let p = 0; p < points; p++) d += undertowSpeed(p) * gateInterval(p); return d; };
@@ -192,10 +193,21 @@ const VENTS = [140, 470, 790, 1060];
 const wrap = (x, n) => ((x % n) + n) % n;
 const rockY = (x) => 30 * Math.sin(x / 97) + 16 * Math.sin(x / 41 + 1.3) + 9 * Math.sin(x / 17 + 0.4);
 
+// The lamps. Lamps 1-3 are the depth gauge on every node. On a four-lamp node the fourth is the
+// finder (Undertow.fourth): every frame and every flash gets it appended, and it is dark whenever
+// the gauge is (title, dock, result, cancel, pause). A three-lamp node sees the plain LampBus.
+class DiveLamps extends LampBus {
+  constructor(ctx, game) { super(ctx); this.game = game; }
+  put(values) {
+    if (this.game.lampN() === 4) values = (values || Array(9).fill(0)).slice(0, 9).concat(values ? this.game.fourth() : [0, 0, 0]);
+    super.put(values);
+  }
+}
+
 export class Undertow {
   constructor(ctx) {
     this.c = ctx;
-    this.lamps = new LampBus(ctx);
+    this.lamps = new DiveLamps(ctx, this);
     // Takes back a menu gesture that reached the game (docs/ENGINE.md), and holds back the score and
     // the save until the gesture can no longer be under way.
     this.guard = new AppGuard(this, ctx);
@@ -256,6 +268,7 @@ export class Undertow {
     this.life = [];
     this.lifeNext = 1.2;
     this.bannerT = 0;
+    this.catchT = 0;
     this.newFeats = [];
     this.goalDone = false;
     this.parked = 0; // seconds the craft holds its depth before the dive starts
@@ -528,6 +541,7 @@ export class Undertow {
     if (this.noteT > 0) this.noteT -= dt;
     if (this.flashT > 0) this.flashT -= dt;
     if (this.bannerT > 0) this.bannerT -= dt;
+    if (this.catchT > 0) this.catchT -= dt;
     this.stepParts(dt);
     if (this.phase === "play") this.fly(dt);
     else if (this.phase === "over") this.deadT += dt;
@@ -591,13 +605,13 @@ export class Undertow {
     // The Abyss: a sonar ping every 1.6 s lights the columns it reaches.
     if (z === 3) {
       this.pingT += dt;
-      if (this.pingT >= 1.6) { this.pingT = 0; this.ping = 1; this.c.tone(1320, 0.04, "sine"); }
+      if (this.pingT >= 1.6) { this.pingT = 0; this.ping = 1; this.pid = (this.pid || 0) + 1; this.c.tone(1320, 0.04, "sine"); }
       if (this.ping > 0) {
-        const r0 = this.ping;
         this.ping += 760 * dt;
         for (const gate of this.gates) {
           const d = gate.x + COL / 2 - CX;
-          if (d >= r0 && d < this.ping) gate.lit = 1.1;
+          // Each ping lights a column once, when the ring has reached it (the column moves too).
+          if (d > -COL && d < this.ping && gate.pid !== this.pid) { gate.lit = 1.1; gate.pid = this.pid; }
         }
         if (this.ping > 1000) this.ping = 0;
       }
@@ -607,7 +621,10 @@ export class Undertow {
     for (const p of this.trail) p.x -= speed * dt;
   }
   // Sea life: a creature from the zone's two species now and then, the ones not yet logged more
-  // often. Flying close for a moment logs one; fish and schools shy away from the craft.
+  // often. A creature not yet in the guide is curious: it swims along with the current, so it
+  // crosses the screen slowly, and it holds its line. Touching it logs it at once; passing within
+  // SCAN_R logs it once the ring has filled (the ring keeps what it has gathered). Logged ones
+  // drift as before and scatter from the craft.
   swim(dt, speed) {
     if (!this.parked) this.lifeNext -= dt;
     if (this.lifeNext <= 0 && this.life.length < MAX_LIFE) {
@@ -617,25 +634,30 @@ export class Undertow {
       const lure = this.lv("lure");
       const s = fresh.length && lifeRng.next() < (lure ? 0.9 : 0.7) ? lifeRng.pick(fresh) : lifeRng.pick(pool);
       const slow = s.kind === "jelly" || s.kind === "ray";
-      this.life.push({ id: s.id, x: 1020, y: lifeRng.range(90, 440), vx: slow ? lifeRng.range(-20, 20) : lifeRng.range(-70, 10), ph: lifeRng.range(0, TAU), scan: 0, done: this.known(s.id) ? 1 : 0, fl: 0 });
+      const done = this.known(s.id) ? 1 : 0;
+      const vx = done ? (slow ? lifeRng.range(-20, 20) : lifeRng.range(-70, 10)) : lifeRng.range(100, 140);
+      this.life.push({ id: s.id, x: 1020, y: lifeRng.range(100, 430), vx, ph: lifeRng.range(0, TAU), scan: 0, done, fl: 0 });
       this.lifeNext = lifeRng.range(2.2, 4.4) / (lure ? 2 : 1);
       this.lstate = lifeRng.state;
     }
-    const scanner = this.lv("scanner"), range = 70 + 40 * scanner, need = scanner ? 0.3 : 0.45;
+    const scanner = this.lv("scanner"), range = SCAN_R + 40 * scanner, need = this.scanNeed(), touch = CATCH_R + 16 * scanner;
     for (const f of this.life) {
       const s = SPECIES_BY[f.id];
-      f.x += (f.vx - speed) * dt;
+      f.x += (Math.min(f.vx, speed - 80) - speed) * dt;
       f.ph += dt;
       const dx = f.x - CX, dy = f.y - this.y, d = Math.hypot(dx, dy);
-      f.fl = d < 120 ? Math.min(1, f.fl + dt * 4) : Math.max(0, f.fl - dt * 0.8);
-      if (s.kind !== "jelly" && f.fl > 0) f.y = clamp(f.y + (dy < 0 ? -1 : 1) * 150 * f.fl * dt, 60, 480);
-      if (!f.done && this.phase === "play") {
-        if (d < range) { f.scan += dt; if (f.scan >= need) this.logLife(f, s); }
-        else f.scan = Math.max(0, f.scan - dt * 0.5);
+      if (f.done) {
+        f.fl = d < 120 ? Math.min(1, f.fl + dt * 4) : Math.max(0, f.fl - dt * 0.8);
+        if (s.kind !== "jelly" && f.fl > 0) f.y = clamp(f.y + (dy < 0 ? -1 : 1) * 150 * f.fl * dt, 60, 480);
+      } else if (this.known(f.id)) f.done = 1; // another of its kind was just logged
+      else if (this.phase === "play") {
+        if (d < range) f.scan += dt;
+        if (d < touch || f.scan >= need) this.logLife(f, s);
       }
     }
     if (this.life.length && this.life[0].x < -140) this.life = this.life.filter((f) => f.x > -140);
   }
+  scanNeed() { return this.lv("scanner") ? 0.18 : 0.28; }
   known(id) { return this.sv.sp.includes(id) || this.R.found.includes(id); }
   logLife(f, s) {
     f.done = 1;
@@ -644,6 +666,7 @@ export class Undertow {
     this.announce("NEW SPECIES: " + s.name + "  +" + SPECIES_PEARLS, 2.2);
     this.c.tone(784, 0.08, "sine"); this.c.tone(1175, 0.14, "sine");
     this.burst(f.x, f.y, 6, 80, 2);
+    this.catchT = 0.6;
     const at = clamp((f.y - TOP) / (FLOOR - TOP), 0, 1);
     this.lamps.flash(0.25, (e, T, a) => lampMax(a, spot(at, dim(LAMP.white, 0.5))));
     this.checkFeats();
@@ -751,6 +774,22 @@ export class Undertow {
     if (this.grace > 0) return lampMax(out, fill(LAMP.red, 0.3 * blink(this.grace, 6)));
     if (this.y < 70 || this.y > 470) out = lampMax(out, only(this.y < 70 ? 0 : 2, LAMP.red, 0.15 + 0.6 * blink(this.t, 4)));
     return out;
+  }
+
+  lampN() { return this.c.lampCount?.() === 4 ? 4 : 3; }
+  // Lamp 4: the finder. The nearest creature not yet in the field guide pulses green, faster and
+  // brighter as the craft closes on it, and a catch flashes it white. With none about it carries the
+  // hull: white while a shield is held, a red heartbeat on the last hull, otherwise the zone's own
+  // colour, dim.
+  fourth() {
+    if (this.phase !== "play") return [0, 0, 0];
+    if (this.catchT > 0) return dim(LAMP.white, 0.4 + this.catchT);
+    let near = 0;
+    for (const f of this.life) if (!f.done && f.x > CX - 40 && f.x < 1000) near = Math.max(near, clamp(1 - Math.hypot(f.x - CX, f.y - this.y) / 700, 0, 1));
+    if (near > 0) return dim(LAMP.green, (0.12 + 0.5 * near) * (0.55 + 0.45 * pulse(this.t, 1 + 3 * near)));
+    if (this.shield) return dim(LAMP.white, 0.25);
+    if (this.hull === 1 && this.startHull > 1) return dim(LAMP.red, 0.1 + 0.4 * pulse(this.t, 1.2));
+    return dim(ZONES[this.zone].lamp, 0.12);
   }
 
   // ---- drawing ---------------------------------------------------------------------------------
@@ -927,7 +966,7 @@ export class Undertow {
       this.drawCreature(g, s, f.x, y, f.ph, f.fl);
       g.globalAlpha = 1;
       if (!f.done && f.scan > 0) {
-        const need = this.lv("scanner") ? 0.3 : 0.45;
+        const need = this.scanNeed();
         g.beginPath(); g.arc(f.x, y, 34, -Math.PI / 2, -Math.PI / 2 + TAU * clamp(f.scan / need, 0, 1));
         g.strokeStyle = C.amber; g.lineWidth = 3; g.stroke();
       } else if (!f.done && f.x < 960) diamond(g, f.x, y - 30, 4, C.amber, false);

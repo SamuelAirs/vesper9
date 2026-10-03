@@ -1,0 +1,361 @@
+// Orbit Lock depth: perfect locks and the shield, dark gates, feats and today's order sent to the
+// console's logbook, and the schema 3 save (schema 1 and 2 saves loading intact).
+import test from "node:test";
+import assert from "node:assert/strict";
+import { OrbitLock, orbitWindow, orbitSpeed, orbitPerfect, darkGate, migrateOrbit, orbitOrder, ORBIT_FEATS, SHIELD_CHAIN, DARK_FROM, RUSH_TIME, RUSH_MISS, MODE_HOLD } from "../web/apps/orbit.js";
+import { makeCtx, makeRig, step, DT } from "./audit/harness.mjs";
+import { gauss, gestureWithUpdates } from "./audit/bots.mjs";
+import { SETTLE } from "../web/apps/game-kit.js";
+import { withLogbook } from "./helpers/logbook-stub.mjs";
+
+// A lock exactly on the gate's centre (perfect) or just inside its edge (plain).
+const perfect = (g) => { g.target = g.angle; g.down(); g.up(); };
+const plain = (g) => { g.target = g.angle + orbitWindow(g.points) * 0.9; g.down(); g.up(); };
+const miss = (g) => { g.target = g.angle + 3; g.down(); g.up(); };
+const onDay = (g, key) => { g.dayKey = () => key; return g; };
+// An order of each kind, found by scanning dates (the order is a pure function of the date).
+function dayWith(kind) {
+  for (let d = 1; d < 400; d++) {
+    const key = "2026-" + String(1 + Math.floor(d / 29) % 12).padStart(2, "0") + "-" + String(1 + (d % 28)).padStart(2, "0");
+    if (orbitOrder(key).kind === kind) return key;
+  }
+  throw new Error("no day with " + kind);
+}
+function textOf(g) {
+  const painted = [];
+  const g2d = new Proxy({}, { get: (t, k) => (k === "fillText" ? (s) => painted.push({ s: String(s), size: Number(/(\d+)px/.exec(t.font)?.[1]) }) : k in t ? t[k] : () => {}), set: (t, k, v) => { t[k] = v; return true; } });
+  g.draw(g2d);
+  return painted;
+}
+
+test("perfect locks: the zone is the gate's centre and shrinks with it, never wider than the gate", () => {
+  for (const p of [0, 10, 25, 40, 60]) {
+    assert.ok(orbitPerfect(p) < orbitWindow(p));
+    assert.ok(orbitPerfect(p) <= 0.07);
+  }
+  assert.ok(orbitPerfect(40) < orbitPerfect(10));
+  const g = new OrbitLock(makeCtx(1)); g.down();
+  perfect(g);
+  assert.equal(g.chain, 1); assert.equal(g.R.perfects, 1); assert.match(g.feedback, /PERFECT/);
+  plain(g);
+  assert.equal(g.points, 2); assert.equal(g.chain, 0, "a plain lock keeps the chain");
+});
+
+test("four perfect locks in a row charge a shield; it takes one mistimed press and no hull", () => {
+  const g = new OrbitLock(makeCtx(2)); g.down();
+  for (let i = 0; i < SHIELD_CHAIN - 1; i++) perfect(g);
+  assert.equal(g.shield, 0);
+  perfect(g);
+  assert.equal(g.shield, 1, "no shield after " + SHIELD_CHAIN + " perfect locks");
+  const target = g.target;
+  miss(g);
+  assert.equal(g.lives, 3, "the shielded miss cost hull");
+  assert.equal(g.shield, 0);
+  assert.equal(g.chain, 0);
+  assert.equal(g.R.saves, 1);
+  assert.match(g.feedback, /SHIELD SPENT/);
+  assert.notEqual(g.target, target + 99); // the gate is not moved by the miss
+  miss(g);
+  assert.equal(g.lives, 2, "the shield worked twice");
+  // Only one shield at a time.
+  for (let i = 0; i < SHIELD_CHAIN * 2; i++) perfect(g);
+  assert.equal(g.shield, 1);
+});
+
+test("a shield does not stop the hull decaying when nothing is locked for ten seconds", () => {
+  const g = new OrbitLock(makeCtx(3)); g.down();
+  for (let i = 0; i < SHIELD_CHAIN; i++) perfect(g);
+  assert.equal(g.shield, 1);
+  g.target = g.angle + 3; g.drift = 0;
+  step(g, 10.1);
+  assert.equal(g.lives, 2);
+  assert.equal(g.shield, 1, "idle decay spent the shield");
+});
+
+test("dark gates: from the 30th lock every third gate shows only on lamp I", () => {
+  const dark = [];
+  for (let p = 0; p < 45; p++) if (darkGate(p)) dark.push(p);
+  assert.equal(dark[0], 32);
+  assert.ok(dark.every((p) => p >= DARK_FROM && p % 3 === 2));
+  const c = makeCtx(4), g = new OrbitLock(c); g.down();
+  while (g.points < 32) plain(g);
+  assert.equal(g.dark, true);
+  // The gate is not painted: no 16-wide arc. Count arcs drawn at the gate's radius.
+  let arcs = 0;
+  const g2d = new Proxy({}, { get: (t, k) => (k === "arc" ? () => { if (t.lineWidth === 16) arcs++; } : k in t ? t[k] : () => {}), set: (t, k, v) => { t[k] = v; return true; } });
+  g.draw(g2d);
+  assert.equal(arcs, 0, "a dark gate was drawn");
+  assert.ok(textOf(g).some((x) => /DARK GATE/.test(x.s)));
+  // Lamp I is white at the gate's centre, amber elsewhere inside it, dim far away.
+  g.drift = 0; g.target = g.angle;
+  g.update(DT); g.target = g.angle;
+  assert.deepEqual(g.lampValues().slice(0, 3), [230, 180, 135]);
+  g.target = g.angle + orbitWindow(g.points) * 0.8;
+  assert.equal(g.lampValues()[0], 230); // amber 0.9
+  assert.equal(g.lampValues()[1], 99);
+  perfect(g);
+  assert.equal(g.R.dark, 1);
+  assert.equal(g.dark, false);
+  // A miss on a dark gate shows it in red.
+  while (!g.dark) plain(g);
+  arcs = 0; miss(g); g.draw(g2d);
+  assert.ok(arcs > 0, "a missed dark gate was not shown");
+});
+
+test("feats: met during the run, announced once, sent to the logbook when the run is recorded", () => {
+  const c = withLogbook(makeCtx(5, { progress: {} })), g = new OrbitLock(c); g.down();
+  for (let i = 0; i < 10; i++) plain(g);
+  assert.ok(g.sv.ft.includes("l10"));
+  assert.deepEqual(g.fresh, ["l10"]);
+  assert.match(g.note, /FIRST CONTACT/);
+  for (let i = 0; i < 3; i++) miss(g);
+  assert.equal(g.phase, "over");
+  assert.equal(c.log.saves.length, 0, "saved inside the gesture window");
+  assert.deepEqual(c.book.feats, [], "a feat reached the logbook inside the gesture window");
+  step(g, SETTLE + 0.2);
+  assert.deepEqual(c.book.feats, [["l10", "FIRST CONTACT"]]);
+  assert.equal(c.log.saves.length, 1);
+  const save = c.log.saves[0];
+  assert.equal(save.schema, 3);
+  assert.equal(save.runs, 1);
+  assert.deepEqual(save.ft, ["l10"]);
+  assert.equal(save.st.locks, 10);
+  assert.equal(save.st.best, 10);
+  assert.deepEqual(save.last, { locks: 10, milestone: 2, perfects: 0, chain: 0 });
+  assert.equal(save.milestone, 2);
+  assert.deepEqual(c.log.scores.map((s) => s.n), [10]);
+  // The next run starts from the save and does not send the feat again.
+  const h = new OrbitLock(withLogbook(makeCtx(6, { progress: save })));
+  h.down(); for (let i = 0; i < 10; i++) plain(h);
+  assert.deepEqual(h.fresh, [], "an earned feat was earned again");
+});
+
+test("lifetime feats count every run once: VETERAN at 1000 locks in all", () => {
+  const c = makeCtx(7, { progress: { schema: 2, runs: 50, st: { locks: 995 } } }), g = new OrbitLock(c);
+  g.down();
+  for (let i = 0; i < 4; i++) plain(g);
+  assert.ok(!g.sv.ft.includes("veteran"));
+  plain(g);
+  assert.ok(g.sv.ft.includes("veteran"), "999 + 1");
+  for (let i = 0; i < 3; i++) miss(g);
+  step(g, SETTLE + 0.2);
+  assert.equal(c.log.saves[0].st.locks, 1000);
+});
+
+test("today's order: only on a day the logbook picks Orbit Lock, stated to it, met mid-run and sent with the run", () => {
+  assert.deepEqual(orbitOrder("2026-10-01"), orbitOrder("2026-10-01"));
+  const kinds = new Set(); for (let d = 1; d <= 28; d++) kinds.add(orbitOrder("2026-02-" + String(d).padStart(2, "0")).kind);
+  assert.equal(kinds.size, 4, "all order kinds occur");
+  const key = dayWith("sector"), o = orbitOrder(key);
+  // Not picked today: no order, nothing on the title, nothing ever met.
+  const off = withLogbook(makeCtx(9), { picked: false }), a = onDay(new OrbitLock(off), key);
+  assert.equal(a.order, null);
+  assert.doesNotMatch(textOf(a).map((x) => x.s).join(" | "), /TODAY/);
+  a.down(); for (let i = 0; i < 30; i++) plain(a);
+  assert.equal(a.orderMet, false);
+  // Picked: the order is stated to the logbook and met once reached.
+  const c = withLogbook(makeCtx(10)), g = onDay(new OrbitLock(c), key);
+  g.reset();
+  assert.equal(c.book.goal, o.text);
+  assert.match(textOf(g).map((x) => x.s).join(" | "), new RegExp("TODAY: " + o.text.replace(".", "\\.")));
+  g.down();
+  while (Math.floor(g.points / 5) + 1 < o.n) { assert.equal(g.orderMet, false); plain(g); }
+  assert.equal(g.orderMet, true);
+  assert.match(g.note, /TODAY'S ORDER MET/);
+  assert.equal(c.book.met, 0, "met inside the run, before it was recorded");
+  for (let i = 0; i < 3; i++) miss(g);
+  step(g, SETTLE + 0.2);
+  assert.equal(c.book.met, 1);
+  // Once met, the next run has no order and the title says so.
+  g.reset();
+  assert.equal(g.order, null);
+  assert.match(textOf(g).map((x) => x.s).join(" | "), /TODAY'S ORDER MET/);
+});
+
+test("leaving mid-run keeps today's order met on the way, but a menu pause saves nothing", () => {
+  const key = dayWith("sector"), c = withLogbook(makeCtx(12, { progress: {} })), g = onDay(new OrbitLock(c), key);
+  g.reset(); g.down();
+  while (!g.orderMet) plain(g);
+  g.pause(); g.resume();
+  assert.equal(c.log.saves.length, 0);
+  assert.equal(c.book.met, 0);
+  g.dispose();
+  assert.equal(c.log.saves.length, 1);
+  assert.equal(c.book.met, 1);
+});
+
+test("migration: first-release and schema 2 saves load with their runs, milestone and last result intact", () => {
+  const old = { schema: 1, runs: 7, last: { locks: 23, milestone: 4 }, milestone: 6 };
+  const sv = migrateOrbit(old);
+  assert.equal(sv.schema, 3);
+  assert.equal(sv.runs, 7); assert.equal(sv.milestone, 6);
+  assert.deepEqual(sv.last, { locks: 23, milestone: 4 });
+  assert.equal(sv.st.best, 23);
+  assert.deepEqual(sv.ft, []);
+  // Schema 2 kept its own streak and daily feats; the logbook has them now, so they go.
+  const two = migrateOrbit({ schema: 2, runs: 9, ft: ["l10", "daily", "streak"], st: { locks: 300, daily: 4, best: 31 }, dl: { d: "2026-10-01", done: 1, streak: 3, last: "2026-10-01" }, mb: { rush: 12 }, mode: "rush" });
+  assert.deepEqual(two.ft, ["l10"]);
+  assert.equal(two.dl, undefined);
+  assert.equal(two.st.daily, undefined);
+  assert.deepEqual([two.runs, two.st.locks, two.st.best, two.mb.rush, two.mode], [9, 300, 31, 12, "rush"]);
+  for (const junk of [null, undefined, 3, "x", [], { runs: "a", ft: ["l10", "nope", "l10"], st: { locks: -5 }, dl: { streak: NaN, d: 4 } }]) {
+    const m = migrateOrbit(junk);
+    assert.equal(m.schema, 3);
+    assert.ok(Number.isFinite(m.runs) && m.runs >= 0);
+    assert.ok(m.st.locks >= 0);
+    assert.ok(Array.isArray(m.ft) && new Set(m.ft).size === m.ft.length && m.ft.every((id) => ORBIT_FEATS.some((f) => f.id === id)));
+  }
+  // A run on top of the old save keeps counting from it.
+  const c = makeCtx(13, { progress: old }), g = new OrbitLock(c); g.down();
+  plain(g); for (let i = 0; i < 3; i++) miss(g);
+  step(g, SETTLE + 0.2);
+  assert.equal(c.log.saves[0].runs, 8);
+  assert.equal(c.log.saves[0].milestone, 6);
+  assert.ok(JSON.stringify(c.log.saves[0]).length < 2048);
+});
+
+test("the menu gesture takes back the chain, the shield, the run's tallies and any feat it earned", () => {
+  const c = makeCtx(14), g = new OrbitLock(c), rig = makeRig(g, c);
+  g.down();
+  for (let i = 0; i < 9; i++) perfect(g);
+  g.target = 0; g.angle = 3;
+  const keys = ["chain", "shield", "R", "sv", "fresh", "points", "lives", "orderMet"];
+  const before = Object.fromEntries(keys.map((k) => [k, structuredClone(g[k])]));
+  gestureWithUpdates(g, rig);
+  assert.equal(rig.menuOpen, 1);
+  for (const k of keys) assert.deepEqual(g[k], before[k], k + " was not restored");
+});
+
+test("title: dark lamps, the best, today's order and no rank, feat list or streak; all text at least 16 px", () => {
+  const c = withLogbook(makeCtx(15)), g = new OrbitLock(c);
+  step(g, 1);
+  assert.ok(c.ledsNow.every((v) => v === 0));
+  const painted = textOf(g);
+  const words = painted.map((x) => x.s).join(" | ");
+  assert.match(words, /BEST 0 LOCKS/);
+  assert.match(words, /TODAY: /);
+  assert.doesNotMatch(words, /RANK|FEATS|STREAK/);
+  assert.ok(painted.every((x) => x.size >= 16));
+  g.down(); for (let i = 0; i < 3; i++) miss(g);
+  assert.ok(textOf(g).every((x) => x.size >= 16));
+});
+
+test("tuning: a timing player with 50 ms of error reaches the dark gates; the shield adds only a little", () => {
+  const results = [];
+  for (let seed = 1; seed <= 8; seed++) {
+    const c = makeCtx(seed), g = new OrbitLock(c); g.down();
+    let at = null, t = 0;
+    for (let i = 0; i < 60 * 900 && g.phase === "play"; i++) {
+      t += DT;
+      if (at === null) at = t + g.ahead() / (orbitSpeed(g.points) - g.drift * g.dir) + gauss(c.rng, 0.05);
+      if (t >= at) { g.down(); g.up(); at = null; }
+      g.update(DT);
+    }
+    assert.equal(g.phase, "over");
+    results.push({ locks: g.points, perfects: g.R.perfects, saves: g.R.saves });
+  }
+  const mean = results.reduce((a, r) => a + r.locks, 0) / results.length;
+  const saves = results.reduce((a, r) => a + r.saves, 0) / results.length;
+  console.log("orbit bot 50 ms:", results.map((r) => r.locks + "/" + r.perfects + "/" + r.saves).join(" "));
+  assert.ok(mean >= 30 && mean <= 50, "mean locks " + mean);
+  assert.ok(saves <= 2, "shields saved " + saves + " misses a run");
+});
+
+// ------------------------------------------------------------------------------------------- modes
+// Saves with the modes opened: RUSH at a best of 20 locks, ECLIPSE after 25 dark gates in all.
+const withFeats = (n) => ({ schema: 2, st: { best: n >= 5 ? 20 : 0, dark: n >= 11 ? 25 : 0 } });
+const tap = (g) => { g.down(); step(g, 0.1); g.up(); };
+const hold = (g) => { g.down(); step(g, MODE_HOLD + 0.1); g.up(); };
+
+test("modes: until one is earned a press starts at once; afterwards a tap plays and a hold changes mode", () => {
+  const g = new OrbitLock(makeCtx(30));
+  g.down();
+  assert.equal(g.phase, "play", "a fresh player's press did not start at once");
+  const h = new OrbitLock(makeCtx(31, { progress: withFeats(5) }));
+  assert.equal(h.modesOpen(), true);
+  h.down();
+  assert.equal(h.phase, "title", "with modes earned the press must wait for its release");
+  h.up();
+  assert.equal(h.phase, "play");
+  const k = new OrbitLock(makeCtx(32, { progress: withFeats(5) }));
+  hold(k);
+  assert.equal(k.phase, "title");
+  assert.equal(k.mode, "rush");
+  hold(k);
+  assert.equal(k.mode, "standard", "eclipse is not open yet");
+  const all = new OrbitLock(makeCtx(33, { progress: withFeats(11) }));
+  hold(all); hold(all);
+  assert.equal(all.mode, "eclipse");
+  assert.equal(all.c.log.saves.at(-1).mode, "eclipse", "the chosen mode was not remembered");
+  assert.match(textOf(all).map((x) => x.s).join(" | "), /MODE ECLIPSE/);
+  assert.equal(new OrbitLock(makeCtx(34, { progress: all.c.log.saves.at(-1) })).mode, "eclipse");
+});
+
+test("rush: sixty seconds, misses cost time not hull, sectors add time, and it ends on the clock", () => {
+  const c = makeCtx(35, { progress: { ...withFeats(5), mode: "rush" } }), g = new OrbitLock(c);
+  tap(g);
+  assert.equal(g.mode, "rush"); assert.equal(g.phase, "play");
+  assert.equal(g.clock, RUSH_TIME, "the clock started before the release that chose to play");
+  const before = g.clock;
+  miss(g);
+  assert.equal(g.lives, 3);
+  assert.ok(Math.abs(before - g.clock - RUSH_MISS) < 0.05);
+  for (let i = 0; i < 5; i++) plain(g);
+  assert.ok(g.clock > before - RUSH_MISS, "a sector added no time");
+  g.target = g.angle + 3; g.drift = 0;
+  step(g, 70);
+  assert.equal(g.phase, "over");
+  assert.equal(g.lives, 3, "idle decay ran in a rush");
+  step(g, SETTLE + 0.2);
+  assert.equal(c.log.scores.length, 0, "a rush set the console's best score");
+  const save = c.log.saves.at(-1);
+  assert.equal(save.mb.rush, 5);
+  assert.equal(save.st.best, 20, "a rush changed the standard best");
+  assert.equal(save.last.mode, "rush");
+  assert.match(textOf(g).map((x) => x.s).join(" | "), /RUSH: 5 locks/);
+});
+
+test("eclipse: every gate is dark from the first, and its best is kept apart", () => {
+  const c = makeCtx(36, { progress: { ...withFeats(11), mode: "eclipse" } }), g = new OrbitLock(c);
+  tap(g);
+  assert.equal(g.dark, true);
+  for (let i = 0; i < 4; i++) { plain(g); assert.equal(g.dark, true); }
+  assert.ok(g.sv.ft.includes("dark1"));
+  for (let i = 0; i < 3; i++) miss(g);
+  step(g, SETTLE + 0.2);
+  assert.equal(c.log.scores.length, 0);
+  assert.equal(c.log.saves.at(-1).mb.eclipse, 4);
+});
+
+test("review fixes: the gate never narrows below 0.14 rad, and one excellent run cannot open both modes, and a 30 ms player's run still ends", () => {
+  assert.equal(orbitWindow(40), 0.14);
+  assert.equal(orbitWindow(80), 0.14);
+  assert.ok(orbitWindow(30) > 0.14);
+  // At top speed the narrowest gate is still about +-30 ms wide.
+  assert.ok(orbitWindow(120) / orbitSpeed(120) > 0.03);
+  for (let seed = 1; seed <= 4; seed++) {
+    const c = makeCtx(seed, { progress: {} }), g = new OrbitLock(c); g.down();
+    let at = null, t = 0;
+    for (let i = 0; i < 60 * 1200 && g.phase === "play"; i++) {
+      t += DT;
+      if (at === null) at = t + g.ahead() / (orbitSpeed(g.points) - g.drift * g.dir) + gauss(c.rng, 0.03);
+      if (t >= at) { g.down(); g.up(); at = null; }
+      g.update(DT);
+    }
+    assert.equal(g.phase, "over", `seed ${seed}: a 30 ms player never ends (${g.points} locks)`);
+    assert.ok(!g.unlocked("eclipse"), `seed ${seed}: one run of ${g.points} locks opened ECLIPSE`);
+  }
+});
+
+test("review fixes: the result panel always ends above the hint line", () => {
+  const g = new OrbitLock(makeCtx(50, { progress: withFeats(11) }));
+  tap(g);
+  for (let i = 0; i < 46; i++) perfect(g);
+  for (let i = 0; i < 4; i++) miss(g);
+  assert.equal(g.phase, "over");
+  assert.ok(g.fresh.length >= 3);
+  const ys = [];
+  const g2d = new Proxy({}, { get: (t, k) => (k === "fillText" ? (s, x, y) => ys.push(y) : k in t ? t[k] : () => {}), set: (t, k, v) => { t[k] = v; return true; } });
+  g.draw(g2d);
+  assert.ok(Math.max(...ys) <= 500, "text drawn at y=" + Math.max(...ys));
+});

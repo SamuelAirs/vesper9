@@ -12,11 +12,18 @@
 //
 // The world advances only in update(dt). Collision runs in sub-steps of at most
 // STEP pixels, smaller than the ball radius, so nothing tunnels at MAX_SPEED.
+//
+// Within a run: after each chamber from the second, a choice of two upgrades (tap switches, hold
+// takes; lamp I or III shows which is highlighted, so it can be chosen by the lamps alone).
+// Between runs: charge cells from chamber 4 (breaking one breaks its eight neighbours, and a
+// charge can set off another), sixteen feats (two hidden) sent to the console's logbook, and an
+// order of its own on the days the logbook picks Ricochet, in a versioned save (schema 3) that keeps
+// the first release's fields.
 import { clamp } from "../engine/math.js";
 import { C, text, line, circle, diamond, space, banner } from "../engine/draw.js";
 import { LAMP, lamps, spot, ramp, dim, pulse, chase, lightsOff } from "../engine/lightshow.js";
-import { recordRun } from "../engine/kit.js";
 import { AppGuard } from "../engine/input.js";
+import { num, hashText, dateKey, cleanFeats, newlyMet, todayOrder, panel, drawToday } from "./goals.js";
 
 // Chamber geometry in the 960 x 540 logical space.
 const L = 120, R = 840, TOP = 40; // side walls and ceiling
@@ -35,15 +42,85 @@ const FREE_BALLS = 2; // chamber 1 is practice: a newcomer learns the paddle bef
 const DROP_SPEED = 130;
 const SCALE = [262, 294, 330, 392, 440, 494, 523];
 
-const baseSpeed = (ch) => Math.min(500, 340 + 20 * (ch - 1));
-const padSpeed = (ch) => Math.min(420, 320 + 10 * (ch - 1));
+const baseSpeed = (ch) => Math.min(480, 320 + 18 * (ch - 1));
+// The paddle glides faster than it first did (Sam's playtest: turning felt slow), and for a moment
+// after each tap it moves faster still (TURN_BOOST, fading over TURN_TIME), so a reversal gets back
+// to the ball quickly without making the glide itself twitchy.
+const padSpeed = (ch) => Math.min(500, 390 + 12 * (ch - 1));
+export const TURN_BOOST = 0.6, TURN_TIME = 0.22;
 const PAD_WIDTHS = [168, 156, 144, 132, 120, 110, 100, 92, 84];
 const padWidth = (ch) => PAD_WIDTHS[Math.min(PAD_WIDTHS.length - 1, ch - 1)];
-const rowsFor = (ch) => (ch < 3 ? 3 : ch < 5 ? 4 : ch < 7 ? 5 : ch < 10 ? 6 : 7);
+// Rows of cells per chamber. Kept low so a chamber takes a minute or two, not five: later chambers get
+// harder through speed, paddle width, hard and charge cells rather than sheer size.
+const rowsFor = (ch) => (ch < 4 ? 3 : ch < 8 ? 4 : 5);
 const NEWS = {
   1: "PRACTICE: TWO FREE BALLS", 2: "NEW: BONUS CELLS", 3: "NEW: HARDENED CELLS",
-  4: "FASTER SIGNAL / NARROWER PADDLE",
+  4: "NEW: CHARGE CELLS BREAK THEIR NEIGHBOURS",
 };
+export const CHARGE_FROM = 4;
+// Upgrades offered between chambers. `max` is how often one can be taken in a run.
+export const UPGRADES = [
+  { id: "wide", name: "WIDER PADDLE", text: "The paddle is 10 % wider.", max: 3 },
+  { id: "spare", name: "SPARE BALL", text: "One more ball.", max: 2 },
+  { id: "chain", name: "STEADY CHAIN", text: "The chain survives one paddle touch.", max: 1 },
+  { id: "serve", name: "CHARGED SERVE", text: "Each served ball's first cell goes off like a charge.", max: 1 },
+  { id: "quick", name: "QUICK PADDLE", text: "The paddle glides 10 % faster.", max: 2 },
+  { id: "slow", name: "HEAVY SIGNAL", text: "The ball travels 6 % slower.", max: 2 },
+  { id: "luck", name: "SALVAGE", text: "One more pair of bonus cells in each chamber.", max: 1 },
+];
+export const PICK_FROM = 2;  // the first choice follows chamber 2
+export const PICK_HOLD = 0.5; // a press held this long takes the highlighted upgrade
+export const PICK_TIME = 8;   // left alone, the highlighted upgrade is taken after this long
+// Each chamber has its own cell colours: [fill, alternate row, edge].
+const THEMES = [["#223b29", "#1d3323", "#d6efa4"], ["#1d3638", "#18302f", "#8fcbc5"], ["#2b2640", "#241f37", "#b7a6e8"],
+  ["#3a2a1e", "#32241a", "#e7b879"], ["#203327", "#1a2b21", "#a8e0b0"], ["#35202a", "#2d1b23", "#eb947a"]];
+
+// ---- feats and today's order ---------------------------------------------------------------
+// Feats go to the console's logbook (ctx.feat); the save only remembers which were sent.
+const life = (a, key) => (a.sv.st[key] || 0) + (a.R[key] || 0);
+export const RICOCHET_FEATS = [
+  { id: "practice", name: "QUICK STUDY", text: "Clear chamber 1 without losing a ball.", n: 1, prog: (a) => a.R.practice },
+  { id: "ch5", name: "FIFTH CHAMBER", text: "Reach chamber 5.", n: 5, prog: (a) => a.chamber },
+  { id: "ch8", name: "DEEP LATTICE", text: "Reach chamber 8.", n: 8, prog: (a) => a.chamber },
+  { id: "ch10", name: "THE CORE", text: "Reach chamber 10.", n: 10, prog: (a) => a.chamber },
+  { id: "chain8", name: "FULL CHAIN", text: "Reach a chain of x8.", n: 8, prog: (a) => a.bestChain },
+  { id: "bonus3", name: "COLLECTOR", text: "Catch 3 bonuses in one run.", n: 3, prog: (a) => a.R.bonuses },
+  { id: "twin", name: "TWIN SIGNALS", text: "Clear a chamber with two balls in play.", n: 1, prog: (a) => a.R.twin },
+  { id: "sweep", name: "CLEAN SWEEP", text: "Clear a chamber after the first without losing a ball.", n: 1, prog: (a) => a.R.sweep },
+  { id: "blast", name: "DEMOLITION", text: "Break 6 cells with one charge.", n: 6, prog: (a) => a.R.blast },
+  { id: "relay", name: "CHAIN REACTION", text: "Set off a charge with another charge.", n: 1, prog: (a) => a.R.relay },
+  { id: "s5k", name: "FIVE THOUSAND", text: "Score 5000 in one run.", n: 5000, prog: (a) => a.score },
+  { id: "s10k", name: "TEN THOUSAND", text: "Score 10000 in one run.", n: 10000, prog: (a) => a.score },
+  { id: "cells", name: "WRECKER", text: "Break 1000 cells in all.", n: 1000, prog: (a) => life(a, "cells") },
+  { id: "fitted", name: "OUTFITTED", text: "Take 5 upgrades in one run.", n: 5, prog: (a) => a.R.picks },
+  { id: "few", name: "FEW RETURNS", text: "Clear a chamber in 6 paddle touches or fewer.", hint: "Some chambers fall to a handful of returns.", n: 1, hidden: true, prog: (a) => a.R.few },
+  { id: "lastball", name: "LAST LIGHT", text: "Clear a chamber on the last ball.", hint: "The last ball can still finish the job.", n: 1, hidden: true, prog: (a) => a.R.lastBall },
+];
+const FEAT_IDS = RICOCHET_FEATS.map((f) => f.id);
+// Ricochet's own order for a date, stated to the logbook on the days it picks Ricochet.
+export function ricochetOrder(key) {
+  const h = hashText("ricochet" + key), kind = h % 5, v = (h >>> 8) % 3;
+  if (kind === 0) return { kind: "chamber", n: 3 + v, text: "Reach chamber " + (3 + v) + "." };
+  if (kind === 1) return { kind: "chain", n: 4 + v, text: "Reach a chain of x" + (4 + v) + "." };
+  if (kind === 2) return { kind: "bonuses", n: 2 + v, text: "Catch " + (2 + v) + " bonuses in one run." };
+  if (kind === 3) return { kind: "cells", n: 60 + 30 * v, text: "Break " + (60 + 30 * v) + " cells in one run." };
+  return { kind: "sweep", n: 1, text: "Clear a chamber after the first without losing a ball." };
+}
+// Bring any stored shape (nothing, schema 1 from recordRun, schema 2 with its own daily streak and
+// ranks) to schema 3. The streak and the daily feats now live in the console's logbook, so they go.
+export function migrateRicochet(raw) {
+  const r = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  const st = r.st && typeof r.st === "object" ? r.st : {};
+  const n = (v) => Math.max(0, Math.floor(num(v)));
+  return {
+    schema: 3,
+    runs: n(r.runs),
+    last: r.last && typeof r.last === "object" ? r.last : {},
+    milestone: n(r.milestone),
+    ft: cleanFeats(r.ft, FEAT_IDS),
+    st: { cells: n(st.cells), chambers: n(st.chambers), far: Math.max(n(st.far), n(r.milestone)) },
+  };
+}
 
 // Symmetric lattice patterns over a mirrored column index m (0 = outer edge .. 5).
 const PATTERNS = [
@@ -62,6 +139,9 @@ const emptyBall = () => ({ x: 0, y: 0, vx: 0, vy: 0, pred: null, predN: 0, predC
   tx: [0, 0, 0], ty: [0, 0, 0] });
 
 export class Ricochet {
+  // A tap, tap, hold was just rewound (see cancel). Private, so neither the rewind's snapshot nor a
+  // test's picture of the game sees it: it is about the menu, not the game.
+  #rewound = false;
   constructor(ctx) {
     this.ctx = ctx;
     this.guard = new AppGuard(this, ctx); // takes back a menu gesture that reached the game (docs/ENGINE.md)
@@ -74,6 +154,7 @@ export class Ricochet {
     this.scratch = emptyBall();
     this.hitIdx = [];
     this.parts = Array.from({ length: 40 }, () => ({ x: 0, y: 0, vx: 0, vy: 0, life: 0 }));
+    this.sv = migrateRicochet(ctx.progress?.());
     this.reset();
     this.setupChamber(1);
     this.setHint("Tap reverses the paddle. Meet the amber bracket.");
@@ -96,9 +177,11 @@ export class Ricochet {
     this.timer = 1.2;
     this.px = (L + R) / 2;
     this.dir = 1;
+    this.turnT = 0;
     this.padW = padWidth(1);
     this.pressing = false;
     this.heldTime = 0;
+    this.dirBefore = 0;
     this.downs = [-9, -9, -9, -9];
     this.lostAt = -9;
     this.sparkle = [-9, -9, -9];
@@ -113,8 +196,24 @@ export class Ricochet {
     this.remaining = 0;
     this.announce = null;
     this.lastBonus = 0;
+    this.blastAt = -9;
+    this.blastCol = 1;
+    this.blasts = [];
     for (const p of this.parts) p.life = 0;
+    // This run's tallies, for feats and today's order.
+    this.mods = Object.fromEntries(UPGRADES.map((u) => [u.id, 0]));
+    this.offer = null;      // the two upgrades on offer: { ids, cur, t }
+    this.chainKept = false; // STEADY CHAIN: the chain has already survived a touch since the last break
+    this.servedCharge = false;
+    this.shake = 0;
+    this.R = { picks: 0, practice: 0, bonuses: 0, twin: 0, sweep: 0, blast: 0, relay: 0, few: 0, lastBall: 0, cells: 0, lostHere: 0, touchesHere: 0 };
+    this.fresh = [];
+    this.orderMet = false;
+    // Today's order, only on the days the logbook picks Ricochet and while it is not yet met.
+    this.order = todayOrder(this.ctx, ricochetOrder(this.dayKey()));
+    this.news = null;
   }
+  dayKey() { return dateKey(); }
 
   get multiplier() {
     return Math.min(8, 1 + this.streak);
@@ -123,10 +222,13 @@ export class Ricochet {
     return this.pressing && this.heldTime >= FREEZE_AFTER;
   }
   speedNow() {
-    return Math.min(MAX_SPEED, (baseSpeed(this.chamber) + this.gain) * (this.pw.slow > 0 ? 0.72 : 1));
+    return Math.min(MAX_SPEED, (baseSpeed(this.chamber) + this.gain) * (this.pw.slow > 0 ? 0.72 : 1) * (1 - 0.06 * (this.mods?.slow || 0)));
   }
   padTarget() {
-    return padWidth(this.chamber) * (this.pw.wide > 0 ? 1.45 : 1);
+    return padWidth(this.chamber) * (this.pw.wide > 0 ? 1.45 : 1) * (1 + 0.1 * (this.mods?.wide || 0));
+  }
+  padSpeedNow() {
+    return padSpeed(this.chamber) * (1 + 0.1 * (this.mods?.quick || 0));
   }
 
   setHint(message) {
@@ -164,13 +266,24 @@ export class Ricochet {
       }
     }
     if (ch >= 2 && live.length) {
-      const pairs = ch < 4 ? 1 : 2;
+      const pairs = (ch < 4 ? 1 : 2) + (this.mods?.luck || 0);
       for (let i = 0; i < pairs; i++) {
         const [r, m] = live[rng.int(0, live.length - 1)];
         const type = rng.pick(["wide", "slow", "multi"]);
         for (const c of [m, 11 - m]) this.cells[r * COLS + c].bonus = type;
       }
     }
+    // Charge cells, in mirrored pairs, on plain cells with something next to them to break.
+    if (ch >= CHARGE_FROM) {
+      const plain = live.filter(([r, m]) => { const cell = this.cells[r * COLS + m]; return !cell.hard && !cell.bonus && !cell.charge && this.neighbours(r * COLS + m).length >= 2; });
+      for (let i = 0; i < (ch < 7 ? 1 : 2) && plain.length; i++) {
+        const [r, m] = plain.splice(rng.int(0, plain.length - 1), 1)[0];
+        for (const c of [m, 11 - m]) this.cells[r * COLS + c].charge = true;
+      }
+    }
+    this.R.touchesHere = 0;
+    this.R.lostHere = 0;
+    this.checkGoals(); // reaching a chamber can meet the order or a feat
     this.remaining = 0;
     for (const c of this.cells) if (c) this.remaining++;
     this.balls = [];
@@ -204,6 +317,7 @@ export class Ricochet {
     this.fixMin(b);
     this.sub = "live";
     this.quiet = 0;
+    this.servedCharge = this.mods.serve > 0;
     this.setHint("Tap reverses the paddle. Meet the amber bracket. A long hold freezes the game.");
   }
 
@@ -211,6 +325,7 @@ export class Ricochet {
 
   down() {
     this.guard.mark();
+    this.#rewound = false;
     if (this.phase === "title") return this.begin();
     if (this.phase === "over") {
       if (this.t - this.endedAt > 0.8) this.begin();
@@ -221,23 +336,32 @@ export class Ricochet {
     this.downs.push(this.clock);
     this.pressing = true;
     this.heldTime = 0;
+    if (this.sub === "pick") return; // decided on release
+    this.dirBefore = this.dir;
     this.dir = -this.dir;
+    this.turnT = TURN_TIME;
     this.ctx.tone(520, 0.025, "square");
   }
 
   up() {
     this.guard.release();
+    if (this.phase === "play" && this.sub === "pick" && this.pressing) {
+      if (this.heldTime >= PICK_HOLD) this.take();
+      else { this.offer.cur = 1 - this.offer.cur; this.offer.t = 0; this.ctx.tone(this.offer.cur ? 660 : 523, 0.05, "sine"); }
+    }
     this.pressing = false;
     this.heldTime = 0;
   }
 
   cancel() {
-    this.guard.rewind();
-    // Menu or focus change: drop held input and go dark. If a ball was lost in the
-    // moment the gesture began (during or just before its last press), give it back.
+    // Menu or focus change. A tap, tap, hold is rewound to before its first press (AppGuard), so a
+    // ball its own taps lost is back and one lost before it began stays lost; the pause that follows
+    // calls cancel() again, and that must not give anything back either. A menu opened some other way
+    // (a key, a long hold) gives back a ball lost in the moment before it opened.
+    if (this.guard.rewind()) this.#rewound = true;
     this.pressing = false;
     this.heldTime = 0;
-    if (this.phase === "play" && this.sub === "dying" && this.lostAt >= this.downs[3] - 1.5) {
+    if (!this.#rewound && this.phase === "play" && this.sub === "dying" && this.lostAt >= this.downs[3] - 1.5) {
       if (this.lostFree) this.free++;
       else this.lives = Math.min(LIVES, this.lives + 1);
       this.lostFree = false;
@@ -246,14 +370,16 @@ export class Ricochet {
       this.setHint("Ball returned. Tap reverses the paddle.");
     }
     this.ctx.synth?.stopTone?.();
-    this.ctx.leds(lightsOff());
+    this.ctx.leds(lightsOff(this.lampCount()));
   }
   pause() { this.guard.settle(); this.cancel(); }
   dispose() {
     this.guard.settle();
+    // Leaving for good mid-run: today's order met or a feat earned on the way is kept.
+    if (this.phase === "play" && (this.orderMet || this.fresh.length)) this.persist();
     this.pressing = false;
     this.ctx.synth?.stopTone?.();
-    this.ctx.leds(lightsOff());
+    this.ctx.leds(lightsOff(this.lampCount()));
   }
 
   begin() {
@@ -342,17 +468,54 @@ export class Ricochet {
     if (!sim) for (const i of this.hitIdx) this.damage(i);
   }
 
+  // Live cells around cell i (eight neighbours, inside the lattice).
+  neighbours(i) {
+    const out = [], c0 = i % COLS, r0 = Math.floor(i / COLS);
+    for (let r = r0 - 1; r <= r0 + 1; r++) for (let c = c0 - 1; c <= c0 + 1; c++) {
+      if (r < 0 || r >= this.rows || c < 0 || c >= COLS || (r === r0 && c === c0)) continue;
+      if (this.cells[r * COLS + c]) out.push(r * COLS + c);
+    }
+    return out;
+  }
+  // Damage one cell. A charge that breaks hits each of its neighbours once; a neighbour that is a
+  // charge itself goes off in turn (a queue, never recursion). The cells one blast breaks count for
+  // DEMOLITION, a charge set off by another for CHAIN REACTION.
   damage(i) {
     const cell = this.cells[i];
     if (!cell) return;
+    // CHARGED SERVE: the served ball's first cell goes off like a charge.
+    if (this.servedCharge) { this.servedCharge = false; cell.charge = true; cell.hp = 1; }
+    if (!this.hit(i) || !cell.charge) return;
+    const queue = this.neighbours(i);
+    let broken = 0;
+    while (queue.length) {
+      const j = queue.shift(), next = this.cells[j];
+      if (!next || !this.hit(j)) continue;
+      broken++;
+      if (next.charge) { this.R.relay = 1; queue.push(...this.neighbours(j)); }
+    }
+    this.R.blast = Math.max(this.R.blast, broken);
+    this.shake = Math.max(this.shake, 0.22);
+    this.blastAt = this.t;
+    this.blastCol = Math.min(2, Math.floor((i % COLS) / 4));
+    this.ctx.tone(110, 0.18, "sawtooth");
+    this.ctx.tone(880, 0.12, "triangle");
+    this.checkGoals();
+  }
+  // One hit on cell i; returns whether it broke.
+  hit(i) {
+    const cell = this.cells[i];
+    if (!cell) return false;
     cell.hp--;
     if (cell.hp > 0) {
       this.ctx.tone(190, 0.05, "square");
-      return;
+      return false;
     }
     this.cells[i] = 0;
     this.remaining--;
     this.cellsBroken++;
+    this.chainKept = false;
+    this.R.cells++;
     this.quiet = 0;
     const col = i % COLS, row = Math.floor(i / COLS);
     const mult = this.multiplier;
@@ -365,12 +528,18 @@ export class Ricochet {
     if (cell.bonus && this.drops.length < 8) {
       this.drops.push({ x: L + (col + 0.5) * CW, y: GY + (row + 0.5) * RH, type: cell.bonus });
     }
+    if (cell.charge) this.burst(L + (col + 0.5) * CW, GY + (row + 0.5) * RH, 10);
     for (const b of this.balls) b.dirty = true;
+    this.checkGoals();
+    return true;
   }
 
   paddleHit(b) {
-    this.streak = 0;
+    // STEADY CHAIN keeps the chain through one touch between breaks.
+    if (this.mods.chain && this.streak > 0 && !this.chainKept) this.chainKept = true;
+    else this.streak = 0;
     this.touches++;
+    this.R.touchesHere++;
     this.gain = Math.min(60, this.gain + 2);
     const half = this.padW / 2 + BALL_R * 0.7;
     const u = clamp((b.x - this.px) / half, -1, 1);
@@ -380,7 +549,7 @@ export class Ricochet {
     // a chamber and a ball can never settle into a loop.
     const s = this.speedNow();
     const a0 = u * MAX_ANGLE;
-    const drag = this.dir * padSpeed(this.chamber) * 0.3;
+    const drag = this.dir * this.padSpeedNow() * 0.3;
     let a = Math.atan2(s * Math.sin(a0) + drag, s * Math.cos(a0));
     if (this.quiet > 4 && this.remaining > 0) {
       const target = this.lowestCell(b.x);
@@ -459,7 +628,9 @@ export class Ricochet {
   movePaddle(dt) {
     const target = this.padTarget();
     this.padW += clamp(target - this.padW, -140 * dt, 140 * dt);
-    this.px += this.dir * padSpeed(this.chamber) * dt;
+    const boost = 1 + TURN_BOOST * Math.max(0, this.turnT || 0) / TURN_TIME;
+    this.turnT = Math.max(0, (this.turnT || 0) - dt);
+    this.px += this.dir * this.padSpeedNow() * boost * dt;
     const lo = L + this.padW / 2, hi = R - this.padW / 2;
     if (this.px <= lo) { this.px = lo; this.dir = 1; }
     else if (this.px >= hi) { this.px = hi; this.dir = -1; }
@@ -468,8 +639,14 @@ export class Ricochet {
   step(dt) {
     // A long hold is never a tap: the world freezes until release, so the hold that
     // opens the system menu cannot cost a ball.
+    const held = this.heldTime;
     if (this.pressing) this.heldTime += dt;
+    if (this.sub === "pick") return this.stepPick(dt);
+    // A press that turns into a hold is a pause, not a turn: the paddle goes back to the way it was
+    // gliding before the press, and keeps going that way on release.
+    if (this.pressing && held < FREEZE_AFTER && this.heldTime >= FREEZE_AFTER && this.dirBefore) this.dir = this.dirBefore;
     if (this.frozen) return;
+    this.shake = Math.max(0, this.shake - dt);
     this.clock += dt;
     this.movePaddle(dt);
     for (const p of this.parts) {
@@ -491,8 +668,42 @@ export class Ricochet {
       }
     } else if (this.sub === "clear") {
       this.timer -= dt;
-      if (this.timer <= 0) this.setupChamber(this.chamber + 1);
+      if (this.timer <= 0) {
+        if (this.chamber >= PICK_FROM && this.offerUpgrades()) return;
+        this.setupChamber(this.chamber + 1);
+      }
     }
+  }
+
+  // ---- upgrades between chambers ----------------------------------------
+
+  // Offer two different upgrades that can still be taken; false when none are left.
+  offerUpgrades() {
+    const open = UPGRADES.filter((u) => this.mods[u.id] < u.max).map((u) => u.id);
+    if (!open.length) return false;
+    const rng = this.ctx.rng, first = open.splice(rng.int(0, open.length - 1), 1)[0];
+    const ids = open.length ? [first, open[rng.int(0, open.length - 1)]] : [first];
+    this.offer = { ids, cur: 0, t: 0 };
+    this.sub = "pick";
+    this.setHint("Tap: switch upgrade. Hold: take it.");
+    this.ctx.tone(440, 0.08, "sine");
+    return true;
+  }
+  // While choosing, the world waits; the highlighted upgrade is taken after PICK_TIME.
+  stepPick(dt) {
+    this.offer.t += dt;
+    if (!this.pressing && this.offer.t >= PICK_TIME) this.take();
+  }
+  take() {
+    const id = this.offer.ids[this.offer.cur];
+    this.mods[id]++;
+    this.R.picks++;
+    if (id === "spare") this.lives++;
+    this.offer = null;
+    this.ctx.tone(660, 0.08, "triangle"); this.ctx.tone(990, 0.15, "triangle");
+    this.tell("UPGRADE: " + UPGRADES.find((u) => u.id === id).name);
+    this.setupChamber(this.chamber + 1);
+    this.checkGoals();
   }
 
   stepLive(dt) {
@@ -544,6 +755,7 @@ export class Ricochet {
   applyBonus(type) {
     this.catchAt = this.t;
     this.score += 50;
+    this.R.bonuses++;
     if (type === "wide") this.pw.wide = WIDE_TIME;
     else if (type === "slow") { this.pw.slow = SLOW_TIME; this.rescale(); }
     else if (type === "multi" && this.balls.length < 3 && this.balls.length) {
@@ -558,6 +770,7 @@ export class Ricochet {
     }
     this.ctx.tone(type === "multi" ? 660 : type === "slow" ? 330 : 495, 0.12, "sine");
     this.ctx.tone(type === "multi" ? 880 : type === "slow" ? 440 : 660, 0.12, "sine");
+    this.checkGoals();
   }
 
   loseBall() {
@@ -565,6 +778,8 @@ export class Ricochet {
     if (this.lostFree) this.free--;
     else this.lives--;
     this.lostAt = this.clock;
+    this.R.lostHere++;
+    this.shake = 0.3;
     this.sub = "dying";
     this.timer = 1.2;
     this.streak = 0;
@@ -578,6 +793,11 @@ export class Ricochet {
   }
 
   clearChamber() {
+    const R = this.R;
+    if (!R.lostHere) { if (this.chamber === 1) R.practice = 1; else R.sweep = 1; }
+    if (this.balls.length >= 2) R.twin = 1;
+    if (R.touchesHere <= 6) R.few = 1;
+    if (this.lives === 1 && this.chamber > 1) R.lastBall = 1;
     this.sub = "clear";
     this.timer = 2.6;
     this.clearedAt = this.t;
@@ -589,19 +809,59 @@ export class Ricochet {
     this.ctx.tone(494, 0.12, "triangle");
     this.ctx.tone(659, 0.3, "triangle");
     this.setHint("Chamber cleared.");
+    this.checkGoals();
+  }
+  // Today's order and feats, checked whenever a tally moves. News shows under the clear banner or
+  // in the announcement slot. Both reach the logbook at once (AppGuard holds them while a menu
+  // gesture is still possible, and drops them if it rewinds).
+  orderDone() {
+    const o = this.order;
+    if (o.kind === "chamber") return this.chamber >= o.n;
+    if (o.kind === "chain") return this.bestChain >= o.n;
+    if (o.kind === "bonuses") return this.R.bonuses >= o.n;
+    if (o.kind === "cells") return this.R.cells >= o.n;
+    return this.R.sweep >= 1;
+  }
+  checkGoals() {
+    if (this.phase !== "play") return;
+    if (this.order && !this.orderMet && this.orderDone()) {
+      this.orderMet = true;
+      this.ctx.dailyMet?.();
+      this.tell("TODAY'S ORDER MET");
+      this.ctx.tone(784, 0.1, "sine"); this.ctx.tone(1047, 0.18, "sine");
+    }
+    for (const id of newlyMet(RICOCHET_FEATS, this.sv.ft, this)) {
+      const name = RICOCHET_FEATS.find((f) => f.id === id).name;
+      this.sv.ft.push(id); this.fresh.push(id);
+      this.ctx.feat?.(id, name);
+      this.tell("FEAT: " + name);
+    }
+  }
+  tell(message) {
+    this.news = { text: message, at: this.clock };
   }
 
   end() {
+    this.checkGoals();
     this.phase = "over";
     this.endedAt = this.t;
     this.pressing = false;
     this.ctx.score(this.score);
-    recordRun(this.ctx, { score: this.score, chamber: this.chamber, cells: this.cellsBroken, chain: this.bestChain,
-      milestone: this.chamber });
+    const sv = this.sv, R = this.R;
+    sv.runs++;
+    sv.st.cells += R.cells; sv.st.chambers += this.chamber - 1;
+    sv.st.far = Math.max(sv.st.far, this.chamber);
+    R.cells = 0; // now in the lifetime tallies
+    sv.last = { score: this.score, chamber: this.chamber, cells: this.cellsBroken, chain: this.bestChain, milestone: this.chamber };
+    sv.milestone = Math.max(sv.milestone, this.chamber);
+    this.persist();
     this.ctx.tone(330, 0.2, "triangle");
     this.ctx.tone(247, 0.3, "triangle");
     this.ctx.tone(165, 0.5, "triangle");
     this.setHint("Signal lost. Press to play again.");
+  }
+  persist() {
+    this.ctx.saveProgress?.(JSON.parse(JSON.stringify(this.sv)))?.catch?.(this.ctx.error);
   }
 
   updateHud() {
@@ -618,28 +878,34 @@ export class Ricochet {
 
   // ---- lamps -------------------------------------------------------------
 
-  // Live: a spot that follows the lowest ball across the chamber, coloured by how
-  // far it has dropped. Overlays, lowest priority first: cell sparkle over the
-  // third of the lattice, bonus catch, then the red wash and the clear chase.
+  // Live: a spot that follows the lowest ball across the chamber on lamps I to III, coloured by how
+  // far it has dropped. Overlays, lowest priority first: cell sparkle over the third of the lattice,
+  // bonus catch, then the red wash and the clear chase. On a four-lamp node lamp IV is the REACH
+  // lamp (reachLamp): it says whether the paddle, left alone, will be under the next ball.
+  lampCount() { return this.ctx.lampCount?.() === 4 ? 4 : 3; }
   lampValues() {
-    const t = this.t;
-    if (this.phase === "title") return spot(0.5 + 0.5 * Math.sin(t * 0.7), dim(LAMP.green, 0.14));
+    const t = this.t, n = this.lampCount();
+    if (this.phase === "title") return spot(0.5 + 0.5 * Math.sin(t * 0.7), dim(LAMP.green, 0.14), 0.75, n);
     if (this.phase === "over") {
       const k = 0.02 + 0.07 * pulse(t, 0.4);
-      return lamps(dim(LAMP.red, k), dim(LAMP.red, k), dim(LAMP.red, k));
+      return lamps(...Array(n).fill(dim(LAMP.red, k)));
     }
     if (this.sub === "dying") {
       const age = (this.clock - this.lostAt) / 1.2;
       const k = clamp(1 - age, 0, 1) * (0.25 + 0.3 * pulse(t, 3));
-      const c = dim(LAMP.red, k);
-      return lamps(c, c, c);
+      return lamps(...Array(n).fill(dim(LAMP.red, k)));
+    }
+    if (this.sub === "pick") {
+      // The first lamp for the left card, the last for the right: the choice can be read on the lamps alone.
+      const k = 0.35 + 0.2 * pulse(t, 1.2), out = Array(n).fill(null);
+      out[0] = dim(LAMP.cyan, this.offer.cur ? 0.06 : k); out[n - 1] = dim(LAMP.cyan, this.offer.cur ? k : 0.06);
+      return lamps(...out);
     }
     if (this.sub === "clear") {
       const age = t - this.clearedAt;
-      const on = chase(age, 7, false);
+      const on = chase(age, 7, false, n);
       const hue = [LAMP.green, LAMP.cyan, LAMP.white][Math.floor(age * 3.5) % 3];
-      const out = [0, 1, 2].map((i) => dim(hue, i === on ? 0.45 : 0.06));
-      return lamps(out[0], out[1], out[2]);
+      return lamps(...Array.from({ length: n }, (_, i) => dim(hue, i === on ? 0.45 : 0.06)));
     }
     let pos, rgb;
     if (this.sub === "serve" || !this.balls.length) {
@@ -659,7 +925,38 @@ export class Ricochet {
       if (age < 0.28) over(i, dim(LAMP.white, (Math.floor(age * 40) % 2 ? 0.2 : 0.55) * (1 - age / 0.28)));
     }
     if (t - this.catchAt < 0.2) for (let i = 0; i < 3; i++) over(i, dim(LAMP.cyan, 0.35));
-    return out;
+    // A charge going off: a red burst strongest over its third of the lattice, fading in 0.4 s.
+    const blast = t - this.blastAt;
+    if (blast < 0.4) for (let i = 0; i < 3; i++) over(i, dim(blast < 0.08 ? LAMP.white : LAMP.red, (i === this.blastCol ? 0.7 : 0.35) * (1 - blast / 0.4)));
+    return n === 4 ? out.concat(this.reachLamp()) : out;
+  }
+  // Where the paddle will be in `secs` if nobody taps, gliding at `dir` and turning at the walls.
+  paddleAt(secs, dir) {
+    const lo = L + this.padW / 2, hi = R - this.padW / 2, span = hi - lo;
+    if (!(span > 0)) return lo;
+    // Unfold the walls into a loop of length 2 * span: going right is going forward from p, going
+    // left is going forward from the mirror point 2 * span - p. Fold the result back.
+    const p = clamp(this.px - lo, 0, span);
+    let u = (dir > 0 ? p : 2 * span - p) + this.padSpeedNow() * secs;
+    u %= 2 * span;
+    return lo + (u <= span ? u : 2 * span - u);
+  }
+  // Will the paddle meet ball b if it keeps going `dir`?
+  meets(b, dir) {
+    return Math.abs(this.paddleAt(this.eta(b), dir) - clamp(b.pred, L + this.padW / 2, R - this.padW / 2)) <= this.padW / 2 + BALL_R * 0.5;
+  }
+  // Lamp IV, the REACH lamp: green while the paddle, left alone, will be under the next ball; red
+  // when a tap now would get it there and leaving it would not; amber when neither would. Dim while
+  // the ball climbs, brighter as it comes down; dark with no ball in play.
+  reachLamp() {
+    if (this.sub !== "live" || !this.balls.length) return LAMP.off;
+    let next = null;
+    for (const b of this.balls) if (b.pred !== null && (!next || this.eta(b) < this.eta(next))) next = b;
+    if (!next) return LAMP.off;
+    const eta = this.eta(next), k = clamp(1 - eta / 2.5, 0.12, 1) * 0.6;
+    if (this.meets(next, this.dir)) return dim(LAMP.green, k);
+    if (this.meets(next, -this.dir)) return dim(LAMP.red, k * (0.7 + 0.3 * pulse(this.t, 4)));
+    return dim(LAMP.amber, k * 0.6);
   }
 
   lampOutput() {
@@ -671,10 +968,15 @@ export class Ricochet {
 
   draw(g) {
     space(g, this.t, 0.5);
+    const shake = this.phase === "play" && this.shake > 0 ? Math.sin(this.t * 80) * 5 * this.shake / 0.3 : 0;
+    g.save?.();
+    g.translate?.(shake, 0);
     this.drawChamber(g);
+    g.restore?.();
     if (this.phase === "title") {
       banner(g, "RICOCHET", "TAP TO REVERSE THE PADDLE / BREAK THE LATTICE");
       text(g, "THE LAMPS FOLLOW THE BALL: GREEN HIGH, RED LOW", 480, 392, 18, C.muted, "center");
+      this.drawGoals(g, 430);
     } else if (this.phase === "play") {
       this.drawPlay(g);
     } else {
@@ -683,10 +985,18 @@ export class Ricochet {
   }
 
   drawChamber(g) {
+    const theme = THEMES[(this.chamber - 1) % THEMES.length];
+    // A faint floor glow and depth bands behind the lattice.
+    g.fillStyle = "#0f1c15"; g.fillRect(L, TOP, R - L, PAD_Y + 50 - TOP);
+    g.globalAlpha = 0.5;
+    for (let i = 0; i < 6; i++) { g.fillStyle = i % 2 ? "#0c1511" : "#101e17"; g.fillRect(L, TOP + i * 90, R - L, 45); }
+    g.globalAlpha = 1;
     line(g, L - 2, TOP, L - 2, PAD_Y + 50, C.muted, 3);
     line(g, R + 2, TOP, R + 2, PAD_Y + 50, C.muted, 3);
     line(g, L - 2, TOP - 1, R + 2, TOP - 1, C.muted, 3);
     line(g, L, PAD_Y + 50, R, PAD_Y + 50, C.line, 2);
+    // Corner brackets in the chamber's colour.
+    for (const [cx, sx] of [[L - 2, 1], [R + 2, -1]]) { line(g, cx, TOP - 1, cx + sx * 26, TOP - 1, theme[2], 4); line(g, cx, TOP - 1, cx, TOP + 26, theme[2], 4); }
     const title = this.phase !== "play";
     if (title) g.globalAlpha = 0.45;
     const rows = this.phase === "over" ? 0 : this.rows; // the result panel stands alone
@@ -699,12 +1009,22 @@ export class Ricochet {
           g.strokeStyle = C.amber; g.lineWidth = 2; g.strokeRect(x, y, w, h);
           g.strokeRect(x + 5, y + 5, w - 10, h - 10);
         } else {
-          g.fillStyle = r % 2 ? "#1d3323" : "#223b29";
+          g.fillStyle = r % 2 ? theme[1] : theme[0];
           g.fillRect(x, y, w, h);
-          g.strokeStyle = cell.hard ? C.amber : C.ink; g.lineWidth = 2; g.strokeRect(x, y, w, h);
+          // A lit top edge and a shadowed foot give each cell some body.
+          g.fillStyle = theme[2]; g.globalAlpha = (title ? 0.45 : 1) * 0.35; g.fillRect(x + 3, y + 3, w - 6, 3);
+          g.globalAlpha = title ? 0.45 : 1;
+          g.strokeStyle = cell.hard ? C.amber : theme[2]; g.lineWidth = 2; g.strokeRect(x, y, w, h);
           if (cell.hard) line(g, x + 4, y + h - 4, x + w - 4, y + 4, C.amber, 2);
         }
         if (cell.bonus) diamond(g, x + w / 2, y + h / 2, 6, C.cyan, false);
+        if (cell.charge) {
+          g.fillStyle = "#3a1f18"; g.fillRect(x + 2, y + 2, w - 4, h - 4);
+          g.strokeStyle = C.red; g.lineWidth = 2; g.strokeRect(x, y, w, h);
+          line(g, x + w / 2 - 8, y + h / 2, x + w / 2 + 8, y + h / 2, C.red, 2);
+          line(g, x + w / 2, y + 4, x + w / 2, y + h - 4, C.red, 2);
+          diamond(g, x + w / 2, y + h / 2, 5, C.red, true);
+        }
       }
     }
     g.globalAlpha = 1;
@@ -726,10 +1046,12 @@ export class Ricochet {
         g.globalAlpha = 1;
       }
     }
-    // Paddle, with a chevron on its leading end showing which way it is gliding.
+    // Paddle, with a soft glow under it and a chevron on its leading end showing which way it is gliding.
     const x0 = this.px - this.padW / 2, x1 = this.px + this.padW / 2;
+    g.globalAlpha = 0.18; g.fillStyle = C.ink; g.fillRect(x0 - 6, PAD_Y - 4, this.padW + 12, PAD_H + 12); g.globalAlpha = 1;
     g.fillStyle = C.ink;
     g.fillRect(x0, PAD_Y, this.padW, PAD_H);
+    g.fillStyle = C.muted; g.fillRect(x0, PAD_Y + PAD_H - 3, this.padW, 3);
     if (this.t - this.padFlash < 0.12) line(g, x0, PAD_Y - 3, x1, PAD_Y - 3, C.cyan, 3);
     const lead = this.dir > 0 ? x1 + 6 : x0 - 6, back = lead + this.dir * 9, my = PAD_Y + PAD_H / 2;
     line(g, lead, my - 8, back, my, C.muted, 3);
@@ -741,7 +1063,8 @@ export class Ricochet {
         g.globalAlpha = 0.15; circle(g, b.tx[2], b.ty[2], BALL_R - 3, C.muted, true);
         g.globalAlpha = 1;
       }
-      circle(g, b.x, b.y, BALL_R, C.ink, true);
+      g.globalAlpha = 0.2; circle(g, b.x, b.y, BALL_R + 7, this.servedCharge ? C.red : C.ink, true); g.globalAlpha = 1;
+      circle(g, b.x, b.y, BALL_R, this.servedCharge ? C.red : C.ink, true);
     }
     // Falling bonuses.
     for (const d of this.drops) {
@@ -770,18 +1093,54 @@ export class Ricochet {
     }
     // Announcements.
     const a = this.announce;
-    if (a && this.clock - a.at < 3.2 && this.sub !== "clear") {
+    if (a && this.clock - a.at < 3.2 && this.sub !== "clear" && this.sub !== "dying") {
       g.globalAlpha = clamp(3.2 - (this.clock - a.at), 0, 1);
       text(g, a.text, 480, 380, 34, C.ink, "center");
       if (a.news) text(g, a.news, 480, 418, 22, C.amber, "center");
       g.globalAlpha = 1;
     }
     if (this.frozen) text(g, "HELD: FROZEN UNTIL RELEASE", 480, 104, 22, C.amber, "center");
+    const n = this.news;
+    if (n && this.clock - n.at < 3) {
+      g.globalAlpha = clamp(3 - (this.clock - n.at), 0, 1);
+      text(g, n.text, 480, 72, 22, n.text.startsWith("FEAT") ? C.amber : C.cyan, "center");
+      g.globalAlpha = 1;
+    }
     if (this.sub === "serve" && this.clock > 3.2) text(g, "READY", 480, 400, 22, C.muted, "center");
     if (this.sub === "dying") text(g, this.lives > 0 ? "BALL LOST" : "LAST BALL LOST", 480, 380, 30, C.red, "center");
     if (this.sub === "clear") {
       text(g, "CHAMBER CLEARED", 480, 370, 34, C.amber, "center");
       text(g, "BONUS +" + this.lastBonus, 480, 410, 22, C.ink, "center");
+    }
+    if (this.sub === "pick") this.drawPick(g);
+    this.drawMods(g);
+  }
+  // Two upgrade cards; the highlighted one has a bright frame and a bar that runs down to the auto-pick.
+  drawPick(g) {
+    const o = this.offer;
+    g.fillStyle = "#0c1511ee"; g.fillRect(L + 10, 150, R - L - 20, 300);
+    text(g, "CHAMBER " + String(this.chamber).padStart(2, "0") + " CLEARED / CHOOSE AN UPGRADE", 480, 182, 22, C.amber, "center");
+    o.ids.forEach((id, i) => {
+      const u = UPGRADES.find((x) => x.id === id), on = i === o.cur, x = o.ids.length > 1 ? 160 + i * 330 : 325, y = 214, w = 310, h = 160;
+      g.fillStyle = on ? "#1a2e22" : "#111d17"; g.fillRect(x, y, w, h);
+      g.strokeStyle = on ? C.amber : C.line; g.lineWidth = on ? 4 : 2; g.strokeRect(x, y, w, h);
+      text(g, ["I", "III"][i] || "I", x + 22, y + 26, 18, on ? C.cyan : C.muted, "center");
+      text(g, u.name, x + w / 2, y + 48, 24, on ? C.ink : C.muted, "center");
+      const words = u.text.split(" "), lines = [""];
+      for (const word of words) { if ((lines.at(-1) + " " + word).length > 24) lines.push(word); else lines[lines.length - 1] = (lines.at(-1) + " " + word).trim(); }
+      lines.forEach((ln, k) => text(g, ln, x + w / 2, y + 88 + k * 24, 18, on ? C.ink : C.muted, "center"));
+      if (this.mods[id]) text(g, "TAKEN " + this.mods[id] + " / " + u.max, x + w / 2, y + h - 14, 16, C.muted, "center");
+      if (on) { g.fillStyle = C.amber; g.fillRect(x, y + h + 6, w * Math.max(0, 1 - o.t / PICK_TIME), 4); }
+    });
+    text(g, "TAP: SWITCH   HOLD: TAKE   LAMP I OR III SHOWS THE CHOICE", 480, 420, 18, C.cyan, "center");
+  }
+  // Upgrades taken this run, under the right-hand panel.
+  drawMods(g) {
+    let y = 380;
+    for (const u of UPGRADES) {
+      if (!this.mods[u.id]) continue;
+      text(g, u.name.split(" ")[0] + (this.mods[u.id] > 1 ? " x" + this.mods[u.id] : ""), 900, y, 16, C.cyan, "center");
+      y += 22;
     }
   }
 
@@ -798,6 +1157,19 @@ export class Ricochet {
     });
     text(g, "RECORD " + this.ctx.best(), 480, 378, 18, C.amber, "center");
     if (this.t - this.endedAt > 0.8) text(g, "PRESS TO PLAY AGAIN", 480, 406, 18, C.amber, "center");
+    const lines = [];
+    if (this.orderMet) lines.push(["TODAY'S ORDER MET", C.cyan]);
+    else if (this.order) lines.push(["TODAY: " + this.order.text, C.muted]);
+    if (this.sv.st.far > 1) lines.push(["FURTHEST CHAMBER " + this.sv.st.far, C.muted]);
+    panel(g, 430, 442 + lines.length * 28);
+    lines.forEach(([s, col], i) => text(g, s, 480, 450 + i * 28, 18, col, "center"));
+  }
+  // Best run, furthest chamber and today's order (title screen).
+  drawGoals(g, y) {
+    const sv = this.sv, today = !!this.order || !!this.ctx.today?.()?.done;
+    panel(g, y - 20, y + (today ? 44 : 16));
+    text(g, "RECORD " + (this.ctx.best?.() ?? 0) + "   FURTHEST CHAMBER " + Math.max(1, sv.st.far) + (sv.runs ? "   RUNS " + sv.runs : ""), 480, y, 18, C.ink, "center");
+    drawToday(g, this.ctx, this.order, y + 28);
   }
 }
 

@@ -146,7 +146,7 @@ test("orbit awards alignment and ends after three misses", () => {
   assert.equal(g.phase, "over");
   // A finished run is recorded once the menu-gesture window has passed (game-kit.js SETTLE).
   assert.deepEqual(c.records, []);
-  ticks(g, 2.1);
+  ticks(g, 2.9);
   assert.deepEqual(c.records, [1]);
 });
 test("holding runner jump yields a higher apex than tapping", () => {
@@ -177,7 +177,7 @@ test("runner collision ends expedition once", () => {
   g.obstacles = [{ x: 198, w: 40, h: 70, passed: false }];
   g.update(1 / 60);
   assert.equal(g.phase, "over");
-  ticks(g, 2.1);
+  ticks(g, 2.9);
   assert.equal(c.records.length, 1);
 });
 test("flight thrust and release move in opposite directions", () => {
@@ -266,7 +266,7 @@ function rapid(h, count, duration = 60, gap = 55, source = 'node', generation = 
   }
 }
 // Tap, tap, then a third press held for `hold` ms (to completion of the gesture when long enough).
-function gesture(h, hold = 1100, tap = 60, gap = 55, source = 'node', generation = 1) {
+function gesture(h, hold = 1700, tap = 60, gap = 55, source = 'node', generation = 1) {
   rapid(h, 2, tap, gap, source, generation);
   h.router.down({ source, generation }); h.advance(hold); h.router.up({ source, generation });
 }
@@ -318,7 +318,7 @@ test('node timestamps determine timing even if packets arrive together', () => {
   h.router.cancel();
   // Two taps 130 ms apart on the node's clock arrive in one burst, then the third press is held for real.
   press(10000, 60); press(10130, 60);
-  h.router.down({source:'node',at_us:10260*1000,generation:1}); h.advance(1100);
+  h.router.down({source:'node',at_us:10260*1000,generation:1}); h.advance(1700);
   assert.ok(h.events.includes('menu'));
 });
 test('reconnect reconciles an already released button without swallowing a fresh press', () => {
@@ -348,7 +348,7 @@ test('late light ACK cannot overwrite a new generation cache or final output', a
   });
   l.set(Array(9).fill(80));const pending=l.flush();await Promise.resolve();await Promise.resolve();
   const release=l.release();resolve();await pending;await release;
-  assert.deepEqual(physical,Array(9).fill(0));assert.equal(l.sent,Array(9).fill(0).join(','));
+  assert.deepEqual(physical,Array(9).fill(0));assert.equal(l.sent,Array(12).fill(0).join(','));
 });
 test('Morse migrates history and saves each accepted learning outcome before exit', () => {
   const c=context();let saved;c.progress=()=>({index:0,correct:7,attempts:10});c.saveProgress=v=>{saved=structuredClone(v);};

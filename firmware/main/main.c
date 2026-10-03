@@ -42,7 +42,7 @@ static atomic_bool mic_wanted = false, mic_active = false;
 #define KNOCK_EDGES 32
 // KNOCK_CLIP (two-microphone nodes): both channels around each knock that is sent, so the Pi can
 // tell where on the case it landed. CLIP_PRE frames before the onset, CLIP_FRAMES in all.
-#define CLIP_PRE 32
+#define CLIP_PRE 16
 #define CLIP_FRAMES 176
 typedef struct {
   int64_t at;
@@ -618,8 +618,8 @@ static void knock_decide(const knock_candidate *c) {
   v9_put64(p, (uint64_t)c->at);
   v9_put16(p + 8, (uint16_t)(c->peak > 32767 ? 32767 : c->peak));
   p[10] = c->hf;
-  send_message(V9_KNOCK, p, 11, false);
 #if NODE_MICS == 2
+  // The clip goes first: the Pi keeps the latest one and attaches it to the KNOCK with the same at_us.
   if (c->clip_ok) {
     static uint8_t clip[10 + CLIP_FRAMES * 4];
     v9_put64(clip, (uint64_t)c->at);
@@ -630,6 +630,7 @@ static void knock_decide(const knock_candidate *c) {
     send_message(V9_KNOCK_CLIP, clip, sizeof(clip), false);
   }
 #endif
+  send_message(V9_KNOCK, p, 11, false);
 }
 
 #if NODE_SENSOR

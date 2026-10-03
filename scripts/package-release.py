@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 VERSION = json.loads((ROOT / 'package.json').read_text())['version']
 NODE_FIRMWARE = json.loads((ROOT / 'firmware/prebuilt/BUILD.json').read_text())['version']
 INCLUDE = ['README.md', 'AGENTS.md', 'CLAUDE.md', 'LICENSE', 'THIRD_PARTY.md', 'pyproject.toml', 'package.json', '.gitignore', '.clang-format',
-           'web', 'vesper', 'firmware', 'scripts', 'tests', 'examples', 'docs', 'VESPER-9-Simulator.html']
+           'books', 'web', 'vesper', 'firmware', 'scripts', 'tests', 'examples', 'docs', 'VESPER-9-Simulator.html']
 SKIP_PARTS = {'build', '__pycache__', '.pytest_cache', 'node_modules', '.venv', 'models', 'backups', 'test-output'}
 SKIP_NAMES = {'sdkconfig', 'sdkconfig.old', 'dependencies.lock'}
 

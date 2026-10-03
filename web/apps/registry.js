@@ -26,13 +26,13 @@ import { Resonance } from "./resonance.js";
 import { Oracle } from "./oracle.js";
 import { Telemetry } from "./telemetry.js";
 import { Meridian } from "./meridian.js";
+import { Library } from "./library.js";
 import { CARTRIDGES } from "./catalog.js";
 const FACTORIES = { OrbitLock, Moonrunner, Undertow, EchoVault, LightTrial, GlyphVault,
   MorseSchool, Timers, Transcription, Environment, Diagnostics, Settings,
   Pulsar, Perihelion, Descent, Ricochet, Ballista,
   Tideline, Outpost,
-  Lantern, Cadence, Ephemeris, Resonance, Oracle, Telemetry,
-  Meridian };
+  Lantern, Cadence, Ephemeris, Resonance, Oracle, Telemetry, Meridian, Library };
 export const APPS = CARTRIDGES.map(meta => {
   const Factory = FACTORIES[meta.factory];
   if (!Factory) throw new Error('Missing cartridge factory: ' + meta.factory);

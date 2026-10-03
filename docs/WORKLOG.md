@@ -671,3 +671,50 @@ source identity, then verifies a full Git bundle by fetching into a fresh bare
 repository. The external delivery manifest records exact source, archive and
 bundle identities. Packaging omits personal saves, models, recordings, secrets
 and local test data. Rollout remains the next reviewable step with Sam.
+
+## High Bar mastery Pi trial deployment — 2026-10-03 17:25 UTC
+
+Sam explicitly requested deployment for physical testing. Root verified native
+Windows DESKTOP-FD66EV2 and clean `codex/highbar-mastery` at
+`b14db571c199f91b60e23942ffc7a753f064e3c1`. The already-tested ZIP SHA-256 is
+`a24860293fec63687fa58f880c986d6afd157b715eb4f799993fa3c2068cdcaf`;
+its recovery bundle is independently verified. No new game/engine edits or
+broad suites were added during deployment. A GPT-6.1 Sol high-effort reviewer
+checked the bounded switch/rollback helper on Windows; only root used Pi SSH.
+
+Fresh checks found the expected active `60adf7a` trial. The new release was
+staged under `releases/b14db571c199f91b60e23942ffc7a753f064e3c1/`, with archive
+CRC, manifest files and extracted source identity checked before switching.
+The controlling browser was closed and the service stopped before copying
+latest trial assets and backing up SQLite. Table counts/digests and quick_check
+matched; the prior database and private assets remained unchanged after startup.
+The sole Encyclopedia symlink was checked against the preserved archive.
+Base service/90 override, prior data, original live tree and production saves
+are preserved. Only a removable `95-highbar-mastery.conf` was added; interpreter,
+serial arguments, model and reader dependency paths were retained.
+
+The first quiescence attempt found that main.js consumes Ctrl+L as a case-key
+action even with modifiers. Alt+D safely reached the location bar. Navigating
+to about:blank still left a WebSocket connected (browser caching is suspected,
+not proven). Both attempts stopped before service/data mutation. The final
+helper respects pending-save unload prompts, closes only the identified blank
+deck window, requires zero clients, then reopens one fresh fullscreen browser.
+Rollback handles the replaced window ID and stops a failed service before
+browser cleanup without depending on its API. Modifier-safe keyboard handling
+is recorded for a later source change, not silently added to this release.
+
+Fresh post-switch evidence: clean commit `b14db57`, source hash
+`7b8d1429dfcc07c21d9e91ec87ffd6b0995aa2598ec352ffb14e87d08ed4bf47`,
+five matching served JS assets, correct new source/data paths, one browser,
+device/timer tasks healthy, loopback-only 8799, firmware 0.2.0/board 2/four lamps/
+two mics connected, mic OFF, capture false, CRC zero, Encyclopedia ready and
+an article readable. Dashboard screenshot was checked on Windows. A 57.3 C,
+unthrottled snapshot is not a gameplay benchmark. No firmware, inference,
+builds, agents or test suites ran on the Pi. Physical play remains Sam's check.
+
+Private stage/save-copy/verification/after-system JSON and screenshot evidence
+are retained under `C:/Users/ayers/vesper9-investigation/mastery/deployment/`.
+The exact rollback command is in PI-ACCEPTANCE.md; it returns to the preserved
+60adf7a trial, not original f3bfacc, and keeps candidate progress separate.
+Rollback was reviewed but not live-rehearsed. GitHub was not pushed or refreshed.
+This documentation-only record follows the deployed b14db57 source commit.

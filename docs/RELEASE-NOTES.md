@@ -1,10 +1,11 @@
 # VESPER-9 0.2.0 — the second pass
 
-> Current Pi trial: release `60adf7a`, installed on 2026-10-03 with a separate
-> save copy. The owner's feedback now directs `codex/highbar-mastery` on Windows:
+> Current Pi trial: release `b14db57`, installed on 2026-10-03 with a verified
+> copy of the latest `60adf7a` trial saves. `codex/highbar-mastery` delivers:
 > less visual clutter, easier acceleration, a skateboarding spider and sixteen
 > challenges including four sustained upper routes. Existing catch behavior is retained.
-> That follow-up has not replaced the Pi trial. See [High Bar](HIGH-BAR.md).
+> Source/served assets, node and saves passed targeted Pi checks; physical play
+> acceptance remains pending. See [High Bar](HIGH-BAR.md) and [rollback](PI-ACCEPTANCE.md).
 
 > Latest Windows refresh (2026-10-03): [what changed and what remains](REFRESH-REPORT.md).
 > `codex/console-polish` adds deeper High Bar/Ricochet play, reader/utility fixes,

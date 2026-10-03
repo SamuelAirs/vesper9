@@ -1,23 +1,38 @@
 # Candidate acceptance and rollback
 
-## Next High Bar trial: spider / sky-route mastery follow-up
+## Current High Bar trial: spider / sky-route mastery follow-up
 
-`codex/highbar-mastery` is a Windows candidate responding to Sam's physical
-playtest. It has not been deployed. Its next switch must preserve the currently
-running `60adf7a` trial, including progress earned since its installation.
-Stage a new release directory and copy that trial's latest private data after
-closing the controlling browser and stopping writes. Verify the SQLite backup,
-keep the original trial directory intact, and save the exact current service
-override before switching. Preserve existing model/archive/dependency paths;
-this update needs no firmware or model change.
+Sam authorized deployment, completed 2026-10-03 at approximately 17:25 UTC.
+The Pi runs release `b14db571c199f91b60e23942ffc7a753f064e3c1` from
+`/home/sam/VESPER-9-v0.2.0-Claude/releases/b14db571c199f91b60e23942ffc7a753f064e3c1/VESPER-9-v0.2.0/vesper9`.
+Its clean source hash is
+`7b8d1429dfcc07c21d9e91ec87ffd6b0995aa2598ec352ffb14e87d08ed4bf47`.
+Five served assets match the Windows package. `trial-data/` beside the extracted
+release contains a verified SQLite backup and private assets copied from the
+latest `60adf7a` trial after closing its browser and stopping writes. The prior
+trial's source, data and override remain intact. Models, Encyclopedia archive,
+reader dependencies and installed firmware 0.2.0 are reused unchanged.
 
-Rollback for this follow-up means restoring the captured **60adf7a override and
-its old trial data**, then verifying its served source identity, one browser,
-node and microphone state. Do not use the first trial's `deploy.py rollback`
+The base unit and `90-highbar-trial.conf` are preserved byte-for-byte.
+`95-highbar-mastery.conf` changes only source/data paths. Targeted checks passed:
+node connected (board 2, four lamps, two microphones), mic OFF/no capture,
+CRC zero, service tasks healthy, loopback-only listener, Encyclopedia article
+available, and one fresh fullscreen browser. The dashboard was visually checked.
+The temperature snapshot was 57.3 C with no throttling; this is not a gameplay
+performance measurement. Physical play acceptance remains pending.
+
+Rollback for this follow-up uses
+`python3 /home/sam/VESPER-9-v0.2.0-Claude/releases/b14db571c199f91b60e23942ffc7a753f064e3c1/deploy.py rollback`.
+It stops the candidate, safely closes its browser, removes only the exact owned
+`95-highbar-mastery.conf`, restores **60adf7a with its old trial data**, verifies
+served source/node/microphone, and opens one fresh browser. Candidate progress
+is retained separately. This path was reviewed; a live rollback rehearsal was
+not run. Do not use the first trial's `deploy.py rollback`
 for that purpose: it intentionally returns to `f3bfacc`. Keep the new schema-4
-save separate; do not ask the older build to rewrite it. The candidate's
-external delivery manifest records its source/ZIP/bundle hashes. Review the
-concrete switch and rollback paths with Sam before restarting the console.
+save separate; do not ask the older build to rewrite it. The external delivery
+manifest records source/ZIP/bundle hashes. Private deployment evidence is in
+`C:/Users/ayers/vesper9-investigation/mastery/deployment/`; no private save was
+published. Further deployments require their own current-save preservation.
 
 Acceptance priorities for the spider revision: a held flat-ground push should
 quickly build speed; swings should build height and connect into prolonged
@@ -32,8 +47,8 @@ stay out of ordinary play. These are physical checks still to do.
 
 ## First trial deployment record and procedure
 
-The trial switch was authorized and completed on 2026-10-03 at 14:44 UTC. The
-Pi now runs release `60adf7ad07fff9e8969af3e1e673cca453493d67` from
+The first trial switch was completed on 2026-10-03 at 14:44 UTC. At that time
+the Pi ran release `60adf7ad07fff9e8969af3e1e673cca453493d67` from
 `/home/sam/VESPER-9-v0.2.0-Claude/releases/60adf7ad07fff9e8969af3e1e673cca453493d67/VESPER-9-v0.2.0/vesper9`,
 with a separate `trial-data/` directory beside the extracted release. The original
 `live/` tree and production saves remain intact. Service identity, served source

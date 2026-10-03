@@ -1,9 +1,9 @@
 # VESPER—9
 
-> High Bar follow-up (Windows, 2026-10-03): [a skateboarding spider, faster kicks, taller routes and a quieter screen](docs/HIGH-BAR.md), now with sixteen challenges and four sustained aerial sky routes. The current `codex/highbar-mastery` revision has not replaced the Pi trial below.
+> High Bar follow-up (deployed 2026-10-03): [a skateboarding spider, faster kicks, taller routes and a quieter screen](docs/HIGH-BAR.md), now with sixteen challenges and four sustained aerial sky routes. Tested release `b14db57` from `codex/highbar-mastery` is running on the Pi.
 > Finished-node refresh (2026-10-03): [what changed](docs/REFRESH-REPORT.md),
 > [candidate/source status](docs/NODE-CONSOLE-CANDIDATE.md), and
-> [Pi acceptance/rollback](docs/PI-ACCEPTANCE.md). Release `60adf7a` is running on the Pi as a save-preserving trial; physical acceptance is pending.
+> [Pi acceptance/rollback](docs/PI-ACCEPTANCE.md). Release `b14db57` uses a verified copy of the latest `60adf7a` trial saves; that prior release remains preserved for rollback. Physical play acceptance is pending.
 
 
 **A small signal in the dark.**

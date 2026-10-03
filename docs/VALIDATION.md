@@ -1,8 +1,8 @@
 # VESPER-9 0.2.0 validation
 
-> Release `60adf7a` was installed as a save-preserving Pi trial on 2026-10-03;
-> physical acceptance is in progress. The subsequent `codex/highbar-mastery`
-> revision is developed on Windows and has not replaced that trial. See
+> Release `b14db57` from `codex/highbar-mastery` was installed on the Pi on
+> 2026-10-03, preserving the previous `60adf7a` release and copying its latest
+> saves. Targeted deployment checks passed; physical play acceptance is pending. See
 > [candidate status](NODE-CONSOLE-CANDIDATE.md). Validation sections below identify
 > their own source snapshots; older firmware/sensor notes are historical.
 
@@ -13,7 +13,9 @@ airflow candidate `aab8aa0`. At Sam's request, GPT-6 Astra at high effort owned
 the principal gameplay work; two GPT-6.1 Sol agents handled renderer/browser
 work and independent regression review. Sam clarified that depth and expressive
 play take priority over learning helpers. Optional practice cues remain secondary.
-No Pi access, deployment, firmware change or GitHub publication occurred.
+The development phase used no Pi access. A later authorized deployment is
+recorded in [PI-ACCEPTANCE.md](PI-ACCEPTANCE.md); no firmware change or GitHub
+publication occurred.
 
 | Check | Fresh result |
 | --- | --- |
@@ -75,8 +77,11 @@ headroom; another saved feature must recheck this bound. No personal save was us
 
 Evidence lives in `C:/Users/ayers/vesper9-investigation/mastery/`: principal and
 independent reviews, actual-input fixtures, final logs, browser captures and the
-verified delivery manifest. The last verified Pi remains `60adf7a`; its status
-was not refreshed during this Windows-only revision.
+verified delivery manifest. Its `deployment/` directory holds the subsequent
+Pi verification: clean `b14db57`, matching source hash and five served assets,
+verified latest-save backup, preserved prior data, one fullscreen browser,
+connected board 2/firmware 0.2.0, mic OFF, zero CRC errors, loopback listener
+and working Encyclopedia. No Pi benchmark or physical gameplay result is claimed.
 
 ## High Bar spider / airflow follow-up — 2026-10-03
 

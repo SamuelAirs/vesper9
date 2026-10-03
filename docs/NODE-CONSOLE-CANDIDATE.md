@@ -5,15 +5,16 @@
 > [High Bar](HIGH-BAR.md) describes the spider, acceleration, quiet screen and
 > sixteen challenges, including four sustained aerial sky routes. It uses
 > `flow-v4` records and preserves earlier careers and bounded historical PBs.
-> This follow-up has not replaced the Pi trial below; the remaining
-> investigation snapshots are historical evidence.
+> Release `b14db57` is now running on the Pi with a verified copy of the latest
+> `60adf7a` saves. The remaining investigation snapshots are historical evidence.
 
-**Deployment update, 2026-10-03 14:44 UTC:** Sam authorized the trial. The Pi now
-runs High Bar release `60adf7a` with source hash
-`6cac4052fc319860b7e44458ca277f32f93cf8a40a43a182ad514f5fc083d2bb`.
+**Deployment update, 2026-10-03 17:25 UTC:** Sam authorized the follow-up trial.
+The Pi now runs High Bar release `b14db571c199f91b60e23942ffc7a753f064e3c1`
+with source hash `7b8d1429dfcc07c21d9e91ec87ffd6b0995aa2598ec352ffb14e87d08ed4bf47`.
 The source and five served JS assets were verified against the Windows package.
-Original live source/data remain untouched; the trial has its own verified save
-copy. The connected board remains firmware 0.2.0; no flash occurred. See
+Original live source/data and the prior `60adf7a` trial remain untouched; the
+new trial has its own verified copy of the latest prior-trial saves. The
+connected board remains firmware 0.2.0; no flash occurred. See
 [trial acceptance and rollback](PI-ACCEPTANCE.md). The investigation snapshot
 below predates this deployment; GitHub publication/merge remains separate.
 
@@ -48,6 +49,12 @@ The button remains sufficient for every game. Case actions tolerate acoustic det
 - Packaging excludes private runtime data and parent-directory handoffs by default. Firmware helpers require the chosen board, target identity and verified full backup. No firmware source or binary was changed or flashed.
 
 ## Provenance and synchronization
+
+The table below is the original investigation snapshot. Current verified
+deployment: Windows release `b14db57` matches the Pi extracted source and served
+assets under `releases/b14db571c199f91b60e23942ffc7a753f064e3c1/`.
+GitHub was not changed or refreshed during this deployment. Local documentation
+commits after `b14db57` record the rollout; they are not another deployed build.
 
 | Location | Verified relationship | Remaining divergence |
 | --- | --- | --- |

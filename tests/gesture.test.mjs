@@ -3,7 +3,7 @@
 // burst, source ownership, the held-back saves and the snapshot helper that make apps tolerate the gesture.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { InputRouter, GESTURE_PACES, GestureTimeline, AppGuard, gestureHoldMs, playHoldMs, PLAY_HOLD_EXTRA_MS, FALLBACK_HOLD_MS, SELECT_MARGIN_MS } from "../web/engine/input.js";
+import { InputRouter, GESTURE_PACES, GestureTimeline, AppGuard, gestureHoldMs, playHoldMs, PLAY_HOLD_EXTRA_MS, FALLBACK_HOLD_MS, SELECT_MARGIN_MS, knockSide } from "../web/engine/input.js";
 import { MorseSchool, MORSE } from "../web/apps/morse.js";
 import { appContext } from "./helpers/app-context.mjs";
 
@@ -19,7 +19,7 @@ function rig({ pace = "standard", holdMs = 650, mode = "raw" } = {}) {
     inputMode() { return this.mode; },
     pressVisual() {}, clickVisual(n) { log.push(["clicks", n]); },
     holdVisual(ratio, ready, armed) { log.push(["hold", +ratio.toFixed(3), ready, armed]); },
-    advance() { index = (index + 1) % items; log.push(["advance", index]); },
+    advance(step = 1) { index = (((index + step) % items) + items) % items; log.push(["advance", index]); },
     select() { log.push(["select", index]); },
     rawDown: (e) => log.push(["down", e.at_us]), rawUp: (e) => log.push(["up", e.durationMs]), rawCancel: () => log.push(["cancel"]),
     focusMark: () => ({ index }),
@@ -459,7 +459,7 @@ function knockRig(mode = "menu") {
   h.host.back = (via) => backs.push(via);
   h.host.rawKnock = (e) => raw.push(e);
   h.host.knockVisual = (on) => h.log.push(["knock", on]);
-  h.knock = (at = h.now()) => h.router.knock({ source: "node", generation: 1, at_us: at * 1000 });
+  h.knock = (side, at = h.now()) => h.router.knock({ source: "node", generation: 1, at_us: at * 1000, ...(side ? { side, sideVotes: 5 } : {}) });
   return Object.assign(h, { backs, raw });
 }
 test("two knocks go back in menus, the dashboard and instruments", () => {
@@ -497,4 +497,52 @@ test("in a game a knock goes to the game and never goes back", () => {
   assert.equal(h.backs.length, 0);
   assert.equal(h.raw.length, 2);
   assert.equal(h.count("down"), 0, "a knock is not a press");
+});
+
+test("inside the system menu tap, tap, hold chooses the third row and never reopens the menu", () => {
+  for (const pace of PACES) {
+    const p = GESTURE_PACES[pace];
+    const h = rig({ pace, mode: "menu" });
+    h.host.gestureOff = () => true;
+    // Sam's case: two taps down to DASHBOARD, then a hold well past the gesture's, and a release.
+    gesture(h, { tap: 60, gap: 60, hold: gestureHoldMs(p, 650) + 400 });
+    assert.equal(h.menus().length, 0, pace);
+    assert.deepEqual(h.log.filter((e) => e[0] === "select"), [["select", 2]], pace);
+    assert.ok(!h.log.some((e) => e[0] === "hold" && e[3]), "the bar never counts towards the menu");
+    // Even a very long hold only chooses: no silent fallback over the menu.
+    h.wait(400); h.down(); h.wait(FALLBACK_HOLD_MS + 200); h.up();
+    assert.equal(h.menus().length, 0, pace);
+    assert.equal(h.count("select"), 2, pace);
+  }
+});
+
+test("knock sides: left and right move the highlight, back and unknown pair up to go back", () => {
+  assert.equal(knockSide({ side: "left" }), "left");
+  assert.equal(knockSide({ side: "top" }), "back", "the old name for the back spot");
+  assert.equal(knockSide({ side: "middle" }), null);
+  assert.equal(knockSide({}), null);
+  const h = knockRig();
+  h.wait(1000);
+  assert.equal(h.knock("right"), true);
+  assert.equal(h.index(), 1);
+  h.wait(500); h.knock("left"); h.wait(500); h.knock("left");
+  assert.equal(h.index(), 7, "left from the first row wraps to the last");
+  assert.equal(h.backs.length, 0, "moving never goes back");
+  // A lone back knock only arms; a second (back or unsure) goes back.
+  h.wait(1200); h.knock("back");
+  assert.deepEqual(h.log.at(-1), ["knock", true]);
+  h.wait(300); h.knock();
+  assert.deepEqual(h.backs, ["knock"]);
+  // A side knock between two back knocks breaks the pair.
+  h.wait(1500); h.knock("back"); h.wait(200); h.knock("right"); h.wait(200); h.knock("back");
+  assert.equal(h.backs.length, 1);
+  // Near a press, side knocks are the switch too.
+  const pressed = knockRig(); pressed.wait(1000); pressed.press(60); pressed.wait(100); pressed.knock("right");
+  assert.equal(pressed.index(), 1, "only the press moved it");
+});
+test("in a game the knock carries its side, with top read as back", () => {
+  const h = knockRig("raw");
+  h.wait(1000); h.knock("left"); h.knock("top"); h.knock();
+  assert.deepEqual(h.raw.map((e) => e.side ?? null), ["left", "back", null]);
+  assert.equal(h.index(), 0, "the host never moves in a game");
 });

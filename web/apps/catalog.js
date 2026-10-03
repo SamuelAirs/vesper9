@@ -182,9 +182,7 @@ export const CARTRIDGES = [
       "sites": "Sites cleared",
       "fuel": "Best fuel left %"
     },
-    "voice": [
-      "lander"
-    ],
+    "voice": [],
     "capabilities": [
       "button",
       "lights",
@@ -381,9 +379,7 @@ export const CARTRIDGES = [
     "category": "INSTRUMENT / ENVIRONMENT",
     "glyph": 4,
     "factory": "Environment",
-    "voice": [
-      "environment"
-    ],
+    "voice": [],
     "capabilities": [
       "sensor"
     ]
@@ -647,7 +643,7 @@ export const CARTRIDGES = [
     "icon": "<path d=\"M24 5V15M9 15H39M9 15V25M24 15V25M39 15V25M9 34H39\"/><rect x=\"4\" y=\"25\" width=\"10\" height=\"14\"/><rect x=\"19\" y=\"25\" width=\"10\" height=\"14\"/><rect x=\"34\" y=\"25\" width=\"10\" height=\"14\"/>"
   }
 ];
-export const SECTORS = [{"name": "VOYAGES", "tagline": "Long games to sink an evening into.", "apps": ["perihelion", "outpost", "drift", "ballista", "tideline"]}, {"name": "ARCADE", "tagline": "Quick runs for sharp hands.", "apps": ["orbit", "ricochet", "runner", "reaction", "descent"]}, {"name": "MIND", "tagline": "Memory, reading and pattern.", "apps": ["echo", "glyphs"]}, {"name": "AFTER HOURS", "tagline": "Four slower games for the end of the day.", "apps": ["crawlspace", "supper", "pocketlinks", "nightgrid"]}, {"name": "TOOLS", "tagline": "Useful things for the desk.", "apps": ["lantern", "cadence", "oracle", "morse"]}, {"name": "SENSORS", "tagline": "What the node hears and feels.", "apps": ["environment", "resonance", "transcribe"]}];
+export const SECTORS = [{"name": "VOYAGES", "tagline": "Long games to sink an evening into.", "apps": ["perihelion", "outpost", "drift", "ballista", "tideline"]}, {"name": "ARCADE", "tagline": "Quick runs for sharp hands.", "apps": ["orbit", "ricochet", "runner"]}, {"name": "LAMPS", "tagline": "Played on the three lamps.", "apps": ["reaction"]}, {"name": "MIND", "tagline": "Memory, reading and pattern.", "apps": ["echo", "glyphs"]}, {"name": "AFTER HOURS", "tagline": "Four slower games for the end of the day.", "apps": ["crawlspace", "supper", "pocketlinks", "nightgrid"]}, {"name": "TOOLS", "tagline": "Useful things for the desk.", "apps": ["lantern", "cadence", "oracle", "morse"]}, {"name": "LISTEN", "tagline": "What the node hears.", "apps": ["resonance", "transcribe"]}];
 export const SYSTEM_APPS = ["settings", "diagnostics", "telemetry"];
 export const DEFAULT_SETTINGS = {
   "sound": true,

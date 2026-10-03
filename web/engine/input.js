@@ -28,6 +28,15 @@ export const DOUBLE_KNOCK_MIN_MS = 120;
 export const DOUBLE_KNOCK_MS = 650;
 export const KNOCK_QUIET_MS = 400;
 export const KNOCK_AFTER_BACK_MS = 1000;
+// Where a knock landed (PR #4: event.side from the two-microphone node, absent when unsure). Sam's
+// three spots are left, right and back; "top", the old name for the back spot, still reads as back.
+// Outside a game a knock on the left or right moves the highlight one row back or on; a knock on the
+// back, or one whose side is unknown, counts towards the two knocks that go back. Games get the side.
+export const KNOCK_SIDES = ['left', 'right', 'back'];
+export function knockSide(event = {}) {
+  const side = event.side === 'top' ? 'back' : event.side;
+  return KNOCK_SIDES.includes(side) ? side : null;
+}
 const MIN_TAP_MS = 8;
 
 // In a game (raw input) the hold runs this much longer: two quick taps and then a long press are
@@ -224,10 +233,13 @@ export class InputRouter {
         stamp - seq.end > pace.gapMs || stamp < seq.end || at - seq.received > pace.gapMs + 100)) this.resetSequence();
     const live = this.sequence;
     // The third press of tap, tap, hold. A sequence of three or more taps is not the gesture.
-    const armed = !!live && live.count === GESTURE_TAPS;
+    // Inside the system menu it is not the gesture either (host.gestureOff): there tap, tap and a
+    // hold is how the third row is chosen, so the menu must not open over itself.
+    const off = !!this.host.gestureOff?.();
+    const armed = !off && !!live && live.count === GESTURE_TAPS;
     // Where the highlight stood before the first tap, so the gesture can put it back.
     const mark = live ? live.mark : this.host.focusMark?.() ?? null;
-    this.press = { at, stamp, epoch: this.host.epoch, mode, event, source, generation, consumed: false, armed, mark };
+    this.press = { at, stamp, epoch: this.host.epoch, mode, event, source, generation, consumed: false, armed, mark, off };
     this.host.pressVisual(true);
     if (mode === 'raw') this.host.rawDown(event);
   }
@@ -287,7 +299,7 @@ export class InputRouter {
       return;
     }
     if (menu) this.host.holdVisual(Math.min(1, elapsed / this.host.holdMs()), elapsed >= this.host.holdMs(), false);
-    if (menu && elapsed >= FALLBACK_HOLD_MS && !press.consumed) this.open(press, 'hold');
+    if (menu && !press.off && elapsed >= FALLBACK_HOLD_MS && !press.consumed) this.open(press, 'hold');
   }
   reconcile(pressed, source = 'node') {
     const press = this.press;
@@ -305,15 +317,22 @@ export class InputRouter {
   // Returns whether anything acted on it.
   knock(event = {}) {
     const mode = this.host.inputMode();
+    const side = knockSide(event);
     if (mode === 'raw') {
       if (this.blocked) return false;
-      this.host.rawKnock(event);
+      const { side: _, ...rest } = event;
+      this.host.rawKnock(side ? { ...rest, side } : rest);
       return true;
     }
     const now = this.clock(), at = this.stamp(event), source = event.source || 'node';
     if (this.blocked || this.press || now - this.lastEdge < KNOCK_QUIET_MS || now < this.knockQuietUntil) {
       this.forgetKnock();
       return false;
+    }
+    if (side === 'left' || side === 'right') {
+      this.forgetKnock();
+      this.host.advance(side === 'left' ? -1 : 1);
+      return true;
     }
     const first = this.knockAt, since = first ? at - first.at : -1;
     if (first && first.source === source && first.epoch === this.host.epoch && since >= DOUBLE_KNOCK_MIN_MS &&

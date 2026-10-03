@@ -188,6 +188,10 @@ a {
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
+/* The temperature/humidity readout: hidden since the node lost its sensor (2026-10-03). */
+.environment-mini[hidden] {
+  display: none !important;
+}
 .mic-pill {
   margin-left: auto;
   border: 1px solid var(--line);
@@ -1448,7 +1452,8 @@ main {
 .today-line { margin: 4px 0 0; font-size: 10px; letter-spacing: 1px; color: var(--amber); min-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* In play the toast sits under the top row, clear of the bottom of the game. */
 @media (min-width: 700px) and (min-height: 400px) {
-  body.playing #toast { top: 42px; bottom: auto; }
+  /* In play the toast sits in the slim top row, off the play area and the games' readouts. */
+  body.playing #toast { top: 4px; bottom: auto; max-width: 380px; padding: 5px 12px; line-height: 16px; box-shadow: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
 /* The node's board LED: a small accent pip beside the lamps, shown only on a node that has one. */
 .lamp.board-led { width: 10px; height: 10px; align-self: center; font-size: 0; }

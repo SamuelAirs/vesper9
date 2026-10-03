@@ -2,7 +2,7 @@ import { Bridge } from "./engine/bridge.js";
 import { DemoBridge } from "./engine/demo.js";
 import { InputRouter, GESTURE_TAPS } from "./engine/input.js";
 import { Synth, BrowserMicrophone } from "./engine/audio.js";
-import { Random, escapeHTML as esc, formatTime, formatSensorTemp, tempUnit } from "./engine/math.js";
+import { Random, escapeHTML as esc, formatTime } from "./engine/math.js";
 import { ambient, glyph, C, text, space } from "./engine/draw.js";
 import { APPS } from "./apps/registry.js";
 import { DEFAULT_SETTINGS as DEFAULT, SECTORS, SYSTEM_APPS } from "./apps/catalog.js";
@@ -11,6 +11,7 @@ import { HostLamps, levelScale } from "./engine/ambient.js";
 import { microphoneStatus } from "./engine/status.js";
 import { planVoice } from "./engine/voice.js";
 import { LOGICAL_W, LOGICAL_H, renderFactor } from "./engine/render.js";
+import { SLOT_COUNT, SLOTS_ID, slotKey, cleanSlots, activeSlot, setActive, isEmpty, noteSaved, forget, describeSlot, firstEmpty } from "./engine/slots.js";
 import { cleanLogbook, ensureDay, dateKey, pickOf, ownOrder, meetOrder, noteScore, addFeat, streak, doneCount, PICKS } from "./engine/logbook.js";
 const Log = { cleanLogbook, ensureDay, dateKey, pickOf, ownOrder, meetOrder, noteScore, addFeat, streak, doneCount, PICKS };
 
@@ -156,6 +157,10 @@ export class Vesper {
     if (focus && !this.menu) this.restoreFocus(focus);
     this.systemMenu();
   }
+  // In the system menu (and the pages it opens) the gesture is off: a hold there chooses on release.
+  gestureOff() {
+    return !!this.menu;
+  }
   inputMode() {
     return this.menu || !this.app || this.app.navigation ? "menu" : "raw";
   }
@@ -255,10 +260,11 @@ export class Vesper {
       });
   }
   // K on the keyboard: a knock on the case, for the simulator and for trying a game without the node.
-  softwareKnock() {
+  // K knocks with no side; J, I and L knock on the left, the back and the right of the case.
+  softwareKnock(side) {
     if (this.state.controller === false) return;
-    if (this.state.simulated) this.bridge.command("knock", {}, true).catch(() => {});
-    else this.event({ type: "knock", at_us: performance.now() * 1000, peak: 20000, source: "keyboard" });
+    if (this.state.simulated) this.bridge.command("knock", side ? { side } : {}, true).catch(() => {});
+    else this.event({ type: "knock", at_us: performance.now() * 1000, peak: 20000, source: "keyboard", ...(side ? { side, sideVotes: 5 } : {}) });
   }
   bind() {
     const bindButton = (element) => {
@@ -284,9 +290,10 @@ export class Vesper {
         e.preventDefault();
         if (!e.repeat) this.softwareButton(true);
       }
-      if (e.code === "KeyK" && !e.repeat) {
+      const knockKeys = { KeyK: null, KeyJ: "left", KeyI: "back", KeyL: "right" };
+      if (e.code in knockKeys && !e.repeat) {
         e.preventDefault();
-        this.softwareKnock();
+        this.softwareKnock(knockKeys[e.code]);
       }
       if (e.code === "Escape") {
         e.preventDefault();
@@ -395,10 +402,12 @@ export class Vesper {
         " — " +
         String(nav.items.length).padStart(2, "0");
   }
-  advance() {
+  // One row on (a tap, or a knock on the right of the case) or back (step -1: a knock on the left).
+  advance(step = 1) {
     this.hostLamps.touch(performance.now());
     if (!this.nav.items.length) return;
-    this.nav.index = (this.nav.index + 1) % this.nav.items.length;
+    const n = this.nav.items.length;
+    this.nav.index = (((this.nav.index + step) % n) + n) % n;
     this.updateFocus();
     this.nav.items[this.nav.index].element.scrollIntoView({
       block: "nearest",
@@ -466,7 +475,7 @@ export class Vesper {
       const app = APPS.find((a) => a.id === card.dataset.app);
       const stat = card.querySelector(".card-stat");
       if (!app || !stat) continue;
-      const value = isGame(app) ? standing(this.state.scores?.[app.id], this.state.progress?.[app.id]?.runs) : "";
+      const value = isGame(app) ? standing(this.state.scores?.[app.id], this.saved(app.id).runs) : "";
       if (stat.textContent !== value) stat.textContent = value;
       card.classList.toggle("is-uncharted", value === "UNCHARTED");
     }
@@ -518,6 +527,7 @@ export class Vesper {
     if (!SYSTEM_APPS.includes(meta.id)) this.lastApp = meta.id;
     const token = this.token;
     const alive = () => this.token === token;
+    const slot = this.slotOf(meta.id), fresh = isEmpty(this.state.progress?.[slotKey(meta.id, slot)]);
     let lastContent = null;
     const guarded = fn => (...args) => alive() ? fn(...args) : undefined;
     const command = (cmd, data) => {
@@ -581,12 +591,18 @@ export class Vesper {
         this.toast("FEAT · " + String(name || id).toUpperCase() + " · " + meta.name);
         return true;
       },
-      progress: () => this.state.progress?.[meta.id] || {},
-      saveProgress: (value) => {
+      // The active save slot's progress (engine/slots.js): slot 1 is the save the game always had.
+      progress: () => this.state.progress?.[slotKey(meta.id, slot)] || {},
+      // The optional second argument's label (24 characters at most) names the save on its slot row.
+      saveProgress: (value, { label } = {}) => {
         if (!alive()) return Promise.resolve({ ignored: true });
-        this.state.progress[meta.id] = value;
-        return this.bridge.command("progress", { app: meta.id, value }, true);
+        const key = slotKey(meta.id, slot);
+        this.state.progress[key] = value;
+        if (noteSaved(this.slotBook(), meta.id, slot, Log.dateKey(), label)) this.saveSlotBook();
+        return this.bridge.command("progress", { app: key, value }, true);
       },
+      // Which save slot this run is on: { index: 1..count, count, fresh: the slot was empty at launch }.
+      slot: () => ({ index: slot, count: SLOT_COUNT, fresh }),
       tone: guarded((...args) => this.synth.tone(...args)),
       // Nine values (three lamps, as every game was written) or twelve (four). On a four-lamp node
       // a nine-value frame leaves the fourth lamp dark; on a three-lamp node the fourth is dropped.
@@ -667,6 +683,12 @@ export class Vesper {
     } catch (error) {
       this.fail(error);
       return;
+    }
+    // A game that no longer offers save slots goes back to its first save.
+    if (slot > 1 && !this.app.saveSlots && !this.app.constructor?.saveSlots) {
+      setActive(this.slotBook(), meta.id, 1);
+      this.saveSlotBook();
+      return this.launch(meta.id);
     }
     this.stage();
     window.scrollTo(0, 0);
@@ -756,6 +778,98 @@ export class Vesper {
     const value = book.picks.length ? "TODAY · " + book.picks.map((p) => (p.done ? "◆ " : "◇ ") + name(p.a)).join("  ") +
       (days ? "  · STREAK " + days : "") : "";
     if (el.textContent !== value) el.textContent = value;
+  }
+  // Save slots (engine/slots.js), for a game with saveSlots = true. The active slot per game and each
+  // slot's last save date are the progress of the reserved id "slots".
+  slotBook() {
+    this.slots ||= cleanSlots(this.state.progress?.[SLOTS_ID]);
+    return this.slots;
+  }
+  saveSlotBook() {
+    if (!this.loaded || this.state.controller === false) return;
+    this.state.progress[SLOTS_ID] = this.slots;
+    this.bridge.command("progress", { app: SLOTS_ID, value: this.slots }, true)?.catch?.(() => {});
+  }
+  slotOf(id) {
+    return id ? activeSlot(this.slotBook(), id) : 1;
+  }
+  saved(id) {
+    return (id && this.state.progress?.[slotKey(id, this.slotOf(id))]) || {};
+  }
+  hasSlots() {
+    return !!(this.app && (this.app.saveSlots || this.app.constructor?.saveSlots));
+  }
+  slotRow(id, n) {
+    let summary = null;
+    try { summary = this.app?.slotSummary?.bind(this.app); } catch {}
+    const key = slotKey(id, n);
+    return describeSlot(this.state.progress?.[key], this.slotBook().at[key], summary, this.slotBook().label[key]);
+  }
+  // Choose a slot: the active one carries on, any other relaunches the game on it (an empty one is a new save).
+  slotMenu() {
+    const id = this.meta.id, name = this.meta.name, active = this.slotOf(id);
+    const rows = Array.from({ length: SLOT_COUNT }, (_, i) => i + 1);
+    const used = rows.filter((n) => !isEmpty(this.state.progress?.[slotKey(id, n)]));
+    const empty = firstEmpty(id, this.state.progress);
+    this.openMenu("Save slots / " + name, `Playing slot ${active}. Choose another slot to switch to it; NEW SAVE starts a fresh one and keeps the others. Each slot keeps its own save; best scores and the logbook are shared.`, [
+      ...rows.map((n) => ({
+        label: (n === active ? "▸ SLOT " : "SLOT ") + n + " / " + this.slotRow(id, n),
+        run: () => (n === active ? this.closeMenu() : this.switchSlot(n)),
+      })),
+      { label: empty ? "NEW SAVE / SLOT " + empty : "NEW SAVE / REPLACE A SLOT", run: () => (empty ? this.switchSlot(empty) : this.replaceSlotMenu()) },
+      ...(used.length ? [{ label: "CLEAR A SLOT", run: () => this.clearSlotMenu() }] : []),
+      { label: "BACK", run: () => this.systemMenu() },
+    ]);
+  }
+  // Leave the game (its last save goes to the slot it was opened on), then open it on slot n.
+  switchSlot(n) {
+    const id = this.meta.id, name = this.meta.name;
+    this.closeMenu(false);
+    this.unmount();
+    setActive(this.slotBook(), id, n);
+    this.saveSlotBook();
+    this.toast("SLOT " + n + " · " + name);
+    this.launch(id);
+  }
+  // Every slot holds a save: NEW SAVE replaces one, after asking.
+  replaceSlotMenu() {
+    const id = this.meta.id, rows = Array.from({ length: SLOT_COUNT }, (_, i) => i + 1);
+    this.openMenu("New save", "Every slot holds a save. Choose one to replace with a new save; you will be asked again.", [
+      ...rows.map((n) => ({ label: "SLOT " + n + " / " + this.slotRow(id, n), run: () => this.confirmClear(n, true) })),
+      { label: "BACK", run: () => this.slotMenu() },
+    ]);
+  }
+  clearSlotMenu() {
+    const id = this.meta.id, rows = Array.from({ length: SLOT_COUNT }, (_, i) => i + 1);
+    const used = rows.filter((n) => !isEmpty(this.state.progress?.[slotKey(id, n)]));
+    this.openMenu("Clear a slot", "Clearing a slot deletes that save. It cannot be undone.", [
+      ...used.map((n) => ({ label: "SLOT " + n + " / " + this.slotRow(id, n), run: () => this.confirmClear(n) })),
+      { label: "BACK", run: () => this.slotMenu() },
+    ]);
+  }
+  // Clear slot n after asking; `start` then opens the game on it as a new save.
+  confirmClear(n, start = false) {
+    const id = this.meta.id, name = this.meta.name;
+    this.openMenu((start ? "Replace slot " : "Clear slot ") + n + "?", "Slot " + n + " of " + this.meta.name + " (" + this.slotRow(id, n) + ") will be deleted" + (start ? " and a new save started there." : "."), [
+      { label: "KEEP SLOT " + n, run: () => this.slotMenu() },
+      {
+        label: (start ? "REPLACE SLOT " : "CLEAR SLOT ") + n,
+        run: () => {
+          const key = slotKey(id, n), playing = start || n === this.slotOf(id);
+          // Leave the game first when it is on that slot: whatever it saves on the way out must not refill it.
+          if (playing) { this.closeMenu(false); this.unmount(); }
+          this.state.progress[key] = {};
+          this.bridge.command("progress", { app: key, value: {} }, true)?.catch?.(() => {});
+          const dropped = forget(this.slotBook(), id, n);
+          this.toast("SLOT " + n + (start ? " · NEW SAVE · " : " CLEARED · ") + name);
+          // The game on that slot starts again from nothing; another slot's game carries on.
+          if (start) setActive(this.slotBook(), id, n);
+          if (start || dropped) this.saveSlotBook();
+          if (playing) this.launch(id);
+          else this.slotMenu();
+        },
+      },
+    ]);
   }
   // The logbook in the system menu: today's three (each one launches), the streak, the feats.
   logbookMenu() {
@@ -856,7 +970,8 @@ export class Vesper {
       // The last app played, one choice away from the dashboard.
       ...(!this.app && this.lastApp && APPS.some((a) => a.id === this.lastApp) ? [{ label: "CONTINUE / " + APPS.find((a) => a.id === this.lastApp).name, run: () => this.launch(this.lastApp) }] : []),
       ...(this.app ? [{ label: "RESTART / " + this.meta.name, run: () => this.launch(this.meta.id) }, ...(this.app.menuActions?.() || []),
-        ...(this.state.progress?.[this.meta.id]?.runs ? [{ label: 'FIELD RECORD / ' + this.state.progress[this.meta.id].runs + ' ENTRIES', run: () => this.fieldRecord() }] : [])] : []),
+        ...(this.hasSlots() ? [{ label: "SAVE SLOT / " + this.slotOf(this.meta.id) + " OF " + SLOT_COUNT, run: () => this.slotMenu() }] : []),
+        ...(this.saved(this.meta.id).runs ? [{ label: 'FIELD RECORD / ' + this.saved(this.meta.id).runs + ' ENTRIES', run: () => this.fieldRecord() }] : [])] : []),
       ...(this.app ? [{ label: "DASHBOARD", run: () => this.home() }] : []),
       { label: "LOGBOOK / TODAY " + Log.doneCount(this.logbook()) + " OF " + Log.PICKS, run: () => this.logbookMenu() },
       { label: "MICROPHONE / " + mic.toUpperCase(), run: () => this.micMenu() },
@@ -882,7 +997,7 @@ export class Vesper {
     ]);
   }
   fieldRecord() {
-    const saved = this.state.progress?.[this.meta?.id] || {}, last = saved.last || {};
+    const saved = this.saved(this.meta?.id), last = saved.last || {};
     const labels = { locks: 'Locks', metres: 'Metres', relics: 'Relics', passages: 'Passages', sequences: 'Sequences', inscriptions: 'Inscriptions', milliseconds: 'Reaction / ms', metric: 'Timing source', scanMs: 'Scan / ms', reason: 'Last signal', error: 'Last signal', ...(this.meta?.record || {}) };
     const detail = Object.entries(labels).filter(([key]) => last[key] !== undefined).map(([key,label]) => `${label}: ${last[key]}`).join('. ');
     this.help(`${saved.runs || 0} field entries. Highest milestone: ${saved.milestone || 0}. Last entry — ${detail || 'No result yet.'}`);
@@ -1001,7 +1116,8 @@ export class Vesper {
     $("toast").textContent = message;
     $("toast").hidden = false;
     clearTimeout(this.toastTimer);
-    this.toastTimer = setTimeout(() => ($("toast").hidden = true), 6500);
+    // Shorter over a running game, where it sits on the play area.
+    this.toastTimer = setTimeout(() => ($("toast").hidden = true), document.body.classList.contains("playing") ? 3500 : 6500);
   }
   fail(error) {
     if (this.faulted) return;
@@ -1016,7 +1132,7 @@ export class Vesper {
   faultMenu() {
     let extra = [];
     try { extra = this.app?.menuActions?.() || []; } catch {}
-    const runs = this.state.progress?.[this.meta?.id]?.runs;
+    const runs = this.saved(this.meta?.id).runs;
     this.openMenu("Application stopped", this.faultMessage || "", [
       // One restart entry: named for the app when it mounted, generic when it never did.
       { label: this.app ? "RESTART / " + this.meta.name : "RESTART APP", run: () => this.launch(this.meta.id) },
@@ -1081,6 +1197,7 @@ export class Vesper {
         };
         this.loaded = true;
         this.book = Log.cleanLogbook(this.state.progress.console);
+        this.slots = cleanSlots(this.state.progress[SLOTS_ID]);
         this.logbook();
         this.cardStats();
         this.settings();
@@ -1244,18 +1361,6 @@ export class Vesper {
         : s.simulated
           ? "SIMULATOR"
           : "HARDWARE");
-    const unit = (s.settings || DEFAULT).tempUnit;
-    setText("temp-mini", s.sensor
-      ? formatSensorTemp(s.sensor.temperature, unit, 1, s.settings || DEFAULT)
-      : "— " + tempUnit(unit));
-    setText("rh-mini", s.sensor
-      ? s.sensor.humidity.toFixed(0) + " % RH"
-      : "— % RH");
-    const stale = !connected || !s.sensor?.at || Date.now() / 1000 - s.sensor.at > 15;
-    $("temp-mini").classList.toggle("stale", stale);
-    $("rh-mini").classList.toggle("stale", stale);
-    const tempTitle = stale ? "Last reading / stale or unavailable" : "Live reading";
-    if ($("temp-mini").title !== tempTitle) $("temp-mini").title = tempTitle;
     const micStatus = microphoneStatus(s), active = micStatus.active;
     $("mic-button").classList.toggle("active", active);
     setText("mic-text", micStatus.label);

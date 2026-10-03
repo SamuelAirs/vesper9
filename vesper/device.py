@@ -1,6 +1,7 @@
 """An explicit simulator and a reconnecting USB-serial transport."""
 import asyncio
 import collections
+import concurrent.futures
 import array
 import contextlib
 import glob
@@ -46,6 +47,7 @@ def spread_lamps(values):
 
 
 WRITE_FAILURES_LIMIT = 3   # consecutive failed writes before the link is torn down and reopened
+READ_STALL_S = 1.5         # a serial read that has not returned by then (it waits at most 0.1 s) means a dead link
 REPEAT_LOG_EVERY = 30      # a link that stays down is logged on the first failure, then every 30th
 
 
@@ -197,6 +199,11 @@ class SerialDevice:
         self.knock_threshold = 0    # what the console wants; the node is told on connect and whenever its STATUS differs
         self.button_edges = collections.deque(maxlen=16)  # (node at_us, pressed) of recent button edges
         self.knock_guarded = 0      # knocks dropped as the button's own sound
+        # The link's reads and writes get threads of their own, fresh for each connection: a stalled
+        # node then cannot tie up the shared pool that speech, sound analysis and health sampling use,
+        # and a read stuck on a dead port cannot hold up the next connection.
+        self.reader = self.writer = None
+        self.link_broken = False    # set when repeated write failures closed the port
         self.attempt_failures = 0   # consecutive connection attempts that never heard the node
         self.mic_mix = "sum"        # which microphone(s) of a two-microphone node feed speech and analysis
         self.lamp_values = [0] * 9  # every physical lamp's values, as the node last reported or was told
@@ -233,11 +240,12 @@ class SerialDevice:
         instead of leaving a link that can read but not write."""
         link = self.serial
         try:
-            await asyncio.to_thread(link.write, frame)
+            await asyncio.get_running_loop().run_in_executor(self.writer, link.write, frame)
         except Exception as exc:
             self.write_failures += 1
-            if self.write_failures >= WRITE_FAILURES_LIMIT and link is self.serial:
+            if self.write_failures >= WRITE_FAILURES_LIMIT and link is self.serial and not self.link_broken:
                 log.warning("Node link: %d writes failed in a row (%s); reconnecting", self.write_failures, exc)
+                self.link_broken = True  # the read loop sees this at once and reconnects
                 with contextlib.suppress(Exception):
                     link.close()
             raise
@@ -306,6 +314,12 @@ class SerialDevice:
                 link.dtr = False
                 link.rts = False
                 link.open()
+                for pool in (self.reader, self.writer):
+                    if pool:
+                        pool.shutdown(wait=False)
+                self.reader = concurrent.futures.ThreadPoolExecutor(1, thread_name_prefix="node-read")
+                self.writer = concurrent.futures.ThreadPoolExecutor(1, thread_name_prefix="node-write")
+                self.link_broken = False
                 self.serial = link
                 self.decoder = Decoder()
                 self.last_seen = time.monotonic()
@@ -317,9 +331,17 @@ class SerialDevice:
                         def read_available():
                             # A large fixed read would delay a lone button event
                             # until the serial timeout. Wake on the first byte.
+                            if not link.is_open:
+                                raise ConnectionError("Port closed")
                             first = link.read(1)
-                            return first + link.read(min(link.in_waiting, 8192))
-                        data = await asyncio.to_thread(read_available)
+                            return first + link.read(min(link.in_waiting or 0, 8192))
+                        if self.link_broken:
+                            raise ConnectionError("Writes failed")
+                        try:
+                            data = await asyncio.wait_for(
+                                asyncio.get_running_loop().run_in_executor(self.reader, read_available), READ_STALL_S)
+                        except asyncio.TimeoutError:
+                            raise ConnectionError("Serial read stalled") from None
                         for packet in self.decoder.feed(data):
                             self.last_seen = time.monotonic()
                             if not self.connected:

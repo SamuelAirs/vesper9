@@ -3,6 +3,7 @@ finds it by a port pattern, asks for both microphones, hands consumers one chann
 three lamps to the console. Nothing here opens a serial port or touches port 8799.
 """
 import array
+import threading
 import asyncio
 import json
 import struct
@@ -176,3 +177,31 @@ class PortPatterns(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StalledLink(SerialCase):
+    """2026-10-02, during Undertow: the node stopped taking writes for half a second, the port was
+    closed after three failed writes, and the console took 14 s to reconnect. Now it reconnects at once,
+    and a read that hangs on a dead port is given up after READ_STALL_S."""
+
+    async def test_failed_writes_reconnect_at_once(self):
+        async with self.device() as device:
+            await self.until(lambda: device.connected, message="link up")
+            first = FakeSerial.created[-1]
+            for _ in range(3):
+                first.fail_next_write = True
+                with self.assertRaises(Exception):
+                    await device.command(Kind.LEDS, bytes(9))
+            await self.until(lambda: len(FakeSerial.created) > 1 and device.connected and device.serial is FakeSerial.created[-1],
+                             timeout=2.0, message="a new link soon after the port was closed")
+
+    async def test_a_hung_read_is_abandoned(self):
+        from vesper import device as device_module
+        async with self.device() as device:
+            await self.until(lambda: device.connected, message="link up")
+            first = FakeSerial.created[-1]
+            release = threading.Event()
+            first.read = lambda count=1: release.wait(10) and b""  # a read that never comes back
+            await self.until(lambda: len(FakeSerial.created) > 1 and device.connected, timeout=device_module.READ_STALL_S + 3,
+                             message="reconnected after the stalled read")
+            release.set()

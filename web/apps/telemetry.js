@@ -116,7 +116,7 @@ export function nodeLevel(a, recentErrors) {
   if (a.connected === null) return null;
   if (a.connected === false) return "down";
   if (recentErrors >= 20 || (a.statusAgeS !== null && a.statusAgeS > 30)) return 2;
-  if (recentErrors > 0 || (a.statusAgeS !== null && a.statusAgeS > 10) || (a.sensor.fail > 0 && a.sensor.ok === 0)) return 1;
+  if (recentErrors > 0 || (a.statusAgeS !== null && a.statusAgeS > 10)) return 1;
   return 0;
 }
 
@@ -160,9 +160,9 @@ const MARKUP =
   row("power", "THROTTLING / POWER") + row("up", "HOST UPTIME") + row("svc", "SERVICE") + `</div></div></section>` +
   `<section id="tm-page-1" hidden><div class="utility-panel" style="padding:8px 16px"><div class="diag-list" style="grid-template-columns:1fr 1fr;font-size:13px">` +
   row("link", "LINK") + row("port", "PORT") + row("ltype", "LINK TYPE") + row("fw", "FIRMWARE") +
-  row("crc", "CRC ERRORS") + row("miss", "MISSING AUDIO SAMPLES") + row("sensor", "SENSOR ADDRESS") + row("sread", "SENSOR READS GOOD / FAILED") +
+  row("crc", "CRC ERRORS") + row("miss", "MISSING AUDIO SAMPLES") +
   row("nodecrc", "NODE-SIDE CRC / AUDIO DROPS") + row("lamp", "LAMP LEVEL SETTING") + `</div></div>` +
-  `<div class="utility-panel" style="padding:8px 16px;margin-top:8px">${note("n-crc")}${note("n-miss")}${note("n-sensor")}</div></section>` +
+  `<div class="utility-panel" style="padding:8px 16px;margin-top:8px">${note("n-crc")}${note("n-miss")}</div></section>` +
   `<section id="tm-page-2" hidden>${chart("ctemp", "CPU TEMPERATURE")}<div style="height:6px"></div>${chart("ccpu", "CPU UTILISATION")}` +
   `<div class="utility-panel" style="padding:8px 16px;margin-top:6px"><div class="diag-list" style="grid-template-columns:1fr 1fr;font-size:13px">` +
   row("fmed", "FRAME TIME MEDIAN") + row("fp95", "FRAME TIME 95TH PERCENTILE") + `</div></div></section>` +
@@ -387,7 +387,7 @@ export class Telemetry {
   }
 
   paintNode(settings) {
-    const a = this.a, node = obj(this.last?.node), sensor = obj(node.sensor);
+    const a = this.a, node = obj(this.last?.node);
     const link = a.connected === null ? DASH : a.connected ? "CONNECTED" : "DISCONNECTED";
     this.set("link", link, a.connected === null ? null : a.connected ? 0 : 1);
     this.set("port", orDash(str(node.port)));
@@ -396,16 +396,12 @@ export class Telemetry {
     const crc = num(node.crcErrors), miss = num(node.missingSamples);
     this.set("crc", count(crc), crc > 0 ? 1 : crc === 0 ? 0 : null);
     this.set("miss", count(miss), miss > 0 ? 1 : miss === 0 ? 0 : null);
-    const addr = typeof sensor.addr === "number" ? "0x" + sensor.addr.toString(16).toUpperCase() : str(sensor.addr);
-    this.set("sensor", orDash(addr));
-    const ok = num(sensor.ok), fail = num(sensor.fail);
-    this.set("sread", `${count(ok)} / ${count(fail)}`, fail > 0 ? 1 : null);
     this.set("nodecrc", `${count(node.nodeRxCrc)} / ${count(node.audioDrops)}`);
     this.set("lamp", String(settings.lampLevel || DASH).toUpperCase());
-    const clean = crc === 0 && miss === 0 && !(fail > 0);
+    const clean = crc === 0 && miss === 0;
     this.set("n-crc",
       crc === null ? "CRC ERRORS: NOT REPORTED."
-        : crc === 0 ? (clean ? "ALL CLEAN: NO DAMAGED MESSAGES, NO LOST AUDIO, SENSOR ANSWERING." : "CRC ERRORS: NONE. EVERY MESSAGE ARRIVED INTACT.")
+        : crc === 0 ? (clean ? "ALL CLEAN: NO DAMAGED MESSAGES, NO LOST AUDIO." : "CRC ERRORS: NONE. EVERY MESSAGE ARRIVED INTACT.")
           : `CRC ERRORS: ${crc} MESSAGE(S) ARRIVED DAMAGED AND WERE DROPPED. A FEW AFTER A CABLE KNOCK ARE HARMLESS; A COUNT THAT KEEPS CLIMBING MEANS A POOR USB CABLE OR PORT.`,
       crc > 0 ? 1 : null);
     this.set("n-miss",
@@ -413,13 +409,8 @@ export class Telemetry {
         : miss === 0 ? "MISSING SAMPLES: NONE."
           : `MISSING SAMPLES: ${miss} AUDIO SAMPLE(S) NEVER ARRIVED. SPEECH AND ANALYSIS MAY STUTTER; THE LINK OR THE PI WAS BUSY.`,
       miss > 0 ? 1 : null);
-    this.set("n-sensor",
-      fail > 0 ? `SENSOR: ${fail} READ(S) FAILED${sensor.err ? " (LAST: " + String(sensor.err).slice(0, 40) + ")" : ""}. CHECK ITS WIRING.`
-        : ok > 0 ? "SENSOR: ANSWERING NORMALLY." : "SENSOR: NO READINGS REPORTED.",
-      fail > 0 ? 1 : null);
     // when everything is fine one line says so; the others only appear when they have news
     this.attr("n-miss", "hidden", clean || miss === 0);
-    this.attr("n-sensor", "hidden", clean || !(fail > 0 || ok === null || ok === 0));
   }
 
   paintHistory(unit, now) {

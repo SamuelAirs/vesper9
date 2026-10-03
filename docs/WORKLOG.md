@@ -62,3 +62,77 @@ The long integrated run was started while final review continued. The final held
 - Browser workflow and extension tests pass on this Pi with Playwright 1.63 driving the system Chromium 151 (32 s). Tests now take a free port each and mute audio so several checkouts can run them at once.
 - Project placed under local git: `v0.2.0-as-delivered`, then bring-up commits. The generated simulator is no longer tracked.
 - Sam's feedback after playing: fun; the lamps are underused; dictation a little inaccurate; wants more games and instruments. Plan for the overnight agent fleet: `../fleet/PLAN.md`.
+
+## 2026-10-01 — Perihelion swing polish (Sam's notes after the depth round)
+
+- Solid tether: when no sun ahead, above or level is in reach, the diamond marks the nearest sun below and the probe pivots over it on the rigid line. Suns above still win, so the Approach plays as before whenever one is in reach. Physics, constants and release are unchanged.
+- No trajectory drawn: the dashed aim line and the swing-path circle are gone; only the diamond marks the target. The probe's drawn heading now eases toward its velocity instead of snapping at a catch.
+- Directions: hangar GUIDE row (controls, chain and score, daily run and streak, hangar); a bar under the multiplier counts down the 1.2 s chain window; first-time notes when the chain reaches 2 and when it is lost; the daily streak reads "Days in a row" and shows 0 after a missed day.
+- Balance effect (planning bot, 8 seeds, development host): chains run much longer (best chain about 90–130 against 10–30), so the multiplier sits near x5 and scores are about 1.6x the old ones; old console bests will fall easily. The bot arrives on fewer seeds (its one-catch planner grabs suns below and swings under the band), so the arrival test now uses seeds 17 and 123. On main the old arrival test already failed on seed 3003 here (Node 22.22). Feel unverified on the device.
+
+## 2026-10-01 (evening) — Perihelion tricks, going back, paced runs (Sam: "a lot of fun")
+
+- Tricks (flat points, not multiplied): STALL (swing stops above level; 15–30, two per tether), LOOP (25, three per tether), SKIP (10 per unused sun passed over, up to 3), BACKTRACK (10, once per sun). Feats HANG TIME and LOOP THE LOOP (18 feats now). With the multiplier applied, loops alone were about half the planning bot's score (it loops by accident on fast close catches), so points are flat: about 10 % of a bot run.
+- Going back: heading left, the diamond marks the nearest sun behind (also the fallback when nothing is ahead), limited to 400 px behind the furthest point (in a paced run also the screen's left edge). A sun already used keeps the chain but does not add to it.
+- Paced runs: hangar PACE row (OFF, STEADY 100 px/s, BRISK 135 px/s). The camera never moves slower than the pace; the left edge replaces the terminator. Each pace keeps its own best (`pp` in the save); never the console best; daily runs are never paced.
+- Bot arrival test seeds now 11, 3003, 123 (the bot plays differently with backtracking). 822/822 JS tests on the development host. Paces and trick values unverified on the device.
+
+## 2026-10-01 (night) — Perihelion: no chain or route points, smooth lock (Sam)
+
+- Score is now distance (1 per Mkm) plus STALL, LOOP, relics (25), near passes (8) and the arrival (400). The chain multiplier, SKIP and BACKTRACK are gone; the chain remains a stat for the HUD, feats and daily goals. Console bests from earlier builds are on the old multiplied scale and will not be beaten easily.
+- Smooth lock: a landed tether stays slack (the amber dashed line) while the probe still closes on the sun and locks at the closest point of its path, so speed and direction carry straight into the swing. It locks at once when the probe is already moving away, at 50 px from the sun, or after 0.6 s slack (then it turns as before). The lock radius is now set by the path rather than by when you press.
+- Planning bot (forward only now; it does not use backtracking): 3 of 12 seeds arrive (it was about 6 of 10 before the lock change, on a longer slack 2 of 10). Most losses are dark bodies, struck while slack or in the tighter swings. Arrival test: at least two of seeds 17, 123, 9, 55, 3003 (three arrive here, on Node 22 and 20). Whether the lock is harder for a person is unknown until Sam plays it.
+- Reverted the same evening: Sam found the slack lock hard to read ("difficult to tell when a tether will deploy, sometimes really slow"). The tether engages again a fixed 5 frames after the press at the current distance; the scoring changes stay. Forward-only planning bot: 10 of 16 seeds arrive; arrival test needs three of seeds 11, 5, 41, 9, 33 (all five arrive here, Node 22 and 20).
+
+## 2026-10-01 (late) — Perihelion lives and upgrades (Sam: "lives, plus some upgrades… or lives are an upgrade")
+
+- Lives are an upgrade: SPARE PROBE (3, 8, 16 shards) gives up to three spares. A lost probe relaunches parked 190 px before the first sun ahead of the furthest point (the original opening's offset and velocity), with dark bodies cleared from that stretch and the terminator pushed back; distance already scored is not scored again.
+- Shards: 1 per 200 Mkm flown, 1 per relic, 5 for an arrival; spent in the hangar's new UPGRADES view. Other upgrades: LONG LINE (reach +20 px, two levels), RELIC MAGNET (+14 px pickup, two), DARK BRAKE (terminator −10 %, two), COOLANT (amber fuse +0.6 s, two). Save adds `shards` and `up`. Daily runs use no upgrades. Upgraded plain runs still set the console best.
+- 824/824 JS tests on Node 22; Perihelion 39/39 on Node 20. Prices unverified in play.
+- Look: each region tints the sky ahead; suns glow (brighter while held, cyan for sling suns); the tether has a soft glow; a catch rings out from the sun; the probe glows and shows a flickering exhaust that lengthens with speed; the trail tapers. Primitive budget test still under 400.
+- Run goals: every non-daily run draws a goal from its own generator seeded by the run count (the world's generator is untouched): loops, stalls, relics, close passes, a chain or a region, three tiers by furthest region reached, paying 3/5/7 bonus shards. 825/825 JS tests on Node 22; Perihelion 40/40 on Node 20.
+
+## 2026-10-02 — Perihelion: fixes from the platform review (`/mnt/project-files/reviews/platform-review-2026-10-02.md`)
+
+- Notices on the screen: the run goal, feats, first-time notes and a lost probe now show in a strip at the foot of the play area (they were only on the shell's hint line, which a full-screen layout may drop). One shows at a time; a new one waits and cuts the current one short, so a feat no longer overwrites a region name. The region name stays in its banner.
+- The goal at the top right now names what it counts ("GOAL  LOOPS 1/3") with a bar that fills toward it.
+- Hangar trimmed: it opens on LAUNCH (hold, hold goes back out), FEATS and LOG are one view (three feat pages, then the log), and rows with nothing to choose are hidden. A fresh save sees five rows: LAUNCH, DAILY RUN, PACE, FEATS AND LOG, GUIDE.
+- Fixes from the earlier Perihelion review: a finished run's relics no longer count twice toward lifetime feats (ARCHIVIST could unlock at 23); the Cluster's lamp colour is sky blue instead of white, so the white relic and catch cues read there; dark bodies in the Binaries clear a binary's whole orbit, not just its centre.
+- Not done here: the menu gesture firing mid-run belongs to the platform polish thread; separating upgrade-boosted scores waits for the console-wide meta decision.
+- Planning bot over 40 seeds: 17 arrive (16 before the orbit clearance), 3 die in the Binaries (5 before). Arrival test seeds now 11, 9, 3, 13, 15 (they arrive both before and after the change). 826/826 JS tests on Node 22; Perihelion 41/41 on Node 20. Not verified on the device.
+
+## 2026-10-02 — Perihelion on the console logbook (PR #16's cut list, `/mnt/project-files/platform-polish/platform-polish.md`)
+
+- Feats go to the console with `ctx.feat(id, name)`; the hangar's feat pages are gone (the LOG row is back, regions and crossings only). The game still tracks feats in the save so each is reported once, and still shows new ones on the result card.
+- Probes and trails now open by the furthest region reached (Ballast at the Binaries, Wisp at the Dark Field; trails at II, III, IV and an arrival). The save gains `fl`, the feat count when this landed, so nothing a player had opened is locked again.
+- The daily run states its goal with `ctx.daily("Daily run: …")` and calls `ctx.dailyMet()` when met; Perihelion's own streak (`dl.streak`, `dl.last`) is dropped. The title shows ONE OF TODAY'S THREE when Perihelion is picked. Every ctx call is optional, so the game runs on a shell without #16; the PR still needs #16 merged first for the logbook to receive anything.
+- The run goal and notices were already moved into the play area (previous entry).
+- 827/827 JS tests on Node 22; Perihelion 42/42 on Node 20, and 42/42 on PR #16's branch. Merging with #16 conflicts only in this file. Not verified on the device.
+## 2026-10-01 — dashboard tidy (desktop, not verified on the device)
+
+- Sectors regrouped by kind instead of PLAY / PLAY II / PLAY III and INSTRUMENTS / II: VOYAGES (Perihelion, Outpost, Undertow, Ballista, Tideline), ARCADE (Orbit Lock, Ricochet, Moonrunner, Light Trial, Descent), MIND (Echo Vault, Glyph Archive), TOOLS (Lantern, Cadence, Oracle, Signal School), SENSORS (Atmosphere, Resonance, Field Notes). Pulsar and Helix (retired by Sam) are off the dashboard; their own pull requests remove them. Sectors may carry an optional `tagline`.
+- The decorative hero became a sector header (serif sector name, tagline, the orrery) and a strip of every sector with the current one lit; with NEXT SECTOR highlighted, the sector it leads to is marked in amber. Game cards show their kind, best score and runs (or UNCHARTED); part-filled pages square off with empty bays. Headless 1024 × 600, 800 × 900 and 400 × 800 screenshots looked at.
+- Storage migration `ballista_metres_v2`: the old artillery best moves to `ballista:artillery` once, so the rebuilt launcher's metres start a fresh best (tests/test_storage_migrations.py).
+
+## 2026-10-02 — platform polish from the review (desktop, not verified on the device)
+
+- Play mode: the console's chrome folds into a 34 px top row and a 26 px bottom row while a game runs, so on 1024 × 600 the game is shown at 960 × 540 instead of about 670 × 377. The canvas backing store follows the shown size; RENDER QUALITY (auto, sharp, fast) can draw fewer pixels. Headless Chromium at 12× CPU throttling: Perihelion's slow frames 37/147 sharp, 21/165 fast; Ballista 12/174 and 2/182. Not a Pi measurement.
+- The menu gesture's final hold is 600 ms longer inside a game (1.6 s at the standard pace); menus keep 1 s. `SETTLE` is 2.8 s.
+- TIMING OFFSET in Calibration (`latencyMs`, tap-along), two knocks on the case go back outside a game (needs PR #4's firmware and service), and the console logbook (today's three, streak, feats; progress id `console`, version 1).
+- Report and per-game cut list: `fleet-notes/reports/platform-polish.md`.
+
+## 2026-10-03 — Perihelion: thinner Cluster, four lamps (Sam's playtest: "good as always", but at times the suns are far too dense)
+
+- Merged PR #16 (with PR #19's lamp count and board LED) into this branch; only `docs/WORKLOG.md` conflicted.
+- Density: the Cluster was the crowded stretch, with 3.25 suns in reach on average and 3 or more 81 % of the time (20 seeds). Its gap is now 108–150 px (was 78–125), and a twin sun now appears 18 % of the time (was 35 %), giving 2.3 suns in reach, with 3 or more 33 % of the time. The other regions were already about 1.5 (the Binaries 2.4, counting each pair as two moving suns) and are unchanged. A test pins the Cluster below 2.6 on average.
+- Four lamps: with `ctx.lampCount()` 4, lamps one to three show exactly what they do on the old node, and the fourth (right) is the button's lamp. In flight it is cyan while a sun is marked in reach (amber for one that burns out), brighter while held, and dark when nothing is in reach. On a tether it grows brighter and greener the better a release would be at that moment. While parked it pulses cyan. When the dark or a paced run's edge is within 170 px it blinks red. Flashes and the title, hangar and result glows use all four lamps. The board LED is not used. The GUIDE gains a LAMPS page, and guide text is 18 px so a full line fits the panel.
+- Planning bot over 40 seeds: 19 arrive (17 before). The arrival test seeds are now 11, 13, 15, 19 and 23 (each arrives before and after), and the bounds test uses seed 11. 852/852 JS tests on Node 22; Perihelion 44/44 on Node 20. Not verified on the device or its four lamps.
+- Later the same night: a LAMPS sector (Meridian, Relay, Light Trial) after ARCADE, and The Stacks on TOOLS. Sectors may name a cartridge that is not in the catalog yet; it is left out until its pull request adds it, so each draft merges with its catalog entry alone. The dashboard's system menu no longer lists DASHBOARD beside RETURN TO DASHBOARD.
+- 2026-10-02: Descent is on hold (Sam): off the dashboard and without its voice name; its code and saves stay and it still launches by id.
+- 2026-10-03: the new node has no temperature/humidity sensor (Sam). Atmosphere is off the dashboard and voice (still registered, its history untouched); SENSORS became LISTEN (Resonance, Field Notes); the top bar's temperature/humidity readout is hidden in index.html. main.js still writes to the hidden readout, and Node Scope and Telemetry still show sensor rows.
+- 2026-10-03 (platform polish): inside the system menu tap, tap, hold no longer reopens the menu (Sam: choosing DASHBOARD, the third row, opened the menu again). Save slots for games that opt in (`saveSlots = true`; `engine/slots.js`, progress ids `<id>#2..4` and `slots`); Outpost wires them first. The sensor rows are gone from the top bar code, Node Scope (it shows the lamp count and the current node's wiring), Telemetry and Calibration's TEMPERATURE unit; Atmosphere keeps its own. Not verified on the device.
+
+## 2026-10-03 — Perihelion save slots (Sam: "most games should have save slots")
+
+- Merged the latest PR #16 (save slots, and tap, tap, hold no longer reopening the menu); only `docs/WORKLOG.md` conflicted.
+- `static saveSlots = true`: four saves, each with its own shards, upgrades, unlocks, regions and daily record. `slotSummary(value)` labels a slot's row with the furthest region and the runs ("III BINARIES · 12 RUNS", 24 characters at most, any old save shape). Slot 1 is the existing save. 859/859 JS tests on Node 22; Perihelion 45/45 on Node 20; the system menu shows SAVE SLOT / 1 OF 4 in the simulator. Not verified on the device.

@@ -184,6 +184,19 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         await self.command("progress", app="morse", value={"index": 6})
         self.assertEqual(self.console.store.get("progress")["morse"], {"index": 6})
 
+    async def test_console_logbook_is_saved_as_progress_and_platform_settings_validate(self):
+        book = {"v": 1, "day": "2026-10-02", "picks": [], "met": {}, "feats": []}
+        self.assertTrue((await self.command("progress", app="console", value=book))["ok"])
+        self.assertEqual(self.console.store.get("progress")["console"], book)
+        self.assertFalse((await self.command("progress", app="consoles", value=book))["ok"])
+        self.assertTrue((await self.command("settings", key="latencyMs", value=45))["ok"])
+        self.assertFalse((await self.command("settings", key="latencyMs", value=400))["ok"])
+        self.assertTrue((await self.command("settings", key="renderQuality", value="fast"))["ok"])
+        self.assertTrue((await self.command("reset_settings"))["ok"])
+        self.assertEqual(self.console.settings["latencyMs"], 0)
+        self.assertEqual(self.console.settings["renderQuality"], "auto")
+        self.assertIn("console", self.console.store.get("progress"))
+
     async def test_new_settings_validate_and_reset_without_erasing_progress(self):
         await self.command('progress', app='morse', value={'correct': 7})
         # The menu gesture is the same everywhere now: the old per-console choice of clicks is retired.

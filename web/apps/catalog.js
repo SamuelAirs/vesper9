@@ -96,6 +96,32 @@ export const CARTRIDGES = [
     ]
   },
   {
+    "id": "meridian",
+    "name": "MERIDIAN",
+    "subtitle": "Catch the light on the called lamp.",
+    "description": "A light swings across the lamps. The screen calls one (LEFT, MIDDLE or RIGHT; on four lamps INNER LEFT and INNER RIGHT too): tap as the light reaches it. The title shows how, and HOW TO PLAY has the rules. Let red swings pass; read changes of tempo, dark swings and feints. Hold on the title for the observatory: daily run, sprint, eclipse, light colours and the sky chart.",
+    "controls": "WATCH THE LAMPS · TAP ON THE CALLED LAMP · HOLD ON TITLE: OBSERVATORY",
+    "category": "PLAY / TIMING",
+    "glyph": 2,
+    "factory": "Meridian",
+    "voice": [
+      "pendulum"
+    ],
+    "capabilities": [
+      "button",
+      "lights",
+      "audio",
+      "progress"
+    ],
+    "icon": "<circle cx=\"24\" cy=\"6\" r=\"2\" fill=\"currentColor\"/><path d=\"M24 6L34 36\"/><path d=\"M8 34Q24 46 40 34\" stroke-dasharray=\"3 3\"/><path d=\"M24 6V44\" stroke-dasharray=\"2 4\"/><circle cx=\"34\" cy=\"36\" r=\"4\" fill=\"currentColor\"/>",
+    "record": {
+      "score": "Score",
+      "combo": "Best combo",
+      "stage": "Reached",
+      "mode": "Mode"
+    }
+  },
+  {
     "id": "glyphs",
     "name": "GLYPH ARCHIVE",
     "subtitle": "Remember a forgotten language.",
@@ -182,9 +208,7 @@ export const CARTRIDGES = [
       "sites": "Sites cleared",
       "fuel": "Best fuel left %"
     },
-    "voice": [
-      "lander"
-    ],
+    "voice": [],
     "capabilities": [
       "button",
       "lights",
@@ -381,9 +405,7 @@ export const CARTRIDGES = [
     "category": "INSTRUMENT / ENVIRONMENT",
     "glyph": 4,
     "factory": "Environment",
-    "voice": [
-      "environment"
-    ],
+    "voice": [],
     "capabilities": [
       "sensor"
     ]
@@ -533,7 +555,7 @@ export const CARTRIDGES = [
     ]
   }
 ];
-export const SECTORS = [{"name": "PLAY", "apps": ["perihelion", "orbit", "runner", "pulsar", "tideline"]}, {"name": "PLAY II", "apps": ["drift", "descent", "ballista", "ricochet", "helix"]}, {"name": "PLAY III", "apps": ["outpost", "reaction", "echo", "glyphs"]}, {"name": "INSTRUMENTS", "apps": ["morse", "cadence", "transcribe", "environment"]}, {"name": "INSTRUMENTS II", "apps": ["lantern", "resonance", "oracle"]}];
+export const SECTORS = [{"name": "VOYAGES", "tagline": "Long games to sink an evening into.", "apps": ["perihelion", "outpost", "drift", "ballista", "tideline"]}, {"name": "ARCADE", "tagline": "Quick runs for sharp hands.", "apps": ["orbit", "ricochet", "runner"]}, {"name": "LAMPS", "tagline": "Played on the three lamps.", "apps": ["meridian", "reaction"]}, {"name": "MIND", "tagline": "Memory, reading and pattern.", "apps": ["echo", "glyphs"]}, {"name": "TOOLS", "tagline": "Useful things for the desk.", "apps": ["lantern", "cadence", "oracle", "morse"]}, {"name": "LISTEN", "tagline": "What the node hears.", "apps": ["resonance", "transcribe"]}];
 export const SYSTEM_APPS = ["settings", "diagnostics", "telemetry"];
 export const DEFAULT_SETTINGS = {
   "sound": true,
@@ -547,5 +569,7 @@ export const DEFAULT_SETTINGS = {
   "tempUnit": "F",
   "tempOffset": 0,
   "lampLevel": "medium",
-  "lampAmbient": true
+  "lampAmbient": true,
+  "latencyMs": 0,
+  "renderQuality": "auto"
 };

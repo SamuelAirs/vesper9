@@ -12,53 +12,65 @@
     "tempUnit": "F",
     "tempOffset": 0,
     "lampLevel": "medium",
-    "lampAmbient": true
+    "lampAmbient": true,
+    "latencyMs": 0,
+    "renderQuality": "auto"
   },
   "sectors": [
     {
-      "name": "PLAY",
+      "name": "VOYAGES",
+      "tagline": "Long games to sink an evening into.",
       "apps": [
         "perihelion",
-        "orbit",
-        "runner",
-        "pulsar",
+        "outpost",
+        "drift",
+        "ballista",
         "tideline"
       ]
     },
     {
-      "name": "PLAY II",
+      "name": "ARCADE",
+      "tagline": "Quick runs for sharp hands.",
       "apps": [
-        "drift",
-        "descent",
-        "ballista",
+        "orbit",
         "ricochet",
-        "helix"
+        "runner"
       ]
     },
     {
-      "name": "PLAY III",
+      "name": "LAMPS",
+      "tagline": "Played on the three lamps.",
       "apps": [
-        "outpost",
-        "reaction",
+        "meridian",
+        "relay",
+        "reaction"
+      ]
+    },
+    {
+      "name": "MIND",
+      "tagline": "Memory, reading and pattern.",
+      "apps": [
         "echo",
         "glyphs"
       ]
     },
     {
-      "name": "INSTRUMENTS",
+      "name": "TOOLS",
+      "tagline": "Useful things for the desk.",
       "apps": [
-        "morse",
+        "lantern",
         "cadence",
-        "transcribe",
-        "environment"
+        "oracle",
+        "morse",
+        "library"
       ]
     },
     {
-      "name": "INSTRUMENTS II",
+      "name": "LISTEN",
+      "tagline": "What the node hears.",
       "apps": [
-        "lantern",
         "resonance",
-        "oracle"
+        "transcribe"
       ]
     }
   ],
@@ -159,6 +171,32 @@
       ]
     },
     {
+      "id": "meridian",
+      "name": "MERIDIAN",
+      "subtitle": "Catch the light on the called lamp.",
+      "description": "A light swings across the lamps. The screen calls one (LEFT, MIDDLE or RIGHT; on four lamps INNER LEFT and INNER RIGHT too): tap as the light reaches it. The title shows how, and HOW TO PLAY has the rules. Let red swings pass; read changes of tempo, dark swings and feints. Hold on the title for the observatory: daily run, sprint, eclipse, light colours and the sky chart.",
+      "controls": "WATCH THE LAMPS · TAP ON THE CALLED LAMP · HOLD ON TITLE: OBSERVATORY",
+      "category": "PLAY / TIMING",
+      "glyph": 2,
+      "factory": "Meridian",
+      "voice": [
+        "pendulum"
+      ],
+      "capabilities": [
+        "button",
+        "lights",
+        "audio",
+        "progress"
+      ],
+      "icon": "<circle cx=\"24\" cy=\"6\" r=\"2\" fill=\"currentColor\"/><path d=\"M24 6L34 36\"/><path d=\"M8 34Q24 46 40 34\" stroke-dasharray=\"3 3\"/><path d=\"M24 6V44\" stroke-dasharray=\"2 4\"/><circle cx=\"34\" cy=\"36\" r=\"4\" fill=\"currentColor\"/>",
+      "record": {
+        "score": "Score",
+        "combo": "Best combo",
+        "stage": "Reached",
+        "mode": "Mode"
+      }
+    },
+    {
       "id": "glyphs",
       "name": "GLYPH ARCHIVE",
       "subtitle": "Remember a forgotten language.",
@@ -245,9 +283,7 @@
         "sites": "Sites cleared",
         "fuel": "Best fuel left %"
       },
-      "voice": [
-        "lander"
-      ],
+      "voice": [],
       "capabilities": [
         "button",
         "lights",
@@ -444,9 +480,7 @@
       "category": "INSTRUMENT / ENVIRONMENT",
       "glyph": 4,
       "factory": "Environment",
-      "voice": [
-        "environment"
-      ],
+      "voice": [],
       "capabilities": [
         "sensor"
       ]

@@ -62,3 +62,68 @@ The long integrated run was started while final review continued. The final held
 - Browser workflow and extension tests pass on this Pi with Playwright 1.63 driving the system Chromium 151 (32 s). Tests now take a free port each and mute audio so several checkouts can run them at once.
 - Project placed under local git: `v0.2.0-as-delivered`, then bring-up commits. The generated simulator is no longer tracked.
 - Sam's feedback after playing: fun; the lamps are underused; dictation a little inaccurate; wants more games and instruments. Plan for the overnight agent fleet: `../fleet/PLAN.md`.
+
+## 2026-10-01 — two new button-and-lamp games: Meridian and Kiln (desktop, not verified on the device)
+
+- Sam asked for more games that need only the button and the lamps, like Light Trial. Pitched Meridian, Kiln and Relay (a rhythm-teaching game, not built).
+- MERIDIAN (`web/apps/meridian.js`): a pendulum of light across the lamps; tap as it crosses the middle lamp. Judged in time (45/90/140 ms), five stages (swing, red pass, drift, eclipse, feint) then faster cycles with narrowing windows; observatory with daily, sprint, eclipse, light colours, 15 feats, log. Save schema 1.
+- KILN (`web/apps/kiln.js`): hold to heat, release early because the heat coasts by rate times inertia; land in the band. Clean single hold doubles the score. Five clays (pyrometer, porcelain, raku wander, ash draughts) then open kilns; the yard with daily, trial, lamps-only, glaze shelf, 15 feats, log. Save schema 1.
+- New dashboard page LAMPS: Light Trial, Meridian, Kiln (PLAY III keeps Outpost, Echo Vault, Glyph Archive). Shared tests updated: game list in `gesture-apps.test.mjs`, sector layout in `test_catalog_sectors.py`.
+- Bots (seeded): Meridian with 40 ms timing error reaches stage V or beyond on three seeds; 140 ms error loses in under two minutes; idle ends in about 9 s. Kiln with 0.02 heat error reaches the open kilns; 0.12 cracks out early; idle ends in about 31 s.
+- Unverified: feel, pace and lamp legibility on the real lamps (the host sends at most ~17 lamp changes a second, so the swinging spot moves in steps); voice names "pendulum" and "pottery" against the Vosk vocabulary (the model is not on the desktop; `tests/test_commands.py` checks it on the Pi).
+
+## 2026-10-01 (night) — after Sam's playtest: Kiln shelved, Meridian moved onto the lamps
+
+- Sam: Kiln is not very good; Meridian has potential if it focuses only on the lights (the screen says left, middle or right and you tap as the light swings through). Kiln is removed from the catalog, registry and dashboard (its last version is commit 1d02a77 on this branch); the LAMPS page is gone and Meridian sits on PLAY III with Light Trial.
+- Meridian now: full swings end lamp to end lamp; the screen calls LEFT, MIDDLE or RIGHT and shows three still sockets, never the moving light. Each catch calls a new lamp (lead 0.55 s). Windows widened for the lamps' ~17 Hz updates (60/110/170 ms, end lamps x1.35). Stage III is now TEMPO (pace changes) instead of off-centre drift; feints turn back before the far lamp. Save schema unchanged (1).
+- Bot: 50 ms timing error reaches the cycles on three seeds; 80 ms reaches stages III to V; 150 ms loses in under 20 s; idle ends in about 12 s. Not verified on the device.
+
+## 2026-10-01 (late) — Meridian deepened: sequences, timing readout, the sky
+
+- Sam: every game should have life and depth, and visuals should improve across the board.
+- New stage VI SEQUENCE: about half the calls are two lamps at once (LEFT · RIGHT), caught in order for a bonus of 50 per lamp times the multiplier; a miss breaks it. Cycles call up to three. New feat IN ORDER (5 sequences in a run).
+- Timing readout: every catch shows its error in ms (EARLY/LATE), a strip under the lamps keeps the last twelve, and the result screen gives the run's average.
+- The sky: six constellations of eight stars in the observatory (SKY row), lit across runs, a star per stage cleared and one per two sequences. New feat STARGAZER (a whole constellation). Save schema 2; a schema 1 save starts with a star per stage reached (`migrateSave`, tested).
+- Visuals: the call pops in, sockets flash the grade and ripple, a combo ring fills toward the next multiplier, a stage progress bar, the travel arc between the sockets, lit stars behind the title and result screens.
+- Bot (6 seeds, 10 min cap): 30 and 50 ms timing error reach cycles 12 to 14; 80 ms reaches cycles 2 to 6 in four to six minutes. Not verified on the device.
+
+## 2026-10-02 — Meridian after the platform review (desktop, not verified on the device)
+
+- Latency: a tap is judged at its arrival minus 35 ms of lamp lag (the console writes the lamps at most every 60 ms and waits for an acknowledgement) and minus the console-wide calibration `settings.latencyMs` once Settings offers it (clamped to -150..300 ms, 0 when absent). A lapse waits for the same delay, and an end lamp's lapse now waits for its wider window too.
+- The lamp shows a red swing exactly when the screen calls one (it used to go red on swings that never reached the called lamp). The called-lamp marker is brighter (0.16 to 0.24, breathing) so it reads on the real lamps.
+- In the simulator, where there are no lamps, the three sockets show the lamps at full size.
+- Bot (6 seeds, taps on the visible light): 80 ms timing error now reaches cycles 5 to 8.
+
+## 2026-10-02 — Meridian moves its feats and daily order to the console logbook (desktop, not verified on the device)
+
+- Following the review rule Sam agreed with and PR #16's cut list: feats are reported once each with `ctx.feat` (the console announces them), and the daily run states its goal with `ctx.daily` and says when it is met with `ctx.dailyMet`. The observatory loses its FEATS screen, the daily streak and the feat ticker on the result screen. Without PR #16 (no logbook) the calls are skipped and the game announces feats itself.
+- Unlocks no longer count feats: SPRINT opens on reaching Tempo, ECLIPSE on reaching Eclipse, the lights at 4, 12 and 24 stars. The ON THE DAY feat is retired.
+- Save schema 3: drops the daily streak and the daily-goal count; tested from schemas 1 and 2.
+- PR #16's TIMING OFFSET matches the agreed contract (`latencyMs`, positive late, -150..300, 0 when absent); Meridian keeps its own reader so it runs before #16 lands.
+
+## 2026-10-01 — dashboard tidy (desktop, not verified on the device)
+
+- Sectors regrouped by kind instead of PLAY / PLAY II / PLAY III and INSTRUMENTS / II: VOYAGES (Perihelion, Outpost, Undertow, Ballista, Tideline), ARCADE (Orbit Lock, Ricochet, Moonrunner, Light Trial, Descent), MIND (Echo Vault, Glyph Archive), TOOLS (Lantern, Cadence, Oracle, Signal School), SENSORS (Atmosphere, Resonance, Field Notes). Pulsar and Helix (retired by Sam) are off the dashboard; their own pull requests remove them. Sectors may carry an optional `tagline`.
+- The decorative hero became a sector header (serif sector name, tagline, the orrery) and a strip of every sector with the current one lit; with NEXT SECTOR highlighted, the sector it leads to is marked in amber. Game cards show their kind, best score and runs (or UNCHARTED); part-filled pages square off with empty bays. Headless 1024 × 600, 800 × 900 and 400 × 800 screenshots looked at.
+- Storage migration `ballista_metres_v2`: the old artillery best moves to `ballista:artillery` once, so the rebuilt launcher's metres start a fresh best (tests/test_storage_migrations.py).
+
+## 2026-10-02 — platform polish from the review (desktop, not verified on the device)
+
+- Play mode: the console's chrome folds into a 34 px top row and a 26 px bottom row while a game runs, so on 1024 × 600 the game is shown at 960 × 540 instead of about 670 × 377. The canvas backing store follows the shown size; RENDER QUALITY (auto, sharp, fast) can draw fewer pixels. Headless Chromium at 12× CPU throttling: Perihelion's slow frames 37/147 sharp, 21/165 fast; Ballista 12/174 and 2/182. Not a Pi measurement.
+- The menu gesture's final hold is 600 ms longer inside a game (1.6 s at the standard pace); menus keep 1 s. `SETTLE` is 2.8 s.
+- TIMING OFFSET in Calibration (`latencyMs`, tap-along), two knocks on the case go back outside a game (needs PR #4's firmware and service), and the console logbook (today's three, streak, feats; progress id `console`, version 1).
+- Report and per-game cut list: `fleet-notes/reports/platform-polish.md`.
+
+## 2026-10-03 — Meridian after Sam's playtest: directions, four lamps (desktop, not verified on the device)
+
+- Sam: "I don't understand it. Let's add some directions and instructions." The title is now the first lesson: a small model of the lamps where the light swings and catches the lamp it calls, with the rules in four lines. HOW TO PLAY (five pages) in the observatory; a newcomer's cursor starts on it.
+- Guide light: during each run's four practice swings the light is drawn on the screen arc too, with a ring that closes on the called lamp as it arrives (both drawn the console's lag behind, as taps are judged), then PRACTICE OVER. Observatory GUIDE LIGHT: PRACTICE (default), ALWAYS, OFF; saved as `sel.guide` in schema 3 (defaults to PRACTICE).
+- A line under the call in stage I and practice: "TAP AS THE LIGHT REACHES THE LEFT LAMP"; sequences say "CATCH THEM IN THE ORDER CALLED"; dark swings "TAP WHERE IT WOULD BE".
+- Four lamps (`ctx.lampCount()` = 4): the swing runs across all four; calls LEFT, INNER LEFT, INNER RIGHT, RIGHT; end lamps keep the wider turn window. Bot balance on four matches three (perfect and 50 ms players play the full 10 minutes; 80 ms players reach cycles 5–7 either way). Three-lamp nodes unchanged.
+- Merged PR #16; Meridian sits in the MIND sector.
+
+- Later the same night: a LAMPS sector (Meridian, Relay, Light Trial) after ARCADE, and The Stacks on TOOLS. Sectors may name a cartridge that is not in the catalog yet; it is left out until its pull request adds it, so each draft merges with its catalog entry alone. The dashboard's system menu no longer lists DASHBOARD beside RETURN TO DASHBOARD.
+- 2026-10-02: Descent is on hold (Sam): off the dashboard and without its voice name; its code and saves stay and it still launches by id.
+- 2026-10-03: the new node has no temperature/humidity sensor (Sam). Atmosphere is off the dashboard and voice (still registered, its history untouched); SENSORS became LISTEN (Resonance, Field Notes); the top bar's temperature/humidity readout is hidden in index.html. main.js still writes to the hidden readout, and Node Scope and Telemetry still show sensor rows.
+- 2026-10-03 (platform polish): inside the system menu tap, tap, hold no longer reopens the menu (Sam: choosing DASHBOARD, the third row, opened the menu again). Save slots for games that opt in (`saveSlots = true`; `engine/slots.js`, progress ids `<id>#2..4` and `slots`); Outpost wires them first. The sensor rows are gone from the top bar code, Node Scope (it shows the lamp count and the current node's wiring), Telemetry and Calibration's TEMPERATURE unit; Atmosphere keeps its own. Not verified on the device.
+- Save slots (PR #16's shell API): Meridian sets `saveSlots`; `slotSummary` shows the furthest stage and stars lit. Merged #16 again; Meridian is in #16's LAMPS sector.

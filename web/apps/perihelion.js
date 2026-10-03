@@ -255,6 +255,13 @@ export function migrateSave(raw) {
 }
 
 export class Perihelion {
+  // Up to four saves (the shell's SAVE SLOT menu): the hangar's shards, upgrades and unlocks are per save.
+  static saveSlots = true;
+  // A slot's row in that menu: the furthest region and the runs, e.g. "III BINARIES · 12 RUNS".
+  slotSummary(value) {
+    const sv = migrateSave(value), reg = REGIONS[sv.far];
+    return (reg.roman + " " + reg.name.slice(4) + " · " + sv.runs + (sv.runs === 1 ? " RUN" : " RUNS")).slice(0, 24);
+  }
   constructor(ctx) {
     this.c = ctx;
     this.guard = new AppGuard(this, ctx); // takes back a menu gesture that reached the game (docs/ENGINE.md)

@@ -66,7 +66,7 @@ Lamps: in flight, the colour is the region (green, sky blue, violet, blue, magen
 
 Sound: the swing sings a note each time it passes the bottom, higher with speed (a pentatonic scale); a clean release rings the note and its fifth; a relic is a rising pair; a near pass a short high tick; each region has its own three-note motif. Listen for the note at the bottom: releasing there opens a hidden feat.
 
-Save: a versioned record (schema 2) that keeps the original run count, last result and milestone, and adds the furthest region, best crossing times, feats, relics, selections and the daily record. A save from the first release loads unchanged.
+Save slots: Perihelion keeps up to four saves (system menu, SAVE SLOT). Each has its own shards, upgrades, unlocks, regions reached, run goals and daily record; slot 1 is the save it always had. A slot's row reads like "III BINARIES · 12 RUNS". The console best and the logbook are shared. Save: a versioned record (schema 2) that keeps the original run count, last result and milestone, and adds the furthest region, best crossing times, feats, relics, selections and the daily record. A save from the first release loads unchanged.
 
 ## Six instruments
 

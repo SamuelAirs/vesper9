@@ -1137,3 +1137,12 @@ test("the Cluster is close but not crowded: about two suns in reach, rarely thre
   assert.ok(sum / n < 2.6, "suns in reach " + sum / n);
   assert.ok(three / n < 0.45, "three or more in reach " + three / n);
 });
+
+test("save slots: Perihelion opts in, and each slot's row names its furthest region and runs", () => {
+  assert.equal(Perihelion.saveSlots, true);
+  const app = new Perihelion(appContext({ seed: 1 }));
+  assert.equal(app.slotSummary({ schema: 2, far: 2, runs: 12 }), "III BINARIES · 12 RUNS");
+  assert.equal(app.slotSummary({}), "I APPROACH · 0 RUNS", "an empty or older save still reads");
+  assert.equal(app.slotSummary({ runs: 1 }), "I APPROACH · 1 RUN");
+  assert.ok(app.slotSummary({ schema: 2, far: 4, runs: 999 }).length <= 24);
+});

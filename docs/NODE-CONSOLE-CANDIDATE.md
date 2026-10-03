@@ -1,9 +1,11 @@
 # Finished-node development candidate — 2026-10-02
 
-> High Bar follow-up: the current Windows branch is `codex/highbar-refresh`,
-> based on the preserved console-polish commit `0354a35`. [High Bar](HIGH-BAR.md)
-> describes the dedicated park/visual/practice/mastery pass; the source and Pi
-> snapshots below remain historical evidence, not a claim of deployment.
+> High Bar follow-up: the current Windows branch is `codex/highbar-airflow`,
+> based on trial `60adf7a` and deployment record `766f8a7`. [High Bar](HIGH-BAR.md)
+> describes the spider, acceleration, vertical routes and quiet screen requested
+> after Sam's playtest. It uses `flow-v3` records and preserves earlier careers
+> and PBs. This follow-up has not replaced the Pi trial below; the remaining
+> investigation snapshots are historical evidence.
 
 **Deployment update, 2026-10-03 14:44 UTC:** Sam authorized the trial. The Pi now
 runs High Bar release `60adf7a` with source hash

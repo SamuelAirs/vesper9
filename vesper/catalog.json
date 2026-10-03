@@ -322,10 +322,10 @@
     },
     {
       "id": "highbar",
-      "scoreMetric": "style-v2",
+      "scoreMetric": "flow-v3",
       "name": "HIGH BAR",
-      "subtitle": "Skate the bowl. Swing the bars. String tricks.",
-      "description": "Skate four distinct night parks and swing between their bars. Link flips, manuals and clean landings; master twelve named lines with bronze, silver and gold targets. Learn each route in untimed practice, then bank a better line. Generic case taps add style; three private save slots retain your career.",
+      "subtitle": "A little spider. A very big sky.",
+      "description": "Ride a skateboarding spider through four vertical parks. Hold to build speed, release to launch, and press near a post to catch it. Pump your swing and link higher bars with flips. Master twelve lines or learn in untimed practice. Generic case taps add style; three private save slots preserve your career and earlier records.",
       "controls": "HOLD / RELEASE: RIDE · CASE TAP: STYLE · HOLD ON TITLE: SETUP",
       "category": "PLAY / TRICKS",
       "glyph": 3,

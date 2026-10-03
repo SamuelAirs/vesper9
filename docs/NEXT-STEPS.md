@@ -1,15 +1,27 @@
 # Next steps for the finished node
 
-The current candidate is developed on Windows in `codex/highbar-refresh`, based
-on the preserved `codex/console-polish` at `0354a35` (and `codex/node-console`
-at `b818558`). The dedicated [High Bar refresh](HIGH-BAR.md) adds park art,
-practice tools, line mastery and bank-time progression saves. Release `60adf7a`
-is now deployed as a save-preserving Pi trial. Read
+The current follow-up is developed on Windows in `codex/highbar-airflow`, based
+on the preserved High Bar trial `60adf7a` and deployment record `766f8a7`.
+It responds to Sam's play feedback with a skateboarding spider, stronger
+acceleration, connected upper routes and less visual clutter. It preserves the
+existing catch rules. Release `60adf7a` remains the last verified Pi trial;
+the follow-up has not been deployed. Read
 [the candidate](NODE-CONSOLE-CANDIDATE.md), [validation](VALIDATION.md),
 [the worklog](WORKLOG.md), and [the trial/rollback plan](PI-ACCEPTANCE.md).
 Earlier release notes describe earlier hardware and must not drive a flash.
 
 ## 1. Recoverable trial deployed; physical acceptance next
+
+For the next trial, stage the verified airflow package as a separate release.
+After closing the single controlling tab and stopping the service, copy the
+latest current trial data (including Sam's recent progress), using SQLite backup
+and an independent integrity check. Do not copy the older original database.
+Keep the existing `60adf7a` release, its data and service override for rollback.
+Review the exact new paths, source hash and switch/rollback commands with Sam
+before changing the running console. After an authorized switch, verify served
+assets, actual release identity, private data path, node connection, microphone
+off and one browser. This change needs no firmware update. Older releases must
+not open the new schema-3 working save.
 
 Sam authorized the switch on 2026-10-03. The release manifest, source identity,
 served JS, private save copy and node identity were verified. Original `live/`
@@ -38,8 +50,10 @@ actual left/right/back confusion counts support enabling them.
 
 ## 3. Play revised games and readers
 
-High Bar needs human judgment on manuals, landings, coaching and line pace;
-software routes establish reachability, not enjoyable difficulty. Ricochet's
+High Bar needs human judgment on held acceleration, release control at fast
+swings, connected height gain, long descents, the spider's readability and the
+quieter HUD. Catch reach/timing is unchanged at Sam's request. Software routes
+establish reachability, not enjoyable difficulty. Ricochet's
 reached-chamber practice should be easy to find and useful for learning.
 Wayfinder needs exploration/save-resume feedback. Twinbeat needs real acoustic
 timing and optional side accuracy, starting with the first two levels; assist
@@ -47,7 +61,8 @@ and side careers stay separate. Exactly two new games were added.
 
 The Stacks should reopen existing positions/bookmarks. Encyclopedia should
 resume recent articles, follow/return along links, and offer a useful choice at
-article end. Stage its verified archive and matching ARM reader wheel separately.
+article end. Its archive and matching ARM reader wheel were staged for the
+current Pi trial; preserve those paths when switching application source.
 Lantern previews should follow either navigation direction; Cadence should
 identify the timer selected.
 

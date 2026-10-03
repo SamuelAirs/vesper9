@@ -80,7 +80,7 @@ test("a full turn round a bar is a GIANT, and repeats in one combo are worth les
 
 test("an upright landing banks the combo after the roll; a crooked one bails and loses it", () => {
   const { app } = riding();
-  fly(app, 700, 300, 200, -100);
+  fly(app, 700, app.groundY(700) - 170, 200, -100);
   app.trick("AIR", 200);
   assert.ok(untilMode(app, "ground"));
   assert.equal(app.score, 0, "nothing banks while the roll window is open");
@@ -88,7 +88,7 @@ test("an upright landing banks the combo after the roll; a crooked one bails and
   assert.equal(app.score, 200);
   assert.equal(app.combo.tricks.length, 0);
 
-  fly(app, 700, 300, 200, -100);
+  fly(app, 700, app.groundY(700) - 170, 200, -100);
   app.trick("AIR", 200);
   app.p.rot = 2.5; app.p.rotV = 0;
   app.p.tuck = true; app.p.tuckDir = 0; // a tuck with no spin holds the bad angle
@@ -149,7 +149,7 @@ test("a session ends on the clock, scores once and saves once", () => {
   const saves = ctx.calls.saved.length;
   assert.ok(saves >= 1);
   const saved = ctx.calls.saved.at(-1);
-  assert.equal(saved.schema, 2);
+  assert.equal(saved.schema, 3);
   assert.equal(saved.runs, 1);
   assert.equal(saved.slots[0].runs, 1);
   assert.ok(JSON.stringify(saved).length < 8192);
@@ -231,7 +231,7 @@ test("a saved game comes back in its slot and park", () => {
 test("migrateSave survives junk and keeps what is valid", () => {
   for (const junk of [null, undefined, 3, "x", [], { schema: 9 }, { slots: "no" }, { slots: [null, 5, { goals: "x" }] }, { slot: 99 }, { slot: -4, slots: [{ runs: -3, best: [NaN] }] }]) {
     const s = migrateSave(junk);
-    assert.equal(s.schema, 2);
+    assert.equal(s.schema, 3);
     assert.equal(s.slots.length, 3);
     assert.ok(s.slot >= 0 && s.slot < 3);
     assert.equal(typeof s.runs, "number");

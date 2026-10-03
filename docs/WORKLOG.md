@@ -501,3 +501,81 @@ override before removal and checks original served assets, node and data path.
 No rollback rehearsal or physical gameplay validation is claimed. Trial
 progress stays in its own directory; promotion and GitHub publication remain
 separate decisions after Sam's physical acceptance.
+
+## High Bar spider and vertical flow — 2026-10-03
+
+Sam's first physical play feedback on Pi trial `60adf7a` found visual clutter,
+little verticality and difficult speed building. He then requested a cute
+skateboarding spider and clarified that catching posts already worked well.
+Created `codex/highbar-airflow` from clean deployment record `766f8a7` on native
+Windows `DESKTOP-FD66EV2`. Three GPT-6.1 Sol agents handled bounded mechanics,
+renderer/browser and independent review work. Root coordinated and reviewed.
+No Pi SSH, restart, deployment, hardware write, firmware change or GitHub
+publication occurred during this follow-up.
+
+Ground holds now add a useful kick, including on flat concrete; held swings
+build bounded energy and a committed release adds upward leg drive. Restored
+unpressed swings receive no free pump. Short-radius orbits are capped at
+7 rad/s as well as 920 tangential px/s. Catch reach, fresh-press lag, regrab and
+cancel/release semantics remain exactly the prior policy. An early buffered
+catch experiment was removed after Sam's correction; its external exploratory
+logs are not final behavior. Camera travel and appended sky routes create
+700–1,050 px more vertical span in each park. Existing park/bar/gap/goal indexes
+stay compatible; named TOP RUNG and SUMMIT are retained milestones with sky
+routes above them. The Yard flat practice start faces away from its spine.
+
+The procedural eight-leg spider pushes, reaches, tucks, blinks, scrambles and
+celebrates. A quieter skyline, one post marker, compact controls/line readout
+and one context notice replace persistent maps, large coaching and floating
+trick bursts. Full route maps and briefs remain available outside live play.
+Root review caught a misleading pre-change dotted arc: release and preview
+now share a pure velocity function, with ordinary/whip threshold/cap regressions
+and an actual caught-post browser proof. This extraction does not retune the
+accepted final physics.
+
+Schema 3 preserves all three private careers, active selection, unlocks,
+line/skill achievements, counts, old best arrays and last result. It archives
+old combo/line score/time PBs once and starts current PBs under `flow-v3`.
+Server and catalog distinguish default, style-v2 and flow-v3 records; prior
+rules scores are labelled separately on the title. A maximal legitimate save
+with old/new records measures 5,669 bytes under actual service JSON formatting,
+below its 8 KiB limit. No user's live save was opened or migrated this turn.
+
+Verification: all 1,547 JavaScript tests pass, including 112 High Bar checks;
+30 targeted Python runtime/storage/score tests pass. All twelve newly recorded
+challenge routes bank from ordinary drop-in in all three modes (36 combinations)
+within their selected clocks. An independent four-park set sustains over eight
+seconds of free flight across multiple catches/flips, then banks that same
+chain without bailing. Root retained exact gesture rollback/save/landing checks;
+world-relative fixtures were updated for the deliberate geometry translation.
+Old bot max-variety/bail-count comparisons were replaced with banked style
+witnesses and a controlled paired normal-versus-shove landing-risk test.
+
+Browser checks: host 36, game journeys 21, save recovery 10, full High Bar
+journey 61 and final launch-preview/layout checks 15 all pass. Service/generated
+standalone smoke covers all 35 apps. Root visually inspected skating, curled
+flight, Yard upper air and a happy Pipe bank. Fixed overlays occupy at most
+13.84% of the game canvas. A 15-second real-controls Chrome clip captures the
+spider in motion. Initial browser harness failures involved a too-high screenshot
+threshold, a fixed release velocity impossible at a short-radius capped swing,
+and unavailable Playwright video tooling; the pilot now uses radius-aware
+release conditions and optional existing Windows ffmpeg/CDP capture. These were
+harness corrections; no physical timing or Pi performance is inferred from them.
+
+Useful acceleration is measured: flat 220→400 game px/s in 0.517 s in every
+park, versus remaining near cruise in three baseline parks. The recordings
+show reachability, not human comfort. A non-predictive pilot using stale
+100/200 ms observations fails its chosen long-chain policies; retain that
+limitation for the next physical playtest instead of undoing Sam's catch policy.
+Detailed evidence, validated source identity, manifest-checked ZIP and full Git
+recovery bundle are kept under `C:/Users/ayers/vesper9-investigation/airflow/`.
+The branch is local and the Pi remains on the last verified `60adf7a` trial.
+
+Next switch: discuss the concrete candidate with Sam, stage a new release,
+copy the latest current trial saves after closing the browser/stopping writes,
+and preserve the exact `60adf7a` override/data for rollback. Do not restore stale
+original saves or point the older build at schema-3 trial data. The first
+trial's rollback helper returns to `f3bfacc`, so it is not the direct rollback
+for this follow-up. Updated acceptance docs distinguish both paths. Primary
+owner checks: held speed response, swing release comfort, sustained vertical
+flow, quiet display/spider readability, generic taps and recognizable careers.

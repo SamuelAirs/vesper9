@@ -1,7 +1,7 @@
 import { C, text, line, circle } from "../engine/draw.js";
 import { clamp, wrapAngle } from "../engine/math.js";
 import { LOCKOUT } from "./game-kit.js";
-import { G, STEP, BAIL_T, ROLL, LAND_TOL, GUIDE, MODES, MEDALS, PARKS, UNLOCK } from "./highbar-content.js";
+import { G, STEP, BAIL_T, ROLL, LAND_TOL, GUIDE, MODES, MEDALS, PARKS, UNLOCK, barLaunchVelocity } from "./highbar-content.js";
 
 const fmt = n => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 const unlocked = (s, p) => p === 0 || s.goals[p - 1].length >= UNLOCK;
@@ -44,108 +44,125 @@ export class HighBarView {
     }
     for (const q of this.parts) { g.globalAlpha = 1 - q.t / .6; g.fillStyle = q.color; g.fillRect(q.x - 2, q.y - 2, 4, 4); }
     g.globalAlpha = 1;
-    // A landing can award several tricks at once. Stack that bounded burst
-    // instead of printing AIR, BIG AIR and a flip on the same baseline.
-    for (let i = 0; i < this.popups.length; i++) {
-      const q = this.popups[i]; let row = 0;
-      for (let j = 0; j < i; j++) {
-        const earlier = this.popups[j];
-        if (Math.abs(q.x - earlier.x) < 180 && Math.abs(q.y - earlier.y) < 60 && Math.abs(q.t - earlier.t) < .15) row++;
-      }
-      text(g, q.text, q.x, q.y - q.t * 40 - row * 20, 16, C.amber, "center");
-    }
+    // Trick bursts belong in the compact line readout, never over the rider.
     g.restore();
     if (this.phase !== "play") { g.fillStyle = "#09120ce0"; g.fillRect(0, 0, 960, 540); }
     if (this.phase === "play") {
       this.drawCoach(g); this.drawCombo(g);
-      if (this.noteT > 0) { const w = Math.min(850, this.note.length * 11 + 34); panel(g, 480 - w / 2, 147, w, 34, C.amber); text(g, short(this.note, 73), 480, 165, 18, C.amber, "center"); }
+      this.drawRouteCue(g);
     } else if (this.phase === "title") this.drawTitle(g);
     else if (this.phase === "setup") this.drawSetup(g);
     else if (this.phase === "over") this.drawOver(g);
     else if (this.phase === "guide") this.drawGuide(g);
   }
   drawSkyline(g) {
-    const park = this.park(), theme = this.theme(); g.fillStyle = theme.sky; g.fillRect(0, 0, 960, 540);
-    g.fillStyle = theme.secondary;
-    for (let i = 0; i < 40; i++) { const x = (i * 193 + 73 - this.camX * .06 + 9600) % 960, y = (i * 83 + 31 - this.camY * .035 + 5400) % 540; g.globalAlpha = i % 3 ? .18 : .4; g.fillRect(x, y, i % 3 ? 1 : 2, 1); }
-    g.globalAlpha = .25; const mx = 810 - this.camX * .04, my = 110 - this.camY * .04;
-    circle(g, mx, my, this.parkId === 3 ? 66 : 34, theme.secondary, false, 1); line(g, mx - 82, my + 12, mx + 82, my - 12, theme.secondary); g.globalAlpha = 1;
-    const base = 480 - this.camY * .12;
-    for (let i = -1; i < 13; i++) {
-      const x = i * 100 - (this.camX * .15 % 100), h = 90 + ((i + 17) * 37 % 140);
-      g.fillStyle = theme.far;
-      if (this.parkId === 3) { g.beginPath(); g.moveTo(x - 20, base + 100); g.lineTo(x + 25, base - h); g.lineTo(x + 94, base - h + 60); g.lineTo(x + 120, base + 100); g.closePath(); g.fill(); }
-      else g.fillRect(x, base - h, 74, h + 100);
-      if (park.id === "tower") { line(g, x + 5, base - h, x + 69, base - h, theme.accent); line(g, x + 37, base - h - 40, x + 37, base - h, theme.far, 3); }
-      else if (park.id === "yard") { line(g, x, base - h - 20, x + 86, base - h - 20, theme.far, 4); line(g, x + 5, base - h - 20, x + 5, base - h - 80, theme.far, 4); }
-      else if (park.id === "bowl") circle(g, x + 37, base - h, 30, theme.far, true);
-      else line(g, x, base - h, x + 74, base - h + 30, theme.secondary, 1);
-      g.fillStyle = theme.secondary; g.globalAlpha = .25; for (let j = 0; j < 3; j++) g.fillRect(x + 12 + j * 18, base - h + 22, 4, 8); g.globalAlpha = 1;
+    const park = this.park(), theme = this.theme();
+    g.fillStyle = theme.sky; g.fillRect(0, 0, 960, 540);
+    g.fillStyle = theme.secondary; g.globalAlpha = .2;
+    for (let i = 0; i < 18; i++) g.fillRect((i * 193 + 73 - this.camX * .04 + 9600) % 960, (i * 83 + 31 - this.camY * .025 + 5400) % 540, 1, 1);
+    const mx = 810 - this.camX * .025, my = 100 - this.camY * .025;
+    circle(g, mx, my, this.parkId === 3 ? 58 : 25, theme.secondary, false, 1);
+    if (this.parkId === 3) line(g, mx - 70, my + 9, mx + 70, my - 9, theme.secondary);
+    // Low-contrast silhouettes carry park identity without resembling catchable bars.
+    const base = 500 - (this.camY - Math.max(0, park.h - 540)) * .12;
+    g.globalAlpha = .65; g.fillStyle = theme.far;
+    for (let i = -1; i < 8; i++) {
+      const x = i * 160 - (this.camX * .12 % 160), h = 70 + ((i + 17) * 37 % 100);
+      if (park.id === "pipe") { g.beginPath(); g.moveTo(x - 10, base + 80); g.lineTo(x + 36, base - h); g.lineTo(x + 120, base + 80); g.closePath(); g.fill(); }
+      else if (park.id === "bowl") { g.fillRect(x, base - h + 30, 90, h + 60); circle(g, x + 45, base - h + 30, 45, theme.far, true); }
+      else { g.fillRect(x, base - h, park.id === "tower" ? 46 : 112, h + 80); if (park.id === "yard") line(g, x - 12, base - h - 14, x + 130, base - h - 14, theme.far, 3); }
     }
-    g.globalAlpha = .48; g.fillStyle = theme.far;
-    for (let i = -1; i < 9; i++) { const x = i * 145 - (this.camX * .3 % 145); g.fillRect(x, 380 - this.camY * .18, 5, 260); line(g, x, 397 - this.camY * .18, x + 120, 397 - this.camY * .18, theme.far, 3); }
     g.globalAlpha = 1;
-    if (park.id === "tower") {
-      const x = 600 - this.camX * .2, y = 500 - this.camY * .15;
-      g.globalAlpha = .25; line(g, x - 85, y, x - 30, y - 550, theme.accent); line(g, x + 85, y, x + 30, y - 550, theme.accent);
-      for (let i = 0; i < 7; i++) { const yy = y - i * 75, half = 80 - i * 7; line(g, x - half, yy, x + half - 7, yy - 75, theme.accent); line(g, x + half, yy, x - half + 7, yy - 75, theme.accent); }
-      g.globalAlpha = 1;
-    }
   }
   drawPark(g) {
     const park = this.park(), theme = this.theme(), hm = this.hm;
     const i0 = Math.max(0, Math.floor((this.camX - 20) / STEP)), i1 = Math.min(hm.length - 1, Math.ceil((this.camX + 980) / STEP)), bottom = Math.max(park.h, this.camY + 560);
     g.beginPath(); g.moveTo(i0 * STEP, bottom); for (let i = i0; i <= i1; i += 2) g.lineTo(i * STEP, hm[i]);
     g.lineTo(i1 * STEP, hm[i1]); g.lineTo(i1 * STEP, bottom); g.closePath(); g.fillStyle = theme.ground; g.fill();
-    for (let depth = 0; depth < 3; depth++) { g.beginPath(); for (let i = i0; i <= i1; i += 3) { if (i === i0) g.moveTo(i * STEP, hm[i] + depth * 9); else g.lineTo(i * STEP, hm[i] + depth * 9); } g.strokeStyle = depth ? C.line : theme.accent; g.lineWidth = depth ? 1 : 3; g.stroke(); }
-    for (let x = Math.ceil(this.camX / 96) * 96; x < this.camX + 960; x += 96) { const y = this.groundY(x); line(g, x, y + 22, x + 25, y + 22, C.line); line(g, x, y + 24, x, y + 44, C.line); }
+    for (let depth = 0; depth < 2; depth++) { g.beginPath(); for (let i = i0; i <= i1; i += 3) { if (i === i0) g.moveTo(i * STEP, hm[i] + depth * 9); else g.lineTo(i * STEP, hm[i] + depth * 9); } g.strokeStyle = depth ? C.line : theme.accent; g.lineWidth = depth ? 1 : 3; g.stroke(); }
     const geo = this.geo; line(g, geo.lipL, geo.lipY, geo.lipL, geo.lipY - 600, C.line, 2); line(g, geo.lipR, geo.lipY, geo.lipR, geo.lipY - 600, C.line, 2);
     circle(g, geo.lipL, geo.lipY, 5, theme.secondary, true); circle(g, geo.lipR, geo.lipY, 5, theme.secondary, true);
-    const target = this.phase === "play" && this.p.mode !== "bar" && this.p.mode !== "bail" ? this.pickBar() : -1;
+    const marker = this.barMarker(), target = marker.index;
     for (let i = 0; i < park.bars.length; i++) {
       const [x, y, kind] = park.bars[i]; if (x < this.camX - 50 || x > this.camX + 1010 || y < this.camY - 50 || y > this.camY + 600) continue;
       const ground = this.groundY(x), col = kind === "whip" ? C.amber : theme.accent;
-      line(g, x - 5, y + 5, x - 5, ground, C.line, 2); line(g, x + 5, y + 5, x + 5, ground, C.line, 2);
-      for (let yy = y + 48; yy < Math.min(ground, this.camY + 560); yy += 120) line(g, x - 5, yy, x + 5, yy + 36, C.line);
+      g.globalAlpha = .28; line(g, x, y + 7, x, Math.min(ground, this.camY + 560), theme.accent); g.globalAlpha = 1;
       line(g, x - 21, y, x + 21, y, col, 4); line(g, x - 21, y + 6, x + 21, y + 6, C.line); circle(g, x - 21, y, 3, col, true); circle(g, x + 21, y, 3, col, true);
-      text(g, "B" + (i + 1), x, y - 22, 14, col, "center");
-      if (i === target) { circle(g, x, y, 24, C.ink, false, 2); line(g, x - 32, y, x - 26, y, C.ink, 2); line(g, x + 26, y, x + 32, y, C.ink, 2); }
-      if (this.p.mode === "bar" && this.p.bar === i) circle(g, x, y, 18, theme.secondary, false, 2);
+      if (i === target) {
+        if (marker.catchable) circle(g, x, y, 25, C.ink, false, 2);
+        else { line(g, x - 7, y - 27, x, y - 34, col, 2); line(g, x, y - 34, x + 7, y - 27, col, 2); }
+        text(g, (marker.catchable ? "CATCH " : "NEXT ") + "B" + (i + 1), x, y - 49, 16, marker.catchable ? C.ink : col, "center");
+      }
     }
     for (const m of park.landmarks || []) {
       if (m.x < this.camX - 120 || m.x > this.camX + 1080 || m.y < this.camY - 120 || m.y > this.camY + 580) continue;
-      g.globalAlpha = .5;
+      g.globalAlpha = .16;
       if (m.kind === "moon") circle(g, m.x, m.y, 38, theme.secondary, false, 1);
       else if (m.kind === "tank") { g.strokeStyle = theme.accent; g.strokeRect(m.x - 30, m.y - 30, 60, 55); circle(g, m.x, m.y - 30, 30, theme.accent); }
       else if (m.kind === "gantry") { line(g, m.x - 70, m.y + 75, m.x - 70, m.y - 35, theme.accent, 2); line(g, m.x + 70, m.y + 75, m.x + 70, m.y - 35, theme.accent, 2); line(g, m.x - 90, m.y - 35, m.x + 90, m.y - 35, theme.accent, 3); line(g, m.x + 25, m.y - 35, m.x + 25, m.y + 20, theme.secondary); }
       else { line(g, m.x, m.y, m.x, m.y - 48, theme.accent, 2); circle(g, m.x, m.y - 48, 5, theme.secondary); line(g, m.x - 22, m.y - 20, m.x + 22, m.y - 20, theme.accent); }
-      text(g, short(m.label || "", 24), m.x, m.y + 22, 13, theme.accent, "center"); g.globalAlpha = 1;
+      g.globalAlpha = 1;
     }
     if (this.mode === 1) {
       const gap = park.gaps.find(q => q.id === this.challenge().gap);
-      if (gap?.t === "span") { const y = park.floor - 100; line(g, gap.x1, y, gap.x2, y, C.amber, 2); text(g, gap.name, (gap.x1 + gap.x2) / 2, y - 20, 18, C.amber, "center"); }
-      else if (gap) for (const i of [gap.a, gap.b]) if (i !== undefined) { const [x, y] = park.bars[i]; circle(g, x, y, 34, C.amber, false, 1); }
+      if (gap?.t === "span") { const y = park.floor - 42; line(g, gap.x1, y, gap.x1, y + 18, C.amber, 2); line(g, gap.x2, y, gap.x2, y + 18, C.amber, 2); }
     }
+  }
+  barMarker() {
+    if (this.phase !== "play" || this.p.mode === "bail") return { index: -1, catchable: false };
+    const catchable = this.p.mode !== "bar" ? this.pickBar() : -1;
+    if (catchable >= 0) return { index: catchable, catchable: true };
+    const p = this.p, bars = this.park().bars, originY = p.mode === "bar" ? bars[p.bar][1] : p.y;
+    let index = -1, best = Infinity;
+    for (let i = 0; i < bars.length; i++) {
+      const [x, y] = bars[i], dx = Math.abs(x - p.x), dy = originY - y;
+      if (i === p.bar && p.mode === "bar" || i === p.lastBar && p.lastBarT < .45 || dy < 20 || dx > 500) continue;
+      const distance = Math.hypot(dx * 1.2, dy);
+      if (distance < best) { best = distance; index = i; }
+    }
+    return { index, catchable: false };
   }
   drawTrajectory(g) {
     const p = this.p; if (p.mode !== "air" && p.mode !== "bar") return;
-    let vx = p.vx, vy = p.vy; if (p.mode === "bar") { vx = p.r * p.om * Math.cos(p.phi); vy = -p.r * p.om * Math.sin(p.phi); }
+    let vx = p.vx, vy = p.vy; if (p.mode === "bar") ({ vx, vy } = barLaunchVelocity(p, this.park().bars[p.bar][2]));
     g.fillStyle = this.theme().secondary; g.globalAlpha = .55;
     for (let i = 1; i <= 18; i++) { const t = i * .055, x = p.x + vx * t, y = p.y + vy * t + .5 * G * t * t; if (x < this.geo.lipL || x > this.geo.lipR || y > this.groundY(x)) break; g.fillRect(x - 1, y - 1, 3, 3); }
     g.globalAlpha = 1;
   }
   drawRider(g) {
-    const p = this.p, theme = this.theme();
-    if (p.mode === "bar") { const [bx, by] = this.park().bars[p.bar], reach = ((p.tuck || p.crouch ? 8 : 14) + 30) * 1.35; line(g, bx, by, p.x + reach * Math.sin(p.rot), p.y - reach * Math.cos(p.rot), theme.accent, 3); }
-    g.save(); g.translate(p.x, p.y); g.rotate(p.mode === "bail" ? p.rot + (BAIL_T - p.bailT) * 9 : p.rot); g.scale(1.35, 1.35);
-    const col = p.mode === "bail" ? C.red : C.ink, low = p.tuck || p.crouch, hip = low ? -13 : -19, shoulder = low ? -24 : -34, lean = low ? 6 : -2;
+    const p = this.p, theme = this.theme(), low = p.tuck || p.crouch, bail = p.mode === "bail";
+    const happy = this.noteT > 0 && this.lastBank && !this.combo.tricks.length && !bail;
+    if (p.mode === "bar") { const [bx, by] = this.park().bars[p.bar]; line(g, bx, by, p.x, p.y - (low ? 30 : 45), theme.accent, 2); }
+    g.save(); g.translate(p.x, p.y); g.rotate(bail ? p.rot + (BAIL_T - p.bailT) * 9 : p.rot); g.scale(1.35, 1.35);
+    const col = bail ? C.red : C.ink, cy = low ? -23 : -29;
     const spin = this.air?.style ? Math.cos((this.air.t - this.air.style.at) * 12) : 1, nose = this.manual ? this.manual.balance * 4 : 0;
-    line(g, -15 * spin, -3 + nose, 15 * spin, -3 - nose, theme.secondary, 4); circle(g, -10, 1 + nose, 2, theme.secondary, true); circle(g, 10, 1 - nose, 2, theme.secondary, true);
-    line(g, -7, -5, -10, hip + 7, col, 3); line(g, -10, hip + 7, 0, hip, col, 3); line(g, 7, -5, 8, hip + 8, col, 3); line(g, 8, hip + 8, 0, hip, col, 3);
-    line(g, 0, hip, lean, shoulder, theme.accent, 5);
-    if (p.mode === "bar") { line(g, lean, shoulder + 4, -5, shoulder - 9, col, 2); line(g, -5, shoulder - 9, 1, shoulder - 17, col, 2); line(g, lean, shoulder + 4, 8, shoulder - 7, col, 2); line(g, 8, shoulder - 7, 1, shoulder - 17, col, 2); }
-    else { line(g, lean, shoulder + 4, -12, shoulder + 9, col, 2); line(g, -12, shoulder + 9, -17, shoulder + 3, col, 2); line(g, lean, shoulder + 4, 11, shoulder + 8, col, 2); line(g, 11, shoulder + 8, 16, shoulder + 2, col, 2); }
-    circle(g, lean, shoulder - 8, 6, col, false, 2); line(g, lean - 3, shoulder - 10, lean + 5, shoulder - 10, theme.secondary, 2); g.restore();
+    line(g, -19 * spin, -3 + nose, 19 * spin, -3 - nose, theme.secondary, 4);
+    line(g, -19 * spin, -3 + nose, -23 * spin, -6 + nose, theme.secondary, 3);
+    line(g, 19 * spin, -3 - nose, 23 * spin, -6 - nose, theme.secondary, 3);
+    circle(g, -12, 2 + nose, 3, theme.accent, true); circle(g, 12, 2 - nose, 3, theme.accent, true);
+    // Four independently articulated pairs: rear legs grip the deck, front legs
+    // kick, reach, wave or tuck. Animation reads simulation state without changing it.
+    for (const side of [-1, 1]) for (let i = 0; i < 4; i++) {
+      const wave = Math.sin(this.t * (bail ? 19 : 11) + i * 1.5 + side), ax = side * (7 + i), ay = cy - 7 + i * 5;
+      let kneeX = side * (22 + i * 2), kneeY = cy - 17 + i * 9, footX = side * (28 - i * 4), footY = i < 2 ? cy - 9 + i * 10 : -5;
+      if (p.mode === "bar" && i < 2) { kneeY = cy - 20 - i * 7; footY = cy - 34; footX = side * (9 + i * 5); }
+      else if (low && p.mode === "air") { kneeX = side * (14 + i); kneeY = cy - 11 + i * 7; footX = side * 8; footY = cy + 6; }
+      else if (p.crouch && i < 2) { kneeY += wave * 8; footY = -5 + wave * 10; footX += wave * 7; }
+      else if ((happy || bail) && i < 3) { kneeY += wave * 8; footY = cy - 16 + wave * 10; }
+      else if (p.mode === "air" && i < 2) { footY = cy - 14 + wave * 3; }
+      line(g, ax, ay, kneeX, kneeY, col, 2.5); line(g, kneeX, kneeY, footX, footY, col, 2.5);
+      if (i < 2) line(g, footX, footY, footX - side * 4, footY - 3, col, 2);
+    }
+    g.fillStyle = theme.accent; g.beginPath(); g.ellipse(0, cy, low ? 13 : 14, low ? 12 : 10, 0, 0, Math.PI * 2); g.fill();
+    circle(g, 0, cy - 12, 12, col, true);
+    const blink = this.t % 4 > 3.84 && !bail && !happy;
+    for (const ex of [-5, 5]) {
+      if (bail) { line(g, ex - 2, cy - 17, ex + 2, cy - 13, theme.sky, 2); line(g, ex - 2, cy - 13, ex + 2, cy - 17, theme.sky, 2); }
+      else if (blink || happy) { g.beginPath(); g.arc(ex, cy - 14, 3, Math.PI, Math.PI * 2); g.strokeStyle = theme.sky; g.lineWidth = 2; g.stroke(); }
+      else { circle(g, ex, cy - 15, 4, theme.sky, true); circle(g, ex + (p.vx >= 0 ? 1 : -1), cy - 16, 1.5, C.ink, true); }
+    }
+    if (happy) { g.beginPath(); g.arc(0, cy - 9, 3, 0, Math.PI); g.strokeStyle = theme.sky; g.lineWidth = 1.5; g.stroke(); }
+    g.restore();
   }
   drawMap(g, x, y, w, h, live = false) {
     const park = this.park(), theme = this.theme(), sx = w / park.w, sy = h / park.h;
@@ -156,45 +173,57 @@ export class HighBarView {
     if (live) { g.strokeStyle = C.muted; g.lineWidth = 1; g.strokeRect(x + this.camX * sx, y + this.camY * sy, 960 * sx, 540 * sy); circle(g, x + this.p.x * sx, y + this.p.y * sy, 3, C.ink, true); }
     g.restore();
   }
+  // All fixed play HUD rectangles together cover less than 14% of 960x540.
+  // The route map and detailed instruction remain in setup / the game guide.
+  playHudRects() { return [[18, 14, 640, 38], [674, 14, 268, 38], [18, 476, 390, 48], [428, 488, 514, 36]]; }
   drawCoach(g) {
-    const p = this.p, col = this.theme().accent, bar = this.pickBar(); let action, instruction;
-    if (this.resumeT > 0) { action = "READY / RESUMING"; instruction = "Release the button. Your line is safe."; }
-    else if (p.mode === "bail") { action = "RECOVERING"; instruction = "Banked points are safe. Find the next line."; }
-    else if (this.manual) { action = "MANUAL / BALANCE"; instruction = "CASE: BALANCE  ·  BUTTON: OLLIE"; }
-    else if (p.mode === "bar") { action = "SWING / RELEASE TO FLY"; instruction = "HOLD: SWING  ·  CASE: " + (p.regrip ? "REGRIP USED" : p.held > .15 ? "REGRIP" : "WAIT FOR REGRIP"); }
-    else if (bar >= 0) { action = "BAR " + (bar + 1) + " IN REACH / HOLD TO CATCH"; instruction = "The ring marks the catch. Release to fly."; }
-    else if (p.mode === "air") { action = p.tuck ? "FLIPPING / RELEASE TO STRAIGHTEN" : "AIR / HOLD TO FLIP"; instruction = "CASE: " + (this.air?.style ? "SHOVE-IT IN FLIGHT" : this.canStyle() ? "SHOVE-IT READY" : "WAIT FOR MORE AIR"); }
-    else { action = p.crouch ? "PUMPING / RELEASE TO OLLIE" : "ROLL / HOLD TO PUMP"; instruction = "RELEASE: OLLIE  ·  CASE: MANUAL"; }
-    if (!(this.resumeT > 0)) {
-      if (this.landing?.t > 0 && this.landing.reason && (p.mode === "bail" || (p.mode === "ground" && !this.manual))) instruction = this.landing.reason;
-      else if (this.styleNotice && this.t - this.tapAt >= 0 && this.t - this.tapAt < 1.3 &&
-        ((this.manual && /^(MANUAL|BALANCE)/.test(this.styleNotice)) ||
-         (p.mode === "air" && this.air?.style && this.styleNotice.startsWith("SHOVE-IT")) ||
-         (p.mode === "bar" && p.regrip && this.styleNotice.startsWith("REGRIP")))) instruction = this.styleNotice;
-    }
-    panel(g, 18, 14, 604, 88, col); text(g, action, 34, 36, 20, C.ink); text(g, short(instruction, 52), 34, 62, 18, col);
+    const p = this.p, col = this.theme().accent, bar = this.pickBar(); let action;
+    if (this.resumeT > 0) action = "RELEASE TO RESUME";
+    else if (p.mode === "bail") action = "RECOVERING / NEXT LINE";
+    else if (this.manual) action = "CASE: BALANCE / RELEASE: OLLIE";
+    else if (p.mode === "bar") action = "HOLD: SWING / RELEASE: LAUNCH";
+    else if (bar >= 0) action = "PRESS: CATCH B" + (bar + 1);
+    else if (p.mode === "air") action = p.tuck ? "RELEASE: STRAIGHTEN" : "HOLD: FLIP / PRESS: CATCH";
+    else action = p.crouch ? "BUILDING SPEED / RELEASE: LAUNCH" : "HOLD: PUMP / RELEASE: OLLIE";
+    panel(g, 18, 14, 640, 38, col); text(g, action, 32, 34, 20, C.ink);
     let label = "SPEED", value = Math.abs(p.s || Math.hypot(p.vx, p.vy)) / 820, colour = col;
-    if (this.manual) { label = "BALANCE"; value = 1 - Math.abs(this.manual.balance); colour = value < .3 ? C.red : C.cyan; }
-    else if (p.mode === "air") { const risk = Math.abs(wrapAngle(p.rot - Math.atan(this.slope(p.x)))); value = 1 - risk / (this.air?.style ? LAND_TOL * .7 : LAND_TOL); label = risk < .22 ? "CLEAN ANGLE" : value > 0 ? "SAFE ANGLE" : "STRAIGHTEN"; colour = value > 0 ? C.cyan : C.amber; }
+    if (this.manual) { label = "BALANCE"; value = 1 - Math.abs(this.manual.balance); colour = value < .3 ? C.red : col; }
+    else if (p.mode === "air") { const risk = Math.abs(wrapAngle(p.rot - Math.atan(this.slope(p.x)))); value = 1 - risk / (this.air?.style ? LAND_TOL * .7 : LAND_TOL); label = value > 0 ? "SAFE ANGLE" : "STRAIGHTEN"; colour = value > 0 ? col : C.amber; }
     else if (this.combo.roll >= 0) { label = "BANKING"; value = 1 - this.combo.roll / ROLL; colour = C.amber; }
     else if (p.mode === "bar") { label = "SWING"; value = Math.abs(Math.sin(p.phi)); }
-    text(g, label, 34, 86, 14, colour); gauge(g, 165, 83, 432, value, colour);
-    if (this.manual) { line(g, 381, 79, 381, 92, C.muted); circle(g, 381 + clamp(this.manual.balance, -1, 1) * 211, 85, 4, colour, true); }
-    panel(g, 640, 14, 302, 126, col); text(g, this.park().name + (this.mode === 2 ? " / PRACTICE" : ""), 654, 31, 14, col); this.drawMap(g, 656, 44, 270, 64, true);
-    text(g, this.mode === 2 ? (this.practiceSlow ? "HALF SPEED / " : "") + "RELEASE ARC ESTIMATE" : "COURSE / YOU + CAMERA", 655, 125, 12, C.muted);
-    if (this.mode === 1) { panel(g, 18, 108, 604, 32, C.amber); text(g, short((this.lineMet ? "BANKED " : "") + this.challenge().name, 22), 32, 125, 17, C.amber); text(g, short(this.lineMet ? "TARGET COMPLETE" : this.lineProgress(), 33), 610, 125, 16, col, "right"); }
-    if (this.landing?.t > 0 && p.mode === "ground") text(g, this.landing.kind.toUpperCase() + " LANDING", 480, 438, 20, this.landing.kind === "sketchy" ? C.amber : col, "center");
+    else if (p.mode === "bail") { label = "RECOVER"; value = 1 - p.bailT / BAIL_T; colour = C.red; }
+    panel(g, 674, 14, 268, 38, colour); text(g, label, 689, 34, 16, colour); gauge(g, 818, 32, 108, value, colour);
+    const style = this.manual ? "BALANCE" : p.mode === "ground" ? "MANUAL" : p.mode === "bar" && !p.regrip && p.held > .15 ? "REGRIP" : p.mode === "air" && !this.air?.style && this.canStyle() ? "STYLE" : "";
+    if (style) text(g, "TAP: " + style, 643, 34, 15, col, "right");
   }
   drawCombo(g) {
-    const c = this.combo;
+    const c = this.combo, col = this.theme().accent;
     if (!c.tricks.length) {
-      if (this.lastBank) { panel(g, 18, 482, 924, 42, this.theme().accent); text(g, "BANKED " + fmt(this.lastBank.value) + " / " + this.lastBank.variety + " TRICKS", 35, 503, 20, this.theme().accent); text(g, this.lastBank.newMedal ? "NEW LINE MEDAL" : this.lastBank.newBest ? "NEW PERSONAL BEST" : "CLEAN " + this.lastBank.clean, 923, 503, 20, C.amber, "right"); }
+      if (this.lastBank && this.noteT > 0) { panel(g, 18, 476, 390, 48, col); text(g, "BANKED " + fmt(this.lastBank.value), 32, 501, 21, col); }
       return;
     }
-    panel(g, 18, 462, 924, 62, this.theme().accent); text(g, fmt(c.sum) + " × " + Math.min(this.variety(c), 8), 35, 484, 24, c.roll >= 0 ? C.amber : C.ink);
-    const names = c.tricks.slice(-3).map(q => q.name).join(" + "); text(g, short((c.tricks.length > 3 ? "… + " : "") + names, 57), 923, 484, 18, this.theme().accent, "right");
-    text(g, c.roll >= 0 ? "ROLL TO BANK / " + Math.ceil(Math.max(0, c.roll) * 10) / 10 + "s" : "UNBANKED / KEEP THE LINE", 35, 511, 16, C.muted);
-    if (c.roll >= 0) gauge(g, 460, 508, 460, 1 - c.roll / ROLL, C.amber); else text(g, "DIFFERENT TRICKS GROW YOUR MULTIPLIER", 923, 511, 15, C.muted, "right");
+    panel(g, 18, 476, 390, 48, col);
+    text(g, fmt(c.sum) + " x" + Math.min(this.variety(c), 8), 32, 491, 22, c.roll >= 0 ? C.amber : C.ink);
+    text(g, short(c.tricks.at(-1).name, 20), 392, 513, 17, col, "right");
+    text(g, c.roll >= 0 ? "ROLL TO BANK" : "LINE", 32, 513, 15, C.muted);
+    if (c.roll >= 0) gauge(g, 258, 488, 134, 1 - c.roll / ROLL, C.amber);
+  }
+  drawRouteCue(g) {
+    let cue = "", col = this.theme().accent;
+    // Exactly one contextual notice. Detailed route progress lives outside play.
+    if (this.landing?.t > 0 && this.landing.reason && this.p.mode === "bail") { cue = this.landing.reason; col = C.red; }
+    else if (this.styleNotice && this.t - this.tapAt >= 0 && this.t - this.tapAt < 1.3 && (this.manual || this.p.regrip || this.air?.style)) cue = this.styleNotice;
+    else if (this.noteT > 0) { cue = this.note; col = C.amber; }
+    else if (this.mode === 1) cue = this.lineMet ? "BANKED / " + this.challenge().name : this.meetsLine(this.challenge(), this.combo) ? "READY / LAND + ROLL TO BANK" : "TARGET / " + this.challenge().name;
+    else {
+      const marker = this.barMarker();
+      if (marker.index >= 0) {
+        const [x, y] = this.park().bars[marker.index];
+        if (y - this.camY < 85 || x - this.camX < 30 || x - this.camX > 930) cue = "NEXT " + (y - this.camY < 85 ? "↑" : x - this.camX < 30 ? "←" : "→") + " B" + (marker.index + 1);
+      }
+      if (!cue && this.mode === 2 && this.practiceSlow) cue = "PRACTICE / HALF SPEED";
+    }
+    if (cue) { panel(g, 428, 488, 514, 36, col); text(g, short(cue, 45), 441, 507, 17, col); }
   }
   menuHeader(g, heading, sub) { text(g, "HIGH BAR / " + (this.park().district || "OFFWORLD FIELD COURSE"), 36, 32, 16, this.theme().accent); text(g, heading, 36, 76, 38, C.ink); if (sub) text(g, sub, 36, 112, 18, C.muted); }
   footer(g, value) { panel(g, 28, 492, 904, 34, this.theme().accent); text(g, value, 480, 510, 20, C.amber, "center"); }
@@ -203,8 +232,10 @@ export class HighBarView {
     panel(g, 28, 139, 510, 337, col); text(g, "PARK GOALS / " + s.goals[this.parkId].length + " OF 5", 46, 162, 19, col); this.drawGoals(g, 202, 46, 476, 49);
     panel(g, 554, 139, 378, 337, col); text(g, park.name, 574, 166, 28, C.ink); paragraph(g, park.tagline || park.text, 574, 200, 336, 18, C.muted, 2); this.drawMap(g, 576, 253, 332, 131);
     const rec = this.lineRecord?.();
-    text(g, "MEDAL " + MEDALS[this.mode === 1 && rec ? rec.medal : s.medals[this.parkId]] + " / LINES " + s.lines[this.parkId].length + "/3", 574, 410, 18, col);
-    text(g, this.mode === 2 ? "PRACTICE / RECORDS STAY SAFE" : this.mode === 1 && rec ? "LINE PB " + fmt(rec.best) : "SESSION BEST " + fmt(s.styleBest[this.parkId]), 574, 447, 18, C.amber);
+    text(g, "MEDAL " + MEDALS[this.mode === 1 && rec ? rec.medal : s.medals[this.parkId]] + " / LINES " + s.lines[this.parkId].length + "/3", 574, 401, 18, col);
+    const prior = s.legacyRecords?.styleV2?.styleBest?.[this.parkId];
+    if (prior) text(g, "PREVIOUS RULES BEST " + fmt(prior), 574, 424, 14, C.muted);
+    text(g, this.mode === 2 ? "PRACTICE / RECORDS STAY SAFE" : this.mode === 1 && rec ? "LINE PB " + fmt(rec.best) : "FLOW BEST " + fmt((s.flowBest || s.styleBest)[this.parkId]), 574, 447, 18, C.amber);
     this.footer(g, (s.guided ? "TAP: RIDE" : "TAP: LEARN AND RIDE") + "  ·  HOLD: SETUP / MASTERY " + (this.masteryCount?.() || 0) + "/36");
   }
   drawGoals(g, y0, x = 300, width = 500, step = 26) { const done = this.slot().goals[this.parkId]; for (let i = 0; i < this.park().goals.length; i++) { const ok = done.includes(i), yy = y0 + i * step; circle(g, x + 6, yy, 5, ok ? this.theme().accent : C.muted, ok, 1); paragraph(g, this.park().goals[i].text, x + 23, yy, width - 23, 18, ok ? this.theme().accent : C.ink, 2); } }

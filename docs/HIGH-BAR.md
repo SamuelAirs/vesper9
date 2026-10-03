@@ -1,6 +1,16 @@
 # High Bar: parks, flow and line mastery
 
-The full High Bar refresh was developed on Windows and deployed as Pi trial `60adf7a` on 2026-10-03; physical play acceptance is pending. High Bar keeps the skate/bowl and rigid-bar swing equations and style-v2 score scale. The button pumps, grabs and tucks; release ollies, launches and straightens. A case tap adds optional style. The default tap uses no direction; calibrated side input only biases the manual correction or shove-it animation. Button-only play can still complete sessions, unlock parks and earn skill medals.
+The first High Bar refresh was deployed as Pi trial `60adf7a` on 2026-10-03. Sam's playtest found too much visual clutter, difficult acceleration and too little vertical flow. The follow-up on Windows branch `codex/highbar-airflow` introduces a skateboarding spider, stronger ground and swing drive, taller connected parks and a quieter play screen. It has not replaced that Pi trial.
+
+The button pumps, grabs and tucks; release ollies, launches and straightens. A case tap adds optional style. The default tap uses no direction; calibrated side input only biases the manual correction or shove-it animation. Button-only play can still complete sessions, unlock parks and earn skill medals. Sam confirmed catches already feel easy: catch reach, press timing, pending-catch cancellation and regrab delay are unchanged. Holding before a post approaches does not automatically catch it.
+
+## Speed, height and the spider
+
+Holding on the ground now adds an active kick, including on flat concrete, beyond the old automatic cruising speed. Slope pumping still contributes. Holding a post pumps the swing; a committed release adds upward leg drive. Tangential speed and angular speed are bounded so catching very close to a post cannot become an unreadably fast orbit. Gravity, tuck/straightening, landing tolerances and the 1.2-second banking rule remain unchanged.
+
+The eight-legged rider pushes with its rear legs, reaches toward a caught post, curls into flips, blinks, scrambles after a bail and celebrates a bank. These procedural Canvas animations read gameplay state without altering it. Park silhouettes are quieter; the persistent minimap, large coach and floating trick bursts are replaced by compact controls, a line readout and at most one context notice. One post receives the catch/next marker. Full maps and route briefs remain in setup and the guide.
+
+Tuning: held ground drive adds 360 px/s² times slope cosine; ground speed remains capped at 820 px/s. Held swings add 390 tangential px/s², bounded at 920 px/s and 7 rad/s. A release after 0.35 seconds of swinging subtracts 280 px/s from vertical velocity, with the resulting launch capped at 920 px/s. These are game units, not physical hardware measurements.
 
 ## How a line works
 
@@ -19,9 +29,9 @@ Taps have a 450 ms game cooldown. Nothing depends on exact case-tap timestamps o
 
 The four existing parks and five existing goals retain their original indexes and unlock rule (three goals open the next park). Each park also has three permanent named line challenges involving combinations of flips, transfers, gaps, clean landings and manuals.
 
-SESSION lasts two minutes. LINE RUN names one target and lasts 45 seconds, except the Tower's TOP STYLE and CROSSOVER LINE attempts, which allow 75 seconds for climbing and a safe return. The chosen duration appears in setup, on the title and in the coach. Its separate session best is recorded only when that target was banked. This record uses the full attempt's banked score. The coach shows current-line requirements and says when they are ready to bank; a bail clears that pending progress. Selected gap bars/spans are marked in the world. PRACTICE uses the same mechanics without clock, career goals, line unlocks, medals, bests or console scores, and its result explicitly labels the absence of a career record.
+SESSION lasts two minutes. LINE RUN names one target and lasts 45 seconds, except the Tower's TOP STYLE and CROSSOVER LINE attempts, which allow 75 seconds for climbing and a safe return. The chosen duration appears in setup and on the title. Its separate session best is recorded only when that target was banked. This record uses the full attempt's banked score. The compact route notice reports progress and readiness to bank; a bail clears that pending progress. Selected gap bars/spans are marked in the world. PRACTICE uses the same mechanics without clock, career goals, line unlocks, medals, bests or console scores, and its result explicitly labels the absence of a career record.
 
-The existing eight-second last-trick overtime also keeps an active manual alive; the rider still has to finish and bank before its cutoff. An unfinished manual is forfeited at that cutoff. OVER THE MOON now spans x=470 through x=1230, centred on the same pipe (760 px, previously 860 px). A Windows control-route audit repeatedly fell short of the older markers; the modest symmetric correction has a recorded banked route while retaining the gap's name, points, saved goal/line indexes and all movement physics. This is an empirical difficulty correction, not proof that every older route was impossible.
+The existing eight-second last-trick overtime also keeps an active manual alive; the rider still has to finish and bank before its cutoff. An unfinished manual is forfeited at that cutoff. OVER THE MOON retains the first refresh's x=470 through x=1230 span, centred on the pipe. Current recorded routes finish every target within its ordinary clock, without needing overtime.
 
 The original **session medals** still measure the whole run: bronze requires three banked trick types and one clean landing, silver four types and two clean landings, and gold five types, three clean landings and no bails. Scores alone cannot buy medals.
 
@@ -43,15 +53,20 @@ Returning from pause or an in-run guide gives a short 0.6-second settling interv
 
 In setup, button tap advances and a generic case tap moves backward. Calibrated left/right can move backward/forward. A generic case tap after the result screen's brief input lockout retries the same mode; the system menu also offers explicit retry. Case taps never confirm the erase action.
 
-The first launch shows six short teaching pages, including when riding through park/setup selection, with button-tap next and hold to ride. GAME GUIDE can be reopened and returns to the exact paused game/setup rather than restarting. Game-menu actions close the host menu so the chosen guide, restart or result is visible. In play the top coach says what the next button and tap do, marks an available airborne bar catch, reports consumed regrips and unavailable air style, then shows landing or balance safety. All guide/menu choices happen on release.
+The first launch shows six short teaching pages, including when riding through park/setup selection, with button-tap next and hold to ride. GAME GUIDE can be reopened and returns to the exact paused game/setup rather than restarting. Game-menu actions close the host menu so the chosen guide, restart or result is visible. In play the compact top strip says what the next button and tap do and shows landing or balance safety. A single world marker distinguishes a reachable catch from the next post. All guide/menu choices happen on release.
 
 ## Park identity and route reading
 
 Each course has its own authored setting and visual palette: **Canal Commons**
 (The Bowl), **Freight Exchange** (The Yard), **Uplink Spire** (The Tower), and
-**Lunar Reservoir** (The Night Pipe). Course geometry, existing park IDs, bar
-indexes, named gaps and the five legacy goal indexes stay stable. The scenery
-is procedural and local; decorative structures are not collision objects.
+**Lunar Reservoir** (The Night Pipe). Their vertical spans grow by 950, 1,050,
+700 and 1,000 game pixels respectively. The parks now have 9, 15, 17 and 12
+posts, including open upper ladders and two new Pipe entry posts. Original
+geometry is translated vertically and upper routes are appended. Park IDs,
+original bar indexes, named gaps and the five legacy goal indexes stay stable.
+Tower's named TOP RUNG (B12) and Pipe's SUMMIT (B4) remain challenge milestones;
+new sky posts rise above them. The camera follows higher launches. Scenery is
+procedural and local; decorative structures are not collision objects.
 
 The twelve lines each have a skill focus, difficulty indicator and a three-step
 route brief. These describe a useful approach, not a button sequence that the
@@ -76,15 +91,19 @@ Every meaning also appears on screen. A three-lamp compatibility picture remains
 
 ## Save compatibility
 
-Schema 2 preserves all three private schema-1 slots, active slot, park choice, goals, historical bests, best combo and last result. Mode/guide/line/medal/style-best fields and the new lineComboBest, lineTimeBest and lineMedals arrays are independently bounded and defaulted. Old best arrays are retained, while new SESSION records use console score metric style-v2 and slot styleBest. LINE RUN has separate per-line records. Practice writes no career result. Practice pace, start and checkpoint are temporary app state. Persistence passes an immutable snapshot through AppGuard and the host acknowledged save queue; speculative menu-gesture actions are rewound without publishing them. Wait for the host save notice to clear before closing a disconnected browser.
+Schema 3 preserves all three private careers, active slot, park choice, goals, unlocked lines, skill medals, run counts and last result. Because movement and map height change, new SESSION scores use console metric `flow-v3` and slot `flowBest`. Old `best` and `styleBest` remain intact. Previous best combo and per-line score/combo/time records are preserved once under bounded `legacyRecords.styleV2`; the corresponding current PBs start fresh. Loading again does not reset them or duplicate the archive. The title labels previous-rules scores separately. A maximal three-career save with old and new records is tested against the service's 8 KiB JSON limit.
+
+LINE RUN retains separate per-line records. Practice writes no career result. Practice pace, start and checkpoint are temporary app state. Persistence passes an immutable snapshot through AppGuard and the host acknowledged save queue; speculative menu-gesture actions are rewound without publishing them. Wait for the host save notice to clear before closing a disconnected browser. When staging this revision on the Pi, copy the latest trial saves into a new private data directory and retain the older trial intact; an older release should not be pointed at a migrated save.
 
 High Bar deliberately remains a private three-slot UI in this wave. Moving these nested saves to the shell's four-slot keys needs a host-owned migration preserving all three saves and active selection; simply enabling saveSlots would not be safe.
 
 ## Acceptance and evidence
 
-Windows automated tests cover prior physics, junk and schema-1 migration, slot isolation, no-tap play, generic and optional sides, air/manual/regrip mechanics, challenge banking, repeat scoring, practice isolation, dangerous final-flight cutoff, light/board lifetime and host-confirmed burst menu cancellation at each pace. A real-controls two-minute bot audit checks that banking and progression are achievable without case taps and that style adds risk and variety.
+Windows automated tests cover junk and schema-1/2 migration, slot isolation, no-tap play, generic and optional sides, air/manual/regrip mechanics, challenge banking, repeat scoring, practice isolation, dangerous final-flight cutoff, light/board lifetime and host-confirmed burst menu cancellation at each pace. A real-controls two-minute bot audit checks that banking and progression remain achievable without case taps. A paired landing test verifies that adding an accepted shove-it still requires a straighter landing.
 
-The extended Windows pass ran 2,200 complete two-minute deterministic attempts across all four parks and a targeted release/catch search. `tests/highbar-routes.test.mjs` retains twelve compact button/tap recordings, each replayed from the normal drop-in in SESSION, LINE RUN and PRACTICE. All 36 routes land and bank their target through actual simulation within their selected mode's clock; the current park's goals, rider positions, trick names, gap flags and scores are never injected. Practice replays verify that the same route leaves career data and console scores untouched. The deepest recorded Tower return banks at 78.43 s, within its 75 s clock plus unchanged overtime; the linked Moon route banks at 50.77 s, within 45 s plus overtime. Deterministic controllers establish achievable software routes, not comfortable human timing.
+`tests/helpers/highbar-flow-routes.mjs` contains twelve new button/tap recordings replayed by `tests/highbar-routes.test.mjs` in SESSION, LINE RUN and PRACTICE. All 36 combinations land and bank their target from the normal drop-in within the selected clock; rider positions, trick names, gap flags and scores are never injected. The target routes bank in 5.90–26.23 seconds. Practice replays leave career data and console scores untouched. A separate linked Bowl route earns all three golds. Earlier style-v2 searches and timings in the worklog are historical evidence for the previous release.
 
-Offline Chrome screenshots at 1024x600 are simulator/layout evidence only. Real button comfort, manual balance cadence, shove-it landing fairness, four-lamp colour readability and case-tap false positives remain owner acceptance on the Pi. No Pi access, live sound/lights, firmware update or physical qualification is claimed.
+Twelve additional independent tests cover useful acceleration in every flat start, unchanged press-to-catch behavior, short-radius swing bounds, save limits and gesture rewind. Four actual-input recordings each sustain at least eight seconds of free flight across multiple catches and flips, then land and bank that same chain without a bail. A non-predictive feedback pilot using 100–200 ms old observations fails its selected policies; perfect-state recordings establish reachability, not comfortable human reaction windows. Keep physical feedback authoritative, especially for fast swing release and long descents.
+
+Windows Chrome screenshots at 1024x600 and 960x540 are simulator/layout evidence only. Real button comfort, manual balance cadence, shove-it landing fairness, four-lamp colour readability and case-tap false positives remain owner acceptance on the Pi. This follow-up performs no Pi access, live sound/lights, firmware update or physical qualification. See [validation](VALIDATION.md) for current results and [the worklog](WORKLOG.md) for source and deployment history.
 

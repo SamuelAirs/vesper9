@@ -1,8 +1,62 @@
 # VESPER-9 0.2.0 validation
 
-> Current finished-node candidate (2026-10-02): see [candidate status and product decisions](NODE-CONSOLE-CANDIDATE.md). Developed and verified on Windows; Pi deployment and physical acceptance remain pending. Older implementation/firmware/sensor notes below describe their historical snapshots.
+> Release `60adf7a` was installed as a save-preserving Pi trial on 2026-10-03;
+> physical acceptance is in progress. The subsequent `codex/highbar-airflow`
+> revision is developed on Windows and has not replaced that trial. See
+> [candidate status](NODE-CONSOLE-CANDIDATE.md). Validation sections below identify
+> their own source snapshots; older firmware/sensor notes are historical.
 
-## High Bar design refresh — 2026-10-03
+## High Bar spider / airflow follow-up — 2026-10-03
+
+Native Windows `DESKTOP-FD66EV2`, branch `codex/highbar-airflow`, based on
+deployment record `766f8a7` and Pi trial source `60adf7a`. Three GPT-6.1 Sol
+agents handled mechanics/content, renderer/browser work and independent review.
+Root reviewed changes and screenshots, integrated score handling and docs, and
+verified tests and packaging. This revision makes no Pi connection or change.
+
+| Check | Fresh result |
+| --- | --- |
+| Complete JavaScript suite | 1,547 pass; zero failures or skips |
+| High Bar focused suite | 112 pass, including 12 independent airflow checks |
+| Python runtime / storage / score contracts | 30 pass; real service commands and independent SQLite reopen retain old and new score classes |
+| Actual challenge recordings | All twelve targets bank from normal drop-in in SESSION, LINE RUN and PRACTICE: 36 combinations, within the ordinary 45/75-second clocks |
+| Sustained high chains | Four independent actual-input recordings each exceed eight seconds of free flight across multiple catches/flips, then bank the same combo with zero bails |
+| Browser host / games / save recovery | 36 / 21 / 10 checks pass |
+| Service and generated standalone smoke | All 35 apps pass, including navigation, menu gesture, persistence and no page faults |
+| Full High Bar browser journey | 61 pass: six guide pages, twelve complete briefs, all four live-control parks, compact HUD, practice isolation and reload; includes one optional recording check |
+| Final preview browser checks | 15 pass after sharing launch math: actual caught-post trajectory, pure drawing, manual/bail poses, layout and no faults |
+| Bounded three-career migration | Worst-case fixture is 5,669 bytes with the actual Python JSON serializer, below the 8,192-byte limit |
+
+The full High Bar journey precedes the final shared aiming-preview/ready-cue
+correction. The 15 focused browser checks and full JS/standalone smoke cover
+the final source; the external manifest records both renderer hashes. The
+new runner entry is `highbar-airflow-browser`; the old refresh command delegates
+to it. Use `HIGHBAR_PREVIEW_ONLY=1` for the focused preview checks.
+
+Ground drive from an authored flat start reaches 400 game px/s from 220 in
+0.517 seconds in each park. Bowl/Yard/Pipe reach 600 in 1.083 seconds; Tower
+crosses a transition and reaches 600 at 3.3 seconds. The baseline could remain
+near automatic cruise on flat ground. Every held normal drop-in reaches 600
+at 0.4 seconds. These are simulated motion values, not input-latency readings.
+
+The maximum fixed in-game overlays cover 13.84% of the 960×540 game canvas;
+live Canvas rectangle/text checks verify bounded coverage and no overlapping
+HUD text at 1024×600 and 960×540 viewports. The 15-second spider clip records
+actual Chrome play. It is simulator footage, not the Pi screen.
+
+Limits: a simple non-predictive pilot with 100/200 ms stale observations fails
+its selected extended-chain policies. This prevents a claim of human-delay
+robustness; it does not override Sam's report that catches already work well.
+Physical swing/release comfort, sprite readability, sound/tap interaction and
+Pi rendering still need Sam's playtest. No fresh full Python suite or Pi
+performance benchmark is claimed for this follow-up. Earlier results below
+remain attached to their earlier source.
+
+External evidence and the release/bundle/source manifest live under
+`C:/Users/ayers/vesper9-investigation/airflow/`; the source release excludes
+those private browser data directories, videos, databases and dependencies.
+
+## Previous High Bar design refresh — 2026-10-03
 
 Native Windows `DESKTOP-FD66EV2`, branch `codex/highbar-refresh`, based on the
 preserved `0354a35` console-polish candidate. Three GPT-6.1 Sol agents handled

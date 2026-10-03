@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 import { HighBar, migrateSave } from "../web/apps/highbar.js";
 import { InputRouter } from "../web/engine/input.js";
 import { appContext, run, fakeCanvas } from "./helpers/app-context.mjs";
-test("a real-controls session banks without case taps; optional style changes the risk and line variety", () => {
+test("a real-controls session banks without case taps; optional style contributes distinct banked tricks", () => {
   function bot(style) {
     const { app } = ride(); let down = false, pressedAt = 0, tapAt = -9;
+    const banked = new Set(), bank = app.bank.bind(app);
+    app.bank = () => { for (const trick of app.combo.tricks) banked.add(trick.name); bank(); };
     for (let i = 0; i < 8000 && app.phase === "play"; i++) {
       const p = app.p, t = i / 60;
       if (i % 6 === 0) {
@@ -25,15 +27,15 @@ test("a real-controls session banks without case taps; optional style changes th
       }
       app.update(F);
     }
-    return app;
+    return { app, banked };
   }
-  const button = bot(false), styled = bot(true);
+  const plain = bot(false), withStyle = bot(true), button = plain.app, styled = withStyle.app;
   assert.equal(button.phase, "over"); assert.equal(styled.phase, "over");
   assert.ok(button.stats.banks >= 10 && button.score > 3000, "button-only can bank and progress");
   assert.ok(button.slot().goals[0].length >= 3, "button-only can unlock THE YARD");
-  assert.ok(styled.stats.variety > button.stats.variety, "style creates different banked lines");
+  assert.ok(["SHOVE-IT", "REGRIP"].some(name => withStyle.banked.has(name)), "case actions contribute actual banked tricks");
+  assert.ok(!["SHOVE-IT", "REGRIP", "MANUAL"].some(name => plain.banked.has(name)), "button-only banks do not invent case tricks");
   assert.ok(styled.score > 3000 && styled.stats.banks > 0, "styled play can still bank and progress");
-  assert.ok(styled.stats.bails > button.stats.bails, "style has a measurable landing cost");
 });
 
 const F = 1 / 60;
@@ -48,7 +50,7 @@ function ride(options) { const m = mount(options); m.app.slot().guided = true; m
 function flat(app) {
   Object.assign(app.p, { mode: "ground", x: 700, y: app.groundY(700), s: 220, rot: 0, vx: 0, vy: 0 });
 }
-function air(app, { x = 700, y = 140, vx = 100, vy = -260 } = {}) {
+function air(app, { x = 700, y = app.park().floor - 330, vx = 100, vy = -260 } = {}) {
   Object.assign(app.p, { mode: "air", x, y, vx, vy, rot: 0, rotV: 0, tuck: false, vert: 0 });
   app.air = { t: 0.2, rot: 0, x0: x, xMin: x, xMax: x, y0: y, apex: y,
     fromBar: -1, ollie: true, vert: false, dir: Math.sign(vx) || 1 };
@@ -62,9 +64,12 @@ test("schema 1 migrates every private slot and active choice without changing hi
   })) };
   const original = structuredClone(raw), next = migrateSave(raw);
   assert.deepEqual(raw, original, "migration does not mutate its input");
-  assert.equal(next.slot, 2); assert.equal(next.schema, 2);
+  assert.equal(next.slot, 2); assert.equal(next.schema, 3);
   for (let i = 0; i < 3; i++) {
-    for (const key of ["runs", "park", "best", "bestCombo", "goals", "last"]) assert.deepEqual(next.slots[i][key], original.slots[i][key]);
+    for (const key of ["runs", "park", "best", "goals", "last"]) assert.deepEqual(next.slots[i][key], original.slots[i][key]);
+    assert.equal(next.slots[i].legacyRecords.styleV2.bestCombo, original.slots[i].bestCombo);
+    assert.equal(next.slots[i].bestCombo, 0, "changed physics starts a separate combo PB");
+    assert.deepEqual(next.slots[i].flowBest, [0, 0, 0, 0]);
     assert.deepEqual(next.slots[i].styleBest, [0, 0, 0, 0]);
     assert.deepEqual(next.slots[i].lines, [[], [], [], []]);
   }
@@ -122,11 +127,11 @@ test("named-line coaching shows what is missing, ready, lost on bail and actuall
 
 test("style readiness requires enough actual flight time, including uphill and vert landings", () => {
   for (const scenario of [
-    { x: 700, y: 400, vx: 100, vy: 600 },
-    { x: 1350, y: 340, vx: 700, vy: -80 },
+    { x: 700, height: 70, vx: 100, vy: 600 },
+    { x: 1350, height: 130, vx: 700, vy: -80 },
   ]) {
-    const { app } = ride(); air(app, scenario);
-    const control = ride().app; air(control, scenario);
+    const { app } = ride(); air(app, { ...scenario, y: app.park().floor - scenario.height });
+    const control = ride().app; air(control, { ...scenario, y: control.park().floor - scenario.height });
     assert.ok(app.groundY(app.p.x) - app.p.y >= 65, "the old height-only gate would accept this tap");
     assert.equal(app.canStyle(), false);
     assert.deepEqual(app.restingLamps().slice(9), [0, 0, 0]);
@@ -137,7 +142,7 @@ test("style readiness requires enough actual flight time, including uphill and v
   const { app } = ride();
   air(app, { x: app.geo.lipR, y: app.geo.lipY - 70, vx: 0, vy: 600 }); app.p.vert = 1;
   assert.equal(app.canStyle(), false); app.knock(); assert.equal(app.air.style, undefined);
-  const ready = ride().app; air(ready, { y: 240, vy: -160 });
+  const ready = ride().app; air(ready, { y: ready.park().floor - 230, vy: -160 });
   assert.equal(ready.canStyle(), true); ready.knock(); reachGround(ready);
   assert.equal(ready.combo.shove, true, "a complete accepted shove-it still scores on an actual landing");
 });
@@ -192,6 +197,18 @@ test("regrip is one boost per catch and never slows an already fast swing", () =
   assert.equal(app.combo.tricks.filter(t => t.name === "REGRIP").length, 1);
 });
 
+test("a shove-it requires a straighter landing than the same ordinary flight", () => {
+  for (const styled of [false, true]) {
+    const { app } = ride();
+    air(app, { y: app.park().floor - 230, vx: 0, vy: 0 });
+    if (styled) { app.knock(); assert.ok(app.air.style, "the style request is accepted high enough to finish"); }
+    // Controlled unit fixture isolates the landing rule from a pilot's choices.
+    app.p.rot = .65; app.p.rotV = 0; app.p.tuck = true; app.p.tuckDir = 0;
+    reachGround(app);
+    assert.equal(app.p.mode, styled ? "bail" : "ground");
+  }
+});
+
 test("repeated giants do not farm the multiplier, while different tricks improve a line", () => {
   const { app } = ride();
   for (let i = 0; i < 20; i++) app.trick("GIANT", 250);
@@ -228,12 +245,13 @@ test("overtime keeps an active manual alive, then banks only after a safe finish
   cutoff.update(F); assert.equal(cutoff.phase, "over"); assert.equal(cutoff.score, 0, "the eight-second cutoff still forfeits an unfinished manual");
 });
 
-test("new style scores are separate from legacy bests and LINE RUN only records a met challenge", () => {
+test("flow scores are separate from both earlier bests and LINE RUN only records a met challenge", () => {
   const { app, ctx } = ride(); app.slot().best[0] = 50000; flat(app);
   app.trick("OLLIE", 40); app.bank(); app.finish();
   assert.equal(app.slot().best[0], 50000);
-  assert.equal(app.slot().styleBest[0], 40);
-  assert.deepEqual(ctx.calls.score[0], [40, "style-v2"]);
+  assert.equal(app.slot().styleBest[0], 0);
+  assert.equal(app.slot().flowBest[0], 40);
+  assert.deepEqual(ctx.calls.score[0], [40, "flow-v3"]);
   app.mode = 1; app.start(); assert.equal(app.clock, 45);
   flat(app); app.trick("OLLIE", 40); app.bank(); app.finish();
   assert.equal(app.slot().lineBest[0][0], 0);

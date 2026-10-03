@@ -1,19 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { HighBar } from "../web/apps/highbar.js";
-import { PARKS, LAND_TOL } from "../web/apps/highbar-content.js";
+import { PARKS, LAND_TOL, barLaunchVelocity } from "../web/apps/highbar-content.js";
 import { appContext, run } from "./helpers/app-context.mjs";
 
 const DT = 1 / 60;
-// Actual recorded ordinary Bowl drop-in. No physics/trick/score injection.
-const GOLD_LINK = "D0 U42 D48 T54 U90 D96 T108 U144 T150 T192 D192 U234 D240 T252 U288 T294";
-const FIRST_FLIGHT = "D0 U42 D48 U84 D90 U192 D264";
+import { GOLD_LINK as GOLD_ROUTE, FIRST_FLIGHT as FIRST_ROUTE } from "./helpers/highbar-flow-routes.mjs";
+const GOLD_LINK = GOLD_ROUTE.input, FIRST_FLIGHT = FIRST_ROUTE.input;
 function ride(mode = 0, options = {}) {
   const ctx = appContext({ settings: { knock: "medium" }, ...options });
   const app = new HighBar(ctx); app.slot().guided = true; app.mode = mode; app.start();
   return { app, ctx };
 }
-function replay(app, input = GOLD_LINK, frames = 394) {
+function replay(app, input = GOLD_LINK, frames = GOLD_ROUTE.frames) {
   const events = input.split(" ").map(s => [+s.slice(1), s[0]]); let next = 0;
   for (let frame = 0; frame < frames && app.phase === "play"; frame++) {
     while (events[next]?.[0] === frame) {
@@ -38,23 +37,24 @@ test("all four FLAT SCHOOL starts are grounded and teach the ground action witho
   }
 });
 
-test("a real linked combo earns all three Bowl gold medals without changing legacy scoring", () => {
+test("a real linked combo earns all three Bowl gold medals on the flow-v3 score class", () => {
   const { app, ctx } = ride(1); app.slot().line = 2; app.start(); replay(app); app.guard.settle();
-  assert.equal(app.score, 7150); assert.equal(app.stats.banks, 1);
-  assert.equal(app.lastBank.variety, 5); assert.equal(app.lastBank.clean, 2);
+  assert.ok(app.score > 0); assert.ok(app.stats.banks >= 1);
+  assert.ok(app.lastBank.variety >= 4); assert.ok(app.lastBank.clean >= 2);
   assert.deepEqual(app.slot().lineMedals[0], [3, 3, 3]); assert.equal(app.masteryCount(), 9);
-  assert.deepEqual(app.slot().lineComboBest[0], [7150, 7150, 7150]);
-  assert.deepEqual(app.slot().lineTimeBest[0], [0, 0, 6.53]);
+  assert.ok(app.slot().lineComboBest[0].every(score => score > 0));
+  assert.deepEqual(app.slot().lineTimeBest[0].slice(0, 2), [0, 0]);
+  assert.ok(app.slot().lineTimeBest[0][2] > 0 && app.slot().lineTimeBest[0][2] <= GOLD_ROUTE.frames / 60);
   assert.equal(app.slot().runs, 0); assert.deepEqual(app.slot().lineBest[0], [0, 0, 0]);
   assert.equal(ctx.calls.score.length, 0); assert.ok(ctx.calls.saved.length > 0);
   app.finish();
-  assert.equal(app.slot().lineBest[0][2], 7150); assert.equal(app.slot().runs, 1);
+  assert.equal(app.slot().lineBest[0][2], app.score); assert.equal(app.slot().runs, 1);
   assert.equal(ctx.calls.score.length, 0, "line attempts retain their existing private-record class");
 });
 
 test("practice checkpoints restore a real bank safely, identify the selected start and remain RAM only", () => {
   const { app, ctx } = ride(2), before = structuredClone(app.save);
-  replay(app, FIRST_FLIGHT, 264); const checkpoint = structuredClone(app.practiceCheckpoint);
+  replay(app, FIRST_FLIGHT, FIRST_ROUTE.frames); const checkpoint = structuredClone(app.practiceCheckpoint);
   assert.ok(checkpoint && checkpoint.park === 0); assert.equal(app.p.mode, "ground");
   app.resetPractice(true);
   assert.equal(app.p.x, checkpoint.x); assert.equal(app.p.s, checkpoint.s);
@@ -93,7 +93,7 @@ test("camera easing has the same elapsed-time response across render rates and l
   const app = cameras[0]; app.p.s = 500; app.placeCamera(true); const right = app.camX;
   app.p.s = -500; app.placeCamera(true); assert.ok(right > app.camX);
   Object.assign(app.p, { mode: "air", vx: 10000, vy: -10000 }); app.placeCamera(true);
-  assert.ok(app.camX <= PARKS[0].w - 960); assert.ok(app.camY >= Math.min(0, PARKS[0].h - 540) - 360);
+  assert.ok(app.camX <= PARKS[0].w - 960); assert.ok(app.camY >= Math.min(0, PARKS[0].h - 540) - 900);
 });
 
 test("landing feedback reports the actual clean, safe, sketchy or bail judgement on normal and shove landings", () => {
@@ -125,4 +125,28 @@ test("improving an existing line medal celebrates on the board and ends within i
   assert.equal(app.lastBank.newMedal, true); assert.ok(app.board > 0.9 && app.board <= 1.2);
   assert.ok(ctx.calls.board.some(rgb => rgb.some(v => v > 0)));
   run(app, 1.3); assert.equal(app.board, 0); assert.deepEqual(ctx.calls.board.at(-1), [0, 0, 0]);
+});
+
+
+test("bar aiming velocity matches real ordinary and whip launches, including hold threshold and speed cap", () => {
+  const samples = [
+    { kind: undefined, held: 0.34, r: 100, om: 4, phi: Math.PI / 6, vx: 400 * Math.cos(Math.PI / 6), vy: -200 },
+    { kind: "whip", held: 0.34, r: 100, om: 4, phi: Math.PI / 6, vx: 400 * Math.cos(Math.PI / 6), vy: -200 },
+    { kind: undefined, held: 0.35, r: 100, om: 4, phi: Math.PI / 6, vx: 400 * Math.cos(Math.PI / 6), vy: -480 },
+    { kind: "whip", held: 0.35, r: 100, om: 4, phi: Math.PI / 6, vx: 448 * Math.cos(Math.PI / 6), vy: -504 },
+    { kind: undefined, held: 1, r: 190, om: 920 / 190, phi: Math.PI / 2, vx: 0, vy: -920 },
+    { kind: "whip", held: 1, r: 190, om: 920 / 190, phi: Math.PI / 2, vx: 0, vy: -920 },
+  ];
+  for (const sample of samples) {
+    const { app } = ride(2); app.parkId = 1; app.start();
+    const bar = sample.kind === "whip" ? 3 : 0;
+    Object.assign(app.p, { mode: "bar", bar, r: sample.r, om: sample.om, phi: sample.phi, held: sample.held });
+    const before = structuredClone(app.p), aim = barLaunchVelocity(app.p, sample.kind);
+    assert.deepEqual(app.p, before, "preview cannot change rider state");
+    assert.ok(Math.abs(aim.vx - sample.vx) < 1e-9);
+    assert.ok(Math.abs(aim.vy - sample.vy) < 1e-9);
+    app.letGo();
+    assert.equal(app.p.mode, "air");
+    assert.deepEqual({ vx: app.p.vx, vy: app.p.vy }, aim, "preview includes the same launch impulse and caps as release");
+  }
 });

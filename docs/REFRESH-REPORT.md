@@ -1,9 +1,12 @@
 # Finished-node refresh: what actually changed
 
-The Windows candidate now contains a broad node-focused refresh, two new games,
-and a further playability/reliability pass. It has not been installed on the Pi.
-Playing the existing Pi build will therefore not show these updates. The last
-Pi check was read-only; this later pass made no Pi connection.
+The refresh contains a broad node-focused pass, two new games and further
+playability/reliability work. Release `60adf7a`, including the dedicated High Bar
+polish, was installed as a save-preserving Pi trial on 2026-10-03. The owner's
+first play feedback now directs a separate Windows High Bar airflow revision.
+That revision has not replaced the trial. The source table below describes the
+earlier investigation; current paths and rollback are in
+[Pi acceptance](PI-ACCEPTANCE.md).
 
 ## Assessment
 
@@ -45,7 +48,7 @@ and [utility report](UTILITY-POLISH.md) distinguish implemented changes from
 remaining design work. Fresh final counts and artifacts are in
 [validation](VALIDATION.md) and [the worklog](WORKLOG.md).
 
-## Source relationship
+## Source relationship before the Pi trial
 
 | Location | Evidence | Relationship |
 | --- | --- | --- |
@@ -65,10 +68,9 @@ requires verifying the actual service and served files after an agreed trial.
 
 ## Next decisions and acceptance
 
-1. Review [the save-preserving trial and rollback plan](PI-ACCEPTANCE.md), then
-   agree whether to stage and switch this candidate. Preserve the existing live
-   source, service configuration and original data; use a consistent private save
-   copy for the trial. No firmware update is required.
+1. The [save-preserving Pi trial](PI-ACCEPTANCE.md) is running. Preserve its
+   progress alongside the original live source/data. Review and validate the
+   owner-directed airflow revision on Windows before the next agreed switch.
 2. On the deck, test generic menu/back taps, normal holds and menu cancellation;
    then High Bar, Ricochet practice, Stacks/Encyclopedia resume and Twinbeat's first
    two levels. Report misses, false taps, unclear rules and frustrating timing.

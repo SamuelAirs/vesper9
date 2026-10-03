@@ -1,6 +1,6 @@
 # VESPER—9
 
-> High Bar design refresh (2026-10-03): [parks, practice and mastery](docs/HIGH-BAR.md).
+> High Bar follow-up (Windows, 2026-10-03): [a skateboarding spider, faster kicks, taller routes and a quieter screen](docs/HIGH-BAR.md). The new revision has not replaced the Pi trial below.
 > Finished-node refresh (2026-10-03): [what changed](docs/REFRESH-REPORT.md),
 > [candidate/source status](docs/NODE-CONSOLE-CANDIDATE.md), and
 > [Pi acceptance/rollback](docs/PI-ACCEPTANCE.md). Release `60adf7a` is running on the Pi as a save-preserving trial; physical acceptance is pending.
@@ -77,7 +77,7 @@ For automatic service startup and a full-screen kiosk at desktop login:
 | **Echo Vault** | Learn and answer pulse transmissions with lamp cues and paid replay. |
 | **Light Trial** | React to the middle physical light; the ESP32 timestamps the cue and button edge on the same clock. |
 | **Glyph Archive** | Remember an inscription, then reconstruct it with an automatically scanning cursor. |
-| **High Bar** | Skate, swing, flip and link manuals/regrips/shove-its; four parks, twelve lines and isolated practice. |
+| **High Bar** | A skateboarding spider: build speed, swing through four vertical parks, flip and link twelve lines; isolated practice. |
 | **Ricochet** | Reverse the paddle through increasingly difficult chambers; practice any chamber reached. |
 | **Wayfinder** | Explore three expedition regions, manage supplies, research equipment and resume saved routes. |
 | **Twinbeat** | Drum through eight original levels; separate calibrated-side and generic/button-assist careers. |

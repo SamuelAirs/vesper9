@@ -1,16 +1,21 @@
 # VESPER-9 0.2.0 — the second pass
 
-> High Bar follow-up: `codex/highbar-refresh` builds on the preserved `0354a35`
-> console-polish candidate. See [High Bar](HIGH-BAR.md) for the art, practice,
-> mastery and bank-save changes. This candidate is also not deployed.
+> Current Pi trial: release `60adf7a`, installed on 2026-10-03 with a separate
+> save copy. The owner's feedback now directs `codex/highbar-airflow` on Windows:
+> less visual clutter, easier acceleration, connected vertical aerial routes
+> and a skateboarding spider. Existing catch behavior is retained.
+> That follow-up has not replaced the Pi trial. See [High Bar](HIGH-BAR.md).
 
 > Latest Windows refresh (2026-10-03): [what changed and what remains](REFRESH-REPORT.md).
 > `codex/console-polish` adds deeper High Bar/Ricochet play, reader/utility fixes,
-> and acknowledged save recovery with conflict protection. It is not deployed.
+> and acknowledged save recovery with conflict protection. These changes are
+> included in the deployed `60adf7a` trial.
 > Use the current candidate and acceptance documents; the older hardware and
 > gesture descriptions below are historical release notes.
 
-> Current finished-node candidate (2026-10-02): see [candidate status and product decisions](NODE-CONSOLE-CANDIDATE.md). Developed and verified on Windows; Pi deployment and physical acceptance remain pending. Older implementation/firmware/sensor notes below describe their historical snapshots.
+> See [candidate status and product decisions](NODE-CONSOLE-CANDIDATE.md) for
+> current deployment evidence. Physical acceptance is in progress. Older
+> implementation/firmware/sensor notes below describe their historical snapshots.
 
 
 This release implements the next pass in source, rather than only supplying an improvement prompt. The app and service are 0.2.0. The compatible ESP32 protocol and supplied 0.1.0 firmware are unchanged. No physical Pi/node deployment is claimed.

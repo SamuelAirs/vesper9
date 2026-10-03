@@ -1,5 +1,33 @@
 # Candidate acceptance and rollback
 
+## Next High Bar trial: airflow / spider follow-up
+
+`codex/highbar-airflow` is a Windows candidate responding to Sam's physical
+playtest. It has not been deployed. Its next switch must preserve the currently
+running `60adf7a` trial, including progress earned since its installation.
+Stage a new release directory and copy that trial's latest private data after
+closing the controlling browser and stopping writes. Verify the SQLite backup,
+keep the original trial directory intact, and save the exact current service
+override before switching. Preserve existing model/archive/dependency paths;
+this update needs no firmware or model change.
+
+Rollback for this follow-up means restoring the captured **60adf7a override and
+its old trial data**, then verifying its served source identity, one browser,
+node and microphone state. Do not use the first trial's `deploy.py rollback`
+for that purpose: it intentionally returns to `f3bfacc`. Keep the new schema-3
+save separate; do not ask the older build to rewrite it. The candidate's
+external delivery manifest records its source/ZIP/bundle hashes. Review the
+concrete switch and rollback paths with Sam before restarting the console.
+
+Acceptance priorities for the spider revision: a held flat-ground push should
+quickly build speed; swings should build height and connect into prolonged
+flight; catching should feel as familiar as before. Check that the screen is
+quieter, the spider's poses are readable, and release/landing timing remains
+comfortable. Old careers and unlocked parks must remain, with previous-rules
+PBs distinguished from new flow records. These are physical checks still to do.
+
+## First trial deployment record and procedure
+
 The trial switch was authorized and completed on 2026-10-03 at 14:44 UTC. The
 Pi now runs release `60adf7ad07fff9e8969af3e1e673cca453493d67` from
 `/home/sam/VESPER-9-v0.2.0-Claude/releases/60adf7ad07fff9e8969af3e1e673cca453493d67/VESPER-9-v0.2.0/vesper9`,
@@ -15,7 +43,8 @@ after closing the trial browser. The helper removes only its exact service
 override, checks the original unit/source/data and preserves trial progress.
 It reopens the deck browser after recovery. This rollback path has been reviewed
 and its prerequisites preserved; a live rollback rehearsal has not been run.
-The steps below describe the rollout procedure and remaining acceptance work.
+The steps below describe that first rollout and the broader acceptance work;
+they are historical baseline instructions, not the next trial's data paths.
 
 ## Dependencies before a switch
 

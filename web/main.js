@@ -2,7 +2,7 @@ import { Bridge } from "./engine/bridge.js";
 import { DemoBridge } from "./engine/demo.js";
 import { InputRouter, GESTURE_TAPS } from "./engine/input.js";
 import { Synth, BrowserMicrophone } from "./engine/audio.js";
-import { Random, escapeHTML as esc, formatTime, formatSensorTemp, tempUnit } from "./engine/math.js";
+import { Random, escapeHTML as esc, formatTime } from "./engine/math.js";
 import { ambient, glyph, C, text, space } from "./engine/draw.js";
 import { APPS } from "./apps/registry.js";
 import { DEFAULT_SETTINGS as DEFAULT, SECTORS, SYSTEM_APPS } from "./apps/catalog.js";
@@ -1337,18 +1337,6 @@ export class Vesper {
         : s.simulated
           ? "SIMULATOR"
           : "HARDWARE");
-    const unit = (s.settings || DEFAULT).tempUnit;
-    setText("temp-mini", s.sensor
-      ? formatSensorTemp(s.sensor.temperature, unit, 1, s.settings || DEFAULT)
-      : "— " + tempUnit(unit));
-    setText("rh-mini", s.sensor
-      ? s.sensor.humidity.toFixed(0) + " % RH"
-      : "— % RH");
-    const stale = !connected || !s.sensor?.at || Date.now() / 1000 - s.sensor.at > 15;
-    $("temp-mini").classList.toggle("stale", stale);
-    $("rh-mini").classList.toggle("stale", stale);
-    const tempTitle = stale ? "Last reading / stale or unavailable" : "Live reading";
-    if ($("temp-mini").title !== tempTitle) $("temp-mini").title = tempTitle;
     const micStatus = microphoneStatus(s), active = micStatus.active;
     $("mic-button").classList.toggle("active", active);
     setText("mic-text", micStatus.label);

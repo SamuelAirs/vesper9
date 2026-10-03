@@ -167,9 +167,8 @@ test("node page explains counters in words", async () => {
   assert.equal(text(app, "crc"), "4");
   assert.match(text(app, "n-crc"), /damaged/i);
   assert.match(text(app, "n-miss"), /never arrived/i);
-  assert.match(text(app, "n-sensor"), /failed.*nack/i);
-  assert.equal(text(app, "sensor"), "0x44");
-  assert.equal(text(app, "sread"), "10 / 2");
+  assert.equal(text(app, "sensor"), undefined, "no sensor rows: the node has no sensor");
+  assert.equal(text(app, "n-sensor"), undefined);
   assert.equal(text(app, "ltype"), "USB");
   assert.equal(text(app, "port"), "/dev/ttyACM0");
   assert.equal(text(app, "fw"), "0.1.2");
@@ -180,7 +179,7 @@ test("every field null: dashes, no NaN or undefined, dark lamps", async () => {
   await flush();
   app.tick();
   for (const [id, v] of Object.entries(app.shown)) assert.ok(!/NaN|undefined|null|Infinity/.test(v.text), id + ": " + v.text);
-  for (const id of ["temp-v", "cpu-v", "mem-v", "disk-v", "up", "port", "fw", "crc", "miss", "sensor", "a-fw", "a-svc", "link"]) assert.equal(text(app, id), "—", id);
+  for (const id of ["temp-v", "cpu-v", "mem-v", "disk-v", "up", "port", "fw", "crc", "miss", "a-fw", "a-svc", "link"]) assert.equal(text(app, id), "—", id);
   assert.equal(text(app, "temp-s"), "NO DATA");
   assert.equal(text(app, "power"), "NOT REPORTED");
   assert.deepEqual(lastLeds(ctx), DARK);
@@ -305,7 +304,7 @@ test("node verdict levels", () => {
   assert.equal(nodeLevel(a({ statusAgeS: 45 }), 0), 2);
   assert.equal(nodeLevel(a({ connected: false }), 0), "down");
   assert.equal(nodeLevel(a({ connected: null }), 0), null);
-  assert.equal(nodeLevel(a({ sensor: { ok: 0, fail: 5 } }), 0), 1);
+  assert.equal(nodeLevel(a({ sensor: { ok: 0, fail: 5 } }), 0), 0, "the node has no sensor: its reads say nothing");
 });
 
 test("rising counters turn the right lamp amber; old steady counts and restarts do not", async () => {

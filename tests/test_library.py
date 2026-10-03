@@ -1,7 +1,7 @@
 """The book library service (vesper/library.py) and its routes and commands.
 
 Books are built here (tiny EPUBs, text files, a Kindle My Clippings.txt), in temporary folders.
-Nothing touches the network: the Gutenberg download is given a fake opener.
+Nothing touches the network: the Standard Ebooks download is given a fake opener.
 """
 import asyncio
 import io
@@ -51,6 +51,27 @@ def epub(path, title="A Test Voyage", author="Ada Example", chapters=None, encry
           <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>{title}</dc:title><dc:creator>{author}</dc:creator></metadata>
           <manifest>{''.join(manifest)}</manifest><spine>{''.join(spine)}</spine></package>""")
     return path
+
+
+def se_archive(repo):
+    """A GitHub source archive shaped like a Standard Ebooks repository, with a cover image."""
+    out = io.BytesIO()
+    root = repo + "-master/src/"
+    with zipfile.ZipFile(out, "w") as z:
+        z.writestr(repo + "-master/README.md", "readme")
+        z.writestr(root + "mimetype", "application/epub+zip")
+        z.writestr(root + "META-INF/container.xml", CONTAINER.replace("OEBPS/content.opf", "epub/content.opf"))
+        z.writestr(root + "epub/images/cover.jpg", b"\xff" * 5000)
+        z.writestr(root + "epub/text/titlepage.xhtml", '<html xmlns="http://www.w3.org/1999/xhtml"><body epub:type="frontmatter titlepage"><h1>Moby-Dick</h1></body></html>')
+        z.writestr(root + "epub/text/chapter-1.xhtml", '<html xmlns="http://www.w3.org/1999/xhtml"><body epub:type="bodymatter z3998:fiction"><section><h2>Loomings</h2><p>Call me Ishmael.</p></section></body></html>')
+        z.writestr(root + "epub/content.opf", """<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+          <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Moby-Dick</dc:title><dc:creator>Herman Melville</dc:creator>
+          <meta name="cover" content="cover.jpg"/></metadata>
+          <manifest><item id="cover.jpg" href="images/cover.jpg" media-type="image/jpeg" properties="cover-image"/>
+          <item id="titlepage" href="text/titlepage.xhtml" media-type="application/xhtml+xml"/>
+          <item id="c1" href="text/chapter-1.xhtml" media-type="application/xhtml+xml"/></manifest>
+          <spine><itemref idref="titlepage"/><itemref idref="c1"/></spine></package>""")
+    return out.getvalue()
 
 
 CLIPPINGS = """﻿The Left Hand of Darkness (Le Guin, Ursula K.)
@@ -182,10 +203,8 @@ class Folder(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in self.lib.folder.iterdir()), ["My Clippings.txt", "found.epub"])
         self.assertEqual(self.lib.import_media(), 0, "a second import copies nothing new")
 
-    def test_fetch_downloads_only_from_gutenberg_and_keeps_a_valid_epub(self):
-        buffer = io.BytesIO()
-        epub(buffer)
-        body = buffer.getvalue()
+    def test_fetch_packs_a_standard_ebooks_archive_from_github_into_a_text_only_epub(self):
+        body = se_archive("herman-melville_moby-dick")
 
         class Response:
             def __init__(self, url, data):
@@ -200,21 +219,53 @@ class Folder(unittest.TestCase):
                 return False
 
         seen = []
-        def gutenberg(request, timeout):
+        def github(request, timeout):
             seen.append(request.full_url)
-            return Response("https://www.gutenberg.org/cache/epub/84/pg84.epub", body)
-        target = self.lib.fetch("pg84", opener=gutenberg)
-        self.assertEqual(seen, ["https://www.gutenberg.org/ebooks/84.epub.noimages"])
-        self.assertTrue(target.exists())
-        self.assertEqual(self.lib.listing()["shelf"][0]["status"], "done")
+            return Response("https://codeload.github.com/standardebooks/herman-melville_moby-dick/zip/refs/heads/master", body)
+        target = self.lib.fetch("se-mobydick", opener=github)
+        self.assertEqual(seen, ["https://github.com/standardebooks/herman-melville_moby-dick/archive/refs/heads/master.zip"])
+        with zipfile.ZipFile(target) as packed:
+            names = packed.namelist()
+            self.assertEqual(names[0], "mimetype")
+            self.assertEqual(packed.getinfo("mimetype").compress_type, zipfile.ZIP_STORED)
+            self.assertFalse(any("images/" in n for n in names), names)
+            self.assertNotIn("cover", packed.read("epub/content.opf").decode())
+        meta, chapters = parse_book(target)
+        self.assertEqual(meta["title"], "Moby-Dick")
+        entry = next(b for b in self.lib.listing()["books"] if b["file"] == target.name)
+        self.assertEqual(entry["start"], 1, "a new reader starts at the story, past the title page")
+        status = {i["id"]: i["status"] for i in self.lib.listing()["shelf"]}
+        self.assertEqual(status["se-mobydick"], "done")
+        self.assertNotIn("repo", self.lib.listing()["shelf"][0])
         with self.assertRaises(ValueError):
-            self.lib.fetch("pg36", opener=lambda r, timeout: Response("https://elsewhere.example/x.epub", body))
+            self.lib.fetch("se-hound", opener=lambda r, timeout: Response("https://elsewhere.example/x.zip", body))
         self.assertFalse(any(p.name.endswith(".part") for p in self.lib.folder.iterdir()))
         with self.assertRaises(Exception):
-            self.lib.fetch("pg35", opener=lambda r, timeout: Response("https://www.gutenberg.org/x", b"<html>busy</html>"))
-        self.assertTrue(self.lib.downloads["pg35"].startswith("failed"))
+            self.lib.fetch("se-oz", opener=lambda r, timeout: Response("https://github.com/x", b"<html>busy</html>"))
+        self.assertTrue(self.lib.downloads["se-oz"].startswith("failed"))
         with self.assertRaises(ValueError):
             self.lib.fetch("../../etc")
+
+    def test_bundled_books_follow_the_persons_own_and_a_copy_of_the_same_file_wins(self):
+        bundled = self.root / "books"
+        bundled.mkdir()
+        epub(bundled / "shared.epub", title="Bundled Copy")
+        epub(bundled / "only-bundled.epub", title="Only Bundled")
+        self.lib.folder.mkdir()
+        epub(self.lib.folder / "shared.epub", title="My Copy")
+        lib = Library(self.lib.folder, media=None, bundled=bundled)
+        books = lib.listing()["books"]
+        self.assertEqual([(b["title"], b["bundled"]) for b in books], [("My Copy", False), ("Only Bundled", True)])
+        self.assertEqual(lib.chapter(books[1]["id"], 0)["blocks"][0], ["h", "Chapter I"])
+
+    def test_the_books_that_ship_with_the_console_all_open(self):
+        shipped = sorted((Path(__file__).resolve().parents[1] / "books").glob("*.epub"))
+        self.assertGreaterEqual(len(shipped), 15)
+        for path in shipped:
+            meta, chapters = parse_book(path)
+            self.assertTrue(meta["title"] and meta["author"], path.name)
+            self.assertGreater(sum(library.words(c["blocks"]) for c in chapters), 15000, path.name)
+            self.assertTrue(any(c.get("body") for c in chapters), path.name)
 
 
 class Routes(ServiceCase):

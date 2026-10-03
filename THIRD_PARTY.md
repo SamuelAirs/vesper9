@@ -21,3 +21,7 @@ The optional second-pass dictation model is NVIDIA's Parakeet TDT 110m (`nvidia/
 The included prebuilt firmware incorporates ESP-IDF and its linked components. Espressif's top-level Apache-2.0 license and upstream component license/notice files are included under `firmware/prebuilt/licenses/`, with source paths retained. That collection also contains notices for components not necessarily linked into this small application. Original upstream copyright and license text has been preserved. Full corresponding framework source is available at the versioned repository above; the VESPER firmware source and exact build configuration are included.
 
 The optional browser test uses Playwright and an installed Chromium. Neither is required by the deployed web app. JavaScript in `web/` has no external runtime library dependencies. Fonts are local system fonts. No third-party game ROMs, sprite sheets, music recordings, or external image assets are used.
+
+## Bundled books
+
+`books/` holds text-only EPUBs of fifteen Standard Ebooks editions (https://standardebooks.org): public-domain texts, with the Standard Ebooks production dedicated to the public domain under CC0 1.0. See `books/README.md`.

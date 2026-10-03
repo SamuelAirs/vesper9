@@ -112,7 +112,7 @@ const GUIDE_TEXT = [
     ["p", "The three lamps show how far through the chapter you are, as a low amber bar. With auto-turn on, a small cyan light walks across them until the page turns."],
     ["p", "As everywhere on the console, tap, tap and hold opens the system menu. The two taps turn two pages; the library turns them back when the menu opens."]],
   [["h", "Adding books"],
-    ["p", "Free classics. Choose GET FREE CLASSICS on the shelf for a list of public-domain books from Project Gutenberg. Hold on a title to fetch it. The console needs its internet connection for this."],
+    ["p", "Fifteen classics are already on the shelf: Standard Ebooks editions, which are free and in the public domain. Choose MORE CLASSICS for sixteen more. Hold on a title to fetch it. The console needs its internet connection for this."],
     ["p", "From a USB drive. Put EPUB or text files on a USB stick, plug it into the console, and choose IMPORT FROM USB DRIVE. A Kindle e-reader plugged in by USB works too: its My Clippings file comes over as a book of your highlights and notes."],
     ["p", "By hand. Any EPUB or text file copied into the library folder appears on the shelf. The folder is shown at the foot of the shelf."],
     ["p", "Good sources of free, DRM-free books: Standard Ebooks (carefully produced public-domain editions), Project Gutenberg, and stores that sell without DRM, such as Tor's and Baen's own stores. Download the EPUB on another computer and bring it over on a USB drive."]],
@@ -264,7 +264,7 @@ export class Library {
     }
     const rows = [GUIDE, ...d.books].map((book) => ({ book, label: fit(book.title, 52), sub: this.shelfLine(book), run: () => this.openBook(book) }));
     if (d.service === "ok") {
-      rows.push({ label: "GET FREE CLASSICS", sub: "PUBLIC-DOMAIN BOOKS FROM PROJECT GUTENBERG", run: () => this.go("store", 1) });
+      rows.push({ label: "MORE CLASSICS", sub: "FREE STANDARD EBOOKS EDITIONS, FETCHED ONLINE", run: () => this.go("store", 1) });
       rows.push({ label: "IMPORT FROM USB DRIVE", sub: "EPUB, TEXT AND KINDLE MY CLIPPINGS", run: () => this.importUsb() });
     }
     rows.push({ label: "LEAVE THE LIBRARY", sub: "BACK TO THE DASHBOARD", run: () => this.c.home?.() });
@@ -301,7 +301,8 @@ export class Library {
       return;
     }
     const saved = this.save.books[book.id];
-    this.open(book.id, saved ? { ch: Math.min(saved.ch, this.chapterCount(book.id) - 1), para: saved.para, char: saved.char } : { ch: 0, para: 0, char: 0 });
+    this.open(book.id, saved ? { ch: Math.min(saved.ch, this.chapterCount(book.id) - 1), para: saved.para, char: saved.char }
+      : { ch: clamp(book.start | 0, 0, this.chapterCount(book.id) - 1), para: 0, char: 0 });
   }
   open(id, pos) {
     this.shelfCursor = this.phase === "shelf" ? this.cursor : this.shelfCursor;
@@ -524,6 +525,7 @@ export class Library {
     g.fillRect(0, 0, 960, 540);
     if (this.phase === "read" || this.phase === "menu") this.drawPage(g);
     else if (this.phase === "notice") this.drawNotice(g);
+    else if (this.phase === "shelf") this.drawShelf(g);
     else this.drawList(g);
     if (this.phase === "menu") this.drawMenu(g);
     if (this.held) {
@@ -584,9 +586,64 @@ export class Library {
       text(g, row.label, 480, y, 22, on ? C.bg : C.ink, "center");
     });
   }
+  // The shelf: every book as a spine (width by length, colour by title), the chosen one lifted,
+  // and a card below with what it is and how far it has been read.
+  drawShelf(g) {
+    const rows = this.rows(), d = this.data, saves = this.save.books;
+    const inProgress = d.books.filter((b) => saves[b.id] && saves[b.id].f > 0 && saves[b.id].f < 0.995).length;
+    text(g, "THE STACKS", 60, 30, 18, C.amber);
+    text(g, (d.books.length + 1) + " VOLUMES" + (inProgress ? " · " + inProgress + " IN PROGRESS" : ""), 900, 30, 18, C.muted, "right");
+    // Positions along the shelf, scrolled so the chosen spine stays in view.
+    const widths = rows.map((r) => spineWidth(r)), gap = 6;
+    let total = 0;
+    for (const w of widths) total += w + gap;
+    let x = 0, at = 0;
+    for (let i = 0; i < this.cursor; i++) at += widths[i] + gap;
+    const offset = clamp(at + widths[this.cursor] / 2 - 480, 0, Math.max(0, total - 840)) - 60;
+    const base = 300;
+    g.save();
+    g.beginPath();
+    g.rect(40, 52, 880, 262);
+    g.clip();
+    for (let i = 0; i < rows.length; i++, x += widths[i - 1] + gap) {
+      const left = x - offset, w = widths[i];
+      if (left + w < 40 || left > 920) continue;
+      drawSpine(g, rows[i], left, base, w, i === this.cursor, saves[rows[i].book?.id]?.f || 0);
+    }
+    g.restore();
+    line(g, 40, base + 2, 920, base + 2, C.muted, 3);
+    line(g, 52, base + 9, 908, base + 9, C.line, 1);
+    // The card for the chosen row.
+    const row = rows[this.cursor] || rows[0], book = row?.book;
+    text(g, fit(book ? book.title : row?.label, 46), 60, 340, 28, book?.locked ? C.muted : C.ink);
+    if (!book) {
+      if (row?.sub) text(g, row.sub, 60, 376, 20, C.muted);
+    } else if (book.locked) {
+      text(g, fit(book.author || book.file, 60), 60, 374, 20, C.muted);
+      let y = 410;
+      for (const [part] of wrap(String(book.reason || ""), 70).slice(0, 3)) { text(g, part, 60, y, 18, C.red); y += 26; }
+    } else {
+      const read = saves[book.id], chapters = Math.max(1, book.chapters?.length || 1);
+      text(g, fit(book.author, 60), 60, 374, 20, C.muted);
+      const hours = book.words ? Math.max(0.1, book.words / 220 / 60) : 0;
+      const length = hours ? (hours < 1 ? "ABOUT " + Math.max(5, Math.round(hours * 60 / 5) * 5) + " MIN" : "ABOUT " + (Math.round(hours * 2) / 2) + " H") + " AT 220 WPM" : "";
+      text(g, [book.format, chapters + (chapters === 1 ? " SECTION" : " SECTIONS"), length].filter(Boolean).join(" · "), 60, 406, 18, C.muted);
+      const f = read?.f || 0;
+      g.fillStyle = C.dark;
+      g.fillRect(60, 434, 640, 8);
+      g.fillStyle = C.amber;
+      g.fillRect(60, 434, 640 * f, 8);
+      text(g, read ? (f >= 0.995 ? "FINISHED" : Math.max(1, Math.round(f * 100)) + "%") : "UNREAD", 900, 438, 20, read ? C.amber : C.muted, "right");
+      const where = read ? (f >= 0.995 ? "READ TO THE END · HOLD TO OPEN AGAIN" : "HOLD TO GO ON · SECTION " + (read.ch + 1) + " OF " + chapters + (book.chapters?.[read.ch] ? " · " + fit(String(book.chapters[read.ch]).toUpperCase(), 24) : ""))
+        : "HOLD TO OPEN" + (book.bundled ? " · SHIPPED WITH THE CONSOLE" : "");
+      text(g, where, 60, 470, 18, C.cyan);
+    }
+    const foot = d.service === "offline" ? "BOOK SERVICE OFFLINE · ONLY THE GUIDE IS HERE" : d.service === "loading" ? "OPENING THE STACKS…" : "YOUR BOOKS GO IN " + fit(d.folder, 56);
+    text(g, foot, 60, 508, 16, C.muted);
+  }
   drawList(g) {
     const rows = this.rows(), d = this.data;
-    const heading = this.phase === "store" ? "FREE CLASSICS · PROJECT GUTENBERG" : this.phase === "chapters" ? fit(this.bookMeta()?.title, 44).toUpperCase() : "THE STACKS";
+    const heading = this.phase === "store" ? "MORE CLASSICS · STANDARD EBOOKS" : this.phase === "chapters" ? fit(this.bookMeta()?.title, 44).toUpperCase() : "THE STACKS";
     text(g, heading, 60, 34, 18, C.amber);
     const count = this.phase === "shelf" ? (d.books.length + 1) + " VOLUMES" : this.phase === "chapters" ? this.chapterCount() + " CHAPTERS" : rows.length - 1 + " TITLES";
     text(g, count, 900, 34, 18, C.muted, "right");
@@ -639,6 +696,42 @@ export class Library {
   }
 }
 
+// Spines: a book's width follows its length, its colour and height its title, so the shelf is stable.
+const INKS = [C.ink, C.amber, C.cyan, C.muted, "#c7a5d8", "#a9c38a"];
+function hash(value) {
+  let h = 2166136261;
+  for (let i = 0; i < value.length; i++) h = Math.imul(h ^ value.charCodeAt(i), 16777619);
+  return h >>> 0;
+}
+function spineWidth(row) {
+  if (!row.book) return 44;
+  return Math.round(clamp(30 + Math.sqrt(row.book.words || 0) / 14, 34, 64));
+}
+function drawSpine(g, row, x, base, w, on, read) {
+  const book = row.book, h = book ? 196 + (hash(book.id || book.title) % 40) : 120, lift = on ? 12 : 0;
+  const top = base - h - lift;
+  const ink = book ? (book.locked ? C.red : book.id === "guide" ? C.amber : INKS[hash(book.title || "") % INKS.length]) : C.muted;
+  g.fillStyle = on ? "#1d2f22" : "#132019";
+  g.fillRect(x, top, w, h);
+  g.strokeStyle = on ? C.ink : ink;
+  g.lineWidth = on ? 3 : 1.5;
+  if (!book) g.setLineDash?.([5, 4]);
+  g.strokeRect(x, top, w, h);
+  g.setLineDash?.([]);
+  if (book) {
+    line(g, x + 4, top + 14, x + w - 4, top + 14, ink, 1);
+    line(g, x + 4, top + h - 22, x + w - 4, top + h - 22, ink, 1);
+    if (book.locked) for (let y = top + 24; y < top + h - 30; y += 14) line(g, x + 4, y + 8, x + w - 4, y, C.red, 1);
+    if (read > 0) { g.fillStyle = C.amber; g.fillRect(x + 4, top + h - 14, (w - 8) * clamp(read, 0, 1), 4); }
+  }
+  // The title runs up the spine.
+  const size = w >= 44 ? 17 : 16, room = Math.floor((h - 48) / (size * 0.62));
+  g.save();
+  g.translate(x + w / 2, top + h - 30);
+  g.rotate(-Math.PI / 2);
+  text(g, fit(book ? String(book.title || "").replace(/^(the|a|an) /i, "") : row.label, room).toUpperCase(), 0, 0, size, on ? C.ink : book?.locked ? C.muted : ink);
+  g.restore();
+}
 function firstOf(page) { return { para: page[0][2], char: page[0][3] }; }
 function storeStatus(status) {
   if (!status) return "HOLD TO FETCH";

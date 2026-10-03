@@ -112,7 +112,7 @@ class Console:
                 logging.warning("Ignoring stored setting %r", key)
         self.started = time.time()
         self.host = HostProbe(args.data)
-        self.library = Library(Path(args.data) / "library", getattr(args, "media", "/media"))
+        self.library = Library(Path(args.data) / "library", getattr(args, "media", "/media"), bundled=ROOT / "books")
         self.library_busy = None            # "fetch" or "import" while the library is bringing books in
         self.tasks = []
         self.task_names = []

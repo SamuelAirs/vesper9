@@ -87,7 +87,7 @@ test("the shelf lists the guide, the books, the classics and the USB import; a K
   const { app } = mount();
   await settle();
   const labels = app.rows().map((r) => r.label);
-  assert.deepEqual(labels, ["The Reader's Guide", "A Test Voyage", "Bought Book", "GET FREE CLASSICS", "IMPORT FROM USB DRIVE", "LEAVE THE LIBRARY"]);
+  assert.deepEqual(labels, ["The Reader's Guide", "A Test Voyage", "Bought Book", "MORE CLASSICS", "IMPORT FROM USB DRIVE", "LEAVE THE LIBRARY"]);
   assert.match(app.rows()[2].sub, /LOCKED · KINDLE DRM/);
   tap(app); tap(app);
   hold(app);
@@ -222,7 +222,7 @@ test("the USB import and a classic download go through the service and report ba
   app.event({ type: "library", op: "import", ok: true, copied: 2 });
   assert.match(app.notice.lines[0], /Copied 2 books/);
   tap(app);
-  app.cursor = app.rows().findIndex((r) => r.label === "GET FREE CLASSICS");
+  app.cursor = app.rows().findIndex((r) => r.label === "MORE CLASSICS");
   hold(app);
   assert.equal(app.phase, "store");
   assert.equal(app.rows()[app.cursor].label, "Frankenstein");

@@ -6,10 +6,11 @@ DRM-protected and cannot be read here; such files are listed as locked with the 
 decrypted. Parsing uses the standard library only and is bounded (file size, members, paragraphs).
 
 The service may also copy books in: from a USB stick (or a Kindle e-reader) mounted under
-``/media``, and from a short built-in list of public-domain titles on Project Gutenberg. Both are
+``/media``, and from a short built-in list of Standard Ebooks titles (CC0) on GitHub. Both are
 started by an explicit choice in the app; nothing is fetched on its own.
 """
 import hashlib
+import io
 import html.parser
 import json
 import logging
@@ -29,7 +30,6 @@ MAX_CHAPTERS = 1500
 MAX_PARAGRAPHS = 6000            # per chapter
 MAX_PARAGRAPH = 12000            # characters in one paragraph
 MAX_BOOKS = 400
-MAX_DOWNLOAD = 40 * 1024 * 1024
 READABLE = (".epub", ".txt")
 # Kindle and other formats a person may well copy in: listed, with what to do about them.
 LOCKED_FORMATS = {
@@ -50,32 +50,79 @@ LOCKED_REASONS = {
 # Font obfuscation is not DRM: Standard Ebooks and many others use it for embedded fonts only.
 FONT_OBFUSCATION = {"http://www.idpf.org/2008/embedding", "http://ns.adobe.com/pdf/enc#RC"}
 
-# Public-domain titles the app can fetch from Project Gutenberg (their EPUBs carry no DRM).
+# More public-domain titles the app can fetch: Standard Ebooks editions (CC0), downloaded from their
+# source repositories on GitHub (the console already reaches GitHub to update) and packed into a
+# text-only EPUB here. The books that ship with the console are in books/ (scripts/pack-books.py).
 SHELF = [
-    {"id": "pg84", "title": "Frankenstein", "author": "Mary Shelley", "gutenberg": 84},
-    {"id": "pg36", "title": "The War of the Worlds", "author": "H. G. Wells", "gutenberg": 36},
-    {"id": "pg35", "title": "The Time Machine", "author": "H. G. Wells", "gutenberg": 35},
-    {"id": "pg164", "title": "Twenty Thousand Leagues under the Sea", "author": "Jules Verne", "gutenberg": 164},
-    {"id": "pg83", "title": "From the Earth to the Moon", "author": "Jules Verne", "gutenberg": 83},
-    {"id": "pg62", "title": "A Princess of Mars", "author": "Edgar Rice Burroughs", "gutenberg": 62},
-    {"id": "pg43", "title": "The Strange Case of Dr Jekyll and Mr Hyde", "author": "Robert Louis Stevenson", "gutenberg": 43},
-    {"id": "pg345", "title": "Dracula", "author": "Bram Stoker", "gutenberg": 345},
-    {"id": "pg1661", "title": "The Adventures of Sherlock Holmes", "author": "Arthur Conan Doyle", "gutenberg": 1661},
-    {"id": "pg120", "title": "Treasure Island", "author": "Robert Louis Stevenson", "gutenberg": 120},
-    {"id": "pg103", "title": "Around the World in Eighty Days", "author": "Jules Verne", "gutenberg": 103},
-    {"id": "pg11", "title": "Alice's Adventures in Wonderland", "author": "Lewis Carroll", "gutenberg": 11},
-    {"id": "pg1342", "title": "Pride and Prejudice", "author": "Jane Austen", "gutenberg": 1342},
+    {"id": "se-moreau", "title": "The Island of Doctor Moreau", "author": "H. G. Wells", "repo": "h-g-wells_the-island-of-doctor-moreau"},
+    {"id": "se-moonmen", "title": "The First Men in the Moon", "author": "H. G. Wells", "repo": "h-g-wells_the-first-men-in-the-moon"},
+    {"id": "se-lostworld", "title": "The Lost World", "author": "Arthur Conan Doyle", "repo": "arthur-conan-doyle_the-lost-world"},
+    {"id": "se-hound", "title": "The Hound of the Baskervilles", "author": "Arthur Conan Doyle", "repo": "arthur-conan-doyle_the-hound-of-the-baskervilles"},
+    {"id": "se-flatland", "title": "Flatland", "author": "Edwin A. Abbott", "repo": "edwin-a-abbott_flatland"},
+    {"id": "se-whitefang", "title": "White Fang", "author": "Jack London", "repo": "jack-london_white-fang"},
+    {"id": "se-mobydick", "title": "Moby-Dick", "author": "Herman Melville", "repo": "herman-melville_moby-dick"},
+    {"id": "se-heart", "title": "Heart of Darkness", "author": "Joseph Conrad", "repo": "joseph-conrad_heart-of-darkness"},
+    {"id": "se-gulliver", "title": "Gulliver's Travels", "author": "Jonathan Swift", "repo": "jonathan-swift_gullivers-travels"},
+    {"id": "se-dorian", "title": "The Picture of Dorian Gray", "author": "Oscar Wilde", "repo": "oscar-wilde_the-picture-of-dorian-gray"},
+    {"id": "se-carol", "title": "A Christmas Carol", "author": "Charles Dickens", "repo": "charles-dickens_a-christmas-carol"},
+    {"id": "se-sawyer", "title": "The Adventures of Tom Sawyer", "author": "Mark Twain", "repo": "mark-twain_the-adventures-of-tom-sawyer"},
+    {"id": "se-oz", "title": "The Wonderful Wizard of Oz", "author": "L. Frank Baum", "repo": "l-frank-baum_the-wonderful-wizard-of-oz"},
+    {"id": "se-willows", "title": "The Wind in the Willows", "author": "Kenneth Grahame", "repo": "kenneth-grahame_the-wind-in-the-willows"},
+    {"id": "se-meditations", "title": "Meditations", "author": "Marcus Aurelius", "repo": "marcus-aurelius_meditations_george-long"},
+    {"id": "se-artofwar", "title": "The Art of War", "author": "Sun Tzu", "repo": "sun-tzu_the-art-of-war_lionel-giles"},
 ]
-SHELF_HOSTS = ("gutenberg.org",)
+SHELF_HOSTS = ("github.com", "codeload.github.com")
+MAX_DOWNLOAD = 160 * 1024 * 1024   # a source archive with its illustrations; only the text is kept
 
 
 def shelf_url(item):
-    return "https://www.gutenberg.org/ebooks/%d.epub.noimages" % item["gutenberg"]
+    return "https://github.com/standardebooks/%s/archive/refs/heads/master.zip" % item["repo"]
 
 
 def allowed_host(url):
     host = (urllib.parse.urlsplit(url).hostname or "").lower()
-    return urllib.parse.urlsplit(url).scheme == "https" and any(host == h or host.endswith("." + h) for h in SHELF_HOSTS)
+    return urllib.parse.urlsplit(url).scheme == "https" and host in SHELF_HOSTS
+
+
+def pack_source(files):
+    """A Standard Ebooks source tree ({path: bytes}, paths ending .../src/<epub file>) to a text-only EPUB:
+    the text, styles and package, without images and fonts (the console reads text only)."""
+    src = {}
+    for name, data in files.items():
+        parts = name.split("/")
+        if "src" not in parts:
+            continue
+        rest = "/".join(parts[parts.index("src") + 1:])
+        if rest and not rest.startswith("epub/images/") and not rest.startswith("epub/fonts/"):
+            src[rest] = data
+    if "META-INF/container.xml" not in src or "epub/content.opf" not in src:
+        raise ValueError("not a Standard Ebooks source")
+    opf = src["epub/content.opf"].decode("utf-8")
+    opf = re.sub(r'<item\b[^>]*media-type="(?:image|font)/[^"]*"[^>]*/>\s*', "", opf)
+    opf = re.sub(r'<item\b[^>]*href="(?:images|fonts)/[^"]*"[^>]*/>\s*', "", opf)
+    opf = re.sub(r'<meta\b[^>]*name="cover"[^>]*/>\s*', "", opf)
+    src["epub/content.opf"] = opf.encode("utf-8")
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(zipfile.ZipInfo("mimetype"), b"application/epub+zip", compress_type=zipfile.ZIP_STORED)
+        for name in sorted(src):
+            if name != "mimetype":
+                info = zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
+                archive.writestr(info, src[name], compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
+    return out.getvalue()
+
+
+def pack_archive(data):
+    """A GitHub source archive (zip bytes) of a Standard Ebooks repository to a text-only EPUB."""
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        files = {}
+        for info in archive.infolist():
+            if info.is_dir() or "/src/" not in info.filename or "/src/epub/images/" in info.filename or "/src/epub/fonts/" in info.filename:
+                continue
+            if info.file_size > MAX_MEMBER:
+                raise ValueError("member too large")
+            files[info.filename] = archive.read(info)
+    return pack_source(files)
 
 
 # ---- text extraction --------------------------------------------------------------------------
@@ -224,7 +271,8 @@ def parse_epub(path):
             if not blocks:
                 continue
             heading = next((b[1] for b in blocks[:4] if b[0] == "h"), "")
-            chapters.append({"title": titles.get(href) or heading or "", "blocks": blocks})
+            chapters.append({"title": titles.get(href) or heading or "", "blocks": blocks,
+                             "body": "bodymatter" in markup[:4000]})
             if len(chapters) >= MAX_CHAPTERS:
                 break
     return meta, chapters
@@ -389,8 +437,9 @@ def words(blocks):
 
 
 class Library:
-    def __init__(self, folder, media="/media"):
+    def __init__(self, folder, media="/media", bundled=None):
         self.folder = Path(folder)
+        self.bundled = Path(bundled) if bundled else None   # books that ship with the console (read-only)
         self.media = Path(media) if media else None
         self.cache = {}          # path -> (signature, entry)
         self.parsed = {}         # id -> (signature, chapters), at most two books kept
@@ -398,12 +447,22 @@ class Library:
         self.lock = threading.Lock()   # listing and chapter run in worker threads; one at a time
 
     def files(self):
-        try:
-            self.folder.mkdir(parents=True, exist_ok=True)
-            entries = sorted(p for p in self.folder.iterdir() if p.is_file() and not p.name.startswith("."))
-        except OSError:
-            return []
-        return [p for p in entries if p.suffix.lower() in READABLE + tuple(LOCKED_FORMATS)][:MAX_BOOKS]
+        """The person's own books first, then the bundled ones they do not already have a copy of."""
+        found, names = [], set()
+        for folder in (self.folder, self.bundled):
+            if folder is None:
+                continue
+            try:
+                if folder == self.folder:
+                    folder.mkdir(parents=True, exist_ok=True)
+                entries = sorted(p for p in folder.iterdir() if p.is_file() and not p.name.startswith("."))
+            except OSError:
+                continue
+            for p in entries:
+                if p.suffix.lower() in READABLE + tuple(LOCKED_FORMATS) and p.name not in names:
+                    names.add(p.name)
+                    found.append(p)
+        return found[:MAX_BOOKS]
 
     def entry(self, path):
         stat = path.stat()
@@ -412,12 +471,14 @@ class Library:
         if cached and cached[0] == signature:
             return cached[1]
         ident = book_id(path, stat)
-        entry = {"id": ident, "file": path.name, "format": path.suffix.lower().lstrip(".").upper(),
+        entry = {"id": ident, "file": path.name, "bundled": self.bundled is not None and path.parent == self.bundled, "format": path.suffix.lower().lstrip(".").upper(),
                  "title": path.stem.replace("_", " "), "author": "", "chapters": [], "words": 0, "locked": None}
         try:
             meta, chapters = parse_book(path)
             entry.update(title=meta["title"] or entry["title"], author=meta["author"],
-                         chapters=[c["title"][:120] for c in chapters], words=sum(words(c["blocks"]) for c in chapters))
+                         chapters=[c["title"][:120] for c in chapters], words=sum(words(c["blocks"]) for c in chapters),
+                         # Where a new reader starts: the first chapter of the story, past the title page and imprint.
+                         start=next((i for i, c in enumerate(chapters) if c.get("body")), 0))
             if is_clippings(path):
                 entry["format"] = "KINDLE NOTES"
             if not chapters:
@@ -458,7 +519,7 @@ class Library:
         for gone in [p for p in self.cache if p not in live]:
             del self.cache[gone]
         held = {b["file"] for b in books}
-        shelf = [{**{k: v for k, v in item.items() if k != "gutenberg"}, "status": self.downloads.get(item["id"]) or
+        shelf = [{**{k: v for k, v in item.items() if k != "repo"}, "status": self.downloads.get(item["id"]) or
                   ("on shelf" if self.shelf_file(item) in held else "")} for item in SHELF]
         return {"books": books, "folder": str(self.folder), "shelf": shelf}
 
@@ -487,7 +548,7 @@ class Library:
         return "%s-%s.epub" % (slug[:60], item["id"])
 
     def fetch(self, item_id, opener=None):
-        """Download one public-domain EPUB from the built-in shelf into the folder (blocking)."""
+        """Download one Standard Ebooks title from the built-in shelf into the folder as an EPUB (blocking)."""
         item = next((i for i in SHELF if i["id"] == item_id), None)
         if item is None:
             raise ValueError("Unknown book")
@@ -503,11 +564,11 @@ class Library:
             with (opener or urllib.request.urlopen)(request, timeout=40) as response:
                 final = response.geturl() if hasattr(response, "geturl") else shelf_url(item)
                 if not allowed_host(final):
-                    raise ValueError("redirected away from Project Gutenberg")
+                    raise ValueError("redirected away from GitHub")
                 data = response.read(MAX_DOWNLOAD + 1)
             if len(data) > MAX_DOWNLOAD:
                 raise ValueError("download too large")
-            partial.write_bytes(data)
+            partial.write_bytes(pack_archive(data))
             with zipfile.ZipFile(partial) as archive:
                 if "META-INF/container.xml" not in archive.namelist():
                     raise ValueError("not an EPUB")

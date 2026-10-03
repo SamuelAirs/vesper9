@@ -16,7 +16,7 @@ from vesper.server import Console  # noqa: E402
 from vesper.storage import Store  # noqa: E402
 
 IDS = [app['id'] for app in CATALOG['apps']]
-GAMES = ['orbit', 'runner', 'drift', 'echo', 'reaction', 'glyphs', 'pulsar', 'perihelion', 'descent', 'ricochet', 'helix', 'ballista', 'outpost', 'tideline']
+GAMES = ['orbit', 'runner', 'drift', 'echo', 'reaction', 'glyphs', 'pulsar', 'perihelion', 'descent', 'ricochet', 'helix', 'ballista', 'outpost', 'tideline', 'meridian']
 
 
 class Layout(unittest.TestCase):

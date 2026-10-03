@@ -94,6 +94,8 @@ export function migrateGlyphs(raw) {
 export class GlyphVault {
   constructor(ctx) {
     this.c = ctx;
+    // Up to four saves (the console's SAVE SLOT menu), e.g. one per learner; slot 1 is the original save.
+    this.saveSlots = true;
     this.lamps = new LampBus(ctx);
     this.sv = migrateGlyphs(ctx.progress?.());
     this.guard = new AppGuard(this, ctx);
@@ -105,6 +107,11 @@ export class GlyphVault {
     this.note = ""; this.noteT = 0;
     this.result = null;
     this.title();
+  }
+  // A slot's row in the SAVE SLOT menu (at most 24 characters); empty for a save never played.
+  slotSummary(value) {
+    const v = migrateGlyphs(value), open = WINGS.reduce((n, w) => n + v.decks[w.id].open, 0);
+    return v.runs ? `${open} ENTRIES / ${v.plates.length} PLATES` : "";
   }
   wing() { return WINGS[this.sv.wing] || WINGS[0]; }
   deck() { return this.sv.decks[this.wing().id]; }
@@ -209,7 +216,7 @@ export class GlyphVault {
       run.points += 10 * mult + Math.round(10 * clamp(this.left / this.total, 0, 1));
       this.window = Math.max(MIN_WINDOW, this.window * 0.96);
       this.c.tone(card.truth ? 820 : 620, 0.08);
-      this.lamps.flash(0.35, (e, T) => spot(e / T, dim(LAMP.green, 0.5)));
+      this.lamps.flash(0.35, (e, T) => spot(e / T, dim(LAMP.green, 0.5), 0.75, this.lampN()));
       this.feedback = card.pick ? "RIGHT" : card.truth ? "MATCH" : "NO MATCH, RIGHTLY";
       if (run.streak % 10 === 0 && this.seals < SEALS) { this.seals++; announce(this, "SEAL RESTORED"); }
     } else if (match === null && run.timeouts === 0) {
@@ -218,7 +225,7 @@ export class GlyphVault {
       run.wrong++; run.combo = 0; run.streak = 0; run.timeouts = 1;
       this.window = Math.min(3.4, this.window + 0.6);
       this.c.tone(300, 0.15);
-      this.lamps.flash(0.4, (e, T) => fill(LAMP.amber, 0.3 * (1 - e / T)));
+      this.lamps.flash(0.4, (e, T) => fill(LAMP.amber, 0.3 * (1 - e / T), this.lampN()));
       this.feedback = "TOO SLOW / THE NEXT ONE COSTS A SEAL";
     } else {
       run.wrong++; run.combo = 0; run.streak = 0;
@@ -226,7 +233,7 @@ export class GlyphVault {
       this.seals--; run.sealsLost++;
       this.window = Math.min(3.4, this.window + 0.6);
       this.c.tone(130, 0.25);
-      this.lamps.flash(0.5, (e) => (Math.floor(e / 0.125) % 2 === 0 ? fill(LAMP.red, 0.5) : lightsOff()));
+      this.lamps.flash(0.5, (e) => (Math.floor(e / 0.125) % 2 === 0 ? fill(LAMP.red, 0.5, this.lampN()) : lightsOff(this.lampN())));
       this.feedback = match === null ? "TOO SLOW AGAIN" : card.pick ? "THE OTHER ONE" : match ? "NOT A MATCH" : "THAT WAS A MATCH";
     }
     this.stage = "show"; this.wait = ok ? 0.55 : 1.7; this.wasRight = ok; this.cardT = 0;
@@ -338,16 +345,27 @@ export class GlyphVault {
 
   // ------------------------------------------------------------------------------------- lamps
   // Asking: the card's time as a bar in the wing's colour that empties left to right, pulsing red
-  // in its last quarter; amber on a relic card. Holding: red fills the lamps toward NO MATCH.
-  // A new entry: the wing's colour breathing. Right: a green sweep. Wrong: red blinks.
-  // Dark on the title and result screens.
+  // in its last quarter; amber on a relic card. Holding: red fills the lamps toward NO MATCH (amber
+  // toward the lower meaning on a which-of-two card). A new entry: the wing's colour breathing.
+  // Right: a green sweep. Wrong: red blinks. Dark on the title and result screens.
+  // With four lamps, lamps 1 to 3 do all that and lamp 4 says what kind of card this is (the wing's
+  // colour, amber for a relic, cyan for meaning first, violet for which of two), pulsing red instead
+  // while only one seal is left.
+  lampN() { return this.c.lampCount?.() >= 4 ? 4 : 3; }
+  cardLamp() {
+    if (this.seals === 1) return dim(LAMP.red, 0.15 + 0.3 * pulse(this.t, 1.5));
+    const card = this.card || {};
+    return dim(card.pick ? LAMP.violet : card.relic ? LAMP.amber : card.reverse ? LAMP.cyan : this.wing().lamp, 0.3);
+  }
   lampValues() {
-    if (this.phase === "intro") return fill(this.wing().lamp, 0.12 + 0.12 * pulse(this.t, 0.6));
-    if (this.phase !== "play" || this.stage !== "ask") return null;
-    if (this.downAt !== null) return meter((this.t - this.downAt) / HOLD_NO, dim(LAMP.red, 0.45));
+    if (this.phase === "intro") return fill(this.wing().lamp, 0.12 + 0.12 * pulse(this.t, 0.6), this.lampN());
+    if (this.phase !== "play") return null;
+    const kind = this.cardLamp(), withKind = (mine) => (this.lampN() === 4 ? [...(mine || lightsOff()), ...kind] : mine);
+    if (this.stage !== "ask") return withKind(null);
+    if (this.downAt !== null) return withKind(meter((this.t - this.downAt) / HOLD_NO, dim(this.card?.pick ? LAMP.amber : LAMP.red, 0.45)));
     const f = clamp(this.left / (this.total || 1), 0, 1);
-    if (f < 0.25) return meter(f, dim(LAMP.red, 0.2 + 0.25 * pulse(this.t, 2.5)));
-    return meter(f, dim(this.card?.relic ? LAMP.amber : this.wing().lamp, 0.28));
+    if (f < 0.25) return withKind(meter(f, dim(LAMP.red, 0.2 + 0.25 * pulse(this.t, 2.5))));
+    return withKind(meter(f, dim(this.card?.relic ? LAMP.amber : this.wing().lamp, 0.28)));
   }
 
   // ------------------------------------------------------------------------------------- drawing

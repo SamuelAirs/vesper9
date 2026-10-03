@@ -90,7 +90,10 @@ export function migrateEcho(raw) {
   };
 }
 // Letters Signal School has taught: its guided lesson position counts letters in the same order.
+// Signal School keeps one save, so only save slot 1 (the save Echo Vault always had) shares its
+// letters; a learner on another slot starts from E T A N.
 export function schoolLetters(ctx) {
+  if ((ctx.slot?.()?.index ?? 1) !== 1) return 0;
   const index = ctx.state?.()?.progress?.morse?.index;
   return Number.isFinite(index) ? clamp(Math.floor(index), 0, ORDER.length) : 0;
 }
@@ -98,6 +101,8 @@ export function schoolLetters(ctx) {
 export class EchoVault {
   constructor(ctx) {
     this.c = ctx;
+    // Up to four saves (the console's SAVE SLOT menu), e.g. one per learner; slot 1 is the original save.
+    this.saveSlots = true;
     this.lamps = new LampBus(ctx);
     this.sv = migrateEcho(ctx.progress?.());
     this.guard = new AppGuard(this, ctx);
@@ -109,6 +114,11 @@ export class EchoVault {
     this.result = null;
     this.introRest = 0;
     this.title();
+  }
+  // A slot's row in the SAVE SLOT menu (at most 24 characters); empty for a save never played.
+  slotSummary(value) {
+    const v = migrateEcho(value);
+    return v.runs ? `${v.pool} LETTERS / ${v.stations} STATIONS` : "";
   }
   get unit() { return 1200 / (this.c.settings().morseWpm || 10); }
   get dashMs() { return this.unit * 2; }
@@ -262,7 +272,7 @@ export class EchoVault {
       this.burst(this.pos, 10);
       this.feedback = "";
       this.pos++; this.input = ""; this.shown = false; this.letterT = 0;
-      this.lamps.flash(0.3, (e, T) => spot(e / T, dim(LAMP.green, 0.5)));
+      this.lamps.flash(0.3, (e, T) => spot(e / T, dim(LAMP.green, 0.5), 0.75, this.lampN()));
       if (this.pos >= this.word.length) this.wordDone();
       else this.c.tone(880, 0.06);
     } else {
@@ -274,11 +284,12 @@ export class EchoVault {
       this.left = Math.max(0.05, this.left - 1);
       this.c.tone(160, 0.2);
       const pattern = this.patternOf(MORSE[k]);
+      // A red sweep on your lamps, then the vault sends the right code (on lamp 4 when there is one).
       this.lamps.flash(0.4 + pattern.reduce((s, p) => s + p.s, 0), (e) => {
-        if (e < 0.4) return spot(1 - e / 0.4, dim(LAMP.red, 0.55));
+        if (e < 0.4) return this.withVault(spot(1 - e / 0.4, dim(LAMP.red, 0.55)), LAMP.off);
         let left = e - 0.4;
-        for (const p of pattern) { if (left < p.s) return p.on ? (p.dash ? fill(LAMP.cyan, 0.4) : only(1, LAMP.amber, 0.6)) : lightsOff(); left -= p.s; }
-        return lightsOff();
+        for (const p of pattern) { if (left < p.s) return this.vaultSignal(p.on, p.dash); left -= p.s; }
+        return this.vaultSignal(false);
       });
     }
   }
@@ -298,7 +309,7 @@ export class EchoVault {
     this.feedback = this.kind === "contact" ? `CONTACT: ${STATIONS[this.sv.stations % STATIONS.length]} / +${bonus}` : `${this.word} RECEIVED${bonus ? " / +" + bonus : ""}`;
     this.burst(this.word.length / 2, 24);
     this.c.tone(990, 0.15);
-    this.lamps.flash(0.6, (e, T) => fill(LAMP.green, 0.45 * (1 - e / T)));
+    this.lamps.flash(0.6, (e, T) => fill(LAMP.green, 0.45 * (1 - e / T), this.lampN()));
     if (run.cleared % 8 === 0 && this.shields < SHIELDS) { this.shields++; announce(this, "SHIELD RESTORED"); }
     this.stage = "clear"; this.wait = 0.7;
     if (run.words >= SHIFT) this.finish("opened");
@@ -311,7 +322,7 @@ export class EchoVault {
     this.shields--; run.shieldsLost++;
     this.feedback = `LOST: ${this.word}`;
     this.c.tone(110, 0.35);
-    this.lamps.flash(0.8, (e) => (Math.floor(e / 0.2) % 2 === 0 ? fill(LAMP.red, 0.5) : lightsOff()));
+    this.lamps.flash(0.8, (e) => (Math.floor(e / 0.2) % 2 === 0 ? fill(LAMP.red, 0.5, this.lampN()) : lightsOff(this.lampN())));
     this.c.synth.stopTone(); this.downAt = null;
     if (this.shields <= 0 || run.words >= SHIFT) { this.finish(this.shields > 0 ? "opened" : "sealed"); return; }
     this.stage = "lost"; this.wait = 1.8;
@@ -478,16 +489,32 @@ export class EchoVault {
   // Keying: lamp I amber as soon as the key is down, all three cyan once the hold is a dash.
   // Otherwise the lamps are the transmission's timer: a bar that empties, green, then amber, then a
   // pulsing red in the last quarter; violet for priority traffic. Dark on the title and result screens.
+  // Three lamps: the vault's signal and your key share them. Four lamps: lamp 4 is the vault's own
+  // transmitter (what it sends, its corrections, and between words your shields: green, amber, red)
+  // and lamps 1 to 3 are yours (your key and the word's time).
+  lampN() { return this.c.lampCount?.() >= 4 ? 4 : 3; }
+  withVault(mine, vault) { return this.lampN() === 4 ? [...(mine || lightsOff()), ...vault] : mine; }
+  vaultSignal(on, dash) {
+    const rgb = on ? (dash ? dim(LAMP.cyan, 0.55) : dim(LAMP.amber, 0.6)) : LAMP.off;
+    if (this.lampN() === 4) return [...lightsOff(), ...rgb];
+    return on ? (dash ? fill(LAMP.cyan, 0.4) : only(1, LAMP.amber, 0.6)) : lightsOff();
+  }
+  shieldLamp() {
+    if (this.shields >= SHIELDS) return dim(LAMP.green, 0.22);
+    if (this.shields === SHIELDS - 1) return dim(LAMP.amber, 0.25);
+    return dim(LAMP.red, 0.15 + 0.3 * pulse(this.t, 1.5));
+  }
   lampValues() {
     if (this.phase === "intro" || (this.phase === "play" && this.stage === "listen"))
-      return this.lit ? (this.litDash ? fill(LAMP.cyan, 0.4) : only(1, LAMP.amber, 0.6)) : null;
+      return this.lit ? this.vaultSignal(true, this.litDash) : null;
     if (this.phase !== "play") return null;
+    const shield = this.shieldLamp();
     if (this.downAt !== null && this.stage === "send")
-      return (this.t - this.downAt) * 1000 >= this.dashMs ? fill(LAMP.cyan, 0.4) : only(0, LAMP.amber, 0.4);
-    if (this.stage !== "send") return null;
+      return this.withVault((this.t - this.downAt) * 1000 >= this.dashMs ? fill(LAMP.cyan, 0.4) : only(0, LAMP.amber, 0.4), shield);
+    if (this.stage !== "send") return this.withVault(null, shield);
     const f = clamp(this.left / (this.total || 1), 0, 1);
     const colour = this.kind === "priority" ? LAMP.violet : f > 0.5 ? LAMP.green : f > 0.25 ? LAMP.amber : LAMP.red;
-    return meter(f, dim(colour, f > 0.25 ? 0.28 : 0.2 + 0.25 * pulse(this.t, 2.5)));
+    return this.withVault(meter(f, dim(colour, f > 0.25 ? 0.28 : 0.2 + 0.25 * pulse(this.t, 2.5))), shield);
   }
 
   // ------------------------------------------------------------------------------------- effects

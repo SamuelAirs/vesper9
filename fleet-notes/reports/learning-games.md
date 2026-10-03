@@ -22,6 +22,19 @@ Perihelion bot test that also fails on `main` in this environment. **Nothing her
   stamp, combo pips, wax seals. Holding past the last wing opens the archivist's desk (rank, all plates,
   feats); a tap goes back.
 
+## Fifth pass: save slots and four lamps (on top of #16's branch, merged in)
+
+- Both games set `saveSlots = true` and give a `slotSummary` ("12 LETTERS / 6 STATIONS", "116 ENTRIES /
+  32 PLATES"). Only Echo's slot 1 shares Signal School's letters (Signal School has one save), so a learner
+  on another slot starts from E T A N.
+- Four lamps (`ctx.lampCount()`): Echo's lamp 4 is the vault's transmitter (its signals and corrections;
+  between words the shields, green / amber / red) and lamps 1-3 are the player's key and the word's time.
+  Glyph's lamps 1-3 time the card and lamp 4 shows the card's kind (wing colour, amber relic, cyan meaning
+  first, violet which-of-two), pulsing red on the last seal. On a three-lamp node both send nine values,
+  exactly as before. The board LED is not used.
+- In the simulator the system menu shows SAVE SLOT / 1 OF 4 inside Echo Vault, and a feat reached the
+  console's toast. Not checked on the node's real four lamps.
+
 ## Fourth pass: the console logbook (PR #16)
 
 PR #16 moves daily goals, the streak and feats into one console-wide logbook. Following its cut list:

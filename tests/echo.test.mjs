@@ -302,3 +302,37 @@ test("Echo Vault pacing: a player who keys 90% of letters right opens new letter
     assert.ok(sizes[3] >= FIRST_LETTERS + 3, `seed ${seed}: still opening letters (${sizes})`);
   }
 });
+
+test("Echo Vault save slots: it opts in, labels each slot, and only slot 1 shares Signal School's letters", () => {
+  const c = appContext({ seed: 40 }), g = new EchoVault(c);
+  assert.equal(g.saveSlots, true);
+  assert.equal(g.slotSummary(undefined), "", "an empty slot falls back to the console's own label");
+  assert.equal(g.slotSummary({ schema: 2, runs: 3, pool: 12, stations: 6 }), "12 LETTERS / 6 STATIONS");
+  assert.ok(g.slotSummary({ schema: 2, runs: 99, pool: 26, stations: 20 }).length <= 24);
+  const school = { progress: { morse: { index: 10 } } };
+  assert.equal(new EchoVault(appContext({ state: school })).poolSize(), 10, "slot 1 shares Signal School");
+  const two = new EchoVault(appContext({ slot: 2, state: school }));
+  assert.equal(two.poolSize(), FIRST_LETTERS, "a learner on slot 2 starts from E T A N");
+});
+
+test("Echo Vault four lamps: lamp 4 is the vault's transmitter and the shields; lamps 1 to 3 are the key", () => {
+  const c = appContext({ seed: 41 }); c.lampCount = () => 4;
+  const g = new EchoVault(c);
+  begin(g);
+  const intro = c.calls.leds.length;
+  g.phase = "intro"; g.introduce(0); step(g, 1.2);
+  const said = c.calls.leds.slice(intro);
+  assert.ok(said.some((v) => v.length === 12 && v.slice(0, 9).every((x) => x === 0) && v.slice(9).some((x) => x > 0)), "the vault speaks on lamp 4 alone");
+  while (g.phase === "intro") { g.down(); g.up({ durationMs: 60 }); }
+  bot(g, { think: 0.5, seconds: 30 });
+  const writes = c.calls.leds;
+  assert.ok(writes.every((v) => (v.length === 12 || v.length === 9) && v.every((x) => Number.isInteger(x) && x >= 0 && x <= 255)));
+  const play = writes.filter((v) => v.length === 12);
+  assert.ok(play.some((v) => v[10] > v[9] && v[10] > v[11]), "full shields show green on lamp 4");
+  g.shields = 1; step(g, 0.5);
+  const last = c.calls.leds.at(-1);
+  assert.ok(last[9] > last[10], "the last shield shows red on lamp 4");
+  const d = appContext({ seed: 42 }), h = new EchoVault(d);
+  begin(h); bot(h, { think: 0.5, seconds: 10 });
+  assert.ok(d.calls.leds.every((v) => v.length === 9), "a three-lamp node gets nine values, as before");
+});

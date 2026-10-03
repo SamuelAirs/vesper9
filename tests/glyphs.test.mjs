@@ -255,3 +255,29 @@ test("Glyph Archive: which-of-two cards; a tap picks the upper meaning, a hold t
   h.card.pick = true; h.card.truth = true;
   hold(h); assert.equal(h.wasRight, false); assert.equal(h.feedback, "THE OTHER ONE");
 });
+
+test("Glyph Archive save slots: it opts in and labels each slot in 24 characters or fewer", () => {
+  const g = new GlyphVault(appContext({ seed: 43 }));
+  assert.equal(g.saveSlots, true);
+  assert.equal(g.slotSummary(undefined), "");
+  const full = { schema: 2, runs: 5, plates: Array(32).fill("braille:0"), decks: Object.fromEntries(WINGS.map((w) => [w.id, { open: w.entries.length, session: 1, items: {} }])) };
+  assert.equal(g.slotSummary(full), "116 ENTRIES / 32 PLATES");
+  assert.equal(g.slotSummary({ schema: 2, runs: 1, decks: { braille: { open: 4 } } }), "4 ENTRIES / 0 PLATES");
+});
+
+test("Glyph Archive four lamps: lamps 1 to 3 time the card, lamp 4 shows its kind and the last seal", () => {
+  const c = appContext({ seed: 44 }); c.lampCount = () => 4;
+  const g = new GlyphVault(c);
+  g.sv.decks.braille.open = 8; begin(g);
+  while (g.stage !== "ask") step(g, 0.05);
+  g.card.pick = true; step(g, 0.1);
+  let v = c.calls.leds.at(-1);
+  assert.equal(v.length, 12); assert.ok(v[11] > v[10] && v[9] > v[10], "violet on lamp 4 for which of two");
+  g.card.pick = false; g.card.relic = true; step(g, 0.1);
+  v = c.calls.leds.at(-1); assert.ok(v[9] > v[11], "amber on lamp 4 for a relic");
+  g.seals = 1; step(g, 0.4);
+  v = c.calls.leds.at(-1); assert.ok(v[9] > 0 && v[10] < v[9] / 4, "red on lamp 4 while one seal is left");
+  bot(g, { accuracy: 0.9 });
+  assert.ok(c.calls.leds.every((x) => (x.length === 12 || x.length === 9) && x.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)));
+  step(g, 2); assert.ok(c.calls.leds.at(-1).every((x) => x === 0), "dark on the result screen");
+});

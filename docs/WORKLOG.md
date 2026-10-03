@@ -202,6 +202,24 @@ The long integrated run was started while final review continued. The final held
 - Unlocks no longer count feats: SPRINT opens on reaching Tempo, ECLIPSE on reaching Eclipse, the lights at 4, 12 and 24 stars. The ON THE DAY feat is retired.
 - Save schema 3: drops the daily streak and the daily-goal count; tested from schemas 1 and 2.
 - PR #16's TIMING OFFSET matches the agreed contract (`latencyMs`, positive late, -150..300, 0 when absent); Meridian keeps its own reader so it runs before #16 lands.
+## 2026-10-02 — new game: Relay, a call-and-answer rhythm game on the lamps (desktop, not verified on the device)
+
+- The rhythm game pitched with Meridian on 2026-10-01: the lamps play a bar of a real rhythm, go dark, and the player taps it back; the next call follows on the beat, so a run is one groove. Built on the lessons of Sam's playtests: lamp-focused, one button, flowing pace, a warm-up answer and forgiving early stages.
+- `web/apps/relay.js`: 25 rhythms in seven stages (pulse, eighths, syncopation, clave, waltz, swing, odd time) then cycles to 160 BPM with narrowing windows; AGAIN answers from memory from the waltz on; notation shown until a rhythm is learned. Songbook: daily, studio (practice, no shields), accelerando (4 feats), sound kits, a rhythm book (learned at 1 clean answer, mastered at 5), 15 feats, log. Save schema 1 with `migrateSave`, tested.
+- Catalog: one entry (voice name "relay"; "rhythm" is Pulsar's) on PLAY III after Light Trial; registry import; `gesture-apps.test.mjs` and `test_catalog_sectors.py` game lists include it.
+- Bots (4 seeds, 15 min cap; timing error sd): 30 ms plays on into cycle 25; 50 ms reaches cycles 5 to 8 in six to eight minutes; 75 ms reaches stages V to cycle 2 in three to five minutes; 100 ms loses in stages II to V within three minutes; idle ends in about 26 s. Not verified on the device: the lamps update about 17 times a second, so the tones carry the exact timing.
+
+## 2026-10-02 — Relay after the platform review (desktop, not verified on the device)
+
+- Latency: every tap is judged at its arrival minus the console calibration `settings.latencyMs` (clamped to -150..300 ms, 0 when absent); misses and the end of an answer wait for the same delay. A test bot whose taps arrive 60 ms late loses most PERFECTs uncalibrated and plays as with no delay when calibrated. An answer that has already lost when the next round begins is called again at once.
+- Resume: opening the menu mid-run drops the round in progress unjudged and calls it again after a four-beat count-in (`gesture-apps.test.mjs` lists Relay as rebuilding on resume).
+- Scores: the multiplier steps every 12 notes up to x4 (was 8 and x8) and the clean bonus is 20 a note; scores are about half what they were. Daily score goals are 8000 to 20000.
+
+## 2026-10-02 — Relay moves its feats and daily order to the console logbook (desktop, not verified on the device)
+
+- Per PR #16's cut list: feats are reported with `ctx.feat` (announced by the console), the daily run states its goal with `ctx.daily` and calls `ctx.dailyMet`. The songbook loses its FEATS screen, the daily streak and the feat ticker. Without PR #16 the calls are skipped and the game announces feats itself.
+- Unlocks no longer count feats: ACCELERANDO opens on reaching the clave, the BELL and CHIP kits at 6 and 14 rhythms learned. The ON THE DAY feat is retired.
+- Save schema 2: drops the daily streak and the daily-goal count; tested from schema 1.
 
 ## 2026-10-01 — dashboard tidy (desktop, not verified on the device)
 
@@ -229,6 +247,12 @@ The long integrated run was started while final review continued. The final held
 - A line under the call in stage I and practice: "TAP AS THE LIGHT REACHES THE LEFT LAMP"; sequences say "CATCH THEM IN THE ORDER CALLED"; dark swings "TAP WHERE IT WOULD BE".
 - Four lamps (`ctx.lampCount()` = 4): the swing runs across all four; calls LEFT, INNER LEFT, INNER RIGHT, RIGHT; end lamps keep the wider turn window. Bot balance on four matches three (perfect and 50 ms players play the full 10 minutes; 80 ms players reach cycles 5–7 either way). Three-lamp nodes unchanged.
 - Merged PR #16; Meridian sits in the MIND sector.
+## 2026-10-03 — Relay after Sam's playtest: tap marks on the line, four lamps (desktop, not verified on the device)
+
+- Fix: the notation drew notes and taps half a step to the right of their tick while the playhead ran on the ticks, so a tap on time showed well ahead of the line. Notes now sit on their tick (`stripX`), taps where they were judged, and the answer's playhead runs the TIMING OFFSET behind, so a fresh tap meets it. Test draws the strip and checks note, tap and playhead share an x, with and without calibration.
+- Latency from PR #16's `engine/latency.js`.
+- Four lamps (`ctx.lampCount()` = 4): lamp 4 is the beat (count-in, a quiet pulse under the call, the stage's click in the answer, green on a clean answer, red on a slip); lamps 1–3 carry only the rhythm. Title and menu chase a bar of four. Three-lamp nodes unchanged (nine values).
+- Merged PR #16; Relay sits in the MIND sector.
 
 - Later the same night: a LAMPS sector (Meridian, Relay, Light Trial) after ARCADE, and The Stacks on TOOLS. Sectors may name a cartridge that is not in the catalog yet; it is left out until its pull request adds it, so each draft merges with its catalog entry alone. The dashboard's system menu no longer lists DASHBOARD beside RETURN TO DASHBOARD.
 - 2026-10-02: Descent is on hold (Sam): off the dashboard and without its voice name; its code and saves stay and it still launches by id.
@@ -268,3 +292,4 @@ The long integrated run was started while final review continued. The final held
 - Reading places are saved per book in the app's progress, versioned (`v: 1`, `migrateSave`), at most 30 books (tests/library.test.mjs). The menu gesture's two taps turn pages that are taken back (AppGuard).
 - The download and USB import could not be exercised from the desktop (no network to gutenberg.org here, no USB drive); both are covered by tests with fakes only.
 - 2026-10-03: fifteen Standard Ebooks classics ship in `books/` (3.4 MB, text only, CC0; `scripts/pack-books.py`), listed after Sam's own books. MORE CLASSICS now fetches sixteen more Standard Ebooks titles from GitHub (which the Pi already reaches to update) instead of Project Gutenberg. The shelf is drawn as spines (width by length) with a card for the chosen book; a new book opens at its first chapter, past the title page.
+- Save slots (PR #16's shell API): Relay sets `saveSlots`; `slotSummary` shows the furthest stage and rhythms learned. Merged #16 again; Relay is in #16's LAMPS sector.

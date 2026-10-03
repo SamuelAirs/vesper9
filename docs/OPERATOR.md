@@ -208,7 +208,7 @@ Apps, by the voice name in the catalog (any app, from anywhere):
 | Phrase | Action |
 | --- | --- |
 | computer open orbit / runner / drift / echo / lights / glyphs | ORBIT LOCK, MOONRUNNER, UNDERTOW, ECHO VAULT, LIGHT TRIAL, GLYPH ARCHIVE |
-| computer open swing / lander / breakout / snake / launcher | PERIHELION, DESCENT, RICOCHET, HELIX, BALLISTA |
+| computer open swing / lander / breakout / launcher | PERIHELION, DESCENT, RICOCHET, BALLISTA |
 | computer open morse / timer / notes / environment / diagnostics / settings | SIGNAL SCHOOL, CHRONOMETER, FIELD NOTES, ATMOSPHERE, NODE SCOPE, CALIBRATION |
 | computer open relay | RELAY |
 | computer open lamp / metronome / sound / dice / system | LANTERN, CADENCE, RESONANCE, ORACLE, TELEMETRY (Ephemeris has no voice name: it is retired from the dashboard) |

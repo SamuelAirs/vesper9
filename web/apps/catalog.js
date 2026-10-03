@@ -117,6 +117,58 @@ export const CARTRIDGES = [
     ]
   },
   {
+    "id": "relay",
+    "name": "RELAY",
+    "subtitle": "Hear the rhythm. Carry it on.",
+    "description": "The lamps play a bar of a real rhythm, then go dark: tap it back in time, and the next call follows on the beat. Seven stages of rhythms from the pulse through tresillo, clave, waltz, swing and odd time, then faster cycles. New rhythms show their notation; learned ones are played by heart. Hold on the title for the songbook: daily run, studio practice, accelerando, sound kits and the rhythm book.",
+    "controls": "WATCH AND LISTEN · TAP THE RHYTHM BACK · HOLD ON TITLE: SONGBOOK",
+    "category": "PLAY / RHYTHM",
+    "glyph": 3,
+    "factory": "Relay",
+    "voice": [
+      "relay"
+    ],
+    "capabilities": [
+      "button",
+      "lights",
+      "audio",
+      "progress"
+    ],
+    "icon": "<circle cx=\"10\" cy=\"24\" r=\"5\" fill=\"currentColor\"/><circle cx=\"24\" cy=\"24\" r=\"5\"/><circle cx=\"38\" cy=\"24\" r=\"5\" fill=\"currentColor\"/><path d=\"M6 38H42\"/><path d=\"M6 34V42M18 36V40M24 34V42M30 36V40M42 34V42\"/><path d=\"M10 12L16 8L22 12L28 8L34 12\" stroke-dasharray=\"2 3\"/>",
+    "record": {
+      "score": "Score",
+      "clean": "Clean answers",
+      "stage": "Reached",
+      "mode": "Mode"
+    }
+  },
+  {
+    "id": "meridian",
+    "name": "MERIDIAN",
+    "subtitle": "Catch the light on the called lamp.",
+    "description": "A light swings across the lamps. The screen calls one (LEFT, MIDDLE or RIGHT; on four lamps INNER LEFT and INNER RIGHT too): tap as the light reaches it. The title shows how, and HOW TO PLAY has the rules. Let red swings pass; read changes of tempo, dark swings and feints. Hold on the title for the observatory: daily run, sprint, eclipse, light colours and the sky chart.",
+    "controls": "WATCH THE LAMPS · TAP ON THE CALLED LAMP · HOLD ON TITLE: OBSERVATORY",
+    "category": "PLAY / TIMING",
+    "glyph": 2,
+    "factory": "Meridian",
+    "voice": [
+      "pendulum"
+    ],
+    "capabilities": [
+      "button",
+      "lights",
+      "audio",
+      "progress"
+    ],
+    "icon": "<circle cx=\"24\" cy=\"6\" r=\"2\" fill=\"currentColor\"/><path d=\"M24 6L34 36\"/><path d=\"M8 34Q24 46 40 34\" stroke-dasharray=\"3 3\"/><path d=\"M24 6V44\" stroke-dasharray=\"2 4\"/><circle cx=\"34\" cy=\"36\" r=\"4\" fill=\"currentColor\"/>",
+    "record": {
+      "score": "Score",
+      "combo": "Best combo",
+      "stage": "Reached",
+      "mode": "Mode"
+    }
+  },
+  {
     "id": "glyphs",
     "name": "GLYPH ARCHIVE",
     "subtitle": "Learn real symbols, card by card.",
@@ -140,32 +192,6 @@ export const CARTRIDGES = [
       "correct": "Right",
       "accuracy": "Accuracy %",
       "score": "Score"
-    }
-  },
-  {
-    "id": "pulsar",
-    "name": "PULSAR",
-    "subtitle": "Keep time with a dying star.",
-    "description": "Beats fall down three lanes toward the strike line. Tap on the beat; hold through the long signals. The song lasts about two minutes, if you keep the signal stable.",
-    "controls": "TAP ON THE BEAT · HOLD LONG SIGNALS · LAMPS SWELL FIRST",
-    "category": "PLAY / RHYTHM",
-    "glyph": 3,
-    "factory": "Pulsar",
-    "voice": [
-      "rhythm"
-    ],
-    "capabilities": [
-      "button",
-      "lights",
-      "audio",
-      "progress"
-    ],
-    "icon": "<path d=\"M4 24h9l4-12 6 24 5-18 3 6h13\"/><circle cx=\"24\" cy=\"24\" r=\"21\" stroke-dasharray=\"2 5\"/><circle cx=\"43\" cy=\"24\" r=\"2\" fill=\"currentColor\"/>",
-    "record": {
-      "score": "Score",
-      "combo": "Best combo",
-      "accuracy": "Accuracy %",
-      "phrases": "Phrases reached"
     }
   },
   {
@@ -193,6 +219,32 @@ export const CARTRIDGES = [
       "catches": "Anchors caught",
       "relics": "Relics",
       "region": "Furthest this run"
+    }
+  },
+  {
+    "id": "highbar",
+    "name": "HIGH BAR",
+    "subtitle": "Skate the bowl. Swing the bars. String tricks.",
+    "description": "Ride a skate park and chain tricks into combos. Near a bar, hold to swing and release to fly; on the ground, hold to pump and release to ollie; in the air, hold to flip and let go to land upright. Land clean to bank the combo. Two-minute sessions, four parks with goals, three save slots (hold on the title).",
+    "controls": "HOLD: SWING · PUMP · FLIP · RELEASE: FLY · OLLIE · LAND · HOLD ON TITLE: SETUP",
+    "category": "PLAY / TRICKS",
+    "glyph": 3,
+    "factory": "HighBar",
+    "voice": [
+      "high bar",
+      "skate"
+    ],
+    "capabilities": [
+      "button",
+      "lights",
+      "audio",
+      "progress"
+    ],
+    "icon": "<path d=\"M8 40Q8 30 18 30H30Q40 30 40 40\"/><path d=\"M14 8V30M34 8V30\"/><path d=\"M10 10H38\"/><circle cx=\"24\" cy=\"17\" r=\"3\"/><path d=\"M24 10V14\"/>",
+    "record": {
+      "score": "Score",
+      "combo": "Best combo",
+      "park": "Park"
     }
   },
   {
@@ -530,9 +582,143 @@ export const CARTRIDGES = [
     "capabilities": [
       "sensor"
     ]
+  },
+  {
+    "id": "crawlspace",
+    "name": "CRAWLSPACE",
+    "subtitle": "A hammer, a drill, and a deeply unreasonable house.",
+    "description": "A turn-based household roguelike through three increasingly strange levels. Tap to move between swing, brace and drill, then hold and release to act; enemies announce their next move and wait for you. Build synergies from useful junk, choose repairs or risky rooms, defeat the house's three bosses, then try a tougher crawl.",
+    "controls": "TAP: NEXT CARD · HOLD + RELEASE: DO IT · ENEMIES WAIT",
+    "category": "PLAY / ROGUELIKE",
+    "glyph": 4,
+    "factory": "Crawlspace",
+    "voice": [
+      "crawl space"
+    ],
+    "capabilities": [
+      "button",
+      "lights",
+      "audio",
+      "progress"
+    ],
+    "record": {
+      "score": "Score",
+      "floor": "Level",
+      "pests": "Pests cleared",
+      "relics": "Useful finds",
+      "heat": "Heat",
+      "cleared": "House secured"
+    },
+    "icon": "<path d=\"M5 20L24 5L43 20M11 18V28H37V18M4 33H44M11 40H16M23 39L27 43M35 39H40\"/><path d=\"M21 28V19H28V28\"/>"
+  },
+  {
+    "id": "supper",
+    "name": "SUPPER CLUB",
+    "subtitle": "Three pans. One button. A house full of hungry people.",
+    "description": "Run a small supper club through four dinner services. Tap to move between pans and hold and release to cook, plate or clean; the kitchen slows while you hold. Combine rice, greens and eggs into ticketed meals. Limited stock, food freshness and three chosen kitchen upgrades make every service a different balancing act.",
+    "controls": "TAP: NEXT PAN · HOLD + RELEASE: COOK / PLATE · HOLDING SLOWS TIME",
+    "category": "PLAY / STRATEGY",
+    "glyph": 4,
+    "factory": "Supper",
+    "voice": [
+      "supper",
+      "kitchen"
+    ],
+    "capabilities": [
+      "button",
+      "lights",
+      "audio",
+      "progress"
+    ],
+    "record": {
+      "score": "Tips",
+      "meals": "Meals served",
+      "waves": "Services",
+      "waste": "Portions wasted",
+      "stars": "Stars",
+      "won": "Closed happy"
+    },
+    "icon": "<circle cx=\"22\" cy=\"27\" r=\"13\"/><path d=\"M34 32l10 5M15 19h14M17 10V4M24 10V4M31 11V6\"/>"
+  },
+  {
+    "id": "pocketlinks",
+    "name": "POCKET LINKS",
+    "subtitle": "Nine small courses. Big little decisions.",
+    "description": "Play a full nine-hole round with real bank shots, water, rough, ice and sloping greens. Tap to switch a precise putter for a wall-hopping wedge; hold to freeze the aiming arrow and release to choose power. Plan safe routes or daring shortcuts, with three water mulligans for the round.",
+    "controls": "TAP CLUB · HOLD AIM · RELEASE POWER",
+    "category": "PLAY / SPORT",
+    "glyph": 1,
+    "factory": "PocketLinks",
+    "voice": [
+      "golf",
+      "pocket links"
+    ],
+    "capabilities": [
+      "button",
+      "lights",
+      "audio",
+      "progress"
+    ],
+    "record": {
+      "score": "Score",
+      "strokes": "Strokes",
+      "par": "Course par",
+      "holes": "Holes",
+      "birdies": "Birdies or better",
+      "aces": "Holes in one",
+      "mulligans": "Mulligans used"
+    },
+    "icon": "<path d=\"M31 36V9l11 5-11 5\"/><ellipse cx=\"30\" cy=\"37\" rx=\"9\" ry=\"3\"/><circle cx=\"12\" cy=\"32\" r=\"4\"/><path d=\"M15 28l8-8\"/>"
+  },
+  {
+    "id": "nightgrid",
+    "name": "NIGHT GRID",
+    "subtitle": "Keep the neighborhood glowing until dawn.",
+    "description": "Restore three neighborhood circuits through ten storm-night shifts. Invest repair kits in feeders, smart meters and cross-ties, then route limited power using visible demand forecasts. Shops earn supplies, stored water cushions outages, and a stable neighborhood builds your score. Nothing happens until you pick: tap to move between cards, hold and release to pick one.",
+    "controls": "TAP: NEXT CARD · HOLD + RELEASE: PICK · NO TIME LIMIT",
+    "category": "PLAY / STRATEGY",
+    "glyph": 4,
+    "factory": "NightGrid",
+    "voice": [
+      "night grid"
+    ],
+    "capabilities": [
+      "button",
+      "lights",
+      "audio",
+      "progress"
+    ],
+    "record": {
+      "score": "Score",
+      "service": "Service %",
+      "chain": "Stable chain",
+      "result": "Dawn report",
+      "shifts": "Shifts"
+    },
+    "icon": "<path d=\"M24 5V15M9 15H39M9 15V25M24 15V25M39 15V25M9 34H39\"/><rect x=\"4\" y=\"25\" width=\"10\" height=\"14\"/><rect x=\"19\" y=\"25\" width=\"10\" height=\"14\"/><rect x=\"34\" y=\"25\" width=\"10\" height=\"14\"/>"
+  },
+  {
+    "id": "library",
+    "name": "THE STACKS",
+    "subtitle": "A shelf of books, one page at a time.",
+    "description": "A library of DRM-free books: EPUB and text files, fifteen classics on the shelf and more to fetch, and your Kindle highlights. Tap turns the page; hold for the reader's menu.",
+    "controls": "TAP: NEXT PAGE · HOLD & RELEASE: MENU",
+    "category": "INSTRUMENT / READING",
+    "glyph": 3,
+    "icon": "<path d=\"M8 10h9v30H8zM19 10h8v30h-8z\"/><path d=\"M30 12l7-2 6 28-7 2z\"/><path d=\"M10 16h5M21 16h4M10 34h5M21 34h4\"/><path d=\"M4 42h40\"/>",
+    "factory": "Library",
+    "voice": [
+      "library"
+    ],
+    "capabilities": [
+      "button",
+      "lights",
+      "audio",
+      "progress"
+    ]
   }
 ];
-export const SECTORS = [{"name": "VOYAGES", "tagline": "Long games to sink an evening into.", "apps": ["perihelion", "outpost", "drift", "ballista"]}, {"name": "ARCADE", "tagline": "Quick runs for sharp hands.", "apps": ["orbit", "ricochet", "runner"]}, {"name": "LAMPS", "tagline": "Played on the three lamps.", "apps": ["reaction"]}, {"name": "MIND", "tagline": "Memory, reading and pattern.", "apps": ["echo", "glyphs"]}, {"name": "TOOLS", "tagline": "Useful things for the desk.", "apps": ["lantern", "cadence", "oracle", "morse"]}, {"name": "LISTEN", "tagline": "What the node hears.", "apps": ["resonance", "transcribe"]}];
+export const SECTORS = [{"name": "VOYAGES", "tagline": "Long games to sink an evening into.", "apps": ["perihelion", "outpost", "drift", "ballista"]}, {"name": "ARCADE", "tagline": "Quick runs for sharp hands.", "apps": ["orbit", "ricochet", "runner", "highbar"]}, {"name": "LAMPS", "tagline": "Played on the three lamps.", "apps": ["meridian", "relay", "reaction"]}, {"name": "MIND", "tagline": "Memory, reading and pattern.", "apps": ["echo", "glyphs"]}, {"name": "AFTER HOURS", "tagline": "Four slower games for the end of the day.", "apps": ["crawlspace", "supper", "pocketlinks", "nightgrid"]}, {"name": "TOOLS", "tagline": "Useful things for the desk.", "apps": ["lantern", "cadence", "oracle", "morse", "library"]}, {"name": "LISTEN", "tagline": "What the node hears.", "apps": ["resonance", "transcribe"]}];
 export const SYSTEM_APPS = ["settings", "diagnostics", "telemetry"];
 export const DEFAULT_SETTINGS = {
   "sound": true,
@@ -548,5 +734,6 @@ export const DEFAULT_SETTINGS = {
   "lampLevel": "medium",
   "lampAmbient": true,
   "latencyMs": 0,
-  "renderQuality": "auto"
+  "renderQuality": "auto",
+  "knock": "medium"
 };

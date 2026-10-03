@@ -34,9 +34,16 @@
       "apps": [
         "orbit",
         "ricochet",
-        "runner",
-        "reaction",
-        "descent"
+        "runner"
+      ]
+    },
+    {
+      "name": "LAMPS",
+      "tagline": "Played on the three lamps.",
+      "apps": [
+        "meridian",
+        "relay",
+        "reaction"
       ]
     },
     {
@@ -44,8 +51,7 @@
       "tagline": "Memory, reading and pattern.",
       "apps": [
         "echo",
-        "glyphs",
-        "meridian"
+        "glyphs"
       ]
     },
     {
@@ -55,14 +61,14 @@
         "lantern",
         "cadence",
         "oracle",
-        "morse"
+        "morse",
+        "library"
       ]
     },
     {
-      "name": "SENSORS",
-      "tagline": "What the node hears and feels.",
+      "name": "LISTEN",
+      "tagline": "What the node hears.",
       "apps": [
-        "environment",
         "resonance",
         "transcribe"
       ]
@@ -277,9 +283,7 @@
         "sites": "Sites cleared",
         "fuel": "Best fuel left %"
       },
-      "voice": [
-        "lander"
-      ],
+      "voice": [],
       "capabilities": [
         "button",
         "lights",
@@ -476,9 +480,7 @@
       "category": "INSTRUMENT / ENVIRONMENT",
       "glyph": 4,
       "factory": "Environment",
-      "voice": [
-        "environment"
-      ],
+      "voice": [],
       "capabilities": [
         "sensor"
       ]

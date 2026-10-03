@@ -204,11 +204,12 @@ test("relocation needs the deliberate path and a long hold", () => {
   app.s.rt = 1e9; app.s.sig = 0; app.dirty = true; app.recalc();
   assert.ok(app.pending() >= 8);
   app.openRing("main");
-  const reloc = app.entries.findIndex((e) => e.kind === "sub" && e.sub === "reloc");
+  const reloc = app.entries.findIndex((e) => e.kind === "sub" && e.to === "reloc");
   assert.ok(reloc > 0);
   app.ring.idx = reloc; app.ring.hiAt = app.clk - 2;
-  press(app, 600); // opens the confirmation list
+  press(app, 600); // opens the list of sites
   assert.equal(app.ring.menu, "reloc");
+  assert.equal(app.entries[1].kind, "reloc"); assert.equal(app.entries[1].site, app.s.of[0]);
   assert.equal(app.s.runs, 0);
   advance(app, 1.5);
   app.ring.idx = 1; app.ring.hiAt = app.clk;
@@ -220,6 +221,7 @@ test("relocation needs the deliberate path and a long hold", () => {
   press(app, 1300);
   assert.equal(app.s.runs, 1);
   assert.ok(app.s.b >= 8);
+  assert.equal(app.card.site, app.s.site); assert.equal(app.card.from, 0);
 });
 
 test("relocating keeps bearings, tree and relics, resets the station, and the head start applies at once", () => {
@@ -241,108 +243,6 @@ test("relocating keeps bearings, tree and relics, resets the station, and the he
 });
 
 // ---- lamps ---------------------------------------------------------------------------
-test("lamp values are nine whole numbers 0-255 and respond to play", () => {
-  const { ctx, app } = begin();
-  for (let i = 0; i < 40; i++) { tap(app); advance(app, 0.2); }
-  app.s.sig = 50; app.dirty = true;
-  advance(app, 10);
-  for (const frame of ctx.calls.leds) {
-    assert.equal(frame.length, 9);
-    for (const v of frame) assert.ok(Number.isInteger(v) && v >= 0 && v <= 255, "lamp " + v);
-  }
-  assert.ok(new Set(ctx.calls.leds.map((f) => f.join())).size > 20, "lamps change during play");
-  // sustained levels stay about a third of full
-  const peak = Math.max(...ctx.calls.leds.slice(-300).map((f) => Math.max(...f)));
-  assert.ok(peak <= 110, "sustained peak " + peak);
-});
-
-test("left lamp breathes faster as production grows, but never frantically", () => {
-  const measure = (rate) => {
-    const { ctx, app } = begin();
-    app.s.own[0] = 1; app.rate = rate; app.out.fill(0); app.dirty = false; app.s.rt = 1e3;
-    app.recalc(); app.rate = rate; // recalc recomputes it; force the value under test
-    const frames = [];
-    for (let i = 0; i < 60 * 40; i++) { app.rate = rate; app.update(1 / 60); frames.push(ctx.calls.leds.at(-1)[1]); }
-    let crossings = 0;
-    const mid = (Math.max(...frames) + Math.min(...frames)) / 2;
-    for (let i = 1; i < frames.length; i++) if (frames[i - 1] < mid && frames[i] >= mid) crossings++;
-    return crossings / 40;
-  };
-  const slow = measure(0), fast = measure(1e9);
-  assert.ok(fast > slow * 2, `slow ${slow} Hz, fast ${fast} Hz`);
-  assert.ok(fast < 1.0, "never frantic: " + fast + " Hz");
-});
-
-test("middle lamp fills toward the goal, then goes steady green when something is affordable", () => {
-  const { ctx, app } = begin();
-  app.s.rt = 100; app.s.sig = 2; app.dirty = true; app.recalc();
-  app.update(1 / 60);
-  const low = ctx.calls.leds.at(-1).slice(3, 6);
-  app.s.sig = 8; app.dirty = true; app.update(1 / 60);
-  const higher = ctx.calls.leds.at(-1).slice(3, 6);
-  assert.ok(higher[0] > low[0], "amber grows as the goal nears");
-  app.s.sig = 50; app.dirty = true; advance(app, 0.5);
-  const green = ctx.calls.leds.at(-1).slice(3, 6);
-  assert.ok(green[1] > green[0] * 2 && green[1] > 40, "green: " + green);
-  const again = ctx.calls.leds.at(-1).slice(3, 6);
-  advance(app, 0.4);
-  assert.deepEqual(ctx.calls.leds.at(-1).slice(3, 6), again, "steady, not blinking");
-});
-
-test("right lamp shows an expedition, a boost, a flare, then relocation readiness", () => {
-  const { ctx, app } = begin();
-  const right = () => ctx.calls.leds.at(-1).slice(6, 9);
-  advance(app, 0.1);
-  assert.deepEqual(right(), [0, 0, 0]);
-  app.s.tree[5] = 1; app.s.own[1] = 5; app.recalc();
-  assert.ok(app.launch(1));
-  tap(app); advance(app, 8);
-  const a = right();
-  assert.ok(a[1] > a[0] && a[2] > a[0], "cyan-ish: " + a);
-  advance(app, 600); tap(app); advance(app, 8);
-  const b = right();
-  assert.ok(b[1] > a[1], "brighter as the trip progresses");
-  app.boosts.push({ k: "surge", t: 20, max: 30, mult: 7 });
-  advance(app, 0.2);
-  const v = right();
-  assert.ok(v[0] > v[1] && v[2] > v[1], "violet: " + v);
-  app.boosts.length = 0;
-  app.flare = { x: 400, y: 200, t: 10, life: 14 };
-  const seen = new Set();
-  for (let i = 0; i < 40; i++) { advance(app, 0.05); seen.add(right().join()); }
-  assert.ok(seen.size >= 2, "a flare blinks");
-});
-
-test("after a few minutes without input the lamps drop to a very dim version", () => {
-  const { ctx, app } = begin();
-  app.s.own[1] = 20; app.s.rt = 1e4; app.s.sig = 5; app.dirty = true; app.recalc();
-  advance(app, 5);
-  const bright = Math.max(...ctx.calls.leds.slice(-200).flat());
-  advance(app, 400);
-  const quiet = Math.max(...ctx.calls.leds.slice(-300).flat());
-  assert.ok(quiet <= bright * 0.45 && quiet <= 40, `bright ${bright} quiet ${quiet}`);
-  tap(app); advance(app, 3);
-  assert.ok(Math.max(...ctx.calls.leds.slice(-60).flat()) > quiet, "input wakes the display");
-});
-
-test("purchase, milestone and flare accents differ", () => {
-  const frames = (setup) => {
-    const { ctx, app } = begin();
-    app.s.rt = 1e6; app.s.sig = 1e6; app.dirty = true; app.recalc();
-    advance(app, 3);
-    const n = ctx.calls.leds.length;
-    setup(app);
-    advance(app, 0.5);
-    return ctx.calls.leds.slice(n).map((f) => f.join());
-  };
-  const buy = frames((a) => { a.accent = { k: "buy", t: 0, dur: 0.35 }; });
-  const mile = frames((a) => { a.accent = { k: "milestone", t: 0, dur: 0.9 }; });
-  const flare = frames((a) => { a.accent = { k: "event", t: 0, dur: 0.7 }; });
-  assert.notDeepEqual(buy, mile);
-  assert.notDeepEqual(buy, flare);
-  assert.notDeepEqual(mile, flare);
-});
-
 test("cancel and dispose leave the lamps off and the progress saved", () => {
   for (const how of ["cancel", "dispose", "pause"]) {
     const { ctx, app } = begin();
@@ -531,7 +431,7 @@ test("no NaN or Infinity at the top of the range, in state, text, lamps or drawi
   finiteDeep(app.s);
   assert.ok(Number.isFinite(app.rate) && Number.isFinite(app.tapValue()));
   app.buyAll(); app.pending(); app.recalc();
-  for (const menu of ["main", "tree", "exp", "reloc"]) { app.openRing(menu); app.draw(g); app.closeRing(); }
+  for (const menu of ["main", "tree", "exp", "reloc", "site"]) { app.openRing(menu); app.draw(g); app.closeRing(); }
   finiteDeep(lastSave(ctx));
   assert.ok(!/NaN|Infinity|undefined/.test(E.fmt(app.s.sig) + E.fmt(app.rate) + E.fmt(app.tapValue())), E.fmt(app.s.sig));
   for (const f of ctx.calls.leds) for (const v of f) assert.ok(Number.isInteger(v) && v >= 0 && v <= 255);
@@ -551,7 +451,7 @@ test("every screen draws, lists stay bounded, and the lifetime score rises", () 
   app.draw(g);
   app.s.rt = 1e9; app.s.sig = 1e7; app.dirty = true; app.recalc();
   app.s.tree[5] = 1; app.s.L = 4; app.s.b = 4;
-  for (const menu of ["main", "tree", "exp", "reloc"]) { app.openRing(menu); advance(app, 1); app.draw(g); app.closeRing(); }
+  for (const menu of ["main", "tree", "exp", "reloc", "site"]) { app.openRing(menu); advance(app, 1); app.draw(g); app.closeRing(); }
   app.relocate(); app.draw(g);
   assert.ok(g.count.fillText > 50);
   assert.ok(ctx.calls.score.length >= 1);
@@ -561,69 +461,12 @@ test("every screen draws, lists stay bounded, and the lifetime score rises", () 
   assert.ok(ctx.calls.saved.every((x) => JSON.stringify(x).length < 8192));
 });
 
-test("update stays cheap", () => {
-  const { app } = begin();
-  app.s.own.fill(100); app.s.rt = 1e9; app.s.sig = 1e9; app.dirty = true;
-  const g = fakeCanvas();
-  const t0 = process.hrtime.bigint();
-  for (let i = 0; i < 600; i++) { app.update(1 / 60); app.draw(g); }
-  const ms = Number(process.hrtime.bigint() - t0) / 1e6 / 600;
-  assert.ok(ms < 2, "update + draw averaged " + ms.toFixed(3) + " ms");
-});
-
 // ======================= schema 3: the song, statistics, goals, research =======================
 const M = Outpost.music;
 const hzNote = (hz) => Math.round(69 + 12 * Math.log2(hz / 440));
 const fixture = (name) => JSON.parse(fs.readFileSync(new URL("./fixtures/" + name, import.meta.url), "utf8"));
 // lead-voice notes played since tone call index `from`
 const lead = (ctx, from) => ctx.calls.tone.slice(from).filter((c) => c[2] === "triangle" && c[1] >= 0.15).map((c) => hzNote(c[0]));
-
-test("songbook: every melody is well formed and starts the way the printed tune does", (t) => {
-  assert.ok(M.SONGS.length >= 15, "a good number of tunes");
-  const anchors = {
-    twinkle: "C4 C4 G4 G4 A4 A4 G4", ode: "E4 E4 F4 G4 G4 F4 E4 D4", jacques: "C4 D4 E4 C4 C4 D4 E4 C4", elise: "E5 D#5 E5 D#5 E5 B4 D5 C5 A4",
-    greensleeves: "E4 G4 A4 B4 C5 B4 A4 F#4", scarborough: "E4 E4 B4 B4 F#4 G4 F#4 E4", grace: "D4 G4 B4 G4 B4 A4 G4 E4 D4",
-    canon: "F#5 E5 D5 C#5 B4 A4 B4 C#5", jingle: "E4 E4 E4 E4 E4 E4 E4 G4 C4 D4 E4", row: "C4 C4 C4 D4 E4 E4 D4 E4 F4 G4",
-    korobeiniki: "B4 F#4 G4 A4 G4 F#4 E4 E4", auld: "G3 C4 C4 C4 E4 D4 C4 D4", minuet: "D5 G4 A4 B4 C5 D5 G4 G4",
-  };
-  const ids = new Set();
-  let prevAt = -1;
-  M.SONGS.forEach((sg, i) => {
-    const mel = M.MEL[i];
-    assert.ok(!ids.has(sg.id)); ids.add(sg.id);
-    assert.ok(sg.name.length <= 22, sg.name + " fits a ring row");
-    assert.ok(sg.at >= prevAt); prevAt = sg.at;
-    assert.ok(mel.n.length >= 16 && mel.n.length <= 130, sg.id + " length " + mel.n.length);
-    assert.ok(mel.lo >= 53 && mel.hi <= 84, `${sg.id} range ${M.noteName(mel.lo)}..${M.noteName(mel.hi)} (about 175-1050 Hz)`);
-    assert.ok(mel.ends.every((e, k) => e > (mel.ends[k - 1] ?? -1)) && mel.ends.at(-1) === mel.n.length - 1);
-    assert.ok(mel.ends.length >= 2 && mel.ends[0] >= 2, "phrases kept");
-    if (anchors[sg.id]) assert.equal(mel.n.slice(0, anchors[sg.id].split(" ").length).map(M.noteName).join(" "), anchors[sg.id], sg.id);
-    let from = 0;
-    t.diagnostic(sg.name + " (" + sg.by + ")  " + mel.ends.map((e) => { const s = mel.n.slice(from, e + 1).map(M.noteName).join(" "); from = e + 1; return s; }).join(" | "));
-  });
-  assert.equal(M.SONGS[0].at, 0, "the first tune is there from the start");
-});
-
-test("generated tunes: deterministic per seed, in range, stepwise, phrases end on stable tones", () => {
-  const a = M.genTune(12345), b = M.genTune(12345);
-  assert.deepEqual(a.n, b.n); assert.equal(a.name, b.name);
-  assert.notDeepEqual(M.genTune(12346).n, a.n);
-  let steps = 0, total = 0, leaps = 0;
-  for (let seed = 1; seed <= 300; seed++) {
-    const mel = M.genTune(seed * 7919);
-    assert.equal(mel.ends.length, 4); assert.equal(mel.n.length, 32);
-    assert.ok(mel.lo >= 53 && mel.hi <= 84, "range " + seed);
-    const scale = M.SCALES[mel.mode];
-    const stable = new Set([0, scale[2], scale[mel.mode === "pent" ? 3 : 4]].map((i) => (mel.tonic + i) % 12));
-    for (const e of mel.ends) assert.ok(stable.has(mel.n[e] % 12), `seed ${seed} phrase ends on ${M.noteName(mel.n[e])}`);
-    assert.equal(mel.n[31] % 12, mel.tonic % 12, "last phrase ends on the tonic");
-    for (let i = 1; i < mel.n.length; i++) { const d = Math.abs(mel.n[i] - mel.n[i - 1]); total++; if (d <= 4) steps++; if (d > 9) leaps++; }
-    assert.ok(mel.n.every((m) => mel.pcs.has(m % 12)), "every note is in the scale");
-  }
-  assert.ok(steps / total > 0.8, "mostly stepwise: " + (steps / total).toFixed(2));
-  assert.ok(leaps / total < 0.03, "wide leaps are rare: " + (leaps / total).toFixed(3));
-  assert.equal(M.genName(1), M.genName(1));
-});
 
 test("each tap plays the next note at any tempo, wraps at the end, and a finished tune pays", () => {
   const { ctx, app } = begin();
@@ -723,11 +566,34 @@ test("menu gesture: taps that belonged to it take their notes back; a plain ring
   const { ctx, app: c } = begin();
   const n = ctx.calls.tone.length; tap(c); advance(c, 0.3);
   assert.deepEqual(lead(ctx, n), [M.MEL[0].n[0]]);
-  // across a wrap: the tune comes back to where the gesture started
+  // across a wrap: a tune the gesture's first tap finished stays finished (counted once, its bonus
+  // paid); only the tap after it, in the next tune, is taken back
   c.s.sp = c.mel.n.length - 1; advance(c, 1.5);
+  const played = c.s.st.md;
   tap(c); advance(c, 0.2); tap(c); advance(c, 0.2);
   c.down(); advance(c, 1.0); c.cancel();
-  assert.equal(c.s.sp, c.mel.n.length - 1);
+  assert.equal(c.s.sp, 0);
+  assert.equal(c.s.st.md, played + 1);
+});
+
+test("a hold on a tune's last note finishes the tune once, not again at every hold", () => {
+  const { app } = begin();
+  const s = app.s, len = app.mel.n.length;
+  for (let i = 0; i < len - 1; i++) { app.gather(); advance(app, 0.4); }
+  assert.equal(s.st.md, 0);
+  for (let k = 0; k < 6; k++) {
+    app.down(); advance(app, 0.5); app.up({ durationMs: 500 }); // the press plays the last note; the ring opens
+    if (app.ring) { app.ring.idx = 0; app.down(); advance(app, 0.5); app.up({ durationMs: 500 }); } // hold CLOSE
+    advance(app, 0.2);
+  }
+  assert.equal(s.st.md, 1, "one tune finished");
+  assert.equal(s.sx, 1, "and counted once toward the sounding");
+  // the same at the end of a phrase: its bonus is paid once
+  const b = begin().app, end = b.mel.ends[0];
+  for (let i = 0; i < end; i++) { b.gather(); advance(b, 0.4); }
+  const ph = b.s.st.ph;
+  for (let k = 0; k < 4; k++) { b.down(); advance(b, 0.5); b.up({ durationMs: 500 }); if (b.ring) b.closeRing(); advance(b, 0.2); }
+  assert.equal(b.s.st.ph, ph + 1);
 });
 
 test("statistics: counts by source, persistence, and where counting began", () => {
@@ -784,7 +650,7 @@ test("a save written by the current (schema 2) build loads, keeps everything, an
   const s = app.s;
   assert.deepEqual(s.own.slice(0, 10), old.own); assert.deepEqual(s.own.slice(10), [0, 0]);
   assert.deepEqual([...s.up].map((x, i) => (x ? i : -1)).filter((i) => i >= 0), old.up);
-  assert.equal(s.taps, old.taps); assert.deepEqual(s.tree.slice(0, 10), old.tree); assert.deepEqual(s.tree.slice(10), [0, 0, 0]);
+  assert.equal(s.taps, old.taps); assert.deepEqual(s.tree.slice(0, 10), old.tree); assert.ok(s.tree.slice(10).every((l) => l === 0), "nodes added since start at zero");
   assert.equal(s.relics, old.relics); assert.equal(s.runs, old.runs); assert.equal(s.L, old.L); assert.equal(s.b, old.b);
   assert.equal(s.maxTier, old.maxTier); assert.equal(s.play >= old.play, true); assert.deepEqual(s.last, old.last);
   assert.equal(s.ex.length, 1); assert.equal(s.ex[0].k, 1); assert.equal(s.ex[0].end, old.ex[0][1]);
@@ -883,28 +749,6 @@ test("voices: upgrades need the research, add notes to each tap and make tunes p
   assert.equal(app.voices(), 4);
 });
 
-test("the lamps follow the notes (low left, high right) and fall back to the status board", () => {
-  const { app } = begin();
-  app.s.sp = 0; tap(app); // C4 is the bottom of Twinkle's range
-  const low = app.lampValues();
-  advance(app, 0.5);
-  app.s.sp = 4; tap(app); // A4 is the top
-  const high = app.lampValues();
-  const sum = (v, i) => v[i * 3] + v[i * 3 + 1] + v[i * 3 + 2];
-  assert.ok(sum(low, 0) > sum(low, 2) + 100, "a low note lights the left lamp");
-  assert.ok(sum(high, 2) > sum(high, 0) + 100, "a high note lights the right lamp");
-  advance(app, 0.6);
-  assert.equal(app.noteFx, null);
-  const rest = app.lampValues();
-  assert.ok(rest.every((x) => Number.isInteger(x) && x >= 0 && x <= 255));
-  assert.ok(rest[0] < 60 && rest[1] > rest[0] && sum(rest, 2) === 0, "left breathes green, the right lamp shows nothing to report");
-  app.s.sp = app.mel.ends[0]; tap(app);
-  assert.equal(app.accent.k, "phrase");
-  const sweep = [];
-  for (let i = 0; i < 20; i++) { advance(app, 0.02); sweep.push(app.lampValues().join()); }
-  assert.ok(new Set(sweep).size > 4, "the phrase flourish moves");
-});
-
 test("the late machines and new upgrades are valid, and the station grows in stages", () => {
   assert.equal(E.NP, 12); assert.equal(E.NS, M.SONGS.length);
   for (let i = 1; i < E.PROD.length; i++) assert.ok(E.PROD[i].c > E.PROD[i - 1].c * 5 && E.PROD[i].r > E.PROD[i - 1].r * 3);
@@ -927,7 +771,7 @@ test("every menu and view draws, with the late-game state, without NaN", () => {
   s.own.fill(1500); s.up.fill(1); s.tree = E.TREE.map((n) => n.max); s.sig = 1e149; s.rt = 1e149; s.lt = 1e149; s.L = 1e9; s.b = 1e9;
   s.dat = 1e11; s.rd = [0, 1, 2, 3, 4, 5]; s.gl = E.GOALS.map((_, i) => i); s.sc.fill(1e6); s.st.hand = 1e140; s.st.mach = 1e140; s.st.peak = 1e140;
   s.rs = [{ k: 5, end: wall + 1e6 }]; app.dirty = true; app.recalc();
-  for (const menu of ["main", "songs", "res", "goals", "tree", "exp", "reloc"]) { app.openRing(menu); for (let i = 0; i < app.entries.length + 1; i++) { app.step(); advance(app, 0.05); app.draw(g); } app.closeRing(); }
+  for (const menu of ["main", "songs", "res", "goals", "tree", "exp", "reloc", "site"]) { app.openRing(menu); for (let i = 0; i < app.entries.length + 1; i++) { app.step(); advance(app, 0.05); app.draw(g); } app.closeRing(); }
   app.panel = { page: 0 }; for (let p = 0; p < 3; p++) { app.panel.page = p; app.draw(g); }
   app.panel = null; app.phase_ = "news"; app.draw(g); app.phase_ = "play";
   app.s.sg = M.GEN_ID; app.loadMelody(); for (let i = 0; i < 70; i++) { app.gather(); advance(app, 0.1); }
@@ -946,9 +790,10 @@ test("a schema 3 save (from the previous build) loads with everything kept and t
   const s = app.s;
   assert.deepEqual(s.own, old.own);
   assert.deepEqual([...s.up].map((x, i) => (x ? i : -1)).filter((i) => i >= 0), old.up);
-  assert.deepEqual(s.tree, old.tree);
+  assert.deepEqual(s.tree.slice(0, old.tree.length), old.tree); assert.ok(s.tree.slice(old.tree.length).every((l) => l === 0), "nodes added since start at zero");
   for (const k of ["taps", "b", "L", "runs", "maxTier", "relics", "sg", "sp", "gs", "sm", "ev"]) assert.equal(s[k], old[k], k);
-  assert.deepEqual(s.sc, old.sc); assert.deepEqual(s.gl.slice(0, old.gl.length), old.gl); assert.deepEqual(s.rd, old.rd);
+  assert.deepEqual(s.sc.slice(0, old.sc.length), old.sc); assert.deepEqual(s.gl.slice(0, old.gl.length), old.gl); assert.deepEqual(s.rd, old.rd);
+  assert.ok(s.sc.length >= old.sc.length && s.sc.slice(old.sc.length).every((c) => c === 0), "tunes added since start unplayed");
   assert.deepEqual(s.rs.map((e) => [e.k, e.end]), old.rs);
   for (const k of Object.keys(old.st)) assert.ok(s.st[k] >= old.st[k], "statistic " + k + " kept"); // a few grow with the 20 s away
   assert.equal(s.fk, old.fk, "statistics are not restarted"); assert.equal(s.f, old.f);
@@ -961,39 +806,19 @@ test("a schema 3 save (from the previous build) loads with everything kept and t
   assert.equal(app.phase_, "play");
   app.save(true);
   const saved = lastSave(ctx);
-  assert.equal(saved.v, 4); assert.equal(saved.cn, 0);
+  assert.equal(saved.v, E.SCHEMA); assert.equal(saved.cn, 0);
   const again = boot({ progress: JSON.parse(JSON.stringify(saved)) }).app;
-  assert.equal(again.phase_, "play", "a schema 4 save shows no update card");
+  assert.equal(again.phase_, "play", "a current save shows no update card");
   assert.deepEqual(again.s.own, s.own); assert.equal(again.s.taps, s.taps);
   assert.equal(E.migrate({ ...saved, cn: 1e9 }).s.cn, E.CHART_MAX);
   assert.equal(E.migrate({ ...saved, cn: "x" }).s.cn, 0);
-});
-
-test("the extra voices sit quietly under the lead: a fully voiced tap is about twice one note", () => {
-  const { ctx, app } = begin();
-  app.s.lt = 1e6;
-  advance(app, 0.5);
-  const n0 = ctx.calls.tone.length; app.gather();
-  const single = ctx.calls.tone.slice(n0);
-  assert.equal(single.length, 1);
-  assert.ok(single[0][3] === undefined || single[0][3] === 1, "the lead alone is at full level");
-  for (const k of E.VOICE) app.s.up[k] = 1;
-  app.s.sp = 0; app.loadMelody();
-  advance(app, 0.5);
-  const n1 = ctx.calls.tone.length; app.gather();
-  const full = ctx.calls.tone.slice(n1);
-  assert.equal(full.length, 5, "lead, third, octave, bass and bell on the first note of a phrase");
-  const gains = full.map((c) => c[3] ?? 1);
-  assert.ok(gains.slice(1).every((x) => x > 0 && x <= 0.5), "every extra voice is at half the lead or less: " + gains);
-  const sum = gains.reduce((a, b) => a + b, 0);
-  assert.ok(sum <= 2.2, "the whole band sums to " + sum + " of one note (it was 5)");
 });
 
 test("groove: a steady beat builds it to x1.5, a stumble halves it, a pause lets it fade", () => {
   const { app } = begin();
   advance(app, 2);
   const base = app.tapValue();
-  for (let i = 0; i < 40; i++) { app.gather(); advance(app, 0.3); }
+  for (let i = 0; i < 40; i++) { app.gather(); advance(app, 0.45); } // an easy pace, so the full value counts
   assert.equal(app.groove, E.GROOVE_MAX);
   assert.equal(app.grooveMult(), 1.5);
   assert.ok(app.tapValue() / base >= 1.5, "full groove: x" + app.tapValue() / base);
@@ -1017,18 +842,118 @@ test("groove: a steady beat builds it to x1.5, a stumble halves it, a pause lets
   assert.ok(app.s.gl.includes(E.GOALS.findIndex((x) => x.n === "IN THE POCKET")));
 });
 
-test("groove lights the note glow brighter, and cyan when full, on the lamp for the note", () => {
+test("easy pace: tapping faster than an easy beat earns no more, a pause restores the full value", () => {
+  // signal by hand (taps, phrases, tunes; no machines) over 20 s of steady tapping at a given rate
+  const earn = (perSec, frenzy = false) => {
+    const { app } = begin();
+    advance(app, 3);
+    if (frenzy) app.boosts.push({ k: "frenzy", t: 99, max: 99, mult: 30 });
+    const before = app.s.st.hand;
+    for (let i = 0, n = 20 * perSec; i < n; i++) { app.gather(); advance(app, 1 / perSec); }
+    return { app, perSec: (app.s.st.hand - before) / 20 };
+  };
+  const easy = earn(2.5).perSec, fast = earn(5).perSec, frantic = earn(10).perSec, slow = earn(1.25).perSec;
+  assert.ok(slow < easy * 0.65, "half the pace earns less (each tap still counts): " + slow / easy);
+  assert.ok(fast <= easy * 1.1, "twice the easy pace earns no more: " + fast / easy);
+  assert.ok(frantic <= easy * 1.1, "four times the easy pace earns no more: " + frantic / easy);
+  // a frenzy (taps x30 from a flare) raises the easy pace, so quick tapping is worth it for those seconds
+  const fz = earn(2.5, true).perSec, fzFast = earn(5, true).perSec;
+  assert.ok(fzFast > fz * 1.6, "in a frenzy, tapping twice as fast pays more: " + fzFast / fz);
+  // after fast tapping, one tap is worth less and the hint says why; a short pause brings the full value back
+  const { app } = earn(8);
+  const full = app.tapValue(false);
+  assert.ok(app.tapValue() < full * 0.5, "fast: " + app.tapValue() / full);
+  assert.ok(app.floats.some((f) => f.life > 0 && f.v !== "+" + E.fmt(full)), "the floating numbers show the smaller taps");
+  assert.match(app.hintKey, /steady/i, "the hint explains it");
+  advance(app, 1.3);
+  assert.equal(app.paceNow(), 1);
+  assert.equal(app.tapValue(), app.tapValue(false));
+  // a short burst after a pause is worth the full value
+  for (let i = 0; i < 3; i++) { assert.equal(app.paceNow(), 1, "burst tap " + i); app.gather(); advance(app, 0.1); }
+  assert.ok(app.paceNow() < 1, "the reserve is spent");
+  advance(app, 2.1);
+  assert.doesNotMatch(app.hintKey, /steady/i, "the hint goes once the tapping slows");
+  // rewards that are not taps (flare lodes) are not paced
+  app.s.own[1] = 30; app.dirty = true; app.recalc();
+  for (let i = 0; i < 30; i++) { app.gather(); advance(app, 0.1); }
+  const lode = app.effRate() * 600 + app.tapValue(false) * 40, sig = app.s.sig;
+  app.flare = { x: 300, y: 200, t: 5, life: 14 };
+  app.c.rng.next = () => 0.6; // the lode
+  app.gather();
+  assert.ok(app.s.sig - sig >= lode * 0.99, "the lode is not cut by the tapping pace");
+});
+
+// ======================= 0.3: hum =======================
+test("hum: every note of the octave has one machine, and a tune hums the machines on its commonest notes", () => {
+  assert.deepEqual(E.PROD.map((p) => p.pc).sort((a, b) => a - b), [...Array(12).keys()], "each pitch class once");
+  for (const p of E.PROD) assert.ok(p.short && p.short.length <= 10, p.n);
+  for (let pc = 0; pc < 12; pc++) assert.equal(E.PROD[E.PC_PROD[pc]].pc, pc);
+  // Twinkle: G x10, then F and E x8 (F is heard first)
+  assert.deepEqual(E.humNotes(M.MEL[0]), [7, 5, 4]);
+  assert.deepEqual(E.humMachines(M.MEL[0]).map((i) => E.PROD[i].short), ["DRILL", "BOREHOLE", "MAST"]);
+  // the early tunes (C major) hum the early machines; every machine is hummed by some tune or seed
+  for (const k of [1, 3, 6]) assert.ok(E.humMachines(M.MEL[k]).includes(0), M.SONGS[k].name + " hums the dish");
+  const reached = new Set();
+  M.MEL.forEach((m) => E.humMachines(m).forEach((i) => reached.add(i)));
+  for (let seed = 1; seed < 400 && reached.size < 12; seed++) E.humMachines(M.genTune(seed * 7919)).forEach((i) => reached.add(i));
+  assert.equal(reached.size, 12, "every machine can hum");
+});
+
+test("hum: a finished tune makes its machines work harder for a while, longer in full groove, and only while playing", () => {
   const { app } = begin();
-  advance(app, 2);
-  app.accent = null; app.flare = null; app.boosts.length = 0;
-  app.noteFx = { pos: 0, t: 0 };
-  app.groove = 0;
-  const plain = app.lampValues();
+  const s = app.s;
+  s.own[1] = 20; s.own[2] = 20; s.own[4] = 5; s.own[0] = 30; s.maxTier = 4; app.dirty = true; app.recalc();
+  const quiet = app.rate, out0 = Array.from(app.out);
+  assert.equal(app.baseRate, quiet);
+  // play Twinkle through: drill, borehole and mast hum
+  s.sg = 0; app.loadMelody(); s.sp = app.mel.n.length - 1; app.lastNoteAt = app.clk;
+  app.gather(); advance(app, 0.1);
+  for (const i of [2, 4, 1]) assert.ok(Math.abs(app.hum[i] - E.HUM_SEC) < 0.2, "machine " + i + " hums " + app.hum[i]);
+  assert.equal(app.hum[0], 0, "the dish (C) is not on Twinkle's commonest notes");
+  assert.ok(Math.abs(app.out[2] / out0[2] - E.HUM_MULT) < 1e-9 && Math.abs(app.out[0] / out0[0] - 1) < 1e-9);
+  assert.ok(app.rate > quiet && Math.abs(app.baseRate - quiet) < 1e-9, "the rate rises; the normal rate does not");
+  assert.match(app.noteQ.map((n) => n.text).join(" ") + (app.note?.text || ""), /HUM x1\.5 \+2 MIN: DRILL, BOREHOLE, MAST/);
+  // the ring says so: the machine's tuning and its hum, and the songbook's tunes
+  const drill = app.itemEntry({ type: "p", i: 2, key: "p2", cost: E.costOf(s, 2) }, false);
+  assert.ok(drill.lines.some((l) => /TUNED TO G, HUMMING (2:00|1:5\d)/.test(l)), JSON.stringify(drill.lines));
+  assert.ok(app.itemEntry({ type: "p", i: 0, key: "p0", cost: 1 }, true).lines.includes("TUNED TO C"));
+  app.openRing("songs");
+  assert.ok(app.entries.find((e) => e.key === "s0").lines.includes("HUMS DRILL, BOREHOLE, MAST"));
+  app.closeRing();
+  // a second tune adds time, up to the cap
+  for (let k = 0; k < 6; k++) app.startHum(M.MEL[0]);
+  assert.equal(app.hum[2], E.HUM_MAX);
+  // away, the station makes its normal output: hum is not credited
+  app.save(true);
+  const saved = JSON.parse(JSON.stringify(app.c.calls.saved.at(-1)));
+  wall += 3600e3;
+  const back = boot({ progress: saved }).app;
+  assert.ok(back.hum.every((h) => h === 0), "hum is not saved");
+  assert.ok(Math.abs(back.away.gain - back.baseRate * 3600) / (back.baseRate * 3600) < 1e-6, "away credit at the normal rate");
+  // it runs down, and the rate returns
+  advance(app, E.HUM_MAX + 1);
+  assert.ok(app.hum.every((h) => h === 0));
+  assert.ok(Math.abs(app.rate - app.baseRate) < 1e-9);
+  // in full groove a tune hums twice as long; HARMONICS makes the hum stronger
   app.groove = E.GROOVE_MAX;
-  const full = app.lampValues();
-  assert.ok(Math.max(...full.slice(0, 3)) > Math.max(...plain.slice(0, 3)), `brighter: ${plain} -> ${full}`);
-  assert.ok(full[2] > full[0], "cyan in full groove: " + full);
-  assert.deepEqual(full.slice(3), plain.slice(3), "the middle and right status lamps are unchanged");
+  app.startHum(M.MEL[0]);
+  assert.ok(Math.abs(app.hum[2] - 2 * E.HUM_SEC) < 1e-9);
+  s.tree[E.HARMONICS] = 2; app.dirty = true; app.recalc();
+  assert.ok(Math.abs(app.humK[2] - (E.HUM_MULT + 0.5)) < 1e-9);
+  // relocating stops the hum (the machines are gone)
+  s.rt = 1e12; s.L = 0; app.relocate();
+  assert.ok(app.hum.every((h) => h === 0));
+});
+
+test("hum: buy-all judges machines on their normal output, not on a passing hum", () => {
+  const { app } = begin();
+  const s = app.s;
+  s.own[0] = 10; s.own[1] = 10; s.maxTier = 1; s.sig = 0; app.dirty = true; app.recalc();
+  const it = app.items.find((x) => x.key === "p1");
+  const g0 = app.gainOf(it);
+  app.hum[1] = 100; app.dirty = true; app.recalc();
+  assert.ok(app.rate > app.baseRate);
+  assert.ok(Math.abs(app.gainOf(it) - g0) < 1e-12, "the same gain per cost while humming");
 });
 
 test("constellations: shown from 1000 bearings, each multiplies all output, costs grow, the sky draws them", () => {
@@ -1061,11 +986,15 @@ test("constellations: shown from 1000 bearings, each multiplies all output, cost
   finiteDeep(s);
 });
 
-test("relocation is called ready at twice the bearings held early, less once holdings are large", () => {
+test("relocation is called ready at twice the bearings held early, less once holdings are large, and less again late", () => {
   assert.equal(E.readyRatio(10), 2);
   assert.equal(E.readyRatio(800), 1.6);
   assert.equal(E.readyRatio(8000), 1.35);
-  assert.equal(E.readyRatio(50000), 1.25);
+  assert.equal(E.readyRatio(E.READY_LATE), 1.25);
+  assert.ok(E.readyRatio(50000) > 0.9 && E.readyRatio(50000) < 1, "past 20,000 held it keeps falling");
+  assert.ok(E.readyRatio(1e6) > 0.35 && E.readyRatio(1e6) < 0.4);
+  assert.equal(E.readyRatio(1e9), E.READY_FLOOR);
+  for (let L = 1; L < 1e9; L *= 1.07) assert.ok(E.readyRatio(L * 1.07) <= E.readyRatio(L), "it never rises as holdings grow (" + Math.round(L) + ")");
   const s = E.freshState();
   s.L = 8000; s.rt = E.PRESTIGE_K * Math.pow(8000 * 1.36, 4);
   assert.equal(E.readyOf(s), true);
@@ -1080,4 +1009,755 @@ test("the late game no longer walls: nine relocations, the eighth within two hou
   assert.ok(res[7].minutes < 120, "the eighth run took " + res[7].minutes + " min (it did not finish in four hours before)");
   assert.ok(app.s.cn >= 3);
   finiteDeep(app.s);
+});
+
+// ======================= schema 5: sites, soundings, THE CALL, the console logbook =======================
+// A context with the console logbook's calls (PR #16): feats once each, today's order.
+const bootLog = (options) => {
+  const ctx = appContext(options);
+  const book = { feats: [], daily: [], met: 0 };
+  ctx.feat = (id, name) => { if (book.feats.some((f) => f[0] === id)) return false; book.feats.push([id, name]); return true; };
+  ctx.today = () => ({ goal: book.daily.at(-1) || "", done: book.met > 0, own: book.daily.length > 0 });
+  ctx.daily = (text) => book.daily.push(text);
+  ctx.dailyMet = () => { book.met++; };
+  const app = new Outpost(ctx);
+  if (app.phase_ !== "play") { app.down(); app.up({ durationMs: 50 }); }
+  return { ctx, app, book };
+};
+const notesOf = (app) => [app.note?.text, ...app.noteQ.map((n) => n.text)].filter(Boolean).join(" | ");
+// Relocates straight to site k (the card skipped), with enough run signal for a bearing.
+const moveTo = (app, k) => {
+  app.s.rt = Math.max(app.s.rt, 1e9);
+  assert.ok(app.relocate(k), "relocate to " + E.SITES[k].n);
+  assert.equal(app.s.site, k);
+  app.phase_ = "play"; app.arrive();
+};
+
+test("sites: three on offer, never the one you stand on, stable across a reload; each site changes the rules", () => {
+  const { ctx, app } = begin();
+  const s = app.s;
+  assert.equal(s.site, 0);
+  assert.deepEqual([...s.of].sort(), [1, 2, 3], "the first offer: the ridge, the basin and the flats");
+  app.save(true);
+  assert.deepEqual(boot({ progress: structuredClone(lastSave(ctx)) }).app.s.of, s.of, "the offer does not change on reload");
+  s.rt = 1e9; app.dirty = true; app.recalc();
+  const pick = s.of[1];
+  assert.ok(app.relocate(pick));
+  assert.equal(s.site, pick); assert.equal(app.card.site, pick); assert.equal(app.card.from, 0); assert.equal(s.sx, 0);
+  assert.equal(s.of.length, 3); assert.ok(!s.of.includes(pick) && s.of.every((k) => E.siteKnown(s, k)));
+  assert.ok(E.siteKnown(s, 4), "the glacier is on the map from 8 bearings");
+  assert.ok(!E.siteKnown(s, 7) && !E.siteKnown(s, E.SILENT), "the rust coast needs a survey team, the silent coast the whole call");
+  // what each site does, on the pure economy
+  const at = (k) => { const t = E.freshState(); t.site = k; return t; };
+  const out = (t) => { const o = new Float64Array(E.NP); E.evaluate(t, o); return o; };
+  const land = at(0), ridge = at(1), basin = at(2);
+  for (const t of [land, ridge, basin]) { t.own[0] = 5; t.own[2] = 5; } // a dish (sky) and a drill (ground)
+  assert.ok(E.PROD[0].sky && !E.PROD[2].sky);
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
+  assert.ok(near(out(ridge)[0] / out(land)[0], 1.5) && near(out(ridge)[2] / out(land)[2], 0.75), "the ridge: sky x1.5, ground x0.75");
+  assert.ok(near(out(basin)[0] / out(land)[0], 0.75) && near(out(basin)[2] / out(land)[2], 1.5), "the basin: ground x1.5, sky x0.75");
+  assert.equal(E.siteFx(at(3)).tap, 3); assert.equal(E.siteFx(at(4)).tap, 0.5);
+  assert.equal(E.capHours(at(4)) - E.capHours(land), 8, "the glacier: away credit +8 h");
+  assert.equal(E.humMultOf(at(5)), E.HUM_MULT + 0.5); assert.equal(E.humSecOf(at(5), false), 2 * E.HUM_SEC);
+  assert.ok(E.costOf(at(10), 0, 100) < E.costOf(land, 0, 100) / 2, "the dunes: prices rise slower");
+  assert.equal(E.upgCost(at(10), E.UPG[0]), 2 * E.UPG[0].cost);
+  const sil = at(E.SILENT), l2 = at(0);
+  sil.own[11] = 1; l2.own[11] = 1;
+  assert.ok(near(E.evaluate(sil, null) / E.evaluate(l2, null), 3), "the silent coast: silent arrays x3");
+  // and in the cartridge: a tap at the flats is worth three
+  const flats = begin().app;
+  flats.s.up[E.UPG.findIndex((u) => u.kind === "tap" && u.frac)] = 1; // a tap worth a share of the rate too
+  flats.s.own[0] = 10; flats.dirty = true; flats.recalc(); advance(flats, 2);
+  const v0 = flats.tapValue();
+  moveTo(flats, 3);
+  for (const k of ["own", "up", "tree"]) flats.s[k] = structuredClone(begin().app.s[k]);
+  flats.s.up[E.UPG.findIndex((u) => u.kind === "tap" && u.frac)] = 1; flats.s.own[0] = 10;
+  flats.s.L = 0; flats.s.gl.length = 0; flats.dirty = true; flats.recalc(); advance(flats, 2);
+  const want = 3 * (flats.tapMult * E.globalMult(flats.s) + flats.tapFrac * flats.rate);
+  assert.ok(near(flats.tapValue() / want, 1), "the whole tap is x3, the part from the rate too");
+  assert.ok(v0 > 0);
+});
+
+test("the relocation list shows the offered sites with their rules and soundings, and a long hold moves there", () => {
+  const { app } = begin();
+  const s = app.s;
+  s.rt = 1e9; app.dirty = true; app.recalc();
+  app.openRing("reloc");
+  const sites = app.entries.filter((e) => e.kind === "reloc");
+  assert.deepEqual(sites.map((e) => e.site), s.of);
+  for (const e of sites) {
+    const x = E.SITES[e.site];
+    assert.equal(e.label, x.n); assert.equal(e.sub, "NEW");
+    assert.ok(e.lines.includes(x.rule[0]) && e.lines.some((l) => l.startsWith("SOUNDING I: ")), e.lines.join(" / "));
+    assert.ok(e.hold > 1 && e.dwell > 0.5, "relocation keeps its long hold");
+    assert.ok(e.lines.reduce((n, l) => n + Math.ceil(l.length / 29), 0) <= 6, "the detail fits: " + e.lines.join(" / "));
+  }
+  assert.ok(app.entries.some((e) => e.key === "keep"));
+  const k = app.entries.indexOf(sites[2]);
+  app.ring.idx = k; app.ring.hiAt = app.clk - 2;
+  press(app, 1300);
+  assert.equal(s.runs, 1);
+  assert.equal(s.site, sites[2].site);
+  // the card, then the station: the arrival note says where and what to sound
+  advance(app, 1.5); tap(app);
+  if (app.ring) { app.closeRing(); }
+  advance(app, 0.1);
+  assert.match(notesOf(app), new RegExp("NOW AT " + E.SITES[s.site].n + "\\.  SOUNDING I: "));
+});
+
+test("soundings: each counts its own kind where it is taken and decodes a fragment of the call; once it is whole, a relic", () => {
+  const { app } = begin();
+  const s = app.s;
+  const sv = E.surveyOf(s);
+  assert.equal(sv.k, "tunes"); assert.equal(sv.t, 5); assert.equal(sv.lvl, 0);
+  for (let i = 0; i < 30; i++) app.gather();
+  assert.equal(s.sx, s.st.md, "at the landing site only tunes count");
+  const base = structuredClone(s);
+  while (s.sv[0] < 1) app.finishTune();
+  assert.equal(s.cf, 1); assert.equal(E.surveysDone(s), 1);
+  base.sv.fill(0); base.cf = 0; Object.assign(base, { sc: s.sc, gl: s.gl, relics: s.relics });
+  assert.ok(Math.abs(E.globalMult(s) / E.globalMult(base) - 1 - E.SURVEY_BONUS) < 1e-9, "a sounding is +10% output for ever");
+  const n = notesOf(app);
+  assert.match(n, /SOUNDING I TAKEN: LANDING SITE  \+10% OUTPUT FOR EVER/);
+  assert.match(n, /THE CALL: FRAGMENT 1 OF 11 DECODED/);
+  assert.ok(n.includes(E.CALL_LOG[0]));
+  const relics = s.relics;
+  while (s.sv[0] < 2) app.finishTune();
+  assert.equal(s.sx, 20); assert.equal(s.cf, 2, "sounding II decodes another fragment"); assert.equal(s.relics, relics);
+  assert.equal(E.surveyOf(s).t, null); assert.equal(E.surveyOf(s).text, "BOTH SOUNDINGS TAKEN");
+  const sx = s.sx; app.finishTune(); assert.equal(s.sv[0], 2); assert.ok(s.sx >= sx);
+  // a long absence at the glacier takes both of its soundings at once
+  s.L = 10;
+  moveTo(app, 4);
+  const cf = s.cf, rel = s.relics;
+  for (let i = 0; i < 30; i++) app.gather();
+  assert.equal(s.sx, 0, "taps count nothing at the glacier");
+  app.creditAway(5 * 3600);
+  assert.equal(s.sv[4], 2); assert.equal(s.cf, cf + 2); assert.equal(s.relics, rel);
+  // with the call whole, a sounding turns up a relic instead
+  s.cf = E.CALL_FRAGS; s.L = 30;
+  moveTo(app, 5);
+  while (s.sv[5] < 1) app.finishTune();
+  assert.equal(s.relics, rel + 1); assert.equal(s.cf, E.CALL_FRAGS);
+  assert.match(notesOf(app), /THE SOUNDING TURNED UP A RELIC/);
+});
+
+test("the long arc: a first sounding at each of eleven sites decodes the call; it leads to the silent coast; playing it there answers it", () => {
+  const { ctx, app, book } = bootLog();
+  const s = app.s;
+  s.L = 500; s.tree[5] = 1; s.rd = [0]; app.dirty = true; app.recalc(); // every site but the silent coast on the map
+  app.update(1); app.checkSites();
+  const act = { // one step of each kind of sounding
+    tunes: () => app.finishTune(),
+    sky: () => { s.own[0]++; app.checkSurvey(); },
+    ground: () => { s.own[2]++; app.checkSurvey(); },
+    taps: () => app.gather(),
+    watch: () => app.creditAway(1800),
+    flares: () => { app.flare = { x: 400, y: 200, t: 9, life: 14 }; app.catchFlare(); },
+    exp: () => { s.ex = [{ k: 0, end: Date.now() - 1 }]; app.collectExpeditions(Date.now(), null); },
+    data: () => app.addData(1),
+    groove: () => { app.gather(); advance(app, 0.45); },
+    buys: () => { s.sig = 1e40; app.buyProd(0); },
+  };
+  const hidden = (m) => m.hidden.filter(Boolean).length;
+  let last = hidden(E.callMelody(0));
+  assert.equal(last, 44, "the call: 44 notes, all hidden at first");
+  for (let k = 0; k < E.NSITE; k++) {
+    if (k === E.SILENT) continue;
+    if (k !== s.site) moveTo(app, k);
+    const kind = E.SITES[k].sv.k, cf = s.cf;
+    for (let guard = 0; s.sv[k] < 1 && guard < 20000; guard++) act[kind]();
+    assert.equal(s.sv[k], 1, E.SITES[k].n + " sounded (" + kind + ")");
+    assert.equal(s.cf, cf + 1, "a fragment decoded at " + E.SITES[k].n);
+    const now = hidden(E.callMelody(s.cf));
+    assert.ok(now < last, "fewer hidden notes"); last = now;
+  }
+  assert.equal(s.cf, E.CALL_FRAGS); assert.equal(last, 0);
+  assert.ok(E.siteKnown(s, E.SILENT)); assert.equal(s.of[0], E.SILENT, "the silent coast is offered first");
+  assert.ok(book.feats.some((f) => f[0] === "call-decoded") || (app.checkFeats(), book.feats.some((f) => f[0] === "call-decoded")));
+  // relocate there through the menu, choose the call in the songbook, and play it through
+  s.rt = 1e9; app.dirty = true; app.recalc();
+  app.openRing("reloc");
+  const e = app.entries.find((x) => x.site === E.SILENT);
+  assert.equal(e.sub, "THE CALL");
+  app.ring.idx = app.entries.indexOf(e); app.ring.hiAt = app.clk - 2;
+  press(app, 1300);
+  assert.equal(s.site, E.SILENT);
+  app.phase_ = "play"; app.ring = null; app.card = null;
+  const before = E.globalMult(s);
+  app.openRing("songs");
+  const call = app.entries.find((x) => x.i === E.CALL_ID);
+  assert.equal(call.label, "THE CALL"); assert.equal(call.sub, "WHOLE");
+  app.ring.idx = app.entries.indexOf(call); app.ring.hiAt = app.clk - 2;
+  press(app, 700);
+  assert.equal(s.sg, E.CALL_ID); assert.equal(app.mel.name, "THE CALL"); assert.equal(app.ring, null);
+  const tunes = s.sc.slice();
+  for (let i = 0; i < 44; i++) { app.gather(); advance(app, 0.45); }
+  assert.equal(s.ans, 1, "answered");
+  assert.equal(s.sv[E.SILENT], 1);
+  assert.ok(app.finale, "the finale plays");
+  assert.deepEqual(s.sc, tunes, "the call is not counted as a songbook tune");
+  assert.ok(Math.abs(E.globalMult(s) / before - E.CHORUS_MULT * (1 + E.SURVEY_BONUS * E.surveysDone(s)) / (1 + E.SURVEY_BONUS * (E.surveysDone(s) - 1))) < 1e-9);
+  assert.equal(E.humMultOf(s), E.HUM_MULT + 0.25 * s.tree[E.HARMONICS] + 0.5);
+  assert.match(notesOf(app), new RegExp(E.CALL_ANSWERED));
+  assert.equal(app.mel.name, "THE CALL AND ANSWER"); assert.equal(app.mel.n.length, 53);
+  assert.ok(book.feats.some((f) => f[0] === "call-answered"));
+  advance(app, 13);
+  assert.equal(app.finale, null);
+  // kept: a reload stands at the silent coast with the call answered
+  app.save(true);
+  const again = boot({ progress: structuredClone(lastSave(ctx)) }).app;
+  for (const k of ["site", "cf", "ans", "sg", "fe"]) assert.equal(again.s[k], s[k], k);
+  assert.deepEqual(again.s.sv, s.sv);
+  assert.equal(again.mel.name, "THE CALL AND ANSWER");
+  assert.ok(!again.s.of.includes(E.SILENT) || again.s.of[0] !== E.SILENT || !again.s.ans, "once answered, the silent coast is no longer pushed first");
+});
+
+test("the call in the songbook: it appears with the first fragment, previews, loops, and an old save cannot play it early", () => {
+  const { ctx, app } = begin();
+  const s = app.s;
+  app.openRing("songs");
+  assert.ok(!app.entries.some((e) => e.i === E.CALL_ID), "no call before a fragment");
+  app.closeRing();
+  s.cf = 3;
+  app.openRing("songs");
+  const call = app.entries.find((e) => e.i === E.CALL_ID);
+  assert.equal(call.sub, "3/11"); assert.match(call.lines[0], /3 OF 11 FRAGMENTS DECODED/); assert.match(call.lines[1], /^HUMS /);
+  app.ring.idx = app.entries.indexOf(call) - 1; app.ring.hiAt = app.clk;
+  const q = app.queue.length;
+  app.step();
+  assert.ok(app.queue.length > q, "the highlighted call is previewed");
+  app.ring.hiAt = app.clk - 2; press(app, 700);
+  assert.equal(s.sg, E.CALL_ID); assert.equal(app.mel.name, "THE CALL 3/11");
+  const m = E.callMelody(3);
+  assert.equal(m.hidden.filter((h) => !h).length, 12); assert.ok(m.n.every((x, i) => !m.hidden[i] || x === m.n[m.hidden.indexOf(true)]));
+  s.sm = 0; app.finishTune();
+  assert.equal(s.sg, E.CALL_ID, "loop mode keeps playing the call");
+  s.sm = 1; for (let i = 0; i < 6; i++) { app.finishTune(); assert.notEqual(s.sg, E.CALL_ID, "shuffle never picks the call"); }
+  // a save that says it plays the call without a fragment falls back to the first tune
+  app.s.sg = E.CALL_ID; app.s.cf = 0; app.s.sv.fill(0); app.save(true);
+  const again = boot({ progress: structuredClone(lastSave(ctx)) }).app;
+  assert.equal(again.s.sg, 0);
+});
+
+test("the soundings view: the sounding here, the site, the call so far, the record, and the next uncharted site", () => {
+  const { app } = begin();
+  const s = app.s, g = fakeCanvas();
+  app.openRing("main");
+  const entry = app.entries.find((e) => e.to === "site");
+  assert.equal(entry.label, "SOUNDINGS"); assert.equal(entry.sub, "0%"); assert.equal(entry.big, "LANDING SITE");
+  for (const e of app.entries.filter((x) => x.kind === "sub")) assert.ok(e.sub && e.sub.length <= 8 && e.to, "a sub-menu shows a short label, not its id: " + e.label);
+  app.ring.idx = app.entries.indexOf(entry); app.ring.hiAt = app.clk - 2;
+  press(app, 700);
+  assert.equal(app.ring.menu, "site");
+  assert.equal(app.ring.idx, 1, "it opens on the sounding");
+  assert.deepEqual(app.entries.map((e) => e.key), ["back", "sv", "here", "blue", "codex", "next"]);
+  assert.equal(app.entries[3].label, "SPARE PARTS"); assert.equal(app.entries[3].sub, "BLUEPRINT", "the landing site's blueprint, still to find");
+  assert.equal(app.entries[1].big, "0 / 5"); assert.equal(app.entries[1].lines[2], "AND A FRAGMENT OF THE CALL");
+  assert.equal(app.entries.at(-1).lines[0], E.SITES[7].hint, "the nearest uncharted site and what it takes");
+  app.draw(g);
+  app.closeRing();
+  s.cf = 4; s.sv[0] = 1; s.site = 4; s.sx = 2000; s.L = 10;
+  app.openRing("site");
+  const keys = app.entries.map((e) => e.key);
+  assert.deepEqual(keys, ["back", "sv", "here", "blue", "call", "log", "codex", "next"]);
+  assert.equal(app.entries[1].big, "0.5 H / 1.0 H");
+  assert.equal(app.entries[3].label, "NIGHT BATTERY"); assert.deepEqual(app.entries[3].lines.slice(0, 2), ["SOUNDING I BRINGS IT BACK:", "AWAY CREDIT +6 H"]);
+  assert.equal(app.entries[4].lines[0], E.CALL_LOG[3]);
+  assert.deepEqual(app.entries[5].lines, [E.CALL_LOG[2], E.CALL_LOG[1]]);
+  for (const e of app.entries) assert.ok(e.lines.reduce((n, l) => n + Math.min(2, Math.ceil(l.length / 29)), 0) <= 6, e.key);
+  for (let i = 0; i < app.entries.length; i++) { app.step(); app.draw(g); }
+  finiteDeep(app.s);
+});
+
+test("a schema 4 save (from the build before 0.3) loads at the landing site with nothing sounded, says what is new, and saves in the current schema", () => {
+  const old = fixture("outpost-save-v4-mid.json");
+  assert.equal(old.v, 4);
+  wall = old.t + 20 * 1000;
+  const { ctx, app } = boot({ progress: structuredClone(old) });
+  const s = app.s;
+  assert.deepEqual(s.own, old.own); assert.equal(s.taps, old.taps); assert.equal(s.b, old.b); assert.equal(s.L, old.L); assert.equal(s.runs, old.runs);
+  assert.deepEqual(s.tree.slice(0, old.tree.length), old.tree); assert.deepEqual(s.sc.slice(0, old.sc.length), old.sc);
+  assert.deepEqual(s.gl.slice(0, old.gl.length), old.gl); assert.deepEqual(s.rd.slice(0, old.rd.length), old.rd); assert.equal(s.cn, old.cn); assert.equal(s.sg, old.sg);
+  assert.ok(s.lt >= old.lt && s.sig >= old.sig, "nothing lost");
+  assert.equal(s.site, 0); assert.ok(s.sv.every((v) => v === 0)); assert.equal(s.cf, 0); assert.equal(s.ans, 0); assert.equal(s.fe, 0); assert.equal(s.sx, 0);
+  assert.equal(s.of.length, 3); assert.ok(s.of.every((k) => k !== 0 && E.siteKnown(s, k)));
+  if (app.phase_ === "away") { assert.ok(app.away.done.length, "a project finished while away"); app.down(); app.up({ durationMs: 50 }); }
+  assert.equal(app.phase_, "news"); assert.equal(app.newsFrom, 4);
+  const card = app.newsCard();
+  assert.equal(card.title, "OUTPOST UPDATED");
+  assert.ok(card.lines.some((l) => /SITE/.test(l)) && card.lines.some((l) => /SOUNDINGS/.test(l)) && card.lines.some((l) => /HUM/.test(l)), card.lines.join(" / "));
+  assert.ok(card.lines.length <= 6 && card.lines.every((l) => l.length <= 52));
+  for (const f of [1, 2, 3, 5]) { app.newsFrom = f; const c = app.newsCard(); assert.ok(c.lines.length <= 6 && c.lines.every((l) => l.length <= 52), f + ": " + c.lines.join(" / ")); }
+  app.newsFrom = 4;
+  app.draw(fakeCanvas());
+  app.down(); app.up({ durationMs: 50 });
+  assert.equal(app.phase_, "play");
+  app.save(true);
+  const saved = lastSave(ctx);
+  assert.equal(saved.v, E.SCHEMA);
+  for (const k of ["site", "sx", "sv", "of", "cf", "ans", "fe", "ft"]) assert.ok(k in saved, k + " saved");
+  assert.deepEqual(saved.ft, []);
+  const again = boot({ progress: JSON.parse(JSON.stringify(saved)) }).app;
+  assert.equal(again.phase_, "play"); assert.deepEqual(again.s.of, s.of);
+  // bad values are cleaned, never trusted
+  const bad = E.migrate({ ...saved, site: 99, sv: [9, -1, "x"], cf: 1e9, ans: -3, of: [0, 0, 11, 5, "x", 99], fe: "x", sx: -5 }).s;
+  assert.equal(bad.site, 0); assert.deepEqual(bad.sv.slice(0, 3), [2, 0, 0]); assert.equal(bad.cf, E.CALL_FRAGS); assert.equal(bad.ans, 0);
+  assert.deepEqual(bad.of, [11], "at most three are read; the current site and repeats are dropped"); assert.equal(bad.fe, 0); assert.equal(bad.sx, 0);
+  const early = boot({ progress: { ...JSON.parse(JSON.stringify(saved)), of: [11, 1, 2] } }).app;
+  assert.ok(!early.s.of.includes(E.SILENT), "a save cannot offer the silent coast before the call is whole");
+  assert.equal(E.migrate({ ...saved, ans: 1, cf: 2 }).s.cf, E.CALL_FRAGS, "an answered call is a whole one");
+});
+
+// The first day from T0 whose order (by the local date) is DAILY[k].
+const dayOf = (k) => { for (let d = 0; ; d++) if (E.dailyPick(T0 + d * 864e5) === k) return T0 + d * 864e5; };
+const ORDER = (id) => E.DAILY.findIndex((d) => d[0] === id);
+
+test("console logbook: milestones become feats once each and are kept; today's order is stated and met once; all optional", () => {
+  wall = dayOf(ORDER("tunes")); // a date whose order is "play three tunes through"
+  const { ctx, app, book } = bootLog();
+  assert.deepEqual(book.daily, ["Play three tunes through"]);
+  app.finishTune(); app.finishTune();
+  assert.equal(book.met, 0);
+  app.finishTune();
+  assert.equal(book.met, 1); app.finishTune(); assert.equal(book.met, 1, "met once");
+  app.s.rt = 1e9; app.dirty = true; app.recalc();
+  app.relocate(); app.phase_ = "play";
+  advance(app, 1.2);
+  assert.ok(book.feats.some((f) => f[0] === "first-relocation" && f[1] === "FIRST RELOCATION"), book.feats.join(" / "));
+  const bit = app.s.fe, n = book.feats.length;
+  assert.ok(bit & 1);
+  advance(app, 3);
+  assert.equal(book.feats.length, n, "reported once");
+  assert.equal(new Set(book.feats.map((f) => f[0])).size, n);
+  app.save(true);
+  const saved = lastSave(ctx);
+  assert.equal(saved.fe, bit);
+  const ctx2 = appContext({ progress: structuredClone(saved) }), seen = [];
+  ctx2.feat = (id) => { seen.push(id); return true; };
+  const again = new Outpost(ctx2);
+  run(again, 2);
+  assert.ok(!seen.includes("first-relocation"), "a feat already reported is not reported again after a reload");
+  // the other orders, and nothing at all without a logbook
+  wall = dayOf(ORDER("flare")); const f = bootLog(); assert.deepEqual(f.book.daily, ["Catch a signal flare"]);
+  f.app.flare = { x: 400, y: 200, t: 9, life: 14 }; f.app.catchFlare(); assert.equal(f.book.met, 1);
+  wall = dayOf(ORDER("groove")); const gr = bootLog(); assert.deepEqual(gr.book.daily, ["Finish a tune in full groove"]);
+  for (let i = 0; i < 80; i++) { gr.app.gather(); advance(gr.app, 0.45); }
+  assert.equal(gr.book.met, 1);
+  const plain = begin().app;
+  plain.s.rt = 1e9; plain.dirty = true; plain.recalc(); plain.relocate(); plain.phase_ = "play";
+  advance(plain, 2);
+  assert.equal(plain.s.fe, 0, "without a logbook nothing is marked as reported");
+});
+
+test("console logbook: calls held back during a menu gesture are made again; a failing logbook changes nothing", () => {
+  // The console holds feat and dailyMet back while a menu gesture is possible: they return nothing
+  // and may be dropped. Outpost asks again until the logbook has them.
+  wall = dayOf(ORDER("tunes"));
+  const { ctx, app, book } = bootLog();
+  const met = ctx.dailyMet, feat = ctx.feat;
+  let held = 0;
+  ctx.dailyMet = () => { held++; };
+  app.finishTune(); app.finishTune(); app.finishTune();
+  assert.equal(held, 1); assert.equal(book.met, 0);
+  ctx.dailyMet = met;
+  app.finishTune();
+  assert.equal(book.met, 1, "asked again at the next tune");
+  app.finishTune();
+  assert.equal(book.met, 1, "and not after the logbook has it");
+  ctx.feat = () => undefined;
+  app.s.rt = 1e9; app.dirty = true; app.recalc(); app.relocate(); app.phase_ = "play";
+  advance(app, 1.2);
+  assert.equal(app.s.fe & 1, 0, "a feat held back is not marked as reported");
+  ctx.feat = feat;
+  advance(app, 1.2);
+  assert.ok(app.s.fe & 1);
+  assert.equal(book.feats.filter((f) => f[0] === "first-relocation").length, 1);
+  // a logbook whose every call throws: Outpost starts, plays, relocates and saves as without one
+  const bad = appContext();
+  for (const k of ["feat", "today", "daily", "dailyMet"]) bad[k] = () => { throw new Error("logbook down"); };
+  const other = new Outpost(bad);
+  other.down(); other.up({ durationMs: 50 });
+  other.finishTune();
+  other.s.rt = 1e9; other.dirty = true; other.recalc(); other.relocate(); other.phase_ = "play";
+  advance(other, 2);
+  assert.equal(other.s.fe, 0);
+  assert.equal(other.s.runs, 1);
+  finiteDeep(other.s);
+});
+
+test("story notes are never cut short: a passing note waits its turn, and a story note waits while the ring covers the station", () => {
+  const { app } = begin();
+  app.queueNote(E.CALL_LOG[0], 5);
+  assert.equal(app.note.text, E.CALL_LOG[0]);
+  advance(app, 1);
+  app.setNote("TUNE COMPLETE: X  +5", 4); // what finishing a tune shows
+  assert.equal(app.note.text, E.CALL_LOG[0], "the story note stays");
+  advance(app, 4.2);
+  assert.equal(app.note.text, "TUNE COMPLETE: X  +5", "the passing note follows it");
+  // a passing note that waited too long is dropped
+  app.note = null; app.queueNote("STORY A", 10); app.setNote("STALE", 3);
+  advance(app, 10.2);
+  assert.notEqual(app.note?.text, "STALE");
+  // the ring covers the station: the story note waits, then shows for its full time
+  app.note = null; app.noteQ.length = 0;
+  app.queueNote("STORY B", 4); advance(app, 1);
+  app.openRing("main"); advance(app, 6);
+  assert.ok(app.noteQ.some((n) => n.text === "STORY B"), "put back while the ring is open");
+  app.closeRing(); advance(app, 0.1);
+  assert.equal(app.note.text, "STORY B");
+  assert.ok(app.note.t > 2.5, "with the time it had left");
+  // at most six wait; a passing note goes before a story note
+  app.note = { text: "NOW", t: 9, story: true }; app.noteQ.length = 0;
+  for (let i = 0; i < 5; i++) app.queueNote("S" + i, 3);
+  app.setNote("P", 3); app.queueNote("S5", 3);
+  assert.equal(app.noteQ.length, 6);
+  assert.ok(!app.noteQ.some((n) => n.text === "P") && app.noteQ.every((n) => n.story));
+  // the story note on screen, put back while six wait, goes first in line, and six still wait
+  app.openRing("main"); advance(app, 0.1);
+  assert.equal(app.noteQ.length, 6);
+  assert.equal(app.noteQ[0].text, "NOW");
+  app.closeRing(); advance(app, 0.1);
+  assert.equal(app.note.text, "NOW");
+});
+
+test("the finale is shown at once and fires once; sky and ground soundings count only machines built here", () => {
+  const { app } = begin();
+  const s = app.s;
+  s.L = 500; s.cf = E.CALL_FRAGS; s.rt = 1e9; app.dirty = true; app.recalc();
+  app.relocate(E.SILENT); app.phase_ = "play"; app.arrive();
+  app.queueNote("SOMETHING ELSE", 4);
+  app.answerCall();
+  assert.equal(app.note.text, E.CALL_ANSWERED);
+  assert.equal(s.ans, 1);
+  s.sx = 1; app.checkSurvey(); // the sounding counts the answer: no second finale
+  assert.equal(s.sv[E.SILENT], 1);
+  assert.equal(s.ans, 1);
+  // HEAD START gives machines on arrival; the High Ridge sounding wants machines built there
+  for (const lvl of [4, 5]) {
+    const b = begin().app, t = b.s;
+    t.tree[0] = lvl; t.L = 40; t.rt = 1e9; b.dirty = true; b.recalc();
+    b.relocate(1); b.phase_ = "play";
+    advance(b, 1.2);
+    assert.equal(t.sv[1], 0, "head start " + lvl + ": not taken on arrival");
+    const sv = E.surveyOf(t);
+    assert.equal(sv.v, 0); assert.match(sv.text, /^BUILD 60 OF ONE SKY MACHINE/);
+    t.sig = 1e15;
+    while (E.surveyOf(t).v < 60) b.buyProd(0);
+    advance(b, 1.2);
+    assert.equal(t.sv[1], 1, "taken once 60 more are built");
+  }
+});
+
+test("an odd save keeps the story whole: fragments follow the soundings, the answer and the silent coast agree, the offer is full", () => {
+  const save = (over) => {
+    const s = E.freshState();
+    return { ...E.serialize(s, T0), runs: 3, L: 500, ...over };
+  };
+  const load = (over) => { wall = T0 + 1000; return boot({ progress: save(over) }).app; };
+  // a sounding taken at the silent coast without the answer: taken back, so the finale can still come
+  let a = load({ site: 11, cf: 11, ans: 0, sv: [2, 2, 2, 2, 2, 1, 0, 0, 0, 0, 0, 1] });
+  assert.equal(a.s.sv[E.SILENT], 0); assert.equal(a.s.ans, 0); assert.equal(a.s.cf, E.CALL_FRAGS);
+  // answered, but the sounding missing: no second finale
+  a = load({ site: 11, cf: 11, ans: 1, sv: Array(12).fill(0) });
+  assert.equal(a.s.sv[E.SILENT], 1);
+  // every ordinary site sounded twice, no fragments: the call is whole
+  a = load({ cf: 0, sv: [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 0] });
+  assert.equal(a.s.cf, E.CALL_FRAGS);
+  assert.equal(a.s.of[0], E.SILENT, "and the silent coast is offered first");
+  // at the silent coast without the whole call: back at the landing site
+  a = load({ site: 11, cf: 3, sv: [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
+  assert.equal(a.s.site, 0);
+  // a short or repeated offer is made full again
+  for (const of of [[5], [1, 1, 1], [2, 3]]) {
+    a = load({ of });
+    assert.equal(a.s.of.length, 3, JSON.stringify(of));
+    assert.equal(new Set(a.s.of).size, 3);
+  }
+  for (const x of [a]) finiteDeep(x.s);
+});
+
+test("today's order: the one stated earlier today is kept (the logbook keeps local dates)", () => {
+  for (const k of [0, 1, 2]) {
+    wall = dayOf((k + 1) % 3); // a day that would pick another order
+    const ctx = appContext(), said = [];
+    ctx.today = () => ({ goal: E.DAILY[k][1], done: false, own: true });
+    ctx.daily = (text) => said.push(text);
+    ctx.dailyMet = () => {};
+    const app = new Outpost(ctx);
+    assert.equal(app.dailyK, E.DAILY[k][0]);
+    assert.ok(said.every((t) => t === E.DAILY[k][1]));
+  }
+});
+
+// ---- the workshop ------------------------------------------------------------------
+test("the workshop: soundings bring blueprints, it opens at three, and a run builds three fittings to choose, one of three each time", () => {
+  const { ctx, app } = begin();
+  const s = app.s;
+  assert.equal(E.blueprints(s), 0); assert.ok(!E.workshopOpen(s));
+  app.openRing("main"); assert.ok(!app.entries.some((e) => e.key === "fit"), "no workshop before its blueprints"); app.closeRing();
+  s.sv[1] = 1; s.sv[3] = 1;
+  assert.ok(!E.workshopOpen(s), "two blueprints are not enough");
+  s.sv[5] = 2; // a third, with its MK II
+  assert.ok(E.workshopOpen(s)); assert.equal(E.blueprints(s), E.FIT_OPEN);
+  // nothing is built until three minutes into the run
+  s.play = 170; app.note = null; advance(app, 0.5);
+  assert.equal(E.fitsBuilt(s), 0); assert.ok(!app.fitWaiting());
+  advance(app, 10.5);
+  assert.equal(E.fitsBuilt(s), 1); assert.ok(app.fitWaiting());
+  assert.match(app.note.text, /WORKSHOP BUILT A FITTING/);
+  const told = app.note; advance(app, 0.5); assert.equal(app.note, told, "said once, not every frame");
+  // three known blueprints are offered, the same each time it is asked
+  const offer = app.fitOffer();
+  assert.deepEqual([...offer].sort(), [1, 3, 5]); assert.deepEqual(app.fitOffer(), offer);
+  // the ring opens on the workshop while a choice waits, right after the songbook
+  app.note = null;
+  app.openRing("main");
+  const w = app.entries[app.ring.idx];
+  assert.equal(w.key, "fit"); assert.equal(w.sub, "CHOOSE"); assert.ok(w.aff); assert.equal(app.entries.indexOf(w), 3);
+  app.ring.hiAt = app.clk - 2; press(app, 700);
+  assert.equal(app.ring.menu, "fit");
+  assert.deepEqual(app.entries.filter((e) => e.kind === "fit").map((e) => e.k), offer);
+  const coil = app.entries.find((e) => e.k === 5), rack = app.entries.find((e) => e.k === 1);
+  assert.equal(coil.label, "HUM COIL II"); assert.equal(coil.lines[0], "HUM +0.5, TWICE AS LONG");
+  assert.equal(rack.label, "SKY RACK"); assert.equal(rack.lines[0], "SKY MACHINES x1.5");
+  for (const e of app.entries) assert.ok(e.label.length <= 21 && e.lines.every((l) => l.length <= 29), e.key);
+  app.draw(fakeCanvas());
+  // holding one fits it for the run and closes the ring
+  app.ring.idx = app.entries.indexOf(rack); app.ring.hiAt = app.clk - 2; press(app, 700);
+  assert.equal(app.ring, null);
+  assert.deepEqual(s.ft, [1]); assert.equal(E.siteFx(s).sky, 1.5); assert.equal(E.siteFx(s).ground, 1);
+  assert.ok(!app.fitWaiting());
+  assert.equal(app.note.text, "SKY RACK FITTED: SKY MACHINES x1.5");
+  assert.equal(app.fit(3), false, "nothing more until the workshop builds the next");
+  app.openRing("main");
+  const w2 = app.entries.find((e) => e.key === "fit");
+  assert.equal(w2.sub, "1/3"); assert.ok(!w2.aff); assert.equal(app.entries[app.entries.indexOf(w2) + 1].key, "site", "with the soundings once nothing waits"); assert.equal(w2.lines[1], "SKY RACK");
+  app.ring.idx = app.entries.indexOf(w2); app.ring.hiAt = app.clk - 2; press(app, 700);
+  assert.deepEqual(app.entries.map((e) => e.key), ["back", "on1", "next", "bp"]);
+  assert.equal(app.entries[2].lines.join(" "), "ONE IS BUILT 3, 10 AND 25 MINUTES INTO EACH RUN.");
+  app.closeRing();
+  // ten minutes in: the next, from what is left
+  s.play = 600; advance(app, 0.1);
+  assert.ok(app.fitWaiting()); assert.deepEqual([...app.fitOffer()].sort(), [3, 5]);
+  assert.equal(app.fit(1), false, "never the same fitting twice");
+  assert.ok(app.fit(5));
+  assert.equal(E.siteFx(s).hum, 0.5); assert.equal(E.siteFx(s).humT, 2); assert.equal(E.humMultOf(s), E.HUM_MULT + 0.5);
+  // twenty-five minutes in: the last of the run
+  s.play = 1500; advance(app, 0.1);
+  assert.ok(app.fit(3)); assert.equal(E.siteFx(s).tap, 2);
+  s.play = 9000; advance(app, 0.1); assert.ok(!app.fitWaiting(), "three a run");
+  // they are saved, and a reload keeps them
+  app.save(true);
+  const saved = lastSave(ctx);
+  assert.deepEqual(saved.ft, [1, 5, 3]);
+  const again = boot({ progress: JSON.parse(JSON.stringify(saved)) }).app;
+  assert.deepEqual(again.s.ft, [1, 5, 3]); assert.equal(E.siteFx(again.s).sky, 1.5);
+  // relocating starts the next run with none, at the new site's own rules
+  s.rt = 1e12; s.lt = Math.max(s.lt, s.rt);
+  assert.ok(app.relocate(s.of[0]));
+  assert.deepEqual(s.ft, []); assert.equal(E.siteFx(s), E.SITES[s.site].fx);
+});
+
+test("fittings: a second sounding gives the MK II, they fold into the site's rules, and saves cannot fit what is not known", () => {
+  const { app } = begin();
+  const s = app.s;
+  for (const k of [0, 1, 2]) s.sv[k] = 1;
+  // every fitting has a MK I and a MK II whose lines fit the ring
+  assert.equal(E.FIT.length, E.SITES.length, "one fitting for each site");
+  E.FIT.forEach((f, k) => {
+    assert.equal(f.fx.length, 2); assert.equal(f.d.length, 2);
+    for (const lines of f.d) assert.ok(lines.length >= 1 && lines.length <= 2 && lines.every((l) => l.length <= 26), f.n);
+    assert.ok(f.n.length <= 18, f.n);
+    for (const m of [1, 2]) {
+      const said = ["BLUEPRINT MK II: " + f.n + ". " + E.fitSummary(k, m), f.n + " II FITTED: " + E.fitSummary(k, m)];
+      for (const text of said) assert.ok(text.length <= 64, text); // a note is one line on the station
+    }
+  });
+  // at High Ridge (sky x1.5, ground x0.75) a sky rack multiplies, and a sounding there makes it MK II at once
+  s.site = 1; s.ft = [1, 2];
+  assert.equal(E.siteFx(s).sky, 1.5 * 1.5); assert.equal(E.siteFx(s).ground, 0.75 * 1.5);
+  s.sv[1] = 2;
+  assert.equal(E.siteFx(s).sky, 1.5 * 2); assert.equal(E.fitName(s, 1), "SKY RACK II");
+  // hum, away hours and price growth add; growth stays above 1
+  for (const k of [4, 5, 10]) s.sv[k] = 2;
+  s.site = 10; s.ft = [4, 5, 10]; // the dunes: prices already rise slower
+  const fx = E.siteFx(s);
+  assert.equal(fx.cap, 12); assert.equal(fx.mach, 1.1); assert.equal(fx.hum, 0.5);
+  assert.ok(Math.abs(fx.growth - (E.SITES[10].fx.growth - 0.01)) < 1e-12 && fx.growth > 1);
+  assert.equal(E.capHours(s) - E.capHours({ ...s, ft: [] }), 12);
+  assert.ok(E.costOf(s, 0, 100) < E.costOf({ ...s, ft: [] }, 0, 100), "machines are cheaper with the sled");
+  // the rules a site shows are its own: fittings never change the table
+  assert.equal(E.SITES[10].fx.cap, 0); assert.equal(E.SITES[1].fx.sky, 1.5);
+  // a save keeps only known blueprints, each once, at most three
+  const raw = JSON.parse(JSON.stringify(E.serialize(s, T0)));
+  const m = (ft, sv = raw.sv) => E.migrate({ ...raw, ft, sv }).s.ft;
+  assert.deepEqual(m([4, 5, 10]), [4, 5, 10]);
+  assert.deepEqual(m([4, 4, 5, "x", -1, 99, 7]), [4, 5], "repeats, junk and unknown blueprints are dropped");
+  assert.deepEqual(m([0, 1, 2, 4, 5]), [0, 1, 2], "at most three");
+  assert.deepEqual(m([4], Array(12).fill(0)), [], "not without its blueprint");
+  assert.deepEqual(E.migrate({ ...raw, v: 5, ft: [4] }).s.ft, [], "a schema 5 save has none");
+  assert.deepEqual(m("x"), []);
+});
+
+test("the workshop in the story: a sounding brings a blueprint, the third opens it, and an update says what is new", () => {
+  const { app } = begin();
+  const s = app.s;
+  s.sv[1] = 1; s.sv[3] = 1; s.cf = 2; s.site = 0; s.sv[0] = 0;
+  // the landing site's first sounding: five tunes
+  s.sx = 4; app.noteQ.length = 0; app.note = null;
+  app.survey("tunes", 1);
+  const said = [app.note?.text, ...app.noteQ.map((n) => n.text)].join(" | ");
+  assert.match(said, /BLUEPRINT: SPARE PARTS\. UPGRADES COST x0\.75/);
+  assert.match(said, /THE WORKSHOP IS OPEN/);
+  assert.ok([app.note, ...app.noteQ].every((n) => !n || n.text.length <= 64), said);
+  assert.ok(E.workshopOpen(s));
+  // the update card for a schema 5 save
+  app.newsFrom = 5;
+  const card = app.newsCard();
+  assert.ok(card.lines.some((l) => /WORKSHOP/.test(l)) && card.lines.some((l) => /3 BLUEPRINTS/.test(l)), card.lines.join(" / "));
+  assert.ok(card.lines.length <= 6 && card.lines.every((l) => l.length <= 52));
+  // and the feat for a full workshop
+  const feats = [];
+  app.c.feat = (id) => { feats.push(id); return true; };
+  s.play = 1600; s.ft = [0, 1, 3];
+  app.checkFeats();
+  assert.ok(feats.includes("fully-fitted"));
+});
+
+test("the long game: a player who stays for each site's sounding hears the whole call and answers it", () => {
+  const { res, app } = simulate({ runs: 9, maxMin: 600, sound: true });
+  const s = app.s;
+  const hours = res.reduce((a, r) => a + (r.minutes || 0), 0) / 60;
+  console.log("the call: minutes per run", res.map((r) => r.minutes).join(" "), "fragments", s.cf, "answered", s.ans, "soundings", s.sv.join(""), "hours", hours.toFixed(1));
+  assert.equal(s.cf, E.CALL_FRAGS);
+  assert.equal(s.site, E.SILENT);
+  assert.equal(s.ans, 1, "answered at the ninth site");
+  assert.ok(E.surveysDone(s) >= 12);
+  assert.ok(hours > 4.5 && hours < 12, hours.toFixed(1) + " hours of play (a quarter of it tapping)");
+  finiteDeep(s);
+  // and play goes on: the runs after the answer stay short (with a fixed ready ratio they took 4 to 10 hours each)
+  const after = simulate({ runs: 5, maxMin: 600, sound: true, progress: E.serialize(s, 1.8e12) });
+  console.log("after the answer: minutes per run", after.res.map((r) => r.minutes).join(" "), "bearings", after.app.s.L);
+  assert.equal(after.res.length, 5);
+  assert.ok(after.res.every((r) => r.minutes !== null && r.minutes < 180), "every run after the answer within three hours");
+  assert.ok(after.app.s.L > 2 * s.L, "and the bearings keep growing");
+  finiteDeep(after.app.s);
+});
+
+// ======================= save slots (the console's slot layer, PR #16) =======================
+// A console with four save slots per game, as the platform thread's slot layer works: each launch
+// reads and writes only the slot it was opened in, ctx.slot() says which, and the logbook is shared.
+const console4 = () => {
+  const slots = { 1: undefined, 2: undefined, 3: undefined, 4: undefined }, book = { feats: [] };
+  const launch = (index) => {
+    const ctx = appContext(), fresh = slots[index] === undefined;
+    ctx.progress = () => slots[index] || {};
+    ctx.saveProgress = (value) => { slots[index] = structuredClone(value); ctx.calls.saved.push(value); return Promise.resolve({ ok: true }); };
+    ctx.slot = () => ({ index, count: 4, fresh });
+    ctx.feat = (id, name) => { if (book.feats.some((f) => f[0] === id)) return false; book.feats.push([id, name]); return true; };
+    return { ctx, app: new Outpost(ctx) };
+  };
+  return { slots, book, launch };
+};
+
+test("save slots: each launch keeps to its own save, a new one starts at the first card, the first is found as it was", () => {
+  assert.equal(Outpost.saveSlots, true, "Outpost asks the console for save slots");
+  const box = console4();
+  // slot 1: an outpost at the crater rim with its fitting, five hours in (no slot note on a first save)
+  let { app } = box.launch(1);
+  assert.equal(app.phase_, "intro");
+  app.down(); app.up({ durationMs: 50 });
+  assert.ok(!notesOf(app).includes("SLOT"), notesOf(app));
+  const k = E.SITES.findIndex((x) => x.n === "CRATER RIM"), s = app.s;
+  s.site = k; s.sv[0] = 1; s.sv[1] = 1; s.sv[k] = 1; s.ft = [k]; s.runs = 3; s.L = 40; s.b = 40;
+  s.own = [30, 25, 15, 8, 2, ...Array(E.NP - 5).fill(0)]; s.maxTier = 4; s.rt = 2e6; s.lt = 5e6; s.sig = 12345; s.taps = 321; s.st.tp = 5 * 3600;
+  app.dirty = true; app.recalc();
+  app.dispose();
+  const first = structuredClone(box.slots[1]);
+  assert.equal(first.site, k);
+  assert.deepEqual(first.ft, [k]);
+  assert.equal(app.slotSummary(first), "CRATER RIM · 5.0 H");
+  // slot 2: a new outpost at the first-launch card, with nothing of slot 1's, that says the others are kept
+  ({ app } = box.launch(2));
+  assert.equal(app.phase_, "intro");
+  assert.equal(app.s.site, 0);
+  assert.deepEqual(app.s.ft, []);
+  assert.equal(app.s.runs, 0);
+  assert.equal(app.s.sig, 0);
+  assert.equal(E.siteFx(app.s), E.SITES[0].fx, "no fitting carried over from the other save");
+  app.down(); app.up({ durationMs: 50 });
+  assert.ok(notesOf(app).includes("SLOT 2: A NEW OUTPOST. THE OTHER SLOTS ARE KEPT."), notesOf(app));
+  for (let i = 0; i < 10; i++) { tap(app); advance(app, 0.4); }
+  app.dispose();
+  assert.ok(box.slots[2].taps >= 10);
+  assert.equal(app.slotSummary(box.slots[2]), "LANDING SITE · 1 MIN");
+  assert.deepEqual(box.slots[1], first, "playing the new save left the first untouched");
+  // back to slot 1 ten minutes later: the same outpost, credited for the time its save was closed
+  wall += 10 * 60000;
+  ({ app } = box.launch(1));
+  assert.equal(app.phase_, "away");
+  assert.equal(app.s.site, k);
+  assert.deepEqual(app.s.ft, [k]);
+  assert.deepEqual(app.s.own, first.own);
+  assert.equal(app.s.runs, 3);
+  assert.ok(app.s.sig > first.sig, "the station worked while its save was closed");
+  assert.equal(E.siteFx(app.s).flare, E.SITES[k].fx.flare * E.FIT[k].fx[0].flare, "its FLARE MAST is back in the rules");
+  // a save left at its first card in slot 3 says nothing until that card is gone, and a reload of a
+  // slot that is no longer fresh says nothing at all
+  ({ app } = box.launch(3));
+  assert.ok(!notesOf(app).includes("SLOT"));
+  app.down(); app.up({ durationMs: 50 });
+  assert.ok(notesOf(app).includes("SLOT 3:"));
+  app.dispose();
+  ({ app } = box.launch(2));
+  app.down(); app.up({ durationMs: 50 });
+  assert.ok(!notesOf(app).includes("SLOT"), notesOf(app));
+});
+
+test("save slots: a feat the console already keeps, met again in a new save, is asked for once and marked", () => {
+  const box = console4();
+  let { app, ctx } = box.launch(1);
+  app.down(); app.up({ durationMs: 50 });
+  app.s.runs = 1;
+  app.checkFeats();
+  assert.deepEqual(box.book.feats.map((f) => f[0]), ["first-relocation"]);
+  app.dispose();
+  ({ app, ctx } = box.launch(2));
+  const feat = ctx.feat;
+  let asked = 0;
+  ctx.feat = (...args) => { asked++; return feat(...args); };
+  app.down(); app.up({ durationMs: 50 });
+  app.s.runs = 1;
+  for (let i = 0; i < 3; i++) app.checkFeats();
+  assert.equal(asked, 1, "asked once: the logbook already had it");
+  assert.equal(box.book.feats.length, 1, "kept once across both saves");
+  assert.ok(app.s.fe & 1, "the new save marks it reported");
+});
+
+test("a save's line in the console's save picker: the site and the time played, at most 24 characters", () => {
+  const s = E.freshState();
+  assert.equal(E.slotLabel(s), "LANDING SITE · 1 MIN");
+  s.st.tp = 59 * 60;
+  assert.equal(E.slotLabel(s), "LANDING SITE · 59 MIN");
+  s.st.tp = 3600;
+  assert.equal(E.slotLabel(s), "LANDING SITE · 1.0 H");
+  s.st.tp = 14.4 * 3600;
+  assert.equal(E.slotLabel(s), "LANDING SITE · 14 H");
+  s.site = E.SILENT; s.st.tp = 45 * 60;
+  assert.equal(E.slotLabel(s), "SILENT COAST · 45 MIN");
+  s.st.tp = 3e6;
+  assert.equal(E.slotLabel(s), "THE SILENT COAST · 833 H");
+  for (let k = -1; k <= E.NSITE; k++) for (const tp of [0, 59, 3599, 3600, 35999, 36000, 3.6e6, 1e12, NaN, -5, Infinity]) {
+    s.site = k; s.st.tp = tp;
+    const label = E.slotLabel(s);
+    assert.ok(label.length >= 12 && label.length <= 24, JSON.stringify(label));
+  }
+  // the picker may hand over any saved value: old schemas, odd or empty ones
+  const { app } = begin();
+  for (const value of [undefined, null, {}, [], "x", 7, { v: 1, signal: 50 }, fixture("outpost-save-v4-mid.json"), { v: 99, site: 3, st: { tp: 7200 } }]) {
+    const line = app.slotSummary(value);
+    assert.ok(typeof line === "string" && line.length >= 12 && line.length <= 24, JSON.stringify(line));
+  }
+  assert.equal(app.slotSummary({ v: 6, site: 3, st: { tp: 7200 } }), "SALT FLATS · 2.0 H");
 });

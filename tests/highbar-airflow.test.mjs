@@ -4,17 +4,12 @@ import { HighBar, migrateSave } from "../web/apps/highbar.js";
 import { PARKS, MAX_SPEED, SWING_CAP, SWING_OMEGA } from "../web/apps/highbar-content.js";
 import { InputRouter } from "../web/engine/input.js";
 import { appContext, run } from "./helpers/app-context.mjs";
+import { SKY_ROUTES as ROUTES } from "./helpers/highbar-flow-routes.mjs";
 
 const DT = 1 / 60;
-// Independent recordings from ordinary drop-ins. A feedback pilot observed the
-// software rider every100ms; these are real edges, never injected route state.
-// All finish by releasing, descending, landing and rolling to bank the chain.
-const ROUTES = [
-  { park: 0, frames: 1043, input: "D0 U42 D48 U78 D84 U144 D150 U210 D258 U288 D294 U324 D330 U348 D354 U384 D390 U480 D486 U546 D636 U666 D672 U726 D732 U738 D744 U804 D810 U870" },
-  { park: 1, frames: 1150, input: "D0 U42 D48 U78 D84 U144 D216 U258 D264 U276 D282 U312 D318 U348 D354 U390 D396 U414 D432 U462 D468 U528 D630 U660 D666 U672 D678 U732 D738 U744 D750 U804 D810 U822 D828 U858 D864 U876 D882 U912 D918 U978" },
-  { park: 2, frames: 1087, input: "D0 U42 D48 U78 D84 U138 D144 U174 D180 U186 D192 U246 D252 U258 D264 U306 D312 U318 D324 U354 D360 U390 D396 U426 D432 U462 D468 U528 D612 U642 D648 U702 D708 U720 D726 U756 D762 U822 D918 U924" },
-  { park: 3, frames: 1214, input: "D0 U42 D48 U54 D60 U90 D96 U156 D240 U270 D276 U336 D342 U348 D354 U408 D414 U420 D426 U498 D504 U534 D540 U660 D666 U672 D678 U750 D756 U816 D900 U930 D936 U984" },
-];
+// Current ordinary-input recordings recharge on decks between aerial chains.
+// The old boost-era eight-second free-flight recordings are historical. Test
+// useful sustained upper transfers and banking under dissipative web physics.
 function ride(park = 0, mode = 2, start = 0) {
   const ctx = appContext({ settings: { knock: "medium" }, boardLed: true });
   const app = new HighBar(ctx); app.slot().guided = true;
@@ -22,20 +17,24 @@ function ride(park = 0, mode = 2, start = 0) {
   app.parkId = park; app.mode = mode; app.practiceStart = start; app.start();
   return { app, ctx };
 }
-function airborneFixture(app, distance = 100) {
-  const [bx, by] = app.park().bars[0];
+function airborneFixture(app, distance = 100, bar = 0) {
+  const [bx, by] = app.park().bars[bar];
   Object.assign(app.p, { mode: "air", x: bx + distance * 0.6, y: by + distance * 0.8,
     vx: 100, vy: 0, rot: 0, rotV: 0, vert: 0, lastBar: -1 });
   app.air = { t: 0.4, rot: 0, x0: app.p.x, xMin: app.p.x, xMax: app.p.x,
     y0: app.p.y, apex: app.p.y, fromBar: -1, ollie: true, vert: false, dir: 1 };
 }
 
-for (const route of ROUTES) test(`ordinary park ${route.park + 1} drop-in sustains high multi-catch flight, flips, then banks the same chain`, () => {
+for (const route of ROUTES) test(`ordinary park ${route.park + 1} drop-in sustains upper multi-catch flight and banks the same combo`, () => {
   const { app, ctx } = ride(route.park, 0), beforeSave = structuredClone(app.save);
-  let chain = 0, free = 0, minY = Infinity, bars = new Set(), witness = null, banked = false;
+  app.slot().line = 3;
+  const upper = PARKS[route.park].floor - Math.min(...PARKS[route.park].platforms.map(p => p.y));
+  const sky = PARKS[route.park].gaps.find(g => g.t === "sequence");
+  const eligible = new Set();
+  let chain = 0, free = 0, minY = Infinity, bars = new Set(), banked = false;
   const originalBank = app.bank.bind(app);
   app.bank = () => {
-    if (witness && app.combo.transfers >= witness.transfers && app.combo.maxFlip >= witness.flip) banked = true;
+    if (eligible.has(app.combo) && app.combo.gaps.includes(sky.id)) banked = true;
     originalBank();
   };
   const events = route.input.split(" ").map(s => [+s.slice(1), s[0]]); let next = 0;
@@ -43,7 +42,8 @@ for (const route of ROUTES) test(`ordinary park ${route.park + 1} drop-in sustai
     while (events[next]?.[0] === frame) {
       const [, action] = events[next++];
       if (action === "D") app.down({ source: "node" });
-      else app.up({ source: "node", durationMs: (app.t - app.pt) * 1000 });
+      else if (action === "U") app.up({ source: "node", durationMs: (app.t - app.pt) * 1000 });
+      else app.knock();
     }
     app.update(DT);
     const p = app.p;
@@ -57,15 +57,14 @@ for (const route of ROUTES) test(`ordinary park ${route.park + 1} drop-in sustai
     if (p.mode === "air" || p.mode === "bar") {
       chain += DT; if (p.mode === "air") free += DT; minY = Math.min(minY, p.y);
       const height = PARKS[route.park].floor - minY;
-      if (!witness && chain > 8 && free > 8 && bars.size >= 3 && app.combo.transfers > 2 && app.combo.maxFlip >= 1
-        && height > (route.park === 2 ? 1000 : 700)) witness = { transfers: app.combo.transfers, flip: app.combo.maxFlip, height };
+      if (chain > 3 && free > 1 && bars.size >= 3 && height > upper) eligible.add(app.combo);
     } else { chain = 0; free = 0; minY = Infinity; bars = new Set(); }
   }
-  assert.ok(witness, "multiple real catches and flips must build height during one continuous suspended chain");
+  assert.ok(eligible.size, "a continuous upper chain must link real catches above the highest skate deck");
   assert.equal(banked, true, "the qualifying chain must land and bank, not an earlier unrelated combo");
   assert.equal(app.stats.bails, 0); assert.ok(app.score > 0); assert.equal(app.p.mode, "ground");
   assert.equal(ctx.calls.score.length, 0); app.finish(); app.guard.settle();
-  assert.ok(ctx.calls.score.some(([value, metric]) => value === app.score && metric === "flow-v4"));
+  assert.ok(ctx.calls.score.some(([value, metric]) => value === app.score && metric === "flow-v5"));
   assert.deepEqual(app.slot().styleBest, beforeSave.slots[0].styleBest, "changed physics must not rewrite style-v2 records");
   assert.equal(app.slot().flowBest[route.park], app.score);
 });
@@ -82,7 +81,7 @@ test("a plain hold builds useful speed on every authored flat start, while passi
   }
 });
 
-test("an ordinary drop-in responds to pumping immediately without changing initial press-to-catch semantics", () => {
+test("an ordinary drop-in responds to pushing immediately without starting an airborne catch", () => {
   for (let park = 0; park < 4; park++) {
     const { app } = ride(park); const speed = Math.abs(app.p.s);
     app.down({ source: "node" }); run(app, 0.3);
@@ -102,17 +101,18 @@ test("a released or cancelled pending catch never grabs later", () => {
 
 test("holding before a bar approaches does not invent a buffered catch; a fresh press still catches it", () => {
   const { app } = ride(); airborneFixture(app);
-  const [bx, by] = app.park().bars[0]; Object.assign(app.p, { x: bx - 240, y: by + 45, vx: 300 });
-  app.down({ source: "node" }); assert.equal(app.pending, null); run(app, 0.2);
+  const [bx, by] = app.park().bars[0]; Object.assign(app.p, { x: bx - 300, y: by + 45, vx: 300, vy: -100 });
+  app.down({ source: "node" }); assert.equal(app.pending, null); run(app, 0.4);
   assert.equal(app.p.mode, "air"); assert.equal(app.pickBar(), 0);
-  app.up({ source: "node", durationMs: 200 }); app.down({ source: "node" }); run(app, 0.1);
+  app.up({ source: "node", durationMs: 400 }); app.down({ source: "node" }); run(app, app.catchDelay() + DT);
   assert.equal(app.p.mode, "bar"); assert.equal(app.p.bar, 0);
 });
 
-test("a short-radius catch stays readable and bounded through pumping, regrip and release", () => {
-  const { app } = ride(); airborneFixture(app, 50); app.p.vx = 900;
-  app.down({ source: "node" }); run(app, 0.1); assert.equal(app.p.mode, "bar");
-  assert.ok(app.p.r < 100);
+test("a short-radius catch stays readable and bounded through swinging, regrip and release", () => {
+  // An upper post isolates short-radius limits from real deck interceptions.
+  const { app } = ride(); airborneFixture(app, 50, 8); app.p.vx = 450;
+  app.down({ source: "node" }); run(app, app.catchDelay() + DT); assert.equal(app.p.mode, "bar");
+  assert.ok(app.p.r < 200, "the catch uses the actual radius after the held-press interval");
   for (let frame = 0; frame < 120; frame++) {
     if (frame === 18) app.knock(); app.update(DT);
     assert.equal(app.p.mode, "bar"); assert.ok(Math.abs(app.p.om) <= 7 + 1e-9);
@@ -122,9 +122,9 @@ test("a short-radius catch stays readable and bounded through pumping, regrip an
   assert.ok(Math.hypot(app.p.vx, app.p.vy) <= SWING_CAP + 1e-9);
 });
 
-test("a restored swing without a held button gets gravity, while a fresh hold adds leg drive", () => {
+test("a restored swing and a held swing both receive gravity without a hold-powered boost", () => {
   const passive = ride().app, pumping = ride().app;
-  airborneFixture(passive); passive.down({ source: "node" }); run(passive, 0.1);
+  airborneFixture(passive); passive.down({ source: "node" }); run(passive, passive.catchDelay() + DT);
   assert.equal(passive.p.mode, "bar");
   // A menu rewind retains the physical bar state and consumes the held button.
   // Isolate that state from the drive comparison; it is not a route witness.
@@ -132,7 +132,7 @@ test("a restored swing without a held button gets gravity, while a fresh hold ad
   pumping.p = structuredClone(passive.p); pumping.down({ source: "node" });
   run(passive, 0.1); run(pumping, 0.1);
   assert.equal(passive.p.mode, "bar"); assert.equal(pumping.p.mode, "bar");
-  assert.ok(Math.abs(passive.p.om) <= 0.4); assert.ok(pumping.p.om > passive.p.om + 0.2);
+  assert.ok(Math.abs(passive.p.om) <= 0.4); assert.equal(pumping.p.om, passive.p.om);
 });
 
 test("flow migration preserves all three legacy careers and archives score/time PBs exactly once within the service budget", () => {
@@ -143,7 +143,7 @@ test("flow migration preserves all three legacy careers and archives score/time 
     lineTimeBest: PARKS.map(() => [127.99, 127.98, 127.97]), lineMedals: PARKS.map(() => [3, 3, 3]),
     last: { score: 1e9, combo: 1e9, park: "界".repeat(24) } })) };
   const original = structuredClone(old), save = migrateSave(old);
-  assert.equal(save.slot, 2); assert.equal(save.schema, 4); assert.equal(save.scoreVersion, "flow-v4");
+  assert.equal(save.slot, 2); assert.equal(save.schema, 5); assert.equal(save.scoreVersion, "flow-v5");
   for (let i = 0; i < 3; i++) {
     const slot = save.slots[i];
     for (const key of ["runs", "clean", "park", "goals", "lines", "medals", "best", "styleBest", "last"]) assert.deepEqual(slot[key], old.slots[i][key]);

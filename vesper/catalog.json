@@ -27,7 +27,8 @@
         "outpost",
         "drift",
         "ballista",
-        "wayfinder"
+        "wayfinder",
+        "cairn"
       ]
     },
     {
@@ -322,11 +323,11 @@
     },
     {
       "id": "highbar",
-      "scoreMetric": "flow-v4",
+      "scoreMetric": "flow-v5",
       "name": "HIGH BAR",
       "subtitle": "A little spider. A very big sky.",
-      "description": "Ride a skateboarding spider through four vertical parks. Build speed, swing high, and connect upper posts with flips and case-tap style. Sixteen challenges include four sky routes built around sustained aerial chains, with bronze, silver and gold mastery. Untimed practice is available; three private save slots preserve your career and earlier records.",
-      "controls": "HOLD / RELEASE: RIDE · CASE TAP: STYLE · HOLD ON TITLE: SETUP",
+      "description": "Ride a skateboarding spider through four vertical parks. Build speed on concrete, conserve it through web swings, and land on upper decks to climb again. Hold to catch; quick press then hold to flip. Case taps add shove-its and kickflips. Sixteen line challenges reward clean, varied riding; three private careers retain earlier achievements and records.",
+      "controls": "HOLD: GRAB · RELEASE: LET GO · PRESS THEN HOLD: FLIP · CASE: SHOVE-IT",
       "category": "PLAY / TRICKS",
       "glyph": 3,
       "factory": "HighBar",
@@ -347,6 +348,20 @@
         "combo": "Best combo",
         "park": "Park"
       }
+    },
+    {
+      "id": "cairn",
+      "name": "CAIRN",
+      "subtitle": "One small climber. A long way down.",
+      "description": "Climb a fixed mountain of narrow shelves with deliberate charged jumps. Hold to charge, release to jump; a short button press or case tap turns you around. No steering in the air. Misses can cost a long climb, with two rare permanent cairns preserving major milestones. Reach the summit, then return to master the route.",
+      "controls": "HOLD: CHARGE · RELEASE: JUMP · SHORT PRESS / CASE: TURN",
+      "category": "PLAY / PRECISION CLIMB",
+      "glyph": 4,
+      "factory": "Cairn",
+      "voice": ["cairn", "climb", "climber"],
+      "capabilities": ["button", "knock", "lights", "audio", "progress"],
+      "icon": "<path d=\"M4 43L16 25L22 31L32 7L44 43ZM27 17H36M13 30H21M24 37H41\"/><circle cx=\"29\" cy=\"4\" r=\"2\"/>",
+      "record": {"height": "Height / m", "seconds": "Ascent / s"}
     },
     {
       "id": "twinbeat",

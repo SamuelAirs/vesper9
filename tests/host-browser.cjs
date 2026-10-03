@@ -258,13 +258,13 @@ let browser;
   const records = await page.evaluate(() => {
     const scores = vesper.state.scores;
     try {
-      vesper.state.scores = { highbar: 999999, 'highbar:style-v2': 99999, 'highbar:flow-v3': 9999, 'highbar:flow-v4': 321, 'wayfinder:region-0': 123, 'wayfinder:region-2': 9999 };
+      vesper.state.scores = { highbar: 999999, 'highbar:style-v2': 99999, 'highbar:flow-v3': 9999, 'highbar:flow-v4': 999, 'highbar:flow-v5': 321, 'wayfinder:region-0': 123, 'wayfinder:region-2': 9999 };
       vesper.page = 0; vesper.buildHome();
       return { style: vesper.primaryBest('highbar'), scout: vesper.primaryBest('wayfinder'),
         label: document.querySelector('[data-app="wayfinder"] .card-stat').textContent };
     } finally { vesper.state.scores = scores; vesper.cardStats(); }
   });
-  check('flow scoring keeps both earlier High Bar records and region records separate', records.style === 321 && records.scout === 123 && records.label === 'SCOUT BEST 123', JSON.stringify(records));
+  check('flow scoring keeps all earlier High Bar records and region records separate', records.style === 321 && records.scout === 123 && records.label === 'SCOUT BEST 123', JSON.stringify(records));
 
   const gameMenus = await page.evaluate(() => {
     return ['crawlspace', 'supper', 'pocketlinks', 'nightgrid'].map(id => {

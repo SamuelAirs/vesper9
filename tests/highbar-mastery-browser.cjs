@@ -10,7 +10,7 @@ const data = fs.mkdtempSync(path.join(os.tmpdir(), 'vesper-highbar-mastery-'));
 fs.mkdirSync(output, { recursive: true });
 execFileSync(python, ['-c', `from vesper.storage import Store
 import sys
-s=Store(sys.argv[1]);s.put('progress',{'highbar':{'schema':3,'slot':0,'slots':[{'scoreVersion':'style-v2','guided':False,'goals':[[0,1,2],[0,1,2],[0,1,2],[]],'styleBest':[999999,999999,999999,999999]},{'scoreVersion':'flow-v3','flowBest':[555555,0,0,0],'legacyRecords':{'styleV2':{'styleBest':[111111,0,0,0]}}}]}});s.close()`, data], { cwd: root, windowsHide: true });
+s=Store(sys.argv[1]);s.put('progress',{'highbar':{'schema':4,'slot':0,'slots':[{'scoreVersion':'style-v2','guided':False,'goals':[[0,1,2],[0,1,2],[0,1,2],[]],'styleBest':[999999,999999,999999,999999]},{'scoreVersion':'flow-v3','flowBest':[555555,0,0,0],'legacyRecords':{'styleV2':{'styleBest':[111111,0,0,0]}}},{'scoreVersion':'flow-v4','flowBest':[333333,0,0,0],'lineTimeBest':[[1,2,3,4]]}]}});s.close()`, data], { cwd: root, windowsHide: true });
 const port = require('./free-port.cjs')(), origin = 'http://127.0.0.1:' + port;
 const server = spawn(python, ['-m', 'vesper.server', '--simulate', '--http-port', String(port), '--data', data], { cwd: root, windowsHide: true });
 let logs = '', browser, page;
@@ -61,7 +61,7 @@ const check = (name, ok, detail) => { results.push({ name, ok: !!ok, detail }); 
       lesson: a.lesson, lessonCue: a.lessonCue(), landing: a.landing, style: a.styleNotice, n: a.n() };
   });
   const advice = async label => {
-    const s = await sample(), labels = { build: 'BUILD', rise: 'UPWARD', travel: 'CROSS', fall: 'WAIT' };
+    const s = await sample(), labels = { rise: 'UPWARD', travel: 'CROSS', fall: 'DOWNWARD' };
     check(label + ' screen uses the shared launch and landing advice',
       (!s.launch || s.words.includes(labels[s.launch.phase])) && (!s.flight || s.words.includes(s.flight.urgent ? 'RELEASE' : { clean: 'CLEAN', safe: 'SAFE', sketchy: 'SKETCHY', bail: 'LAND RISK' }[s.flight.kind])) && s.cacheReused, s);
     if (s.n === 4 && s.launch) {
@@ -103,14 +103,14 @@ const check = (name, ok, detail) => { results.push({ name, ok: !!ok, detail }); 
     },route);
     await page.keyboard.down('Space'); await page.waitForFunction(() => !!vesper.input.press); await page.waitForTimeout(800); await page.keyboard.up('Space'); await page.waitForFunction(() => vesper.app.phase==='play');
     if (route.line === 3) { await page.waitForFunction(() => vesper.app.p.mode === 'bar', null, {timeout: 5000}); await shot('sky-spider-attached-' + route.park); await advice('sky catch ' + route.park); await layout('sky catch ' + route.park); }
-    if (route.line === 3) { await page.waitForFunction(()=>vesper.app.p.mode==='air'&&vesper.app.park().floor-vesper.app.p.y>700,null,{timeout:12000}); await shot('sky-route-air-' + route.park); await layout('upper sky route ' + route.park); }
+    if (route.line === 3) { await page.waitForFunction(()=>vesper.app.p.mode==='air'&&vesper.app.park().floor-vesper.app.p.y>700,null,{timeout:route.frames / 60 * 1000 + 5000}); await shot('sky-route-air-' + route.park); await layout('upper sky route ' + route.park); }
     await page.waitForFunction(() => __masteryRoute.done, null, { timeout: route.frames / 60 * 1000 + 12000 });
     const result = await page.evaluate(() => __masteryRoute); routes.push({ park: route.park, line: route.line, ...result }); return result;
   };
   await page.evaluate(() => vesper.launch('highbar')); await shot('title');
   const migration = await page.evaluate(() => ({ schema: vesper.app.save.schema, current: vesper.app.slot().flowBest,
-    style: vesper.app.save.slots[0].legacyRecords.styleV2.styleBest[0], flow: vesper.app.save.slots[1].legacyRecords.flowV3.flowBest[0], oldStyle: vesper.app.save.slots[1].legacyRecords.styleV2.styleBest[0], total: vesper.app.masteryTotal() }));
-  check('current rules preserve both historical epochs and expand mastery', migration.schema === 4 && migration.current.every(n => n === 0) && migration.style === 999999 && migration.flow === 555555 && migration.oldStyle === 111111 && migration.total === 48, migration);
+    style: vesper.app.save.slots[0].legacyRecords.styleV2.styleBest[0], flow: vesper.app.save.slots[1].legacyRecords.flowV3.flowBest[0], oldStyle: vesper.app.save.slots[1].legacyRecords.styleV2.styleBest[0], mastery: vesper.app.save.slots[2].legacyRecords.flowV4.flowBest[0], times: vesper.app.save.slots[2].legacyRecords.flowV4.lineTimeBest[0], total: vesper.app.masteryTotal() }));
+  check('current rules preserve all three historical epochs and mastery', migration.schema === 5 && migration.current.every(n => n === 0) && migration.style === 999999 && migration.flow === 555555 && migration.oldStyle === 111111 && migration.mastery === 333333 && migration.times.join(',') === '1,2,3,4' && migration.total === 48, migration);
   const cdp = await page.context().newCDPSession(page);
   if (!process.env.TEST_ROUTE_ONLY) {
   await button(); await page.waitForFunction(() => vesper.app.phase === 'guide');
@@ -194,13 +194,13 @@ const check = (name, ok, detail) => { results.push({ name, ok: !!ok, detail }); 
     a.draw=p.originalDraw; a.update=p.originalUpdate; return {park:a.parkId, rate:4, draw:stats(p.draw),update:stats(p.update),modes:p.modes};
   }); profiles.push(activeProfile); await cdp.send('Emulation.setCPUThrottlingRate',{rate:1});
   check('actual upper-route 4x profile includes airborne forecasting', activeProfile.modes.air > 30 && activeProfile.draw.p95 + activeProfile.update.p95 < 16.7, activeProfile);
-  const observationValues=Object.values(result.observations), phaseLabels={build:'BUILD',rise:'UPWARD',travel:'CROSS',fall:'WAIT'};
+  const observationValues=Object.values(result.observations), phaseLabels={rise:'UPWARD',travel:'CROSS',fall:'DOWNWARD'};
   check('actual upper-route screen and lamps share observed release advice', observationValues.filter(s=>s.release).length >= 2 && observationValues.every(s=>!s.release || (s.words.includes(phaseLabels[s.release.phase]) && (s.release.phase==='rise' ? s.lamps[1]>s.lamps[0]&&s.lamps[1]>s.lamps[2] : s.release.phase==='travel' ? s.lamps[1]>s.lamps[0]&&s.lamps[2]>s.lamps[0] : s.lamps[0]>s.lamps[1]&&s.lamps[1]>s.lamps[2]))), result.observations);
   const earned = JSON.stringify(result.result); await page.waitForTimeout(1000); await shot('skyline-earned-settled');
   check('earned attempt remains immutable while the result settles', await page.evaluate(() => JSON.stringify(vesper.app.attemptResult)) === earned);
   await page.evaluate(() => vesper.home()); await page.waitForFunction(() => !vesper.saves.status().pending);
   await page.reload(); await page.waitForFunction(() => window.vesper?.loaded); await page.evaluate(() => vesper.launch('highbar'));
-  check('reload retains new upper-route result and selected target', await page.evaluate(() => vesper.app.slot().line === 3 && vesper.app.slot().lines[0].includes(3) && vesper.app.lineRecord().medal > 0 && vesper.app.save.schema === 4));
+  check('reload retains new upper-route result, selected target and archived records', await page.evaluate(() => vesper.app.slot().line === 3 && vesper.app.slot().lines[0].includes(3) && vesper.app.lineRecord().medal > 0 && vesper.app.save.schema === 5 && vesper.app.save.slots[2].legacyRecords.flowV4.flowBest[0] === 333333));
   await page.evaluate(() => vesper.home()); const state = await fetch(origin + '/api/state').then(r => r.json());
   check('mastery journey ends muted with no browser or host faults', state.mic.mode === 'off' && !state.device.capture && !errors.length && !(await page.evaluate(() => vesper.errors.length)), errors);
 })().catch(async e => { if(page){ await page.screenshot({path:path.join(output,'failure.png')}).catch(()=>{}); check('failure context',false,await page.evaluate(()=>({phase:vesper.app.phase,cursor:vesper.app.cursor,line:vesper.app.slot().line,mode:vesper.app.mode,pressed:vesper.app.pressed,blocked:vesper.input.blocked,input:vesper.input.press,route:window.__masteryRoute,errors:vesper.errors})).catch(()=>null));} check('complete mastery browser journey', false, String(e.stack || e)); console.error(logs.slice(-1200)); })

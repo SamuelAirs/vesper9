@@ -603,7 +603,7 @@ class Console:
                     raise ValueError("Reaction score requires a timing source")
             elif metric != "default" and metric not in {
                 "glyphs": ("scan600", "scan850", "scan1200", "scan1600"),
-                "highbar": ("style-v2", "flow-v3", "flow-v4"),
+                "highbar": ("style-v2", "flow-v3", "flow-v4", "flow-v5"),
                 "wayfinder": ("region-0", "region-1", "region-2"),
                 "twinbeat": ("assist", "sides"),
             }.get(app, ()):
@@ -616,7 +616,10 @@ class Console:
             # save slot each game is on, and "<app>#2".."<app>#4" are those slots (web/engine/slots.js).
             if not isinstance(app, str) or not progress_id(app) or not isinstance(value, dict):
                 raise ValueError("Invalid app progress")
-            if len(json.dumps(value, allow_nan=False)) > 8192:  # allow_nan=False raises ValueError on NaN/Infinity
+            # High Bar retains three careers and three historical rulesets;
+            # preserve those records instead of pruning them during migration.
+            progress_limit = 16384 if app.split("#", 1)[0] == "highbar" else 8192
+            if len(json.dumps(value, allow_nan=False)) > progress_limit:  # rejects NaN/Infinity too
                 raise ValueError("Invalid app progress")
             progress = self.store.get("progress", {})
             progress[app] = value

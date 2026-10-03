@@ -292,9 +292,25 @@ async function button(page, ms = 80) {
   assert.equal(await page.evaluate(() => vesper.meta.id), "perihelion");
   await button(page);
   assert.deepEqual(errors, []);
+  // The generated file has its own flattened module graph. Mount every factory
+  // there too, including new cartridges whose source imports can work while a
+  // missing bundled export still fails only in the standalone artifact.
+  const standalone = [];
+  for (const app of exercised) {
+    await page.evaluate(id => vesper.launch(id), app);
+    await page.waitForTimeout(100);
+    assert.equal(await page.evaluate(() => vesper.meta?.id), app);
+    await button(page);
+    await page.waitForTimeout(100);
+    assert.deepEqual(await page.evaluate(() => vesper.errors), [], "standalone " + app);
+    await page.evaluate(() => vesper.home());
+    standalone.push(app);
+  }
+  assert.deepEqual(errors, []);
   const result = {
     passed: true,
     appsExercised: exercised.size,
+    standaloneAppsExercised: standalone.length,
     checks: [
       "single-button navigation",
       "tap, tap, hold menu gesture and uninterrupted game hold",

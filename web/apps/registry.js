@@ -16,6 +16,7 @@ import {
 import { Pulsar } from "./pulsar.js";
 import { Perihelion } from "./perihelion.js";
 import { HighBar } from "./highbar.js";
+import { Cairn } from "./cairn.js";
 import { Descent } from "./descent.js";
 import { Ricochet } from "./ricochet.js";
 import { Ballista } from "./ballista.js";
@@ -39,7 +40,7 @@ import { NightGrid } from "./nightgrid.js";
 import { CARTRIDGES } from "./catalog.js";
 const FACTORIES = { OrbitLock, Moonrunner, Undertow, EchoVault, LightTrial, Relay, GlyphVault,
   MorseSchool, Timers, Transcription, Environment, Diagnostics, Settings,
-  Pulsar, Perihelion, Descent, Ricochet, Ballista, HighBar,
+  Pulsar, Perihelion, Descent, Ricochet, Ballista, HighBar, Cairn,
   Tideline, Outpost,
   Lantern, Cadence, Ephemeris, Resonance, Oracle, Telemetry, Meridian, Library, Encyclopedia, Wayfinder, Twinbeat };
 // The After Hours pack (four games built from docs/GAME-KIT.md).

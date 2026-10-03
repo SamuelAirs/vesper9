@@ -37,11 +37,11 @@ test("all four FLAT SCHOOL starts are grounded and teach the ground action witho
   }
 });
 
-test("a real linked combo earns all three Bowl gold medals on the flow-v4 score class", () => {
+test("a real linked combo earns all four Bowl gold medals on the flow-v5 score class", () => {
   const { app, ctx } = ride(1); app.slot().line = 2; app.start(); replay(app); app.guard.settle();
   assert.ok(app.score > 0); assert.ok(app.stats.banks >= 1);
   assert.ok(app.lastBank.variety >= 4); assert.ok(app.lastBank.clean >= 2);
-  assert.deepEqual(app.slot().lineMedals[0], [3, 3, 3, 0]); assert.equal(app.masteryCount(), 9);
+  assert.deepEqual(app.slot().lineMedals[0], [3, 3, 3, 3]); assert.equal(app.masteryCount(), 12);
   assert.ok(app.slot().lineComboBest[0].slice(0, 3).every(score => score > 0));
   assert.deepEqual(app.slot().lineTimeBest[0].slice(0, 2), [0, 0]);
   assert.ok(app.slot().lineTimeBest[0][2] > 0 && app.slot().lineTimeBest[0][2] <= GOLD_ROUTE.frames / 60);
@@ -132,12 +132,12 @@ test("improving an existing line medal celebrates on the board and ends within i
 });
 
 
-test("bar aiming velocity matches real ordinary and whip launches, including hold threshold and speed cap", () => {
+test("bar aiming velocity matches tangent releases without a hold-duration or whip boost", () => {
   const samples = [
     { kind: undefined, held: 0.34, r: 100, om: 4, phi: Math.PI / 6, vx: 400 * Math.cos(Math.PI / 6), vy: -200 },
     { kind: "whip", held: 0.34, r: 100, om: 4, phi: Math.PI / 6, vx: 400 * Math.cos(Math.PI / 6), vy: -200 },
-    { kind: undefined, held: 0.35, r: 100, om: 4, phi: Math.PI / 6, vx: 400 * Math.cos(Math.PI / 6), vy: -480 },
-    { kind: "whip", held: 0.35, r: 100, om: 4, phi: Math.PI / 6, vx: 448 * Math.cos(Math.PI / 6), vy: -504 },
+    { kind: undefined, held: 0.35, r: 100, om: 4, phi: Math.PI / 6, vx: 400 * Math.cos(Math.PI / 6), vy: -200 },
+    { kind: "whip", held: 0.35, r: 100, om: 4, phi: Math.PI / 6, vx: 400 * Math.cos(Math.PI / 6), vy: -200 },
     { kind: undefined, held: 1, r: 190, om: 920 / 190, phi: Math.PI / 2, vx: 0, vy: -920 },
     { kind: "whip", held: 1, r: 190, om: 920 / 190, phi: Math.PI / 2, vx: 0, vy: -920 },
   ];
@@ -151,6 +151,6 @@ test("bar aiming velocity matches real ordinary and whip launches, including hol
     assert.ok(Math.abs(aim.vy - sample.vy) < 1e-9);
     app.letGo();
     assert.equal(app.p.mode, "air");
-    assert.deepEqual({ vx: app.p.vx, vy: app.p.vy }, aim, "preview includes the same launch impulse and caps as release");
+    assert.deepEqual({ vx: app.p.vx, vy: app.p.vy }, aim, "preview preserves the same momentum and caps as release");
   }
 });

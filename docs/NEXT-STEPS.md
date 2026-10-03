@@ -1,95 +1,69 @@
 # Next steps for the finished node
 
-The current follow-up is developed on Windows in `codex/highbar-mastery`, based
-on airflow candidate `aab8aa0` and the preserved High Bar trial `60adf7a`.
-It responds to Sam's play feedback with a skateboarding spider, stronger
-acceleration, sixteen challenges with four upper sky routes and less visual clutter. It preserves the
-existing catch rules. Release `60adf7a` remains the last verified Pi trial;
-the follow-up has not been deployed. Read
-[the candidate](NODE-CONSOLE-CANDIDATE.md), [validation](VALIDATION.md),
-[the worklog](WORKLOG.md), and [the trial/rollback plan](PI-ACCEPTANCE.md).
-Earlier release notes describe earlier hardware and must not drive a flash.
+The current Windows candidate is `codex/highbar-momentum`, based on the
+`c0633d0` deployment record. The last verified Pi source is `b14db57`; this
+wave has made no Pi connection or deployment. High Bar has revised controls,
+earned momentum, longer webs and skate decks. CAIRN is the one requested new
+skill game. Remodeling another existing game remains paused at Sam's request.
 
-## 1. Recoverable trial deployed; physical acceptance next
+## 1. Finish High Bar's physical iteration
 
-For the next trial, stage the verified mastery package as a separate release.
-After closing the single controlling tab and stopping the service, copy the
-latest current trial data (including Sam's recent progress), using SQLite backup
-and an independent integrity check. Do not copy the older original database.
-Keep the existing `60adf7a` release, its data and service override for rollback.
-Review the exact new paths, source hash and switch/rollback commands with Sam
-before changing the running console. After an authorized switch, verify served
-assets, actual release identity, private data path, node connection, microphone
-off and one browser. This change needs no firmware update. Older releases must
-not open the new schema-4 working save.
+Use [High Bar](HIGH-BAR.md) and [current validation](VALIDATION.md), not older
+pumping/manual descriptions. Plain held button grabs; release detaches. Quick
+button press followed by a second held press flips. Generic case tap shoves;
+a deliberate double case tap kickflips. Ground taps are inert. Holding a post
+must lose energy; ground skating and elevated decks supply the route upward.
 
-Sam authorized the first trial switch on 2026-10-03. The release manifest, source identity,
-served JS, private save copy and node identity were verified. Original `live/`
-at `f3bfacc`, production saves and the service unit remain intact. The new
-release uses a reversible drop-in and separate trial data. Encyclopedia is ready
-and the full-screen deck browser was refreshed. No firmware update occurred;
-all builds and broad tests remain on Windows. Follow the rollback instructions
-in PI-ACCEPTANCE.md if physical testing finds a regression.
+Acceptance: these gestures feel distinct on the actual node, intended flips
+do not snag a post, the longer web feels useful, and a good line can sustain
+airtime without camping a post to gain height. Test deck landings and finding
+a useful launch speed, readable spider/obstacles, and clean versus sketchy
+landings. Software recordings prove possibility, not enjoyable difficulty.
 
-Acceptance: the chosen commit/source hash matches the files actually served by
-the Pi; the service stays loopback-only with one controlling browser, the node
-connected, microphone off, original saves retained and rollback ready.
+## 2. Stage the next recoverable trial when authorized
 
-## 2. Test controls in the finished case
+Package and build on Windows. First recheck the Pi's then-current source,
+service paths and saves. Close the one controlling browser only after its save
+queue is acknowledged, quiesce writes, and copy the latest trial data using
+SQLite backup and integrity/count checks. Preserve original saves, the current
+`b14db57` trial and its exact service configuration. Use a separate candidate
+source/data directory and removable override; prepare a rollback that returns
+to `b14db57`, not the older `60adf7a` trial.
 
-Generic taps remain the default. Check comfortable back taps for previous menu
-item/page, deliberate double taps for back, button next and hold-release select.
-Test tap/tap/hold and resume inside games, and verify normal game holds remain
-available. Exercise four independent RGB lamps and the board LED. There is no
-temperature/humidity sensor to qualify.
+After switching, verify source identity and served JS hashes, source/data
+paths, one browser, loopback-only service, connected node, microphone OFF and
+CRC counters. Keep firmware 0.2.0, models, calibration and Encyclopedia assets
+unchanged. An older release must never open the candidate schema-5 save.
+[PI-ACCEPTANCE.md](PI-ACCEPTANCE.md) records earlier deployments separately.
 
-Acceptance: deliberate input works at a comfortable speaker volume; speaker
-sounds do not create actions; cancellation costs no life or purchase; all four
-lamp channels and the board accent clear on exit. Keep optional sides off until
-actual left/right/back confusion counts support enabling them.
+## 3. Play CAIRN after the High Bar check
 
-## 3. Play revised games and readers
+[CAIRN](CAIRN.md) uses hold/release jumps, short-press or generic-tap turning,
+fixed solid shelves and no air steering. Substantial falls and two permanent
+milestones follow Sam's decision. All 30 shelves have an actual-input Windows
+completion witness; narrow upper timing windows still need human assessment.
 
-High Bar needs human judgment on held acceleration, release control at fast
-swings, connected height gain, long descents, the spider's readability and the
-quieter HUD. Catch reach/timing is unchanged at Sam's request. Software routes
-establish reachability, not enjoyable difficulty. Ricochet's
-reached-chamber practice should be easy to find and useful for learning.
-Wayfinder needs exploration/save-resume feedback. Twinbeat needs real acoustic
-timing and optional side accuracy, starting with the first two levels; assist
-and side careers stay separate. Exactly two new games were added.
+Acceptance: deliberate timing improves success, failures are understandable,
+long falls feel consequential, and reopening resumes at the earned cairn.
+Check real button timing, four charge lamps and board-accent cleanup. Existing
+games beyond High Bar stay unchanged until its direction is accepted.
 
-The Stacks should reopen existing positions/bookmarks. Encyclopedia should
-resume recent articles, follow/return along links, and offer a useful choice at
-article end. Its archive and matching ARM reader wheel were staged for the
-current Pi trial; preserve those paths when switching application source.
-Lantern previews should follow either navigation direction; Cadence should
-identify the timer selected.
+## 4. Complete console acceptance and source reconciliation
 
-Acceptance: old saves remain recognizable, results survive restart, and Sam can
-identify frustrating controls, unclear rules or shallow loops. The
-[game review](GAME-POLISH.md) distinguishes audited games from games that received
-deeper new mechanics.
+Generic back taps remain default; optional calibrated sides should only be
+enabled when real left/right/back observations support them. Test comfortable
+speaker volume for false taps, menu cancellation with no lost life/progress,
+all four lamp channels and board cleanup. Stacks/Encyclopedia should retain
+reading positions and bookmarks. Twinbeat's acoustic timing and Wayfinder's
+save/resume remain separate game checks.
 
-## 4. Qualify interruptions and Pi resources
+During ordinary play, collect brief resource/status observations if needed;
+do not benchmark or run broad suites on the battery-powered Pi. Windows
+Canvas timings are not Pi FPS. Browser save recovery covers acknowledged and
+bounded in-memory writes, not power loss before acknowledgement.
 
-Waiting progress/scores remain in the controlling browser's bounded RAM queue
-until acknowledged. Keep that tab open during an outage; the notice and save
-status menu report waiting or failed writes. Hardware commands are never
-replayed. This protects temporary link loss, not browser/power loss before ACK.
-If the service copy changed or another tab controlled the console, use the save
-status menu to compare the choice and explicitly confirm which copy to keep.
-The menu can reconnect this tab after the other controlling tab closes.
-
-After ordinary play, collect a brief frame/resource/status snapshot, with no Pi
-benchmark or broad suite. Inspect stutter, audio, cooling, battery behavior, CRC
-counters and microphone state. Windows/Chromium timing is not a Pi result. Local
-speech vocabulary and POSIX shutdown remain separate on-target checks.
-
-## 5. Promote deliberately
-
-After physical acceptance, select the authoritative candidate data directory and
-GitHub PR/merge path, retaining original saves and rollback artifacts. Record
-the accepted commit, source hash, service path and release archive hash. Decide
-separately whether the deck should launch into Vesper at login; this pass does
-not change desktop autologin or kiosk startup.
+After physical acceptance, choose the authoritative release/data directory
+and GitHub publication/merge path. Record the accepted commit, source hash,
+service/data paths and archive identity. Matching a main checkout never
+proves the service runs that source. Desktop autostart/kiosk behavior is a
+separate decision.

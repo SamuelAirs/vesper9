@@ -718,3 +718,97 @@ The exact rollback command is in PI-ACCEPTANCE.md; it returns to the preserved
 60adf7a trial, not original f3bfacc, and keeps candidate progress separate.
 Rollback was reviewed but not live-rehearsed. GitHub was not pushed or refreshed.
 This documentation-only record follows the deployed b14db57 source commit.
+
+## High Bar earned momentum and CAIRN — Windows follow-up, 2026-10-03
+
+Sam's corrections supersede the earlier pumping/manual design: button hold
+grabs, release detaches; a quick button press followed by a second held press
+flips; generic case taps shove-it, a deliberate double case tap kickflips;
+manuals are removed. Holding a web must lose momentum. Ground acceleration
+remains useful, web reach is longer, and the spider/tall parks/quiet screen
+remain. The existing-game remodel was explicitly paused; Undertow was not
+modified. The separately requested difficult climb continued as CAIRN.
+
+Root reverified native Windows DESKTOP-FD66EV2. Development remains in
+`C:/Users/ayers/vesper9-development`, branch `codex/highbar-momentum`, based on
+`c0633d0`; the original checkout is untouched. GPT-6 Astra at high effort owned
+physics and difficult route searches, another Astra owned CAIRN and bounded
+independent reviews, and GPT-6.1 Sol owned inputs/renderer/browser verification.
+Root coordinated ownership, resolved geometry/control issues, reviewed evidence,
+integrated migration/catalog/service changes and prepared source recovery.
+No agent, build or broad test ran on the Pi. There was no Pi SSH this wave.
+
+The first candidate still allowed a 120 ms flip-prefix press to catch after
+67 ms, changing momentum before the intended flip. Held catches now qualify
+after the selected pace's tap limit plus 1 ms (121/151/221 ms); a quick first
+press leaves the trajectory unchanged. The fresh candidate is previewed
+immediately and checked against its delayed position. Second-press flips take
+priority. Source clocks/generations, cancellation and pause/resume clear input
+intent without publishing speculative rewards. A second case tap upgrades the
+same shove-it; it does not earn both awards. Manuals no longer activate.
+
+Removed held swing drive, release lift, whip gain and regrip energy. Captures
+retain signed tangent motion, bound compliant radial motion and preserve the
+actual rope radius. Pendulums exchange height/speed under gravity and drag;
+release is the actual tangent. Ground drive stays 360 px/s², capped at 820;
+web reach grows 190→260. Sparse one-way skate decks restore energy between
+upper bands. Swept collisions, forecasts/style readiness and checkpoint support
+agree. Safe landings carry an already-held button into ordinary skating.
+
+Early 430 px decks offered insufficient run-up after slow landings; widening
+them to 600–640 px preserves earned acceleration and course heights. Tower's
+dense lower posts initially forced a one-frame grab repress; moving the pairs
+outward opened a 100 ms actual-input ascent. A second crown approach allowed
+only same-frame release/repress. Controlled comparisons from a reachable
+high-deck state found that B13 at (270,640) gives gaps up to 200 ms without any
+new force or timing concession. Root approved that authored position after
+reviewing the evidence. Exact simulation windows are not physical qualification.
+Sky routes retain stable IDs but traverse the upper band after the deck approach.
+ROLLING LINK now requires two airs and a shove-it instead of a manual.
+
+Schema 5/flow-v5 preserves all three careers, unlocks, medals and last results;
+archives released flow-v4 PBs once alongside the exact older archives; and
+starts new score/time PBs for changed physics. High Bar alone receives a 16 KiB
+service save limit; all other apps keep 8 KiB. A reviewer confirmed identifier
+validation cannot bypass that boundary. No private save was opened. The next
+trial must copy the then-latest b14db57 progress into a separate data directory,
+keeping the older release/data/override for rollback.
+
+CAIRN is a fixed 30-shelf climb to 365 m, with hold/release jumps, short-press or
+generic-case turning, no air steering, solid shelf sides/undersides, substantial
+falls and permanent cairns at 98.5/211 m. Records require actual landings; timed
+PBs require an uninterrupted base ascent. Its 29-leap ordinary InputRouter
+witness reaches every shelf; browser input reaches the summit, rewinds a menu
+gesture and reloads to the earned cairn. Independent integration review caught
+that catalog saveSlots metadata alone does not enable the host picker. Root
+enabled the class's standard four slots and tested actual menu selection,
+reload and recovery of the original earned career. The invalid metadata was
+removed rather than changing the host's slot contract.
+
+Current checks and their limits are in VALIDATION.md. The older long-flight
+fixtures relied on now-removed boosts; current recordings use actual inputs
+and real banks under dissipative physics. Core tests separately isolate
+collisions/energy with clearly labelled prepared states. Mastery browser
+fixtures use deterministic 60 Hz host edges; reactive real-key pilots are
+separate and include bails. Source and generated standalone each mount all 36
+apps. CAIRN's narrow upper windows, physical case-tap cadence, catch comfort
+and actual Pi frame rate remain Sam's acceptance work.
+
+Catalog/demo are regenerated and packaging uses scripts/package-release.py.
+External evidence and delivery verification are in
+`C:/Users/ayers/vesper9-investigation/momentum/`; source recovery uses a Git
+bundle verified by fresh bare fetch. Private runtime data and secrets are
+excluded. The independent standalone High Bar prompt is at
+`C:/Users/ayers/vesper9-investigation/HIGH-BAR-STANDALONE-PROMPT.txt`; it leaves
+engine, perspective and controls open and requires a separate project.
+No GitHub push/merge, Pi deployment, console restart or firmware change occurs
+in this follow-up. Last verified Pi source remains b14db57, not this candidate.
+
+Final regression run: 1,652 JavaScript tests pass, including all 184 High Bar
+tests; 42 Python catalog/runtime/storage/service checks pass. All sixteen
+target recordings and all four sky golds bank through normal inputs in each
+of the three modes. Gold bank times are 20.35 / 25.90 / 43.68 / 31.72 seconds.
+The complete Tower prefix uses a normal ollie followed 200 ms later by a fresh
+grab press, reaching the crown deck by 30.2 seconds. Final Tower browser source
+hashes match the accepted geometry; the generated standalone and service each
+mount all 36 apps. Verification reports retain their source hashes and limits.

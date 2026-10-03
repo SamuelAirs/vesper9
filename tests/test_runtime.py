@@ -210,7 +210,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.console.store.get('progress')['morse']['correct'], 7)
 
     async def test_candidate_score_classes_persist_separately_through_service(self):
-        classes = {'highbar': ['style-v2', 'flow-v3', 'flow-v4'], 'wayfinder': ['region-0', 'region-1', 'region-2'],
+        classes = {'highbar': ['style-v2', 'flow-v3', 'flow-v4', 'flow-v5'], 'wayfinder': ['region-0', 'region-1', 'region-2'],
                    'twinbeat': ['assist', 'sides']}
         expected = {}
         self.console.store.score('highbar', 999999)

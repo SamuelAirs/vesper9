@@ -1,7 +1,7 @@
 import { C, text, line, circle } from "../engine/draw.js";
 import { clamp } from "../engine/math.js";
 import { LOCKOUT } from "./game-kit.js";
-import { G, STEP, BAIL_T, ROLL, LAND_TOL, GUIDE, MODES, MEDALS, PARKS, LINES, UNLOCK, barLaunchVelocity } from "./highbar-content.js";
+import { G, STEP, BAIL_T, ROLL, LAND_TOL, STYLE_TIME, GUIDE, MODES, MEDALS, PARKS, LINES, UNLOCK, barLaunchVelocity, platformContact } from "./highbar-content.js";
 
 const fmt = n => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 const unlocked = (s, p) => p === 0 || s.goals[p - 1].length >= UNLOCK;
@@ -85,6 +85,14 @@ export class HighBarView {
     for (let depth = 0; depth < 2; depth++) { g.beginPath(); for (let i = i0; i <= i1; i += 3) { if (i === i0) g.moveTo(i * STEP, hm[i] + depth * 9); else g.lineTo(i * STEP, hm[i] + depth * 9); } g.strokeStyle = depth ? C.line : theme.accent; g.lineWidth = depth ? 1 : 3; g.stroke(); }
     const geo = this.geo; line(g, geo.lipL, geo.lipY, geo.lipL, geo.lipY - 600, C.line, 2); line(g, geo.lipR, geo.lipY, geo.lipR, geo.lipY - 600, C.line, 2);
     circle(g, geo.lipL, geo.lipY, 5, theme.secondary, true); circle(g, geo.lipR, geo.lipY, 5, theme.secondary, true);
+    for (const deck of park.platforms || []) {
+      if (deck.x2 < this.camX - 20 || deck.x1 > this.camX + 980 || deck.y < this.camY - 20 || deck.y > this.camY + 560) continue;
+      g.fillStyle = theme.ground; g.fillRect(deck.x1, deck.y, deck.x2 - deck.x1, 11);
+      line(g, deck.x1, deck.y, deck.x2, deck.y, theme.accent, 3);
+      line(g, deck.x1, deck.y + 11, deck.x2, deck.y + 11, C.line);
+      line(g, deck.x1 + 10, deck.y + 11, deck.x1 + 22, deck.y + 21, C.line);
+      line(g, deck.x2 - 10, deck.y + 11, deck.x2 - 22, deck.y + 21, C.line);
+    }
     const marker = this.barMarker(), target = marker.index;
     for (let i = 0; i < park.bars.length; i++) {
       const [x, y, kind] = park.bars[i]; if (x < this.camX - 50 || x > this.camX + 1010 || y < this.camY - 50 || y > this.camY + 600) continue;
@@ -113,7 +121,7 @@ export class HighBarView {
   }
   barMarker() {
     if (this.phase !== "play" || this.p.mode === "bail") return { index: -1, catchable: false };
-    const catchable = this.p.mode !== "bar" ? this.pickBar() : -1;
+    const catchable = this.p.mode === "air" && this.pressAction !== "flip" ? this.pickBar() : -1;
     if (catchable >= 0) return { index: catchable, catchable: true };
     const route = this.mode === 1 ? this.routeTarget?.() : -1;
     if (Number.isInteger(route) && route >= 0) return { index: route, catchable: false };
@@ -131,7 +139,12 @@ export class HighBarView {
     const p = this.p; if (p.mode !== "air" && p.mode !== "bar") return;
     let vx = p.vx, vy = p.vy; if (p.mode === "bar") ({ vx, vy } = barLaunchVelocity(p, this.park().bars[p.bar][2]));
     g.fillStyle = this.theme().secondary; g.globalAlpha = .55;
-    for (let i = 1; i <= 18; i++) { const t = i * .055, x = p.x + vx * t, y = p.y + vy * t + .5 * G * t * t; if (x < this.geo.lipL || x > this.geo.lipR || y > this.groundY(x)) break; g.fillRect(x - 1, y - 1, 3, 3); }
+    let x0 = p.x, y0 = p.y;
+    for (let i = 1; i <= 18; i++) {
+      const t = i * .055, x = p.x + (p.vert ? 0 : vx * t), y = p.y + vy * t + .5 * G * t * t;
+      if (p.vert ? vy + G * t > 0 && y >= this.geo.lipY : x < this.geo.lipL || x > this.geo.lipR || y > this.groundY(x) || platformContact(this.park().platforms, x0, y0, x, y)) break;
+      g.fillRect(x - 1, y - 1, 3, 3); x0 = x; y0 = y;
+    }
     g.globalAlpha = 1;
   }
   drawRider(g) {
@@ -141,7 +154,8 @@ export class HighBarView {
     if (p.mode === "bar") { const [bx, by] = this.park().bars[p.bar]; line(g, bx, by, p.x + reach * Math.sin(p.rot), p.y - reach * Math.cos(p.rot), theme.accent, 2); }
     g.save(); g.translate(p.x, p.y); g.rotate(bail && !quiet ? p.rot + (BAIL_T - p.bailT) * 9 : p.rot); g.scale(1.35, 1.35);
     const col = bail ? C.red : C.ink, cy = low ? -23 : -29;
-    const spin = this.air?.style ? Math.cos((this.air.t - this.air.style.at) * 12) : 1, nose = this.manual ? this.manual.balance * 4 : 0;
+    const style = this.air?.style, turn = style ? clamp((this.air.t - style.at) / STYLE_TIME, 0, 1) : 0;
+    const kick = style?.kind === "kickflip", spin = Math.cos(turn * Math.PI * (kick ? 4 : 2)), nose = kick ? Math.sin(turn * Math.PI * 2) * 7 : 0;
     line(g, -19 * spin, -3 + nose, 19 * spin, -3 - nose, theme.secondary, 4);
     line(g, -19 * spin, -3 + nose, -23 * spin, -6 + nose, theme.secondary, 3);
     line(g, 19 * spin, -3 - nose, 23 * spin, -6 - nose, theme.secondary, 3);
@@ -153,6 +167,7 @@ export class HighBarView {
       let kneeX = side * (22 + i * 2), kneeY = cy - 17 + i * 9, footX = side * (28 - i * 4), footY = i < 2 ? cy - 9 + i * 10 : -5;
       if (p.mode === "bar" && i < 2) { kneeY = cy - 20 - i * 7; footY = -reach / 1.35; footX = side * (9 + i * 5); }
       else if (low && p.mode === "air") { kneeX = side * (14 + i); kneeY = cy - 11 + i * 7; footX = side * 8; footY = cy + 6; }
+      else if (kick && turn < 1 && i < 2) { kneeY = cy - 20 + i * 8; footX = side * 27; footY = cy - 6; }
       else if (p.crouch && i < 2) { kneeY += wave * 8; footY = -5 + wave * 10; footX += wave * 7 * (speed < 0 ? -1 : 1); }
       else if ((happy || bail) && i < 3) { kneeY += wave * 8; footY = cy - 16 + wave * 10; }
       else if (p.mode === "air" && i < 2) { footY = cy - 14 + wave * 3; }
@@ -176,6 +191,7 @@ export class HighBarView {
     for (let i = 0; i <= 80; i++) { const wx = park.w * i / 80, yy = y + this.groundY(wx) * sy; if (i === 0) g.moveTo(x, yy); else g.lineTo(x + wx * sx, yy); }
     g.strokeStyle = theme.accent; g.lineWidth = 2; g.stroke();
     for (const b of park.bars) { const bx = x + b[0] * sx, by = y + b[1] * sy; line(g, bx, by, bx, y + this.groundY(b[0]) * sy, C.line); line(g, bx - 4, by, bx + 4, by, b[2] === "whip" ? C.amber : theme.secondary, 2); }
+    for (const deck of park.platforms || []) line(g, x + deck.x1 * sx, y + deck.y * sy, x + deck.x2 * sx, y + deck.y * sy, theme.accent, 2);
     const route = this.mode === 1 ? this.routeProgress?.() : null;
     if (route) {
       let previous;
@@ -193,27 +209,26 @@ export class HighBarView {
   // The route map and detailed instruction remain in setup / the game guide.
   playHudRects() { return [[18, 14, 640, 38], [674, 14, 268, 38], [18, 476, 390, 48], [428, 488, 514, 36]]; }
   drawCoach(g) {
-    const p = this.p, col = this.theme().accent, bar = this.pickBar(), release = p.mode === "bar" ? this.releaseAdvice?.() : null,
+    const p = this.p, col = this.theme().accent, bar = p.mode === "air" && this.pressAction !== "flip" ? this.pickBar() : -1, release = p.mode === "bar" ? this.releaseAdvice?.() : null,
       flight = p.mode === "air" ? this.flightAdvice?.() : null; let action;
-    if (this.resumeT > 0) action = "RELEASE TO RESUME";
+    if (this.resumeT > 0) action = "RESUMING / RELEASE BUTTON";
     else if (p.mode === "bail") action = "RECOVERING / NEXT LINE";
-    else if (this.manual) action = "MANUAL / BALANCE";
-    else if (release) action = release.phase === "rise" ? "RELEASE: CLIMB ↑" : release.phase === "travel" ? "RELEASE: CROSS " + (release.direction < 0 ? "←" : "→") : release.phase === "fall" ? "HOLD: NEXT RISE" : "HOLD: BUILD SWING";
+    else if (release) action = release.phase === "rise" ? "RELEASE: CLIMB ↑" : release.phase === "travel" ? "RELEASE: CROSS " + (release.direction < 0 ? "←" : "→") : "RELEASE: DESCEND";
     else if (p.mode === "bar") action = "SWING";
-    else if (bar >= 0) action = "PRESS: CATCH B" + (bar + 1);
-    else if (p.mode === "air") action = flight?.urgent ? "RELEASE: STRAIGHTEN NOW" : p.tuck ? "FLIPPING" : "AIR";
+    else if (p.mode === "air" && p.tuck) action = flight?.urgent ? "RELEASE: STRAIGHTEN" : "FLIPPING";
+    else if (bar >= 0) action = (this.pending ? "CATCHING B" : this.pressed ? "RELEASE / PRESS: B" : "PRESS + HOLD: B") + (bar + 1);
+    else if (p.mode === "air") action = flight?.urgent ? "RELEASE: STRAIGHTEN" : "AIR";
     else action = p.crouch ? "BUILDING SPEED" : "SKATING";
     panel(g, 18, 14, 640, 38, col); text(g, action, 32, 34, 20, C.ink);
     let label = "SPEED", value = Math.abs(p.s || Math.hypot(p.vx, p.vy)) / 820, colour = col;
-    if (this.manual) { label = "BALANCE"; value = 1 - Math.abs(this.manual.balance); colour = value < .3 ? C.red : col; }
-    else if (flight) { label = flight.urgent ? "RELEASE" : flight.kind === "clean" ? "CLEAN" : flight.kind === "safe" ? "SAFE" : flight.kind === "sketchy" ? "SKETCHY" : "LAND RISK"; value = 1 - flight.off / (this.air?.style ? LAND_TOL * .7 : LAND_TOL); colour = flight.kind === "bail" || flight.urgent ? C.red : flight.kind === "sketchy" ? C.amber : C.cyan; }
+    if (flight) { label = flight.urgent ? "RELEASE" : flight.kind === "clean" ? "CLEAN" : flight.kind === "safe" ? "SAFE" : flight.kind === "sketchy" ? "SKETCHY" : "LAND RISK"; value = 1 - flight.off / (this.air?.style ? LAND_TOL * .7 : LAND_TOL); colour = flight.kind === "bail" || flight.urgent ? C.red : flight.kind === "sketchy" ? C.amber : C.cyan; }
     else if (p.mode === "air") { label = "AIR"; value = 0; colour = C.muted; }
     else if (this.combo.roll >= 0) { label = "BANKING"; value = 1 - this.combo.roll / ROLL; colour = C.amber; }
-    else if (release) { label = release.phase === "rise" ? "UPWARD" : release.phase === "travel" ? "CROSS" : release.phase === "fall" ? "WAIT" : "BUILD"; value = release.lift; colour = release.phase === "fall" ? C.amber : col; }
+    else if (release) { label = release.phase === "rise" ? "UPWARD" : release.phase === "travel" ? "CROSS" : "DOWNWARD"; value = Math.hypot(release.vx, release.vy) / 820; colour = release.phase === "fall" ? C.amber : col; }
     else if (p.mode === "bar") { label = "SWING"; value = Math.abs(Math.sin(p.phi)); }
     else if (p.mode === "bail") { label = "RECOVER"; value = 1 - p.bailT / BAIL_T; colour = C.red; }
     panel(g, 674, 14, 268, 38, colour); text(g, label, 689, 34, 16, colour); gauge(g, 818, 32, 108, value, colour);
-    const style = this.manual ? "BALANCE" : p.mode === "ground" ? "MANUAL" : p.mode === "bar" && !p.regrip && p.held > .15 ? "REGRIP" : p.mode === "air" && !this.air?.style && this.canStyle() ? "STYLE" : "";
+    const style = p.mode === "bar" && !p.regrip && p.held > .15 ? "REGRIP" : this.canKickflip?.() ? "KICKFLIP" : p.mode === "air" && !this.air?.style && this.canStyle() ? "SHOVE-IT" : "";
     if (style) text(g, "TAP: " + style, 643, 34, 15, col, "right");
   }
   drawCombo(g) {
@@ -232,8 +247,8 @@ export class HighBarView {
     let cue = "", col = this.theme().accent; const lesson = this.lessonCue?.();
     // Exactly one contextual notice. Detailed route progress lives outside play.
     if (this.landing?.t > 0 && this.landing.reason && this.p.mode === "bail") { cue = this.landing.reason; col = C.red; }
-    else if (this.landing?.t > 0 && this.p.mode === "ground" && !this.manual) { cue = this.landing.kind === "clean" ? "CLEAN LANDING / ROLL TO BANK" : this.landing.kind === "sketchy" ? "SKETCHY LANDING / NEXT ONE CLEAN" : "LANDED / ROLL TO BANK"; col = this.landing.kind === "sketchy" ? C.amber : col; }
-    else if (this.styleNotice && this.t - this.tapAt >= 0 && this.t - this.tapAt < 1.3 && (this.manual || this.p.regrip || this.air?.style)) cue = this.styleNotice;
+    else if (this.landing?.t > 0 && this.p.mode === "ground") { cue = this.landing.kind === "clean" ? "CLEAN LANDING / ROLL TO BANK" : this.landing.kind === "sketchy" ? "SKETCHY LANDING / NEXT ONE CLEAN" : "LANDED / ROLL TO BANK"; col = this.landing.kind === "sketchy" ? C.amber : col; }
+    else if (this.styleNotice && this.t - this.tapAt >= 0 && this.t - this.tapAt < 1.3 && (this.p.regrip || this.air?.style)) cue = this.styleNotice;
     else if (lesson) cue = lesson;
     else if (this.noteT > 0) { cue = this.note; col = C.amber; }
     else if (this.mode === 1) {
@@ -258,7 +273,7 @@ export class HighBarView {
     panel(g, 554, 139, 378, 337, col); text(g, park.name, 574, 166, 28, C.ink); paragraph(g, park.tagline || park.text, 574, 200, 336, 18, C.muted, 2); this.drawMap(g, 576, 253, 332, 131);
     const rec = this.lineRecord?.();
     text(g, "MEDAL " + MEDALS[this.mode === 1 && rec ? rec.medal : s.medals[this.parkId]] + " / LINES " + s.lines[this.parkId].length + "/" + LINES[this.parkId].length, 574, 401, 18, col);
-    const archive = s.legacyRecords?.flowV3 || s.legacyRecords?.styleV2;
+    const archive = s.legacyRecords?.flowV4 || s.legacyRecords?.flowV3 || s.legacyRecords?.styleV2;
     const prior = archive?.flowBest?.[this.parkId] ?? archive?.styleBest?.[this.parkId];
     if (prior) text(g, "PREVIOUS RULES BEST " + fmt(prior), 574, 424, 14, C.muted);
     text(g, this.mode === 2 ? "PRACTICE / RECORDS STAY SAFE" : this.mode === 1 && rec ? "LINE PB " + fmt(rec.best) : "FLOW BEST " + fmt((s.flowBest || s.styleBest)[this.parkId]), 574, 447, 18, C.amber);
@@ -290,7 +305,7 @@ export class HighBarView {
       text(g, short(result.name, 27), 461, 210, 26, C.ink);
       text(g, "TARGET COMBO " + fmt(result.value), 461, 252, 20, col);
       text(g, result.time + "s" + (result.timeImproved ? " / FASTEST" : "") + (result.bestImproved ? " / COMBO PB" : ""), 911, 281, 17, C.amber, "right");
-    } else paragraph(g, this.mode === 2 ? "Try a clean air. Land and roll to bank, then link the next air with a manual." : next || "All park goals banked. Try a new line or another park.", 461, 205, 450, 22, C.ink, 3);
+    } else paragraph(g, this.mode === 2 ? "Try a clean air. Land and roll to bank, or ollie again to link the next air." : next || "All park goals banked. Try a new line or another park.", 461, 205, 450, 22, C.ink, 3);
     line(g, 461, 301, 911, 301);
     if (this.mode === 2) paragraph(g, "No clock. No career rewards. Your progress and records remain safe.", 461, 328, 449, 20, col, 3);
     else if (this.mode === 1) {
@@ -306,7 +321,7 @@ export class HighBarView {
     const page = GUIDE[this.guide], col = this.theme().accent; this.menuHeader(g, page[0], "FIELD GUIDE / " + (this.guide + 1) + " OF " + GUIDE.length); panel(g, 28, 137, 904, 339, col); const y = 216;
     if (this.guide === 0 || this.guide === 3) { line(g, 230, y + 29, 360, y + 60, col, 2); line(g, 360, y + 60, 730, y + 60, col, 2); for (let i = 0; i < 12; i++) circle(g, 355 + i * 23, y + 20 - Math.sin(i / 11 * Math.PI) * 64, 2, C.amber, true); text(g, this.guide === 3 ? "LAND → ROLL 1.2s → BANK" : "PUMP → OLLIE → STRAIGHTEN", 480, y - 51, 20, col, "center"); if (this.guide === 3) gauge(g, 630, y + 14, 125, .7, C.amber); }
     else if (this.guide === 1) { circle(g, 480, y - 28, 7, col, true); circle(g, 480, y - 28, 66, col, false, 1); line(g, 480, y - 28, 523, y + 33, C.ink, 3); line(g, 523, y + 33, 605, y - 13, C.amber, 2); text(g, "CATCH / SWING / TANGENT RELEASE", 480, y + 77, 20, col, "center"); }
-    else if (this.guide === 2) for (let i = 0; i < 3; i++) { const x = 190 + i * 290; g.strokeStyle = col; g.lineWidth = 2; g.strokeRect(x - 37, y - 24, 74, 48); for (let j = 0; j < 4; j++) circle(g, x - 24 + j * 16, y - 10, 4, col); circle(g, x + 38, y + 7, 11, C.amber); circle(g, x + 38, y + 7, 18, C.amber, false, 1); text(g, ["MANUAL", "SHOVE-IT", "REGRIP"][i], x, y + 57, 20, col, "center"); }
+    else if (this.guide === 2) for (let i = 0; i < 3; i++) { const x = 190 + i * 290; g.strokeStyle = col; g.lineWidth = 2; g.strokeRect(x - 37, y - 24, 74, 48); for (let j = 0; j < 4; j++) circle(g, x - 24 + j * 16, y - 10, 4, col); circle(g, x + 38, y + 7, 11, C.amber); circle(g, x + 38, y + 7, 18, C.amber, false, 1); text(g, ["SHOVE-IT", "KICKFLIP", "REGRIP"][i], x, y + 57, 20, col, "center"); }
     else if (this.guide === 4) for (let i = 0; i < 3; i++) { const x = 70 + i * 295; panel(g, x, y - 40, 265, 86, col); text(g, MODES[i], x + 133, y - 15, 21, C.ink, "center"); text(g, ["120s / PARK GOALS", "TIMED / ONE TARGET", "UNTIMED / WARMUP"][i], x + 133, y + 17, 15, col, "center"); }
     else for (let i = 0; i < 4; i++) { const x = 195 + i * 190; circle(g, x, y, 26, col, false, 2); circle(g, x, y, 17, i % 2 ? C.amber : col, true); text(g, ["I", "II", "III", "IV"][i], x, y + 49, 20, C.ink, "center"); }
     let yy = 339; for (let i = 1; i < page.length; i++) yy = paragraph(g, page[i], 60, yy, 843, 20, C.ink, 2) + 6; this.footer(g, "TAP: NEXT  ·  CASE: PREVIOUS  ·  HOLD: RIDE / RETURN");

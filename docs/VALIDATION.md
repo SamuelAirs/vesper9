@@ -1,5 +1,79 @@
 # VESPER-9 0.2.0 validation
 
+## High Bar momentum and CAIRN — current Windows candidate, 2026-10-03
+
+Native Windows `DESKTOP-FD66EV2`, `codex/highbar-momentum`, based on `c0633d0`.
+This wave follows Sam's playtest of `b14db57`. It has made no Pi connection,
+deployment, firmware change or GitHub publication. Earlier validation below
+belongs to its named source snapshots. Current source is described in
+[High Bar](HIGH-BAR.md) and [CAIRN](CAIRN.md).
+
+Final Windows verification record:
+
+| Check | Result |
+| --- | --- |
+| Complete JavaScript suite | 1,652 pass; zero failures, cancellations or skips |
+| High Bar focused suite | 184 pass, including controls, energy, progression and route regressions |
+| Actual challenge recordings | All sixteen targets bank from normal drop-in in all three modes (48 combinations) |
+| Sky gold recordings | All four routes bank gold in all three modes (12 combinations); zero bails and zero sketchy landings in the target combos |
+| Catalog, runtime, storage and real-service validation | 42 pass |
+| Host browser / acknowledged save recovery | 36 / 10 pass |
+| Service / generated standalone smoke | All 36 factories mount and update in each host |
+| High Bar real-key controls / final Tower follow-up | 19 / 10 pass |
+| High Bar mastery browser | 59 pass, including all sixteen briefs, actual banked results, retry/next, archives and reload |
+| CAIRN | 24 focused regressions; actual-input completion of all 30 shelves; browser slot selection/reload preserves the earned career |
+
+Input regressions cover a realistic first quick press near a post leaving the
+trajectory unchanged, second-held-press flip priority, all Calibration paces,
+USB source-clock bursts, source/generation isolation, cancellation, no ghost
+flip on resume, ordinary grab/release and shove-it/kickflip awarding only once.
+Energy regressions compare held and unheld pendulums for twenty seconds,
+measure decay, verify tangent releases across phases and hold durations, and
+exclude radius-snap, regrip and whip energy injection. Deck tests cover swept
+landings, rising through a deck, edge departures, forecasts and held landing
+continuing the ordinary ground push.
+
+Schema-5 migration retains all three careers and exact style-v2/flow-v3/flow-v4
+archives, stays idempotent and fits the High Bar-only 16 KiB service limit.
+The service rejects 16,385 bytes without replacing the accepted value, while
+other apps retain 8 KiB. Browser tests preserve all three historical epochs,
+banked results and selected targets across reload. No personal save was used.
+
+The full real-key controls report predates the Tower-only post-corridor edits;
+its exact source hashes remain recorded. The Tower follow-up captures that
+new geometry. Neither pilot claims an upper-route completion: they use a
+short reactive keyboard policy and include bails. Fixed HUD coverage remains
+at most 13.84%. Source-module CAIRN testing uses deterministic host frames and
+browser-local fake saves; service-backed recovery is a separate browser suite.
+
+Current challenge recordings start from normal drop-in using only button/case
+edges. The four sky golds bank at 20.35 / 25.90 / 43.68 / 31.72 simulated
+seconds in Bowl / Yard / Tower / Pipe. Previous boost-era recordings and eight-second free
+flight measurements are historical. Current physics recharges on decks and
+tests uninterrupted upper post sequences, actual banked combos and finite
+clocks. Recorded feasibility is separate from human timing comfort. A Tower
+route initially required a one-frame repress; posts were moved apart to open
+the launch corridor instead of accepting that as a usable player route. A
+second upper approach required same-frame release/repress. Controlled
+diagnostics from a previously reachable high-deck state compared candidate
+post positions: moving B13 to (270,640) allowed successful gaps up to 200 ms.
+The final full Tower witness independently uses a normal grounded ollie, a
+200 ms gap before the fresh grab press, then a rising release to reach the
+crown deck by 30.2 seconds. Those diagnostic timing sweeps and the complete
+input-only witness remain distinct from an owner's physical button timing.
+
+CAIRN's 29-leap witness reaches 365 m in 50.05 simulated seconds; all four
+regions, substantial falls, two milestone continuations, menu rewind and
+milestone-only reload are tested. The narrow upper jump windows documented in
+CAIRN.md remain a physical playtest item. The app uses the host's four save
+slots; a real menu journey switches, reloads and recovers the original career.
+
+Evidence is under `C:/Users/ayers/vesper9-investigation/momentum/`, with earlier
+CAIRN evidence in `../cairn/` and bounded route searches in `../energy/`.
+Windows screenshots and CPU-throttled Canvas submission samples are not Pi
+FPS, physical button comfort or acoustic case-tap qualification. The last
+verified device source remains `b14db57`, recorded in the section below.
+
 > Release `b14db57` from `codex/highbar-mastery` was installed on the Pi on
 > 2026-10-03, preserving the previous `60adf7a` release and copying its latest
 > saves. Targeted deployment checks passed; physical play acceptance is pending. See

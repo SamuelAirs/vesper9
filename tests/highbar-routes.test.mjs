@@ -5,6 +5,14 @@ import { appContext } from "./helpers/app-context.mjs";
 
 import { ROUTES, SKY_ROUTES, SKY_GOLD } from "./helpers/highbar-flow-routes.mjs";
 
+test("actual-input witnesses cover all sixteen lines and one gold upper route per park", () => {
+  const targets = [...ROUTES, ...SKY_ROUTES];
+  assert.equal(targets.length, 16);
+  assert.deepEqual(targets.map(r => `${r.park}:${r.line}`).sort(),
+    [0, 1, 2, 3].flatMap(park => [0, 1, 2, 3].map(line => `${park}:${line}`)));
+  assert.deepEqual(SKY_GOLD.map(r => `${r.park}:${r.line}`).sort(), ["0:3", "1:3", "2:3", "3:3"]);
+});
+
 for (const route of [...ROUTES, ...SKY_ROUTES]) for (const mode of [0, 1, 2]) {
   test(`park ${route.park + 1} / line ${route.line + 1} banks through actual controls in ${["SESSION", "LINE RUN", "PRACTICE"][mode]}`, () => {
     const ctx = appContext({ settings: { knock: "medium" } });
@@ -44,7 +52,7 @@ for (const route of [...ROUTES, ...SKY_ROUTES]) for (const mode of [0, 1, 2]) {
     } else if (mode === 1) {
       assert.equal(app.slot().lineBest[route.park][route.line], app.score);
       assert.equal(ctx.calls.score.length, 0, "short attempts never enter the session leaderboard");
-    } else assert.deepEqual(ctx.calls.score.at(-1), [app.score, "flow-v4"]);
+    } else assert.deepEqual(ctx.calls.score.at(-1), [app.score, "flow-v5"]);
   });
 }
 

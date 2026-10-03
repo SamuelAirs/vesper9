@@ -1,5 +1,10 @@
 # VESPER—9
 
+> Current Windows candidate: [High Bar momentum and corrected controls](docs/HIGH-BAR.md)
+> on `codex/highbar-momentum`, plus [CAIRN](docs/CAIRN.md), a difficult fixed climb.
+> This revision is not deployed. The last verified Pi trial remains `b14db57`;
+> the deployment paragraph below describes that earlier source.
+
 > High Bar follow-up (deployed 2026-10-03): [a skateboarding spider, faster kicks, taller routes and a quieter screen](docs/HIGH-BAR.md), now with sixteen challenges and four sustained aerial sky routes. Tested release `b14db57` from `codex/highbar-mastery` is running on the Pi.
 > Finished-node refresh (2026-10-03): [what changed](docs/REFRESH-REPORT.md),
 > [candidate/source status](docs/NODE-CONSOLE-CANDIDATE.md), and

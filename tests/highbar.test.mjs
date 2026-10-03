@@ -41,13 +41,13 @@ test("a tap on the title starts a session that drops in and rolls", () => {
   assert.ok(Math.abs(app.p.s) > 300);
 });
 
-test("a press near a bar grabs it and the swing follows a pendulum", () => {
+test("a held press near a bar grabs it and the swing follows a pendulum", () => {
   const { app } = riding();
   const [bx, by] = app.park().bars[0];
   fly(app, bx - 60, by + 120, 300, -50);
   assert.ok(app.pickBar() === 0, "the bar is marked as in reach");
   app.down({ source: "keyboard" });
-  run(app, 0.1);
+  run(app, app.catchDelay() + F);
   assert.equal(app.p.mode, "bar");
   const r0 = Math.hypot(app.p.x - bx, app.p.y - by);
   run(app, 0.5);
@@ -68,9 +68,10 @@ test("a short tap that ends before the grab lands does not grab", () => {
 
 test("a full turn round a bar is a GIANT, and repeats in one combo are worth less", () => {
   const { app } = riding();
-  const [bx, by] = app.park().bars[1];
+  // An unobstructed upper bar isolates finite-momentum rotation from ledge collisions.
+  const [bx, by] = app.park().bars.at(-1);
   fly(app, bx, by + 120, 900, 0);
-  app.down({ source: "keyboard" });
+  assert.ok(app.grab(app.park().bars.length - 1)); app.pressed = true;
   run(app, 3);
   const giants = app.combo.tricks.filter((k) => k.name === "GIANT");
   assert.ok(giants.length >= 2, "fast enough to go round twice");
@@ -100,12 +101,12 @@ test("an upright landing banks the combo after the roll; a crooked one bails and
   assert.ok(Math.abs(app.p.s) > 150, "and rolls on at a fair speed");
 });
 
-test("holding in the air with no bar near tucks into a flip; letting go in time lands it", () => {
+test("a quick press then held second press flips in clear air; releasing in time lands it", () => {
   const { app } = riding();
   fly(app, 700, 80, 120, -420);
   app.p.lastBar = -1;
   assert.equal(app.pickBar(), -1);
-  app.down({ source: "keyboard" });
+  tap(app, 40); run(app, 0.08); app.down({ source: "keyboard" });
   assert.ok(app.p.tuck);
   let frames = 0;
   while (Math.abs(app.air.rot) < 5.6 && frames++ < 200) app.update(F);
@@ -149,7 +150,7 @@ test("a session ends on the clock, scores once and saves once", () => {
   const saves = ctx.calls.saved.length;
   assert.ok(saves >= 1);
   const saved = ctx.calls.saved.at(-1);
-  assert.equal(saved.schema, 4);
+  assert.equal(saved.schema, 5);
   assert.equal(saved.runs, 1);
   assert.equal(saved.slots[0].runs, 1);
   assert.ok(JSON.stringify(saved).length < 8192);
@@ -231,7 +232,7 @@ test("a saved game comes back in its slot and park", () => {
 test("migrateSave survives junk and keeps what is valid", () => {
   for (const junk of [null, undefined, 3, "x", [], { schema: 9 }, { slots: "no" }, { slots: [null, 5, { goals: "x" }] }, { slot: 99 }, { slot: -4, slots: [{ runs: -3, best: [NaN] }] }]) {
     const s = migrateSave(junk);
-    assert.equal(s.schema, 4);
+    assert.equal(s.schema, 5);
     assert.equal(s.slots.length, 3);
     assert.ok(s.slot >= 0 && s.slot < 3);
     assert.equal(typeof s.runs, "number");

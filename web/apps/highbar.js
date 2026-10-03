@@ -3,23 +3,23 @@
 //   on a bar in reach (the marked one): hold to grab it and swing (a rigid pendulum, as in Perihelion),
 //   release to fly off on the tangent;
 //   on the ground: hold to crouch (pumping the slope for speed), release to ollie;
-//   in the air with no bar in reach: hold to tuck and flip, release to untuck and settle.
+//   in the air: a quick tap then a second held press tucks and flips; release to settle.
 // Landing upright banks the combo after a short roll; landing crooked is a bail and loses it.
 // A session is two minutes in one park. Each park has five goals; three open the next park.
-// Saves keep all three existing slots (schema 4). Case taps style the line: manual, shove-it, regrip.
+// Saves keep all three existing slots (schema 5). Air case taps add shove-it or kickflip; bar taps regrip.
 // Repeated tricks earn less and do not grow the multiplier. Practice teaches the same physics.
-// flow-v4 starts fresh score/time PBs and keeps bounded historical score archives.
+// flow-v5 starts fresh score/time PBs and keeps bounded historical score archives.
 // The lamps show what the button will do: the flip's angle in the
 // air (green: safe to land), the swing on a bar, the combo's roll window on the ground.
 import { C } from "../engine/draw.js";
 import { TAU, clamp, wrapAngle, Random } from "../engine/math.js";
 import { LAMP, dim, fill, meter, spot, pulse } from "../engine/lightshow.js";
-import { AppGuard } from "../engine/input.js";
+import { AppGuard, paceOf } from "../engine/input.js";
 import { LampBus, LOCKOUT, announce } from "./game-kit.js";
 
 import { G, STEP, LIP_ANGLE, MAX_SPEED, FRICTION, PUMP, PUSH_MIN, OLLIE, REACH, CATCH_LAG, REGRAB, TUCK, SETTLE, LAND_TOL, ROLL, BAIL_T, SESSION, OVERTIME, HOLD_PICK, SLOTS, MAX_TRICKS, MAX_PARTS, REPEAT, FLIPS, FLIP_PTS, MODES, MANUAL_LIMIT, TAP_COOLDOWN, STYLE_TIME, MEDALS, GUIDE, LINES, PARKS, UNLOCK, PUSH, MIN_R, WHIP_CAP, SKATE_DRIVE, SWING_DRIVE, SWING_CAP, SWING_OMEGA, barLaunchVelocity } from "./highbar-content.js";
 import { HighBarView } from "./highbar-view.js";
-import { projectLanding } from "./highbar-content.js";
+import { projectLanding, platformContact, airSurfaceSlope } from "./highbar-content.js";
 
 // The park's ground as heights every STEP px, plus its lips (where the walls turn vert).
 function buildPark(park) {
@@ -47,7 +47,7 @@ function skyline(park, seed) {
   return out;
 }
 const fmt = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-const freshSlot = () => ({ scoreVersion: "flow-v4", legacyRecords: { styleV2: null, flowV3: null }, flowBest: PARKS.map(() => 0), runs: 0, park: 0, goals: PARKS.map(() => []), best: PARKS.map(() => 0), bestCombo: 0, last: null,
+const freshSlot = () => ({ scoreVersion: "flow-v5", legacyRecords: { styleV2: null, flowV3: null, flowV4: null }, flowBest: PARKS.map(() => 0), runs: 0, park: 0, goals: PARKS.map(() => []), best: PARKS.map(() => 0), bestCombo: 0, last: null,
   guided: false, mode: 0, line: 0, lines: PARKS.map(() => []), medals: PARKS.map(() => 0),
   styleBest: PARKS.map(() => 0), lineBest: LINES.map(lines => lines.map(() => 0)), clean: 0,
   lineComboBest: LINES.map(lines => lines.map(() => 0)), lineTimeBest: LINES.map(lines => lines.map(() => 0)), lineMedals: LINES.map(lines => lines.map(() => 0)) });
@@ -82,11 +82,11 @@ export function migrateSave(raw) {
     slot.park = num(o.park, 0, PARKS.length - 1);
     if (!unlocked(slot, slot.park)) slot.park = 0;
     if (o.last && typeof o.last === "object") slot.last = { score: num(o.last.score, 0, 1e9), combo: num(o.last.combo, 0, 1e9), park: String(o.last.park || "").slice(0, 24) };
-    const current = o.scoreVersion === "flow-v4", flowV3 = o.scoreVersion === "flow-v3";
+    const current = o.scoreVersion === "flow-v5", flowV4 = o.scoreVersion === "flow-v4", flowV3 = o.scoreVersion === "flow-v3";
     slot.flowBest = PARKS.map((_, p) => current ? num(o.flowBest?.[p], 0, 1e9) : 0);
     // A single bounded archive survives repeat loads. Unlocks and skill medals
     // remain career achievements; changed physics starts fresh score/time PBs.
-    const old = current || flowV3 ? o.legacyRecords?.styleV2 : o;
+    const old = current || flowV4 || flowV3 ? o.legacyRecords?.styleV2 : o;
     if (old && typeof old === "object") slot.legacyRecords.styleV2 = {
       bestCombo: num(old.bestCombo, 0, 1e9),
       styleBest: PARKS.map((_, p) => num(old.styleBest?.[p], 0, 1e9)),
@@ -95,7 +95,7 @@ export function migrateSave(raw) {
       lineTimeBest: PARKS.map((_, p) => [0, 1, 2].map(i => Number.isFinite(old.lineTimeBest?.[p]?.[i])
         ? Math.round(clamp(old.lineTimeBest[p][i], 0, SESSION + OVERTIME) * 100) / 100 : 0)),
     };
-    const previousFlow = current ? o.legacyRecords?.flowV3 : flowV3 ? o : null;
+    const previousFlow = current || flowV4 ? o.legacyRecords?.flowV3 : flowV3 ? o : null;
     if (previousFlow && typeof previousFlow === "object") slot.legacyRecords.flowV3 = {
       bestCombo: num(previousFlow.bestCombo, 0, 1e9),
       flowBest: PARKS.map((_, p) => num(previousFlow.flowBest?.[p], 0, 1e9)),
@@ -103,6 +103,15 @@ export function migrateSave(raw) {
       lineComboBest: PARKS.map((_, p) => [0, 1, 2].map(i => num(previousFlow.lineComboBest?.[p]?.[i], 0, 1e9))),
       lineTimeBest: PARKS.map((_, p) => [0, 1, 2].map(i => Number.isFinite(previousFlow.lineTimeBest?.[p]?.[i])
         ? Math.round(clamp(previousFlow.lineTimeBest[p][i], 0, SESSION + OVERTIME) * 100) / 100 : 0)),
+    };
+    const previousMastery = current ? o.legacyRecords?.flowV4 : flowV4 ? o : null;
+    if (previousMastery && typeof previousMastery === "object") slot.legacyRecords.flowV4 = {
+      bestCombo: num(previousMastery.bestCombo, 0, 1e9),
+      flowBest: PARKS.map((_, p) => num(previousMastery.flowBest?.[p], 0, 1e9)),
+      lineBest: LINES.map((lines, p) => lines.map((_, i) => num(previousMastery.lineBest?.[p]?.[i], 0, 1e9))),
+      lineComboBest: LINES.map((lines, p) => lines.map((_, i) => num(previousMastery.lineComboBest?.[p]?.[i], 0, 1e9))),
+      lineTimeBest: LINES.map((lines, p) => lines.map((_, i) => Number.isFinite(previousMastery.lineTimeBest?.[p]?.[i])
+        ? Math.round(clamp(previousMastery.lineTimeBest[p][i], 0, SESSION + OVERTIME) * 100) / 100 : 0)),
     };
     if (!current) {
       slot.bestCombo = 0;
@@ -113,7 +122,7 @@ export function migrateSave(raw) {
     slots.push(slot);
   }
   const slot = num(src.slot, 0, SLOTS - 1);
-  return finishSave({ schema: 4, scoreVersion: "flow-v4", slot, slots });
+  return finishSave({ schema: 5, scoreVersion: "flow-v5", slot, slots });
 }
 function unlocked(slot, p) { return p === 0 || slot.goals[p - 1].length >= UNLOCK; }
 // The host reads runs, milestone and last at the top level: they follow the current slot.
@@ -164,6 +173,10 @@ export class HighBar extends HighBarView {
   }
   slope(x) { return (this.groundY(x + 2) - this.groundY(x - 2)) / 4; }
   bend(x) { return (this.groundY(x + STEP) - 2 * this.groundY(x) + this.groundY(x - STEP)) / (STEP * STEP); }
+  support() { return this.park().platforms?.find(deck => deck.id === this.p.support) || null; }
+  supportY(x) { return this.support()?.y ?? this.groundY(x); }
+  supportSlope(x) { return this.support() ? 0 : this.slope(x); }
+  flightSlope(x, y) { return airSurfaceSlope(this.park().platforms, x, y, q => this.slope(q)); }
 
   resetRun() {
     this.ensurePark();
@@ -172,11 +185,12 @@ export class HighBar extends HighBarView {
     this.runTime = 0; this.resumeT = 0; this.landing = null; this.lastBank = null;
     if (this.practiceCheckpoint?.park !== this.parkId) this.practiceCheckpoint = null;
     this.p = { mode: "ground", x: g.lipL + 4, y: 0, s: 160, vx: 0, vy: 0, rot: 0, rotV: 0, tuck: false, crouch: false, vert: 0,
-      bar: -1, r: 0, phi: 0, om: 0, held: 0, loops: 0, phiAcc: 0, lastBar: -1, lastBarT: 9, bailT: 0 };
+      bar: -1, r: 0, phi: 0, om: 0, held: 0, loops: 0, phiAcc: 0, lastBar: -1, lastBarT: 9, bailT: 0, support: null };
     this.p.y = this.groundY(this.p.x);
     this.p.rot = Math.atan(this.slope(this.p.x));
     this.air = null;
     this.pending = null;
+    this.pressInput = null; this.lastButtonTap = null; this.pressAction = null;
     this.combo = this.freshCombo();
     this.bestCombo = 0; this.newGoals = [];
     this.manual = null; this.tapAt = -Infinity; this.styleNotice = "";
@@ -193,24 +207,45 @@ export class HighBar extends HighBarView {
     cleanLandings: 0, landings: 0, sketchy: 0, started: this.runTime || 0 }; }
 
   // ---- input -------------------------------------------------------------
-  down() {
+  inputEdge(e = {}) {
+    return { source: e.source || "local", generation: e.generation ?? 0,
+      stamp: Number.isFinite(e.at_us) ? e.at_us / 1000000 : null, at: this.t };
+  }
+  inputGap(a, b) {
+    if (!a || !b || a.source !== b.source || a.generation !== b.generation) return Infinity;
+    if ((a.stamp === null) !== (b.stamp === null)) return Infinity;
+    return a.stamp !== null && b.stamp !== null ? b.stamp - a.stamp : b.at - a.at;
+  }
+  catchDelay() { return Math.max(CATCH_LAG, paceOf(this.c.settings?.()?.gesturePace).tapMs / 1000 + 0.001); }
+  down(e = {}) {
     this.guard.mark();
     if (this.pressed) return;
-    this.pressed = true; this.pt = this.t;
+    this.pressed = true; this.pt = this.t; this.pressInput = this.inputEdge(e); this.pressAction = null;
     if (this.phase !== "play") { this.armed = !(this.phase === "over" && this.overT < LOCKOUT); return; }
     if (this.resumeT > 0) return;
     const p = this.p;
     if (p.mode === "bail") return;
-    const bar = this.pickBar();
-    if (bar >= 0 && p.mode !== "bar") { this.pending = { bar, t: CATCH_LAG }; return; }
-    if (p.mode === "ground") p.crouch = true;
-    else if (p.mode === "air") this.tuckIn();
+    const gap = this.inputGap(this.lastButtonTap, this.pressInput);
+    const flip = p.mode === "air" && gap >= 0 && gap <= 0.32;
+    this.lastButtonTap = null;
+    // A second press after a short tap means flip, even beside a catchable post.
+    // A catch waits until the first press has outlasted a quick tap. This keeps
+    // the flip's first tap from changing momentum beside a post.
+    if (flip) { this.pending = null; this.pressAction = "flip"; this.tuckIn(); return; }
+    if (p.mode === "ground") { p.crouch = true; this.pressAction = "skate"; return; }
+    const bar = p.mode === "air" ? this.pickBar() : -1;
+    if (bar >= 0) { this.pending = { bar, t: this.catchDelay() }; this.pressAction = "catch"; }
   }
-  up(e) {
+  up(e = {}) {
+    if (this.pressInput && ((e.source && e.source !== this.pressInput.source)
+      || (e.generation !== undefined && e.generation !== this.pressInput.generation))) return;
     this.guard.release();
     if (!this.pressed) return;
     this.pressed = false;
-    const dur = Number.isFinite(e?.durationMs) ? e.durationMs / 1000 : this.t - this.pt;
+    const release = this.inputEdge({ ...e, source: e.source || this.pressInput?.source, generation: e.generation ?? this.pressInput?.generation });
+    const elapsed = this.inputGap(this.pressInput, release);
+    const dur = Number.isFinite(e.durationMs) ? e.durationMs / 1000 : Number.isFinite(elapsed) ? elapsed : this.t - this.pt;
+    this.pressInput = null; this.pressAction = null;
     if (this.phase !== "play") {
       // A completed ordinary selection hold is not one of the gesture's two
       // quick taps. The source-owned duration also settles burst-delivered
@@ -224,16 +259,21 @@ export class HighBar extends HighBarView {
     if (p.mode === "bar") this.letGo();
     else if (p.mode === "ground" && p.crouch) this.ollie();
     p.crouch = false; p.tuck = false;
+    this.lastButtonTap = p.mode === "air" && dur >= 0 && dur <= paceOf(this.c.settings?.()?.gesturePace).tapMs / 1000 ? release : null;
   }
   cancel() {
     const restored = this.guard.rewind();
     this.lamps.clear();
     this.boardOff();
     this.pressed = false; this.armed = false; this.pending = null;
+    this.pressInput = null; this.lastButtonTap = null; this.pressAction = null;
     if (this.p) { this.p.crouch = false; this.p.tuck = false; if (this.p.mode === "bar" && !restored) this.letGo(); }
   }
-  pause() { this.guard.settle(); this.lamps.sleep(); this.boardOff(); }
-  resume() { this.lamps.wake(); if (this.phase === "play") this.resumeT = 0.6; }
+  pause() { this.guard.settle(); this.pressed = false; this.pending = null; this.pressInput = null; this.lastButtonTap = null; this.pressAction = null;
+    if (this.p) { this.p.crouch = false; this.p.tuck = false; } this.lamps.sleep(); this.boardOff(); }
+  resume() { this.lamps.wake(); this.pressed = false; this.armed = false; this.pending = null;
+    this.pressInput = null; this.lastButtonTap = null; this.pressAction = null;
+    if (this.p) { this.p.crouch = false; this.p.tuck = false; } if (this.phase === "play") this.resumeT = 0.6; }
   dispose() { this.guard.settle(); this.lamps.sleep(); this.boardOff(); }
   menuActions() {
     const guide = { label: "GAME GUIDE", run: () => { this.guideReturn = this.phase; this.phase = "guide"; this.guide = 0; this.c.resume?.(); } };
@@ -267,56 +307,59 @@ export class HighBar extends HighBarView {
       }
       return;
     }
-    if (this.phase !== "play" || this.resumeT > 0 || this.p.mode === "bail" || this.t - this.tapAt < TAP_COOLDOWN) return;
-    this.tapAt = this.t;
+    if (this.phase !== "play" || this.resumeT > 0 || this.p.mode === "bail") return;
     const p = this.p;
     const side = this.c.settings?.().tapMode === "sides" ? event.side : null;
-    if (p.mode === "ground") {
-      if (this.manual) {
-        const direction = side === "left" ? -1 : side === "right" ? 1 : -Math.sign(this.manual.balance || this.manual.drift);
-        this.manual.balance = clamp(this.manual.balance + direction * 0.43, -1.2, 1.2);
-        this.manual.corrections++;
-        this.styleNotice = Math.abs(this.manual.balance) < 0.3 ? "BALANCE CENTRED — LET IT DRIFT BEFORE TAPPING" : "MANUAL: TAP BEFORE THE BALANCE REACHES THE EDGE";
-      } else {
-        this.manual = { t: 0, balance: 0.12, drift: 1, corrections: 0 };
-        this.combo.roll = -1;
-        this.styleNotice = "MANUAL: BUTTON RELEASE POPS OUT";
-      }
-    } else if (p.mode === "air" && this.air && !this.air.style) {
+    if (p.mode === "ground") return;
+    if (this.canKickflip(event)) {
+      this.air.style = { ...this.air.style, kind: "kickflip", at: this.air.t };
+      this.styleNotice = "KICKFLIP: LAND CLEAN";
+      this.c.tone?.(880, 0.06, "triangle");
+      return;
+    }
+    if (this.t - this.tapAt < TAP_COOLDOWN) return;
+    if (p.mode === "air" && this.air && !this.air.style) {
       if (!this.canStyle()) {
         announce(this, "TOO LOW TO STYLE — LAND FIRST", 1.1); return;
       }
-      this.air.style = { at: this.air.t, dir: side === "left" ? -1 : side === "right" ? 1 : (Math.sign(p.vx) || 1) };
-      this.styleNotice = "SHOVE-IT: RELEASE TO STRAIGHTEN";
+      this.tapAt = this.t;
+      this.air.style = { at: this.air.t, kind: "shove", tap: this.inputEdge(event), dir: side === "left" ? -1 : side === "right" ? 1 : (Math.sign(p.vx) || 1) };
+      this.styleNotice = "SHOVE-IT: LAND CLEAN";
       this.c.tone?.(620, 0.06, "triangle");
     } else if (p.mode === "bar" && !p.regrip && p.held > 0.15) {
+      this.tapAt = this.t;
       p.regrip = true;
-      p.om = Math.sign(p.om || 1) * Math.min(SWING_OMEGA, Math.abs(p.om) * 1.08 + 0.12, Math.max(Math.abs(p.om), WHIP_CAP / p.r));
-      this.styleNotice = "REGRIP: RELEASE UPWARD FOR A HIGH LINE";
+      this.styleNotice = "REGRIP: STYLE SET";
       this.c.tone?.(760, 0.05, "triangle");
     }
   }
   endManual() {
-    const m = this.manual;
-    if (!m) return;
-    if (m.t >= 0.6) { this.trick("MANUAL", Math.round(80 + Math.min(m.t, MANUAL_LIMIT) * 35)); this.combo.manual = true; }
+    // Kept for legacy callers; ground case taps no longer start a manual.
     this.manual = null;
+  }
+  canKickflip(event = null) {
+    const style = this.air?.style;
+    if (this.p.mode !== "air" || style?.kind !== "shove" || !style.tap) return false;
+    const gap = event ? this.inputGap(style.tap, this.inputEdge(event)) : this.t - style.tap.at;
+    return gap >= 0.12 - 1e-8 && gap <= 0.45 + 1e-8 && this.canStyle(true);
   }
   // A fast descent can cover the old 65 px window before a shove-it completes.
   // Preview the same ground/wall boundaries, including a rising bowl transition,
   // so an accepted tap has time to finish instead of only making landing harder.
-  canStyle() {
+  canStyle(upgrade = false) {
     const p = this.p;
-    if (p.mode !== "air" || !this.air || this.air.style || this.air.t < 0.1) return false;
+    if (p.mode !== "air" || !this.air || (this.air.style && !upgrade) || this.air.t < 0.1) return false;
     let x = p.x, y = p.y, vx = p.vx, vy = p.vy;
     const h = STYLE_TIME / 8, g = this.geo;
     for (let i = 0; i < 8; i++) {
+      const x0 = x, y0 = y;
       if (p.vert) { vy += G * h; y += vy * h; }
       else {
         x += vx * h; y += vy * h + 0.5 * G * h * h; vy += G * h;
         if (x < g.lipL) { x = g.lipL; vx = Math.abs(vx) * 0.4; }
         if (x > g.lipR) { x = g.lipR; vx = -Math.abs(vx) * 0.4; }
       }
+      if (!p.vert && platformContact(this.park().platforms, x0, y0, x, y)) return false;
       if (p.vert ? vy > 0 && y >= g.lipY : y >= this.groundY(x)) return false;
     }
     return true;
@@ -398,7 +441,7 @@ export class HighBar extends HighBarView {
       if (spawn.id === "training") this.lesson = { stage: 0 };
     }
     announce(this, this.mode === 1 ? this.challenge().name : this.mode === 2 ? "PRACTICE — NO CLOCK OR RECORDS" : this.park().name, 2.2);
-    this.setHint("Skate: hold to build speed, release to ollie. Flight: press near a bar to catch. Swing: hold for height, release to launch.");
+    this.setHint("Ground: hold to push, release to ollie. Air: hold near a post to catch; tap then hold to flip. Release the web to fly.");
     this.c.tone?.(660, 0.08, "triangle");
   }
   nextLine() {
@@ -419,7 +462,7 @@ export class HighBar extends HighBarView {
     if (p.mode !== "bar") return null;
     const velocity = barLaunchVelocity(p, this.park().bars[p.bar][2]);
     return { ...velocity, direction: Math.sign(velocity.vx) || 1,
-      phase: p.held < 0.35 ? "build" : velocity.vy < -180 ? "rise" : velocity.vy <= 100 ? "travel" : "fall",
+      phase: velocity.vy < -180 ? "rise" : velocity.vy <= 100 ? "travel" : "fall",
       lift: clamp(-velocity.vy / SWING_CAP, 0, 1) };
   }
   flightAdvice() {
@@ -428,8 +471,8 @@ export class HighBar extends HighBarView {
     const dt = this.simulationStep;
     const key = [this.parkId, dt, p.x, p.y, p.vx, p.vy, p.rot, p.rotV, p.vert, p.tuck, p.tuckDir, this.air.t, !!this.air.style].join("|");
     if (this.flightCache?.key === key) return this.flightCache.value;
-    const now = projectLanding(p, this.air, this.geo, x => this.groundY(x), x => this.slope(x), 0, dt);
-    const later = now && p.tuck ? projectLanding(p, this.air, this.geo, x => this.groundY(x), x => this.slope(x), 0.2, dt) : now;
+    const now = projectLanding(p, this.air, this.geo, x => this.groundY(x), x => this.slope(x), 0, dt, this.park().platforms);
+    const later = now && p.tuck ? projectLanding(p, this.air, this.geo, x => this.groundY(x), x => this.slope(x), 0.2, dt, this.park().platforms) : now;
     const value = now ? { ...now, urgent: !!p.tuck && (now.time <= 0.45 || later?.kind === "bail" || later?.kind === "sketchy") } : null;
     this.flightCache = { key, value };
     return value;
@@ -443,7 +486,9 @@ export class HighBar extends HighBarView {
   placePractice(spawn) {
     if (spawn?.checkpoint && this.practiceCheckpoint?.park === this.parkId) {
       const q = this.practiceCheckpoint;
-      Object.assign(this.p, { x: q.x, s: q.s, y: this.groundY(q.x), rot: Math.atan(this.slope(q.x)) });
+      const support = this.park().platforms?.find(deck => deck.id === q.support && q.x >= deck.x1 && q.x <= deck.x2);
+      Object.assign(this.p, { x: q.x, s: q.s, support: support?.id || null,
+        y: support ? support.y : this.groundY(q.x), rot: support ? 0 : Math.atan(this.slope(q.x)) });
     } else if (Number.isFinite(spawn?.x)) {
       const x = clamp(spawn.x, this.geo.lipL + 4, this.geo.lipR - 4);
       Object.assign(this.p, { x, s: clamp(spawn.speed || 220, -MAX_SPEED, MAX_SPEED), y: this.groundY(x), rot: Math.atan(this.slope(x)) });
@@ -463,13 +508,14 @@ export class HighBar extends HighBarView {
   // The bar a press would grab now (or -1): the nearest one within reach that is not the bar just left.
   pickBar() {
     const p = this.p, bars = this.park().bars;
+    if (p.mode !== "air") return -1;
     let best = -1, bestD = REACH;
     for (let i = 0; i < bars.length; i++) {
       if (i === p.lastBar && p.lastBarT < REGRAB) continue;
       // In reach now and still in reach when the grab lands.
       const d = Math.hypot(bars[i][0] - p.x, bars[i][1] - p.y);
       if (d < MIN_R || d > bestD) continue;
-      const fx = p.mode === "ground" ? p.x + p.s * CATCH_LAG : p.x + p.vx * CATCH_LAG, fy = p.mode === "ground" ? p.y : p.y + p.vy * CATCH_LAG;
+      const delay = this.catchDelay(), fx = p.x + p.vx * delay, fy = p.y + p.vy * delay + .5 * G * delay * delay;
       if (Math.hypot(bars[i][0] - fx, bars[i][1] - fy) > REACH + 20) continue;
       if (bars[i][1] > p.y + 20) continue; // a bar below the rider's feet cannot be hung from
       best = i; bestD = d;
@@ -479,7 +525,7 @@ export class HighBar extends HighBarView {
   // A press meant for a bar that has gone out of reach does what a press there would have done.
   heldAway() {
     if (this.p.mode === "ground") this.p.crouch = true;
-    else if (this.p.mode === "air") this.tuckIn();
+    else if (this.p.mode === "air" && this.pressAction === "flip") this.tuckIn();
   }
   tuckIn() {
     const p = this.p;
@@ -489,12 +535,12 @@ export class HighBar extends HighBarView {
   leaveGround() {
     const p = this.p;
     this.endManual();
-    p.mode = "air"; p.crouch = false;
+    p.mode = "air"; p.crouch = false; p.support = null;
     if (!this.air) this.air = { t: 0, rot: 0, x0: p.x, xMin: p.x, xMax: p.x, y0: p.y, apex: p.y, fromBar: -1, ollie: false, vert: false, dir: Math.sign(p.vx) || 1 };
     if (this.combo.roll >= 0) this.combo.roll = -1;
   }
   ollie() {
-    const p = this.p, m = this.slope(p.x), cos = 1 / Math.sqrt(1 + m * m), sin = m * cos;
+    const p = this.p, m = this.supportSlope(p.x), cos = 1 / Math.sqrt(1 + m * m), sin = m * cos;
     p.vx = p.s * cos + OLLIE * sin; p.vy = p.s * sin - OLLIE * cos;
     p.y -= 2;
     this.air = null;
@@ -509,9 +555,14 @@ export class HighBar extends HighBarView {
     if (d > REACH + 40 || d < MIN_R * 0.6) return false;
     this.endManual();
     let vx = p.vx, vy = p.vy;
-    if (p.mode === "ground") { const m = this.slope(p.x), cos = 1 / Math.sqrt(1 + m * m); vx = p.s * cos; vy = p.s * m * cos; }
-    const r = clamp(d, MIN_R, REACH), phi = Math.atan2(dx, dy);
+    if (p.mode === "ground") { const m = this.supportSlope(p.x), cos = 1 / Math.sqrt(1 + m * m); vx = p.s * cos; vy = p.s * m * cos; }
+    // Keep the actual caught radius, including delayed-edge tolerance. Pulling
+    // an outlying rider inward here would create free height on every catch.
+    const r = d, phi = Math.atan2(dx, dy);
     const along = vx * Math.cos(phi) - vy * Math.sin(phi), speed = Math.hypot(vx, vy);
+    // A little compliant give avoids a dead stop on a nearly radial catch;
+    // it retains at most 4% of that incoming kinetic energy, never adds any.
+    const tangent = Math.max(Math.abs(along), Math.min(speed * 0.2, 60));
     // Air tricks finish on the grab (a flip caught on a bar counts; no landing is needed).
     const from = p.mode === "air" && this.air ? this.air.fromBar : -1;
     if (p.mode === "air" && this.air) this.endAir(true);
@@ -524,7 +575,7 @@ export class HighBar extends HighBarView {
     this.air = null;
     if (this.lesson?.stage === 3) this.lesson.stage = 4;
     if (this.combo.roll >= 0) this.combo.roll = -1;
-    Object.assign(p, { mode: "bar", bar: i, r, phi, om: (along >= 0 ? 1 : -1) * Math.min(speed / r, SWING_CAP / r, SWING_OMEGA), held: 0, loops: 0, phiAcc: 0, tuck: false, crouch: false, regrip: false, vert: 0 });
+    Object.assign(p, { mode: "bar", support: null, bar: i, r, phi, om: (along >= 0 ? 1 : -1) * Math.min(tangent / r, SWING_CAP / r, SWING_OMEGA), held: 0, loops: 0, phiAcc: 0, tuck: false, crouch: false, regrip: false, vert: 0 });
     p.x = bx + r * Math.sin(phi); p.y = by + r * Math.cos(phi);
     this.c.tone?.(520, 0.05, "triangle");
     return true;
@@ -595,7 +646,7 @@ export class HighBar extends HighBarView {
     const a = this.air, p = this.p;
     if (!a) return;
     if (a.t >= 0.35) { this.combo.airs++; this.stats.airs++; }
-    if (a.style && a.t - a.style.at >= STYLE_TIME) { this.trick("SHOVE-IT", 180); this.combo.shove = true; }
+    if (a.style && a.t - a.style.at >= STYLE_TIME) { this.trick(a.style.kind === "kickflip" ? "KICKFLIP" : "SHOVE-IT", a.style.kind === "kickflip" ? 360 : 180); this.combo.shove = true; }
     const turns = Math.round(Math.abs(a.rot) / TAU);
     if (turns >= 1 && Math.abs(a.rot) >= turns * TAU - 1.0) {
       const n = Math.min(turns, FLIPS.length - 1), front = Math.sign(a.rot) === a.dir;
@@ -609,15 +660,18 @@ export class HighBar extends HighBarView {
     for (const g of this.park().gaps) if (g.t === "span" && a.xMin <= g.x1 && a.xMax >= g.x2) this.gap(g);
     this.air = null;
   }
-  land() {
-    const p = this.p, m = this.slope(p.x), ang = Math.atan(m);
+  land(surface = null) {
+    const p = this.p;
+    if (surface) p.x = surface.x;
+    p.support = surface?.id || null;
+    const m = this.supportSlope(p.x), ang = Math.atan(m);
     this.routeSteps = {}; // unfinished routes require one continuous air/bar chain
     const off = Math.abs(wrapAngle(p.rot - ang));
     const cos = 1 / Math.sqrt(1 + m * m), sin = m * cos;
     // Landing keeps most of the speed, more of it the better the line matches the ground (transitions are forgiving).
     const along = p.vx * cos + p.vy * sin, speed = Math.hypot(p.vx, p.vy);
     const s = speed > 1 ? Math.sign(along) * speed * (0.75 + 0.25 * Math.abs(along) / speed) : along;
-    p.y = this.groundY(p.x);
+    p.y = this.supportY(p.x);
     const tol = this.air?.style ? LAND_TOL * 0.7 : LAND_TOL;
     if (off > tol) { this.bail("RELEASE EARLIER — MATCH THE SLOPE BEFORE TOUCHDOWN", off); return; }
     const clean = off < 0.22 && this.air?.t >= 0.35;
@@ -628,7 +682,7 @@ export class HighBar extends HighBarView {
     this.landing = { kind: clean ? "clean" : sketchy ? "sketchy" : "safe", off, t: 1.3,
       reason: clean ? "CLEAN — BODY MATCHED THE SLOPE" : sketchy ? "SKETCHY — RELEASE EARLIER FOR A CLEANER LANDING" : "SAFE — STRAIGHTEN A LITTLE MORE FOR CLEAN" };
     this.endAir(false);
-    Object.assign(p, { mode: "ground", s: clamp(s, -MAX_SPEED, MAX_SPEED), rot: ang, rotV: 0, tuck: false, vert: 0 });
+    Object.assign(p, { mode: "ground", s: clamp(s, -MAX_SPEED, MAX_SPEED), rot: ang, rotV: 0, tuck: false, crouch: this.pressed, vert: 0 });
     if (this.combo.tricks.length) this.combo.roll = ROLL;
     this.burst(p.x, p.y, C.muted, 4);
     this.c.tone?.(180, 0.05, "triangle");
@@ -643,7 +697,7 @@ export class HighBar extends HighBarView {
     this.air = null; this.pending = null;
     this.routeSteps = {};
     Object.assign(p, { mode: "bail", bailT: BAIL_T, tuck: false, crouch: false, vert: 0, s: 0, bar: -1 });
-    p.y = this.groundY(p.x);
+    p.y = this.supportY(p.x);
     this.burst(p.x, p.y, C.red, 8);
     this.lamps.flash(0.5, () => fill(LAMP.red, 1, this.n()));
     this.c.tone?.(110, 0.25, "sawtooth");
@@ -660,7 +714,7 @@ export class HighBar extends HighBarView {
     this.lastBank = { value, variety: this.variety(c), clean: c.cleanLandings || 0, matched,
       newBest: false, newMedal: false, time: Math.max(0, this.runTime - (c.started || 0)) };
     if (this.mode === 2 && this.p.mode === "ground" && !this.manual) {
-      this.practiceCheckpoint = { park: this.parkId, x: this.p.x, s: this.p.s, rot: this.p.rot };
+      this.practiceCheckpoint = { park: this.parkId, x: this.p.x, s: this.p.s, rot: this.p.rot, support: this.p.support || null };
       if (this.lesson?.stage === 2 && c.cleanLandings > 0) this.lesson.stage = 3;
       else if (this.lesson?.stage === 4 && c.tricks.some(k => k.name === "SWING")) this.lesson.stage = 5;
     }
@@ -740,7 +794,6 @@ export class HighBar extends HighBarView {
     if (line.swing) parts.push(c.tricks.some(k => k.name === "SWING") ? "SWING OK" : "NEED SWING");
     if (line.variety) parts.push("VARIETY " + Math.min(this.variety(c), line.variety) + "/" + line.variety);
     if (line.clean) parts.push(c.clean ? "CLEAN OK" : "NEED CLEAN LANDING");
-    if (line.manual) parts.push(c.manual ? "MANUAL OK" : "NEED MANUAL");
     if (line.airs) parts.push("AIRS " + Math.min(c.airs, line.airs) + "/" + line.airs);
     if (line.gap) parts.push(c.gaps.includes(line.gap) ? "GAP OK" : "NEED " + this.park().gaps.find(g => g.id === line.gap).name);
     if (line.regrip) parts.push(c.regrip ? "REGRIP OK" : "NEED REGRIP");
@@ -756,7 +809,6 @@ export class HighBar extends HighBarView {
       if (line.gap && !c.gaps.includes(line.gap)) return "NEXT / " + this.park().gaps.find(g => g.id === line.gap).name;
       if (line.swing && !c.tricks.some(k => k.name === "SWING")) return "NEXT / CATCH + RELEASE A SWING";
       if (line.flip && c.maxFlip < line.flip) return "NEXT / " + (line.flip === 1 ? "LAND OR CATCH A FLIP" : "LAND OR CATCH " + line.flip + " FLIPS");
-      if (line.manual && !c.manual) return "NEXT / LINK WITH A MANUAL";
       if (line.airs && c.airs < line.airs) return "NEXT / AIRS " + c.airs + "/" + line.airs;
       if (line.transfers && c.transfers < line.transfers) return "NEXT / TRANSFERS " + c.transfers + "/" + line.transfers;
       if (line.regrip && !c.regrip) return "NEXT / TAP ON A BAR TO REGRIP";
@@ -775,7 +827,7 @@ export class HighBar extends HighBarView {
   meetsLine(line, c) {
     return (!line.flip || c.maxFlip >= line.flip) && (!line.swing || c.tricks.some((k) => k.name === "SWING"))
       && (!line.variety || this.variety(c) >= line.variety) && (!line.clean || c.clean)
-      && (!line.manual || c.manual) && (!line.airs || c.airs >= line.airs)
+      && (!line.airs || c.airs >= line.airs)
       && (!line.gap || c.gaps.includes(line.gap)) && (!line.regrip || c.regrip)
       && (!line.shove || c.shove) && (!line.transfers || c.transfers >= line.transfers);
   }
@@ -818,7 +870,7 @@ export class HighBar extends HighBarView {
     if (this.landing) { this.landing.t -= dt; if (this.landing.t <= 0) this.landing = null; }
     if (this.phase === "play" && this.resumeT > 0) {
       this.resumeT = Math.max(0, this.resumeT - dt);
-      if (this.resumeT === 0) { this.pressed = false; this.pending = null; this.p.crouch = false; this.p.tuck = false; }
+      if (this.resumeT === 0) { this.pressed = false; this.pending = null; this.pressInput = null; this.lastButtonTap = null; this.pressAction = null; this.p.crouch = false; this.p.tuck = false; }
     } else if (this.phase === "play") this.stepPlay(this.mode === 2 && this.practiceSlow ? dt * 0.5 : dt);
     else if (this.phase === "over") this.overT += dt;
     for (const q of this.parts) { q.t += dt; q.x += q.vx * dt; q.y += q.vy * dt; q.vy += 400 * dt; }
@@ -837,7 +889,9 @@ export class HighBar extends HighBarView {
     const p = this.p;
     this.simulationStep = clamp(dt, 1 / 240, 1 / 30);
     this.runTime += dt;
-    if (this.pending) { this.pending.t -= dt; if (this.pending.t <= 0) { const b = this.pending.bar; this.pending = null; if (this.pressed && !this.grab(b)) this.heldAway(); } }
+    if (this.pending) { this.pending.t -= dt; if (this.pending.t <= 0) { const b = this.pending.bar; this.pending = null;
+      if (this.pressed && this.pressAction === "catch" && (p.mode !== "air" || !this.grab(b))) this.heldAway();
+    } }
     p.lastBarT += dt;
     if (p.mode === "ground") this.stepGround(dt);
     else if (p.mode === "air") this.stepAir(dt);
@@ -845,13 +899,7 @@ export class HighBar extends HighBarView {
     else if (p.mode === "bail") {
       p.bailT -= dt;
       // Back up, rolling towards the middle of the park at a fair speed.
-      if (p.bailT <= 0) { Object.assign(p, { mode: "ground", s: p.x < this.park().w / 2 ? 260 : -260, rot: Math.atan(this.slope(p.x)), rotV: 0, crouch: this.pressed }); }
-    }
-    if (p.mode === "ground" && this.manual) {
-      const m = this.manual; m.t += dt;
-      m.balance += m.drift * (0.2 + Math.abs(p.s) / MAX_SPEED * 0.32) * dt;
-      if (Math.abs(m.balance) >= 1) this.bail("MANUAL DRIFT — TAP TO CENTRE BEFORE THE EDGE");
-      else if (m.t >= MANUAL_LIMIT) { this.endManual(); this.combo.roll = ROLL; }
+      if (p.bailT <= 0) { Object.assign(p, { mode: "ground", s: p.x < this.park().w / 2 ? 260 : -260, rot: Math.atan(this.supportSlope(p.x)), rotV: 0, crouch: this.pressed }); }
     }
     if (p.mode === "ground" && !this.manual && this.combo.roll >= 0) { this.combo.roll -= dt; if (this.combo.roll <= 0) this.bank(); }
     if (this.phase !== "play") return;
@@ -867,6 +915,19 @@ export class HighBar extends HighBarView {
   }
   stepGround(dt) {
     const p = this.p, g = this.geo, sub = 4, h = dt / sub;
+    const deck = this.support();
+    if (deck) {
+      for (let k = 0; k < sub; k++) {
+        p.s += ((p.crouch ? (Math.sign(p.s) || 1) * SKATE_DRIVE : 0) - Math.sign(p.s) * FRICTION) * h;
+        if (Math.abs(p.s) < PUSH_MIN) p.s += (Math.sign(p.s) || 1) * PUSH * h;
+        p.s = clamp(p.s, -MAX_SPEED, MAX_SPEED);
+        p.x += p.s * h; p.y = deck.y; p.rot = 0;
+        if (p.x < deck.x1 || p.x > deck.x2) {
+          p.vx = p.s; p.vy = 0; this.air = null; this.leaveGround(); return;
+        }
+      }
+      return;
+    }
     for (let k = 0; k < sub; k++) {
       const m = this.slope(p.x), cos = 1 / Math.sqrt(1 + m * m), sin = m * cos;
       let a = G * sin;
@@ -906,6 +967,7 @@ export class HighBar extends HighBarView {
   }
   stepAir(dt) {
     const p = this.p, a = this.air, g = this.geo;
+    const x0 = p.x, y0 = p.y;
     if (p.vert) { p.vy += G * dt; p.y += p.vy * dt; }
     else {
       p.x += p.vx * dt; p.y += p.vy * dt + 0.5 * G * dt * dt; p.vy += G * dt;
@@ -914,7 +976,7 @@ export class HighBar extends HighBarView {
       if (p.x > g.lipR) { p.x = g.lipR; p.vx = -Math.abs(p.vx) * 0.4; }
     }
     // Rotation: a tuck spins hard; untucked, the rider turns towards the ground below at a limited rate.
-    const target = p.vert ? Math.atan(this.slope(p.x + (p.vert < 0 ? 3 : -3))) : Math.atan(this.slope(p.x));
+    const target = p.vert ? Math.atan(this.slope(p.x + (p.vert < 0 ? 3 : -3))) : Math.atan(this.flightSlope(p.x, p.y));
     if (p.tuck) p.rotV += (p.tuckDir * TUCK - p.rotV) * Math.min(1, 10 * dt);
     else {
       const want = clamp(wrapAngle(target - p.rot) * 5, -SETTLE, SETTLE);
@@ -934,15 +996,17 @@ export class HighBar extends HighBarView {
       }
       return;
     }
-    if (p.y >= this.groundY(p.x)) this.land();
+    const deck = platformContact(this.park().platforms, x0, y0, p.x, p.y);
+    if (deck) this.land(deck);
+    else if (p.y >= this.groundY(p.x)) this.land();
   }
   stepBar(dt) {
     const p = this.p, [bx, by] = this.park().bars[p.bar], sub = 4, h = dt / sub, k = G / p.r;
+    const x0 = p.x, y0 = p.y;
     for (let i = 0; i < sub; i++) {
       p.om -= 0.5 * k * Math.sin(p.phi) * h;
-      // Holding pumps a swing in its current direction; the speed cap applies
-      // before and after gravity, including short-radius catches.
-      if (this.pressed) p.om += (Math.sign(p.om) || 1) * SWING_DRIVE / p.r * h;
+      // Gravity exchanges height and speed. The web adds no energy; drag and
+      // the safety cap can only remove it, whether the button is held or not.
       p.om = clamp(p.om, -Math.min(SWING_CAP / p.r, SWING_OMEGA), Math.min(SWING_CAP / p.r, SWING_OMEGA));
       p.phi += p.om * h; p.phiAcc += p.om * h;
       p.om -= 0.5 * k * Math.sin(p.phi) * h;
@@ -956,7 +1020,8 @@ export class HighBar extends HighBarView {
     const loops = Math.floor(Math.abs(p.phiAcc) / TAU);
     if (loops > p.loops) { p.loops = loops; this.trick("GIANT", 250); this.c.tone?.(700 + 60 * Math.min(loops, 6), 0.06, "triangle"); }
     // Swinging into the ground drops the rider onto it, judged as a landing.
-    if (p.y > this.groundY(p.x) - 2) { p.lastBar = p.bar; p.lastBarT = 0; p.mode = "air"; p.bar = -1; this.land(); }
+    const deck = platformContact(this.park().platforms, x0, y0, p.x, p.y);
+    if (deck || p.y > this.groundY(p.x) - 2) { p.lastBar = p.bar; p.lastBarT = 0; p.mode = "air"; p.bar = -1; this.land(deck); }
   }
 
   finish() {
@@ -982,7 +1047,7 @@ export class HighBar extends HighBarView {
     s.park = this.parkId;
     this.checkGoals(this.freshCombo());
     finishSave(this.save);
-    if (this.mode === 0) this.c.score?.(this.score, "flow-v4");
+    if (this.mode === 0) this.c.score?.(this.score, "flow-v5");
     this.persist();
     this.setHint("Tap to ride again. Hold for park and save slot.");
     this.c.tone?.(520, 0.2, "triangle");
@@ -1024,23 +1089,20 @@ export class HighBar extends HighBarView {
       lamp(0, launch ? launch.phase === "rise" ? LAMP.green : launch.phase === "travel" ? LAMP.cyan : LAMP.amber : LAMP.green,
         launch ? 0.25 + 0.6 * launch.lift : Math.min(0.85,
           (p.mode === "ground" ? Math.abs(p.s) : Math.hypot(p.vx, p.vy)) / MAX_SPEED));
-      const risk = this.manual ? Math.abs(this.manual.balance) : landing ? Math.max(landing.urgent ? 0.9 : 0, landing.off / (this.air?.style ? LAND_TOL * 0.7 : LAND_TOL)) : p.mode === "air" ? 1 : 0;
+      const risk = landing ? Math.max(landing.urgent ? 0.9 : 0, landing.off / (this.air?.style ? LAND_TOL * 0.7 : LAND_TOL)) : p.mode === "air" ? 1 : 0;
       lamp(1, risk > 0.8 ? LAMP.red : risk > 0.4 ? LAMP.amber : LAMP.green, 0.25 + Math.min(0.65, risk * 0.5));
       lamp(2, LAMP.violet, 0.1 + Math.min(0.75, this.variety() * 0.13));
-      const ready = p.mode === "ground" || (p.mode === "bar" && !p.regrip && p.held > 0.15)
-        || this.canStyle();
-      lamp(3, this.manual ? LAMP.amber : ready ? LAMP.cyan : LAMP.off,
-        this.manual ? 0.25 + 0.65 * Math.abs(this.manual.balance) : ready ? 0.25 + 0.25 * pulse(this.t, 1) : 0);
+      const ready = (p.mode === "bar" && !p.regrip && p.held > 0.15) || this.canStyle() || this.canKickflip();
+      lamp(3, ready ? LAMP.cyan : LAMP.off, ready ? 0.25 + 0.25 * pulse(this.t, 1) : 0);
       return out;
     }
-    if (this.manual) return spot(0.5 + this.manual.balance * 0.5, Math.abs(this.manual.balance) > 0.8 ? LAMP.red : LAMP.amber, 0.7, n);
     if (p.mode === "bar") {
       const launch = this.releaseAdvice();
       return spot(0.5 + 0.5 * Math.sin(p.phi), launch.phase === "rise" ? LAMP.green : launch.phase === "travel" ? LAMP.cyan : LAMP.amber, 0.8, n);
     }
     if (p.mode === "air") {
       // The flip's angle to the ground below: centred and green is a safe landing.
-      const target = Math.atan(this.slope(p.x)), off = wrapAngle(p.rot - target);
+      const target = Math.atan(this.flightSlope(p.x, p.y)), off = wrapAngle(p.rot - target);
       const landing = this.flightAdvice(), ok = landing && !landing.urgent && (landing.kind === "clean" || landing.kind === "safe");
       return spot(clamp(0.5 + off / TAU, 0, 1), ok ? LAMP.green : (p.tuck ? LAMP.violet : LAMP.red), 0.8, n);
     }
@@ -1064,7 +1126,7 @@ export class HighBar extends HighBarView {
     this.hudKey = key;
     this.c.hud?.(items);
     this.c.controls?.(this.phase === "guide" ? "BUTTON: NEXT PAGE · CASE: PREVIOUS · HOLD: RIDE / RETURN" : this.phase === "play"
-      ? "HOLD: PUMP / GRAB / TUCK · RELEASE: OLLIE / FLY / SETTLE · CASE TAP: STYLE"
+      ? "GROUND HOLD: PUSH · AIR HOLD: GRAB · TAP THEN HOLD: FLIP · CASE: SHOVE / DOUBLE: KICKFLIP"
       : this.phase === "setup" ? "BUTTON: NEXT · CASE: PREVIOUS · HOLD: CHOOSE"
       : "BUTTON TAP: RIDE · HOLD: SETUP");
   }

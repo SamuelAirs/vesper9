@@ -1,5 +1,26 @@
 # Candidate acceptance and rollback
 
+## Pending Windows momentum / CAIRN candidate
+
+`codex/highbar-momentum` has not replaced the last verified Pi trial `b14db57`.
+Before any new switch, identify the then-current release and copy its latest
+private trial data after the controlling browser has acknowledged pending saves
+and writes are quiescent. Use SQLite backup plus integrity/count checks. Stage
+a separate release/data directory and reversible service override. Preserve
+`b14db57` and its data as this candidate's rollback; the older rollback command
+below deliberately targets `60adf7a` and must not be reused for the new switch.
+Do not point an older release at High Bar's migrated schema-5 save. Keep model,
+Encyclopedia, firmware, calibration and other private assets intact.
+
+After an authorized switch, verify exact source/served hashes, source/data
+paths, one browser, loopback listener, node connection, microphone OFF and CRC
+counters. Physical priorities: quick press then second hold flips without an
+accidental grab; plain hold grabs and release detaches; single/double case taps
+give shove-it/kickflip; camping a post loses momentum; decks allow earned
+height gain. Confirm the quieter scene and landing readability. CAIRN needs
+human judgment on its difficult upper jumps and large falls. All broad tests
+and builds remain on Windows; none of these are yet physical-device results.
+
 ## Current High Bar trial: spider / sky-route mastery follow-up
 
 Sam authorized deployment, completed 2026-10-03 at approximately 17:25 UTC.

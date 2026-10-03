@@ -46,16 +46,24 @@ to an existing archive to include the latter. It links/copies that archive into
 private test data and never edits the source archive. `--only game-polish-browser`
 checks Ricochet practice and High Bar teaching/menu flows.
 
-`--only highbar-airflow-browser` visits every High Bar route brief and rides
-all four parks with a control pilot. `--only highbar-mastery-browser` checks
-the new ordered upper routes, finite attempt results/retry/next, both historical
+`--only highbar-controls-browser` verifies held grabs, two-press flips,
+case shove-it/kickflip, menu cancellation and all four parks through real
+keyboard inputs. `--only highbar-mastery-browser` checks every route brief,
+ordered upper routes, finite attempt results/retry/next, all three historical
 score archives, optional practice isolation and screen/lamp consistency. It
 also records 240 update/draw samples per park with Chrome CPU throttling at 4x;
 those measure Windows JavaScript/Canvas submission, not Pi or GPU frame time.
-The old `--only highbar-refresh-browser` command delegates to the airflow check.
+The old `highbar-refresh-browser` and `highbar-airflow-browser` commands now
+delegate to the current controls journey; their earlier reports are historical.
 Deterministic ordinary-drop-in target/gold recordings live in
-`tests/helpers/highbar-flow-routes.mjs`; the seven High Bar `.test.mjs` files
+`tests/helpers/highbar-flow-routes.mjs`; the High Bar `.test.mjs` files
 cover route physics and source-owned gesture cancellation separately.
+
+`--only cairn-browser` follows all 30 shelves through actual keyboard events
+and deterministic host frames, checks menu rewind and milestone-only reload,
+and captures all four regions. See [CAIRN](CAIRN.md) for timing and limitations.
+The app smoke also mounts every factory in the generated standalone file,
+independently of the source service's module graph.
 
 The short soak is a smoke check, not full-catalog sustained coverage. For the
 release rotation through every registered app, use:
@@ -160,11 +168,15 @@ does not save raw audio. Errors in recognized words remain possible.
 
 ## Firmware and physical qualification
 
-The source/protocol and prebuilt node image are unchanged from 0.1.0. Their
-original ESP-IDF v5.4.2 build evidence and hashes remain included. Rebuild with
+The finished node last reported firmware 0.2.0. Protocol v1 remains compatible;
+the bundled 0.1.2 prebuilt is for the older board and must not be flashed onto
+the finished four-lamp node. Its historical build evidence and hashes remain
+included. Rebuild with
 `bash scripts/build-firmware.sh` only after an intended firmware/config change;
 refresh images/hashes and requalify the real node afterward.
 
 Use [INSTALL.md](INSTALL.md) and [NEXT-STEPS.md](NEXT-STEPS.md) for the actual
-nine-color, button, sensor, microphone, reconnect, display and Pi-load checks.
+four-lamp, board-accent, button, case-tap, microphone, reconnect and display checks.
+The current node has no temperature/humidity sensor. Take only brief Pi status
+observations during normal play; keep broad testing and builds on Windows.
 Compiled firmware and simulated events do not establish electrical behavior.

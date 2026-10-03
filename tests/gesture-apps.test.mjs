@@ -49,8 +49,10 @@ const HELD = ["held", "pressing", "pressT", "heldTime", "btn", "latched", "ignor
 // (GestureGuard) and these are the ones it promises. `ignore`: extra keys that cancel() or pause() set on
 // purpose. `resume`: exact documented changes when the menu closes. `skipResume`: resume() rebuilds the screen.
 const PER_APP = {
-  // High Bar freezes play briefly after resume; every gameplay/save field must still match.
-  highbar: { resume: a => a.phase === "play" ? { resumeT: 0.6 } : {} },
+  // High Bar consumes the optional first-tap flip prefix on cancel/pause. It is
+  // input bookkeeping, not a rider/reward state; dedicated control tests prove
+  // it cannot survive pause and cause a ghost flip. All gameplay/save fields match.
+  highbar: { ignore: ["lastButtonTap"], resume: a => a.phase === "play" ? { resumeT: 0.6 } : {} },
   orbit: { only: ["phase", "points", "lives", "target", "angle", "dir", "drift", "miss", "feedback"] },
   drift: { only: ["phase", "points", "y", "vy", "gates", "hull", "grace", "lastCenter"] },
   // A fish on the line gets 1.5 s of grace after any menu, and a menu choice that was held is cancelled.
@@ -124,7 +126,7 @@ const GAMES = APPS.filter((a) => {
 }).map((a) => a.id);
 
 test("every registered game is covered by the tolerance test", () => {
-  assert.deepEqual(GAMES.slice().sort(), ["ballista", "crawlspace", "descent", "drift", "echo", "encyclopedia", "glyphs", "highbar", "library", "meridian", "morse", "nightgrid", "orbit", "outpost", "perihelion", "pocketlinks", "reaction", "relay", "ricochet", "runner", "supper", "tideline", "twinbeat", "wayfinder"]);
+  assert.deepEqual(GAMES.slice().sort(), ["ballista", "cairn", "crawlspace", "descent", "drift", "echo", "encyclopedia", "glyphs", "highbar", "library", "meridian", "morse", "nightgrid", "orbit", "outpost", "perihelion", "pocketlinks", "reaction", "relay", "ricochet", "runner", "supper", "tideline", "twinbeat", "wayfinder"]);
 });
 
 for (const id of GAMES) {

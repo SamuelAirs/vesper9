@@ -1,5 +1,5 @@
-/* Compatibility entry for the previous High Bar journey command.
- * The current journey retains guides, all twelve briefs, practice and reload
- * checks, and exercises flow-v3 routes and the quieter spider renderer.
+/* Compatibility entry for the retired High Bar refresh journey.
+ * Current held-web and two-press flip controls are tested by this real-keyboard
+ * journey. Guide, sixteen-route and persistence coverage lives in mastery.
  */
-require('./highbar-airflow-browser.cjs');
+require('./highbar-controls-browser.cjs');

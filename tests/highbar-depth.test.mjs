@@ -5,24 +5,32 @@ import { InputRouter } from "../web/engine/input.js";
 import { appContext, run, fakeCanvas } from "./helpers/app-context.mjs";
 test("a real-controls session banks without case taps; optional style contributes distinct banked tricks", () => {
   function bot(style) {
-    const { app } = ride(); let down = false, pressedAt = 0, tapAt = -9;
+    const { app } = ride(); let down = false, pressedAt = 0, tapAt = -9, airRef = null, flipStage = "", flipped = false;
     const banked = new Set(), bank = app.bank.bind(app);
     app.bank = () => { for (const trick of app.combo.tricks) banked.add(trick.name); bank(); };
     for (let i = 0; i < 8000 && app.phase === "play"; i++) {
       const p = app.p, t = i / 60;
       if (i % 6 === 0) {
+        if (airRef !== app.air) { airRef = app.air; flipStage = ""; flipped = false; }
         let want = false;
-        if (p.mode === "bar") want = !(p.held > 0.8 && p.vy < -120);
-        else if (p.mode === "ground") want = app.combo.roll >= 0 ? false : down ? t - pressedAt < 0.65 : true;
+        if (p.mode === "bar") want = !(p.held > 0.4 && p.vy < -120);
+        // A held landing is already skating. Releasing it would ollie and
+        // extend the combo, so keep its hold through the bank window.
+        else if (p.mode === "ground") want = app.combo.roll >= 0 ? down : down ? t - pressedAt < 0.65 : true;
         else if (p.mode === "air") {
-          const dy = app.groundY(p.x) - p.y;
-          const landing = (-p.vy + Math.sqrt(Math.max(0, p.vy * p.vy + 1300 * dy))) / 650;
-          want = app.pickBar() >= 0 || (landing > 0.9 && Math.abs(app.air?.rot || 0) < 5.6);
+          const landing = app.flightAdvice()?.time || 0;
+          // A real quick first tap, completed release, then a second held press.
+          // The hold earns a body flip; a plain air hold is only a catch attempt.
+          if (flipStage === "tap") { want = false; flipStage = "gap"; }
+          else if (flipStage === "gap") { want = true; flipStage = "flip"; flipped = true; }
+          else if (flipStage === "flip") { want = Math.abs(app.air?.rot || 0) < 5.6 && landing > 0.45; if (!want) flipStage = "done"; }
+          else if (!flipped && landing > 1.4) { if (down) want = false; else { want = true; flipStage = "tap"; } }
+          else want = !!app.pending || (app.pickBar() >= 0 && (!app.lastButtonTap || app.t - app.lastButtonTap.at > 0.33));
         }
-        if (want && !down) { app.down({ source: "keyboard" }); down = true; pressedAt = t; }
-        if (!want && down) { app.up({ source: "keyboard", durationMs: (t - pressedAt) * 1000 }); down = false; }
+        if (want && !down) { app.down({ source: "keyboard", generation: 1, at_us: t * 1e6 }); down = true; pressedAt = t; }
+        if (!want && down) { app.up({ source: "keyboard", generation: 1, at_us: t * 1e6, durationMs: (t - pressedAt) * 1000 }); down = false; }
         if (style && t - tapAt > 0.65 && (p.mode === "bar" || p.mode === "air" && app.air?.t > 0.2)) {
-          app.knock(); tapAt = t;
+          app.knock({ source: "keyboard", generation: 1, at_us: t * 1e6 }); tapAt = t;
         }
       }
       app.update(F);
@@ -33,8 +41,9 @@ test("a real-controls session banks without case taps; optional style contribute
   assert.equal(button.phase, "over"); assert.equal(styled.phase, "over");
   assert.ok(button.stats.banks >= 10 && button.score > 3000, "button-only can bank and progress");
   assert.ok(button.slot().goals[0].length >= 3, "button-only can unlock THE YARD");
+  assert.ok([...plain.banked].some(name => /FRONTFLIP|BACKFLIP/.test(name)), "tap then second hold earns an actual banked body flip");
   assert.ok(["SHOVE-IT", "REGRIP"].some(name => withStyle.banked.has(name)), "case actions contribute actual banked tricks");
-  assert.ok(!["SHOVE-IT", "REGRIP", "MANUAL"].some(name => plain.banked.has(name)), "button-only banks do not invent case tricks");
+  assert.ok(!["SHOVE-IT", "KICKFLIP", "REGRIP", "MANUAL"].some(name => plain.banked.has(name)), "button-only banks do not invent case tricks");
   assert.ok(styled.score > 3000 && styled.stats.banks > 0, "styled play can still bank and progress");
 });
 
@@ -50,7 +59,8 @@ function ride(options) { const m = mount(options); m.app.slot().guided = true; m
 function flat(app) {
   Object.assign(app.p, { mode: "ground", x: 700, y: app.groundY(700), s: 220, rot: 0, vx: 0, vy: 0 });
 }
-function air(app, { x = 700, y = app.park().floor - 330, vx = 100, vy = -260 } = {}) {
+// Leave enough lower-deck runout for the speed retained from the landing.
+function air(app, { x = 250, y = app.park().floor - 330, vx = 100, vy = -260 } = {}) {
   Object.assign(app.p, { mode: "air", x, y, vx, vy, rot: 0, rotV: 0, tuck: false, vert: 0 });
   app.air = { t: 0.2, rot: 0, x0: x, xMin: x, xMax: x, y0: y, apex: y,
     fromBar: -1, ollie: true, vert: false, dir: Math.sign(vx) || 1 };
@@ -64,7 +74,7 @@ test("schema 1 migrates every private slot and active choice without changing hi
   })) };
   const original = structuredClone(raw), next = migrateSave(raw);
   assert.deepEqual(raw, original, "migration does not mutate its input");
-  assert.equal(next.slot, 2); assert.equal(next.schema, 4);
+  assert.equal(next.slot, 2); assert.equal(next.schema, 5);
   for (let i = 0; i < 3; i++) {
     for (const key of ["runs", "park", "best", "goals", "last"]) assert.deepEqual(next.slots[i][key], original.slots[i][key]);
     assert.equal(next.slots[i].legacyRecords.styleV2.bestCombo, original.slots[i].bestCombo);
@@ -102,7 +112,7 @@ test("first-use teaching also follows park/setup selection, and controls follow 
   app.menuActions().find(a => a.label === "GAME GUIDE").run(); app.update(F);
   assert.match(ctx.calls.controls.at(-1), /NEXT PAGE/);
   app.menuPress(0.7); app.update(F);
-  assert.match(ctx.calls.controls.at(-1), /PUMP/);
+  assert.match(ctx.calls.controls.at(-1), /HOLD: PUSH.*HOLD: GRAB.*TAP THEN HOLD: FLIP/);
 });
 
 test("game menu actions resume the host after opening the guide, restarting or ending", () => {
@@ -117,12 +127,12 @@ test("game menu actions resume the host after opening the guide, restarting or e
 
 test("named-line coaching shows what is missing, ready, lost on bail and actually banked", () => {
   const { app } = ride(); app.mode = 1; app.slot().line = 2;
-  assert.equal(app.lineProgress(), "NEED MANUAL · AIRS 0/2");
-  app.combo.airs = 1; app.combo.manual = true;
-  assert.equal(app.lineProgress(), "MANUAL OK · AIRS 1/2");
-  app.combo.airs = 2; app.trick("MANUAL", 100);
+  assert.equal(app.lineProgress(), "AIRS 0/2 · NEED SHOVE-IT");
+  app.combo.airs = 1; app.combo.shove = true;
+  assert.equal(app.lineProgress(), "AIRS 1/2 · SHOVE-IT OK");
+  app.combo.airs = 2; app.trick("SHOVE-IT", 180);
   assert.equal(app.lineProgress(), "READY — LAND AND ROLL TO BANK");
-  app.bail(); assert.equal(app.lineProgress(), "NEED MANUAL · AIRS 0/2");
+  app.bail(); assert.equal(app.lineProgress(), "AIRS 0/2 · NEED SHOVE-IT");
 });
 
 test("style readiness requires enough actual flight time, including uphill and vert landings", () => {
@@ -147,30 +157,27 @@ test("style readiness requires enough actual flight time, including uphill and v
   assert.equal(ready.combo.shove, true, "a complete accepted shove-it still scores on an actual landing");
 });
 
-test("a manual links two actual airs; unattended balance eventually bails", () => {
+test("an ollie links two actual airs with board style, without a manual", () => {
   const { app } = ride();
-  air(app); reachGround(app); assert.equal(app.p.mode, "ground"); assert.equal(app.combo.airs, 1);
-  flat(app); app.knock(); assert.ok(app.manual); assert.equal(app.combo.roll, -1);
-  run(app, 0.9); app.knock();
+  air(app, { y: app.park().floor - 150, vy: -50 }); app.knock(); reachGround(app); assert.equal(app.p.mode, "ground"); assert.equal(app.combo.airs, 1);
+  assert.ok(app.combo.shove); const roll = app.combo.roll; app.knock(); assert.equal(app.manual, null); assert.equal(app.combo.roll, roll);
   app.down({ source: "node" }); app.up({ source: "node", durationMs: 200 });
-  assert.equal(app.p.mode, "air"); assert.ok(app.combo.manual);
+  assert.equal(app.p.mode, "air"); assert.equal(app.combo.manual, false);
   reachGround(app); assert.equal(app.p.mode, "ground"); assert.ok(app.combo.airs >= 2);
-  run(app, 1.3); assert.ok(app.slot().lines[0].includes(2), "ROLLING LINK is banked through real air/manual physics");
-  flat(app); app.knock(); run(app, 4.9);
-  assert.ok(app.stats.bails > 0, "ignoring the balance is risky");
+  run(app, 1.3); assert.ok(app.slot().lines[0].includes(2), "ROLLING LINK banks through actual ollie and landing physics");
 });
 
-test("generic case taps ignore classifier side, optional sides bias balance without requiring them", () => {
+test("generic case taps ignore classifier side; optional sides change only air-style direction", () => {
   const snaps = [undefined, "left", "right", "back"].map(side => {
-    const { app } = ride(); flat(app); app.knock({ side }); run(app, 0.6); app.knock({ side });
-    return structuredClone(app.manual);
+    const { app } = ride(); air(app); app.knock({ side });
+    return structuredClone(app.air.style);
   });
   for (const s of snaps) assert.deepEqual(s, snaps[0]);
   const { app } = ride({ settings: { knock: "medium", tapMode: "sides" } });
-  flat(app); app.knock(); run(app, 0.6); const before = app.manual.balance;
-  app.knock({ side: "left" }); assert.ok(app.manual.balance < before);
-  run(app, 0.6); app.knock({ side: "right" });
-  assert.ok(app.manual, "directional play is optional and a generic tap starts the complete action");
+  air(app); app.knock({ side: "left" }); assert.equal(app.air.style.dir, -1);
+  const right = ride({ settings: { knock: "medium", tapMode: "sides" } }).app;
+  air(right); right.knock({ side: "right" }); assert.equal(right.air.style.dir, 1);
+  assert.equal(app.manual, null); assert.equal(right.manual, null);
 });
 
 test("air style has a broad window, scores once on landing and never on a late tap or bail", () => {
@@ -187,11 +194,11 @@ test("air style has a broad window, scores once on landing and never on a late t
   assert.equal(app.p.mode, "bail"); assert.equal(app.score, scored);
 });
 
-test("regrip is one boost per catch and never slows an already fast swing", () => {
+test("regrip adds style once per catch without changing swing energy", () => {
   const { app } = ride(); const [x, y] = app.park().bars[1];
   air(app, { x, y: y + 120, vx: 900, vy: 0 }); app.grab(1); app.p.held = 0.2;
   const speed = app.p.om; app.knock(); const boost = app.p.om;
-  assert.ok(boost >= speed);
+  assert.equal(boost, speed);
   run(app, 0.5); const before = app.p.om; app.knock(); assert.equal(app.p.om, before);
   app.letGo(); assert.ok(app.combo.regrip);
   assert.equal(app.combo.tricks.filter(t => t.name === "REGRIP").length, 1);
@@ -233,16 +240,14 @@ test("ending in flight forfeits an unlanded line instead of banking it for free"
   app.finish(); assert.equal(app.score, 0); assert.equal(app.bestCombo, 0);
 });
 
-test("overtime keeps an active manual alive, then banks only after a safe finish", () => {
-  const { app } = ride(); flat(app); app.trick("OLLIE", 40); app.knock(); app.clock = 0.1;
-  run(app, 0.8);
-  assert.equal(app.phase, "play", "a manual is still an active last trick");
-  assert.ok(app.manual); assert.equal(app.score, 0);
-  app.down({ source: "keyboard" }); app.up({ source: "keyboard", durationMs: 60 });
+test("overtime keeps an airborne trick alive, then banks only after a safe landing", () => {
+  const { app } = ride(); air(app); app.trick("OLLIE", 40); app.clock = 0.1;
+  run(app, 0.2);
+  assert.equal(app.phase, "play"); assert.equal(app.p.mode, "air"); assert.equal(app.score, 0);
   reachGround(app); run(app, 1.3);
   assert.equal(app.phase, "over"); assert.ok(app.score > 0);
-  const cutoff = ride().app; flat(cutoff); cutoff.trick("OLLIE", 40); cutoff.knock(); cutoff.clock = -7.99;
-  cutoff.update(F); assert.equal(cutoff.phase, "over"); assert.equal(cutoff.score, 0, "the eight-second cutoff still forfeits an unfinished manual");
+  const cutoff = ride().app; air(cutoff); cutoff.trick("OLLIE", 40); cutoff.clock = -7.99;
+  cutoff.update(F); assert.equal(cutoff.phase, "over"); assert.equal(cutoff.score, 0, "the eight-second cutoff forfeits an unfinished flight");
 });
 
 test("flow scores are separate from both earlier bests and LINE RUN only records a met challenge", () => {
@@ -251,7 +256,7 @@ test("flow scores are separate from both earlier bests and LINE RUN only records
   assert.equal(app.slot().best[0], 50000);
   assert.equal(app.slot().styleBest[0], 0);
   assert.equal(app.slot().flowBest[0], 40);
-  assert.deepEqual(ctx.calls.score[0], [40, "flow-v4"]);
+  assert.deepEqual(ctx.calls.score[0], [40, "flow-v5"]);
   app.mode = 1; app.start(); assert.equal(app.clock, 45);
   flat(app); app.trick("OLLIE", 40); app.bank(); app.finish();
   assert.equal(app.slot().lineBest[0][0], 0);

@@ -249,8 +249,9 @@ test("the recorded Rolling Link route earns all Bowl gold tiers through actual c
   const rig = ride(1), { app } = rig; app.slot().line = 2; app.start();
   replay(app, GOLD_ROUTE.frames, GOLD_ROUTE.input);
   app.guard.settle();
-  for (let line = 0; line < 3; line++) assert.equal(app.lineRecord(0, line).medal, 3);
+  for (let line = 0; line < 4; line++) assert.equal(app.lineRecord(0, line).medal, 3);
   assert.equal(app.lineRecord(0, 0).time, 0); assert.equal(app.lineRecord(0, 1).time, 0);
+  assert.equal(app.lineRecord(0, 3).time, 0);
   assert.ok(app.lineRecord(0, 2).time > 0 && app.lineRecord(0, 2).time <= GOLD_ROUTE.frames / 60);
-  assert.deepEqual(mount(rig.durable()).app.slot().lineMedals[0], [3, 3, 3, 0]);
+  assert.deepEqual(mount(rig.durable()).app.slot().lineMedals[0], [3, 3, 3, 3]);
 });

@@ -726,6 +726,14 @@ class VerifiedService(ServiceCase):
                     {"app": "morse"}, {"value": {}}):
             self.assertFalse((await self.rpc(ws, "progress", **bad))["ok"], bad)
         self.assertEqual(self.console.store.get("progress")["morse"], fits)
+        # Three High Bar careers retain earlier physics records; only that app
+        # receives the larger bounded allowance. A refused write preserves it.
+        archive = {"archive": "x" * (16384 - len(json.dumps({"archive": ""})))}
+        self.assertEqual(len(json.dumps(archive)), 16384)
+        self.assertTrue((await self.rpc(ws, "progress", app="highbar", value=archive))["ok"])
+        self.assertFalse((await self.rpc(ws, "progress", app="morse", value=archive))["ok"])
+        self.assertFalse((await self.rpc(ws, "progress", app="highbar", value={"archive": archive["archive"] + "x"}))["ok"])
+        self.assertEqual(self.console.store.get("progress")["highbar"], archive)
         for focus in ("nope", ["home"], 5, None):
             self.assertFalse((await self.rpc(ws, "focus", app=focus))["ok"], focus)
         await ws.close()

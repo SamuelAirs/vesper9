@@ -125,6 +125,13 @@ const GUIDE = [
     "SPARE PROBE: lose a probe and the run goes on from the next sun.",
     "LONG LINE, RELIC MAGNET, DARK BRAKE, COOLANT: small help.",
     "A daily run uses no upgrades."],
+  ["LAMPS",
+    "Flight: the region's colour, filling with speed.",
+    "Tether: a cyan spot that swings with you.",
+    "Ahead: red for a dark body, white for a relic,",
+    "on the left lamp if above you, right if below.",
+    "4th lamp: cyan = a press catches. Green = let go now.",
+    "4th lamp red: the dark is close behind."],
   ["HANGAR",
     "It opens on LAUNCH: hold to fly. New rows appear as you earn them.",
     "PACE: the screen moves by itself; keep up or the run ends.",
@@ -429,7 +436,7 @@ export class Perihelion {
   extendRegion(rng, ri, pr) {
     const prog = clamp((pr.x - REGIONS[ri].from) / 4500, 0, 1);
     let gap, span = 70 + 30 * prog, maxD = 222;
-    if (ri === 1) { gap = rng.range(78, 125); span = 85; }
+    if (ri === 1) { gap = rng.range(108, 150); span = 85; } // close, but no more than two suns in reach as a rule
     else if (ri === 2) { gap = rng.range(150, 205); maxD = 200; }
     else if (ri === 3) gap = rng.range(150, 200);
     else if (ri === 4) gap = rng.range(150, 210);
@@ -457,7 +464,7 @@ export class Perihelion {
       a = this.addAnchor(x, y, kind);
       if (kind === "pulse") a.pu = { per: rng.range(2.2, 3.2), ph: rng.next(), duty: 0.58 };
     }
-    if (ri === 1 && rng.next() < 0.35) {
+    if (ri === 1 && rng.next() < 0.18) {
       const side = rng.next() < 0.5 ? -1 : 1, ty = clamp(a.y + side * rng.range(55, 85), 100, 320);
       const tx = a.x + rng.range(35, 60);
       if (Math.hypot(tx - a.x, ty - a.y) > 56) { this.addAnchor(tx, ty, "steady"); this.last = a; }
@@ -636,11 +643,11 @@ export class Perihelion {
     this.guard.rewind();
     this.armed = false;
     this.up();
-    this.c.leds(lightsOff());
+    this.c.leds(lightsOff(this.c.lampCount?.() >= 4 ? 4 : 3));
   }
   pause() {
     this.guard.settle();
-    this.c.leds(lightsOff());
+    this.c.leds(lightsOff(this.c.lampCount?.() >= 4 ? 4 : 3));
   }
   resume() {
     this.held = false;
@@ -648,7 +655,7 @@ export class Perihelion {
   dispose() {
     this.guard.settle();
     this.held = false;
-    this.c.leds(lightsOff());
+    this.c.leds(lightsOff(this.c.lampCount?.() >= 4 ? 4 : 3));
   }
   start() {
     this.held = false;
@@ -1218,31 +1225,36 @@ export class Perihelion {
   idleColour() {
     return REGIONS[this.phase === "over" ? this.reg : this.sv.far].col;
   }
+  // Three lamps (the first node) or four. The first three play as they always have; the fourth, on
+  // the right, is the button's lamp: what a press or a release does now, and the dark behind you.
   lampValues() {
-    const p = this.p;
-    if (this.phase === "play" && this.lostT > 0) return fill(LAMP.red, 0.32 * this.lostT / 1.4);
-    if (this.phase === "title" || this.ready) return spot(0.5 + 0.5 * Math.sin(this.t * 0.7), dim(REGIONS[this.sv.far].col, 0.1));
-    if (this.phase === "hangar") return spot(0.5 + 0.5 * Math.sin(this.t * 1.1), dim(REGIONS[this.sv.far].col, 0.14));
+    const p = this.p, n = this.c.lampCount?.() >= 4 ? 4 : 3;
+    if (this.phase === "play" && this.lostT > 0) return fill(LAMP.red, 0.32 * this.lostT / 1.4, n);
+    if (this.phase === "title" || this.ready) {
+      const v = spot(0.5 + 0.5 * Math.sin(this.t * 0.7), dim(REGIONS[this.sv.far].col, 0.1));
+      return n < 4 ? v : [...v, ...(this.ready ? dim(LAMP.cyan, 0.08 + 0.3 * pulse(this.t, 0.8)) : [0, 0, 0])]; // parked: press to throw
+    }
+    if (this.phase === "hangar") return spot(0.5 + 0.5 * Math.sin(this.t * 1.1), dim(REGIONS[this.sv.far].col, 0.14), 0.75, n);
     if (this.phase === "over") {
-      if (this.reason === "arrived") return fill(blend(LAMP.white, LAMP.cyan, 0.5 + 0.5 * Math.sin(this.t)), 0.12 + 0.2 * pulse(this.t, 0.4));
-      if (this.deadT < 1.4) return fill(LAMP.red, 0.32 * (1 - this.deadT / 1.4));
-      if (this.newRecord) return fill(LAMP.amber, 0.08 + 0.1 * pulse(this.t, 0.5));
-      return spot(0.5 + 0.5 * Math.sin(this.t * 0.5), dim(this.idleColour(), 0.07));
+      if (this.reason === "arrived") return fill(blend(LAMP.white, LAMP.cyan, 0.5 + 0.5 * Math.sin(this.t)), 0.12 + 0.2 * pulse(this.t, 0.4), n);
+      if (this.deadT < 1.4) return fill(LAMP.red, 0.32 * (1 - this.deadT / 1.4), n);
+      if (this.newRecord) return fill(LAMP.amber, 0.08 + 0.1 * pulse(this.t, 0.5), n);
+      return spot(0.5 + 0.5 * Math.sin(this.t * 0.5), dim(this.idleColour(), 0.07), 0.75, n);
     }
     if (this.recFlash > 0) {
       const on = blink(1 - this.recFlash, 5);
-      return fill(on ? LAMP.white : LAMP.amber, on ? 0.8 : 0.1);
+      return fill(on ? LAMP.white : LAMP.amber, on ? 0.8 : 0.1, n);
     }
     if (this.relicFlash > 0) { // a quick sweep left to right: a relic is yours
-      const k = Math.min(2, Math.floor((0.35 - this.relicFlash) / 0.1));
-      return lamps(...[0, 1, 2].map((i) => (i <= k ? dim(LAMP.white, i === k ? 0.8 : 0.3) : null)));
+      const k = Math.min(n - 1, Math.floor((1 - this.relicFlash / 0.35) * n));
+      return lamps(...Array.from({ length: n }, (_, i) => (i <= k ? dim(LAMP.white, i === k ? 0.8 : 0.3) : null)));
     }
     if (this.trickFlash > 0) { // a trick: a quick cyan sweep right to left
-      const k = 2 - Math.min(2, Math.floor((0.3 - this.trickFlash) / 0.1));
-      return lamps(...[0, 1, 2].map((i) => (i >= k ? dim(LAMP.cyan, i === k ? 0.8 : 0.3) : null)));
+      const k = n - 1 - Math.min(n - 1, Math.floor((1 - this.trickFlash / 0.3) * n));
+      return lamps(...Array.from({ length: n }, (_, i) => (i >= k ? dim(LAMP.cyan, i === k ? 0.8 : 0.3) : null)));
     }
-    if (this.catchFlash > 0) return fill(LAMP.white, 0.7);
-    if (this.regFlash > 0.02) return fill(this.flareCol || REGIONS[this.reg].col, 0.5 * Math.min(1, this.regFlash) * (0.6 + 0.4 * pulse(this.runT, 4)));
+    if (this.catchFlash > 0) return fill(LAMP.white, 0.7, n);
+    if (this.regFlash > 0.02) return fill(this.flareCol || REGIONS[this.reg].col, 0.5 * Math.min(1, this.regFlash) * (0.6 + 0.4 * pulse(this.runT, 4)), n);
     const danger = this.danger(p.y);
     let out;
     if (p.a) {
@@ -1253,7 +1265,25 @@ export class Perihelion {
     } else {
       out = this.flightLamps(p, danger);
     }
-    return this.cues(out, p);
+    out = this.cues(out, p);
+    return n < 4 ? out : [...out, ...this.pressLamp(p)];
+  }
+  // The fourth lamp. The dark (or a paced run's edge) close behind: red, blinking faster as it
+  // closes. On a tether: brighter and greener the better a release now would be (forward, level to
+  // rising); amber blinking when the sun is about to burn out. In flight: cyan while a sun is marked
+  // in reach (a press catches it; amber for a sun that burns out), off when none is.
+  pressLamp(p) {
+    const gap = p.x - this.front;
+    if (gap < 170) return blink(this.runT, 3 + 6 * (1 - gap / 170)) ? dim(LAMP.red, 0.3 + 0.4 * (1 - gap / 170)) : [0, 0, 0];
+    if (p.a) {
+      if (p.a.kind === "decay" && this.fuseT - p.t < 0.8) return blink(this.runT, 8) ? dim(LAMP.amber, 0.5) : [0, 0, 0];
+      const sp = Math.hypot(p.vx, p.vy) || 1, ang = Math.atan2(-p.vy, p.vx);
+      const q = p.vx > 0 ? clamp(1 - Math.abs(ang - 0.35) / 0.8, 0, 1) * clamp(sp / 260, 0, 1) : 0;
+      return dim(blend(LAMP.cyan, LAMP.green, q), 0.06 + 0.5 * q);
+    }
+    const a = this.pickTarget(p);
+    if (!a) return [0, 0, 0];
+    return dim(a.kind === "decay" ? LAMP.amber : LAMP.cyan, this.held ? 0.6 : 0.3);
   }
   flightLamps(p, danger) {
     const reg = REGIONS[this.reg];
@@ -1749,7 +1779,7 @@ export class Perihelion {
     } else if (this.view === "guide") {
       const pg = GUIDE[this.page % GUIDE.length];
       text(g, pg[0] + "     PAGE " + (this.page % GUIDE.length + 1) + " / " + GUIDE.length, 480, 124, 20, C.cyan, "center");
-      pg.slice(1).forEach((s, i) => text(g, s, 150, 170 + i * 46, 20, i % 2 ? C.muted : C.ink));
+      pg.slice(1).forEach((s, i) => text(g, s, 130, 170 + i * 46, 18, i % 2 ? C.muted : C.ink)); // 66 characters fit the panel
       text(g, "TAP = NEXT PAGE     HOLD = BACK", 480, 488, 18, C.cyan, "center");
     } else {
       text(g, "LOG   RUNS " + sv.runs + "   RELICS " + sv.st.relics + "   ARRIVALS " + sv.st.arrivals, 480, 118, 20, C.cyan, "center");

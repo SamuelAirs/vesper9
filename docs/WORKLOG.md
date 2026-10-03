@@ -120,3 +120,10 @@ The long integrated run was started while final review continued. The final held
 - The menu gesture's final hold is 600 ms longer inside a game (1.6 s at the standard pace); menus keep 1 s. `SETTLE` is 2.8 s.
 - TIMING OFFSET in Calibration (`latencyMs`, tap-along), two knocks on the case go back outside a game (needs PR #4's firmware and service), and the console logbook (today's three, streak, feats; progress id `console`, version 1).
 - Report and per-game cut list: `fleet-notes/reports/platform-polish.md`.
+
+## 2026-10-03 — Perihelion: thinner Cluster, four lamps (Sam's playtest: "good as always", but at times the suns are far too dense)
+
+- Merged PR #16 (with PR #19's lamp count and board LED) into this branch; only `docs/WORKLOG.md` conflicted.
+- Density: the Cluster was the crowded stretch, with 3.25 suns in reach on average and 3 or more 81 % of the time (20 seeds). Its gap is now 108–150 px (was 78–125), and a twin sun now appears 18 % of the time (was 35 %), giving 2.3 suns in reach, with 3 or more 33 % of the time. The other regions were already about 1.5 (the Binaries 2.4, counting each pair as two moving suns) and are unchanged. A test pins the Cluster below 2.6 on average.
+- Four lamps: with `ctx.lampCount()` 4, lamps one to three show exactly what they do on the old node, and the fourth (right) is the button's lamp. In flight it is cyan while a sun is marked in reach (amber for one that burns out), brighter while held, and dark when nothing is in reach. On a tether it grows brighter and greener the better a release would be at that moment. While parked it pulses cyan. When the dark or a paced run's edge is within 170 px it blinks red. Flashes and the title, hangar and result glows use all four lamps. The board LED is not used. The GUIDE gains a LAMPS page, and guide text is 18 px so a full line fits the panel.
+- Planning bot over 40 seeds: 19 arrive (17 before). The arrival test seeds are now 11, 13, 15, 19 and 23 (each arrives before and after), and the bounds test uses seed 11. 852/852 JS tests on Node 22; Perihelion 44/44 on Node 20. Not verified on the device or its four lamps.

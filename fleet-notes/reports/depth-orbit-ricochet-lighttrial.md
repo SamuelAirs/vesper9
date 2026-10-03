@@ -113,3 +113,10 @@ Shared pieces live in a new `web/apps/goals.js` (only these three games import i
   build and all four browser suites pass. Screenshots of four-disc Light Trial and Ricochet looked at
   (the simulator reports three lamps, so lamp IV was checked by tests, not by eye). Not verified on
   the device.
+
+## Round 6 (save slots, PR #16's shell API)
+- Orbit Lock and Light Trial set `static saveSlots = true` and label each slot with `slotSummary`:
+  Orbit "BEST 31 LOCKS · 3 MODES" (a fresh slot starts with Rush and Eclipse closed), Light Trial
+  "SENTINEL · 240 ms" (one person's record per slot). Ricochet stays on one save: a score attack whose
+  upgrades last one run. Tests: `tests/slots-games.test.mjs`. JS 903 pass, 1 fail (the Perihelion bot,
+  as on main); the other seven suites pass. Not verified on the device.

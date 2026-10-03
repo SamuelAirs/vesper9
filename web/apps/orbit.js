@@ -111,6 +111,9 @@ function report(ctx, rep) {
 }
 
 export class OrbitLock {
+  // Save slots (the shell's SAVE SLOT menu): Orbit Lock's progression (modes opened by skill, mode
+  // bests, lifetime tallies) is worth a fresh start to try, so it keeps up to four saves.
+  static saveSlots = true;
   constructor(ctx) {
     this.c = ctx;
     this.lamps = new LampBus(ctx);
@@ -124,6 +127,12 @@ export class OrbitLock {
     this.reset();
   }
   dayKey() { return dateKey(); }
+  // The slot row's label: the best standard run and how many ways to play are open (24 characters at most).
+  slotSummary(value) {
+    const sv = migrateOrbit(value), open = ORBIT_MODES.filter((m) => m.opens(sv)).length;
+    if (!sv.runs && !sv.st.best) return "NO RUNS YET";
+    return ("BEST " + sv.st.best + " LOCKS" + (open > 1 ? " · " + open + " MODES" : "")).slice(0, 24);
+  }
   reset() {
     this.phase = "title";
     this.ended = null;

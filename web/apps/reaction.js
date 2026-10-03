@@ -81,6 +81,9 @@ const DELAY_MIN = 1300, DELAY_MAX = 4200, LONG_WAIT = 3800;
 // A press later than this after the cue is not a reaction: the trial is void and not counted.
 export const TOO_SLOW = 1500;
 export class LightTrial {
+  // Save slots: each slot is one person's record (rank, best series per clock, training log), so
+  // two people can share the console without mixing their times.
+  static saveSlots = true;
   constructor(ctx) {
     this.c = ctx;
     this.lamps = new LampBus(ctx);
@@ -248,6 +251,12 @@ export class LightTrial {
     return finished;
   }
   dayKey() { return dateKey(); }
+  // The slot row's label: the rank and best series on the most trustworthy clock (24 characters at most).
+  slotSummary(value) {
+    const sv = migrateTrial(value), k = CLOCKS.find((c) => sv.bs[c] > 0);
+    if (!k) return sv.st.trials ? sv.st.trials + " TRIALS, NO SERIES" : "NO SERIES YET";
+    return (trialRank(sv.bs[k]) + " · " + sv.bs[k] + " ms").slice(0, 24);
+  }
   lampN() { return this.c.lampCount?.() === 4 ? 4 : 3; }
   // The mark a trial is measured against: the best series on this clock, else this series so far.
   // Returns { lamp, disc, word } or null when there is nothing to beat yet.

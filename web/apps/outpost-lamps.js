@@ -1,26 +1,32 @@
-// OUTPOST's three lamps: the status board, the beat guide, the note glow and the event lights.
-// Left breathes with production (brighter and cyan-tinged while machines hum), middle fills toward the next purchase and goes steady green when
-// one is affordable, right shows the timed thing (flare, boost, expedition), a fitting waiting in
-// the workshop (a slow blue pulse) or that relocation is worth doing. While the player keeps a beat, the left lamp instead flashes on the next beat they
-// are due to tap (a metronome at their own tempo, white with no groove, cyan when it is full), and
-// a dropped beat shows as a brief red flicker there. On top of that, each tap lights the lamp for
-// where its note sits in the melody's range (a short glow, brighter with groove, cyan when it is
-// full), each note of a sound cue lights the lamp for its pitch in the cue's colour (so a purchase
-// runs green across the lamps, a returning expedition cyan), and events add an accent: buy,
-// milestone, phrase, tune, event and prestige. When THE CALL is answered the station's colours
-// turn slowly round all three lamps for the finale. A flare blinks faster as it is about to fade. After
-// DIM_AFTER seconds without input everything drops to a dim version (flare and ready cues stay
-// visible).
+// OUTPOST's lamps: the status board, the beat guide, the note glow and the event lights, on three
+// lamps (the first node) or four (the current one).
+//
+// The first three lamps are the status board. Left breathes with production (brighter and leaning
+// cyan while machines hum). Middle fills amber toward the next goal and goes steady green when
+// something is affordable. Right shows the timed thing (flare, boost, expedition), a fitting
+// waiting in the workshop (a slow blue pulse) or that relocation is worth doing.
+//
+// A fourth lamp is the music lamp: it glows brighter as the tune goes on, takes the groove's colour
+// (white, green, cyan when full), flashes on the next beat while the player keeps one (a metronome
+// at their own tempo) and flickers red on a dropped beat. On three lamps the beat flash and the
+// flicker borrow the left lamp while a beat is kept.
+//
+// Over all the lamps: each tap lights the lamp for where its note sits in the melody's range
+// (brighter with groove, cyan when full); each note of a sound cue lights the lamp for its pitch in
+// the cue's colour (a purchase runs green, a returning expedition cyan); events add an accent (buy,
+// milestone, phrase, tune, event, prestige); and when THE CALL is answered the station's colours
+// turn slowly round the lamps. A flare blinks faster as it is about to fade. After DIM_AFTER
+// seconds without input everything drops to a dim version (flare and ready cues stay visible).
 //
 // The lamps update about 17 times a second on the node, so nothing here is shorter than about two
 // of those frames.
 //
-// Fields used on the cartridge (`app`): c, s, clk, rate, idle, phase_, ring, panel, affordN,
-// goalFrac, fitWaiting(), flare, boosts, groove, gaps, lastGather, hum, noteFx ({ pos 0..1, t }),
-// accent ({ k, t, dur }), cueFx ({ pos, rgb, t }, set by outpost-music.js), finale ({ t }), and
+// Fields used on the cartridge (`app`): c (and c.lampCount() when the console has it), s, mel,
+// clk, rate, idle, phase_, ring, panel, affordN, goalFrac, fitWaiting(), flare, boosts, groove,
+// gaps, lastGather, hum, noteFx ({ pos 0..1, t }), accent ({ k, t, dur }), cueFx ({ pos, rgb, t }, set by outpost-music.js), finale ({ t }), and
 // this module's own breath, dimK, grooveSeen and stumble.
 import { clamp } from "../engine/math.js";
-import { LAMP, lamps, dim, blend, pulse, blink, spot, only, chase, ramp } from "../engine/lightshow.js";
+import { LAMP, dim, blend, pulse, blink, ramp } from "../engine/lightshow.js";
 import { DIM_AFTER, EXPED, FINALE_SEC, GROOVE_MAX, readyOf } from "./outpost-rules.js";
 import { liveBeat } from "./outpost-music.js";
 
@@ -73,18 +79,51 @@ export function beatFlash(app) {
   return into < BEAT_FLASH ? 1 - into / BEAT_FLASH : 0;
 }
 
-// The nine lamp values for this moment.
+// How many lamps the node has: 3 on the first node, 4 on the current one (ctx.lampCount() comes
+// with the four-lamp console; a console without it has three).
+export function lampCountOf(app) {
+  let n = 3;
+  try { n = Number(app.c.lampCount?.()) || 3; } catch { n = 3; }
+  return n >= 4 ? 4 : 3;
+}
+// Count-aware versions of the lightshow helpers, so Outpost lights four lamps on a console whose
+// engine predates them as well as on one that has them.
+const row = (n, fn) => Array.from({ length: n }, (_, i) => fn(i));
+const lamps = (...rgbs) => rgbs.flatMap((rgb) => (rgb || LAMP.off).map((x) => Math.round(clamp(x, 0, 255))));
+const spotN = (pos, rgb, width, n) => lamps(...row(n, (i) => dim(rgb, clamp(1 - Math.abs(pos * (n - 1) - i) / width, 0, 1))));
+const fillN = (rgb, n) => lamps(...row(n, () => rgb));
+const chaseN = (t, hz, n) => Math.floor(t * hz) % n;
+
+// The music lamp: lamp 4 on a four-lamp node, given over to the tune. Its glow grows as the tune
+// goes on (dark at the first note, brightest at the last), its colour is the groove (white, then
+// green, cyan when full), it flashes on the next beat while one is kept, and flickers red on a
+// dropped beat. On three lamps the beat guide and the flicker borrow the left lamp instead.
+function musicLamp(app, gf) {
+  const m = app.mel, len = m?.n?.length || 1, progress = clamp((app.s.sp || 0) / len, 0, 1);
+  const colour = ramp(gf, [LAMP.white, LAMP.green, LAMP.cyan]);
+  const awake = app.phase_ === "play" && !app.ring && !app.panel;
+  let level = (0.02 + 0.1 * progress + 0.1 * gf) * app.dimK;
+  if (awake && liveBeat(app)) level = Math.max(level, 0.03 + (0.3 + 0.25 * gf) * beatFlash(app));
+  if (app.stumble > 0) return dim(LAMP.red, 0.35 * blink(app.stumble, 7));
+  return dim(colour, level);
+}
+
+// The lamp values for this moment: nine on a three-lamp node, twelve on a four-lamp one. The
+// status board is always the first three lamps (left, middle, right as described above); a fourth
+// lamp is the music lamp.
 export function lampFrame(app) {
-  const k = app.dimK, s = app.s, gf = Math.floor(app.groove || 0) / GROOVE_MAX;
-  // left: breathing, quicker with production; while a beat is kept, the beat guide instead
-  // (while machines hum, the breath is brighter and leans cyan: the station is working harder)
+  const k = app.dimK, s = app.s, gf = Math.floor(app.groove || 0) / GROOVE_MAX, n = lampCountOf(app);
+  // left: breathing, quicker with production (while machines hum, the breath is brighter and leans
+  // cyan: the station is working harder); on three lamps the beat guide takes it while a beat is kept
   const humming = isHumming(app);
   let left = dim(humming ? blend(LAMP.green, LAMP.cyan, 0.6) : LAMP.green, ((humming ? 0.1 : 0.06) + (humming ? 0.26 : 0.2) * pulse(app.breath)) * k);
-  if (liveBeat(app) && app.phase_ === "play" && !app.ring && !app.panel) {
-    const f = beatFlash(app);
-    left = dim(ramp(gf, [LAMP.white, LAMP.green, LAMP.cyan]), 0.03 + (0.3 + 0.25 * gf) * f);
+  if (n === 3) {
+    if (liveBeat(app) && app.phase_ === "play" && !app.ring && !app.panel) {
+      const f = beatFlash(app);
+      left = dim(ramp(gf, [LAMP.white, LAMP.green, LAMP.cyan]), 0.03 + (0.3 + 0.25 * gf) * f);
+    }
+    if (app.stumble > 0) left = dim(LAMP.red, 0.35 * blink(app.stumble, 7));
   }
-  if (app.stumble > 0) left = dim(LAMP.red, 0.35 * blink(app.stumble, 7));
   // middle: steady green when something is affordable, otherwise fills toward the next goal
   const mid = app.affordN > 0 && app.phase_ !== "intro" ? dim(LAMP.green, 0.3 * Math.max(k, 0.25)) : dim(LAMP.amber, (0.03 + 0.25 * app.goalFrac) * k);
   // right: the timed thing
@@ -103,36 +142,36 @@ export function lampFrame(app) {
     right = dim(LAMP.cyan, (0.04 + 0.26 * frac) * k);
   } else if (app.fitWaiting?.()) right = dim(LAMP.blue, (0.08 + 0.24 * pulse(app.clk * 0.7)) * Math.max(k, 0.3)); // a fitting waits in the workshop
   else if (readyOf(s)) right = dim(LAMP.white, (0.08 + 0.22 * pulse(app.clk * 0.5)) * Math.max(k, 0.3));
-  let v = lamps(left, mid, right);
+  let v = n === 4 ? lamps(left, mid, right, musicLamp(app, gf)) : lamps(left, mid, right);
   const over = (layer) => { v = v.map((x, i) => Math.max(x, layer[i])); };
   // the latest note glows on the lamp for its place in the tune's range: low notes left, high right
   if (app.noteFx) {
     // brighter with groove; in full groove the glow turns cyan
     const f = 1 - app.noteFx.t / 0.3;
-    const glow = spot(app.noteFx.pos, gf >= 1 ? LAMP.cyan : LAMP.white, 0.7);
+    const glow = spotN(app.noteFx.pos, gf >= 1 ? LAMP.cyan : LAMP.white, 0.7, n);
     over(glow.map((x) => Math.round(x * (0.5 + 0.3 * gf) * f)));
   }
   // the latest cue note, in its cue's colour, on the lamp for its pitch
   const cf = app.cueFx;
-  if (cf) over(spot(cf.pos, cf.rgb, 0.7).map((x) => Math.round(x * 0.55 * (1 - cf.t / CUE_GLOW))));
-  // THE CALL answered: for the finale the three colours of the station turn slowly round the
-  // lamps, fading out over its last seconds
+  if (cf) over(spotN(cf.pos, cf.rgb, 0.7, n).map((x) => Math.round(x * 0.55 * (1 - cf.t / CUE_GLOW))));
+  // THE CALL answered: for the finale the station's colours turn slowly round the lamps, fading
+  // out over its last seconds
   if (app.finale) {
     const t = app.finale.t, fade = clamp((FINALE_SEC - t) / 4, 0, 1) * clamp(t / 1.5, 0, 1);
-    const turn = [LAMP.white, LAMP.cyan, LAMP.violet], step = Math.floor(t * 1.5);
-    over(lamps(...[0, 1, 2].map((i) => dim(turn[(i + step) % 3], 0.45 * fade))));
+    const turn = n === 4 ? [LAMP.white, LAMP.cyan, LAMP.violet, LAMP.amber] : [LAMP.white, LAMP.cyan, LAMP.violet], step = Math.floor(t * 1.5);
+    over(lamps(...row(n, (i) => dim(turn[(i + step) % n], 0.45 * fade))));
   }
   const a = app.accent;
   if (a) {
     const f = 1 - a.t / a.dur;
     let acc = null;
-    if (a.k === "buy") acc = lamps(dim(LAMP.green, 0.7 * f), dim(LAMP.green, 0.7 * f), dim(LAMP.green, 0.7 * f));
-    else if (a.k === "milestone") acc = spot(a.t / a.dur, LAMP.blue, 0.8);
-    else if (a.k === "phrase") acc = spot(a.t / a.dur, LAMP.cyan, 0.8).map((x) => Math.round(x * 0.6));
-    else if (a.k === "tune") acc = only(chase(a.t, 9, false), LAMP.amber, 0.7 * f);
+    if (a.k === "buy") acc = fillN(dim(LAMP.green, 0.7 * f), n);
+    else if (a.k === "milestone") acc = spotN(a.t / a.dur, LAMP.blue, 0.8, n);
+    else if (a.k === "phrase") acc = spotN(a.t / a.dur, LAMP.cyan, 0.8, n).map((x) => Math.round(x * 0.6));
+    else if (a.k === "tune") acc = lamps(...row(n, (i) => (i === chaseN(a.t, 9, n) ? dim(LAMP.amber, 0.7 * f) : null)));
     // a generic event wash only when no cue is lighting the lamps with its own colour and shape
-    else if (a.k === "event" && !cf) acc = lamps(dim(LAMP.violet, 0.8 * f), dim(LAMP.violet, 0.8 * f), dim(LAMP.violet, 0.8 * f));
-    else if (a.k === "prestige") { const w = Math.sin(clamp(a.t / a.dur, 0, 1) * Math.PI); acc = lamps(dim(LAMP.white, 0.8 * w), dim(LAMP.white, 0.8 * w), dim(LAMP.white, 0.8 * w)); }
+    else if (a.k === "event" && !cf) acc = fillN(dim(LAMP.violet, 0.8 * f), n);
+    else if (a.k === "prestige") { const w = Math.sin(clamp(a.t / a.dur, 0, 1) * Math.PI); acc = fillN(dim(LAMP.white, 0.8 * w), n); }
     if (acc) over(acc);
   }
   return v;

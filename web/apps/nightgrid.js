@@ -67,7 +67,7 @@ export const GUIDE = [
     "The board and the lamps preview exactly what each card will do."] },
   { head: "WINNING THE NIGHT", lines: ["A district left short loses goodwill. Full service wins it back.",
     "Lit shops donate repair kits. Stored water covers a short tower.", "At dawn you need 12 goodwill in total, and no district at zero.",
-    "Take your time: nothing happens until you pick. HOW TO PLAY is in the system menu."] },
+    "Take your time: nothing happens until you pick. GAME GUIDE in the system menu shows this again."] },
 ];
 
 // The best a crew job can lead to tonight: the routing that keeps the most districts whole.
@@ -294,7 +294,7 @@ export class NightGrid {
   }
 
   menuActions() {
-    return [{ label: "HOW TO PLAY", run: () => this.openGuide() }, { label: "NEW NIGHT", run: () => { this.guide = -1; this.start(); } }];
+    return [{ label: "GAME GUIDE", run: () => this.openGuide() }, { label: "NEW NIGHT", run: () => { this.guide = -1; this.start(); } }];
   }
 
   commit(index) {

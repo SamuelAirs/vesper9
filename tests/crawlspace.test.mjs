@@ -126,7 +126,7 @@ test("first launch teaches the game; the guide is remembered and reopens from th
   const again = new Crawlspace(appContext({ progress: c.calls.saved.at(-1) }));
   tap(again); assert.equal(again.phase, "play", "no guide the second time");
   const turn = again.enemy.turn;
-  again.menuActions().find((x) => x.label === "HOW TO PLAY").run();
+  again.menuActions().find((x) => x.label === "GAME GUIDE").run();
   assert.equal(again.guide, 0); hold(again);
   assert.equal(again.guide, -1); assert.equal(again.phase, "play"); assert.equal(again.enemy.turn, turn, "closing the guide takes no action");
   assert.equal(migrateSave({ schema: 1, runs: 4 }).guided, false, "older saves see the guide once");
@@ -262,4 +262,23 @@ test("four lamps: the cards on lamps 1-3, health on lamp 4", () => {
   a.run.hp = 6; run(a, 0.1); frame = c.calls.leds.at(-1);
   assert.ok(frame[9] > frame[10], "low health turns lamp 4 red");
   a.dispose(); assert.ok(c.calls.leds.at(-1).every((v) => v === 0), "every lamp, the fourth too, goes dark");
+});
+
+test("save slots: each slot is its own house, labelled by where the crawl stands", () => {
+  assert.equal(Crawlspace.saveSlots, true);
+  const { a, c } = ready(); run(a, 3);
+  const saved = c.calls.saved.at(-1);
+  assert.equal(a.slotSummary(saved), "LEVEL 1, ROOM 1/4");
+  const deep = structuredClone(saved); deep.active.run.floor = 3; deep.active.run.room = 2; deep.active.run.heat = 9;
+  assert.equal(a.slotSummary(deep), "LEVEL 3, ROOM 3/4 · H9");
+  assert.equal(a.slotSummary({ schema: 1, runs: 7, wins: 2, unlockedHeat: 2 }), "2 CLEARED · HEAT 2");
+  assert.equal(a.slotSummary({ schema: 1, runs: 3 }), "3 CRAWLS");
+  assert.equal(a.slotSummary(null), "NO CRAWL YET");
+  for (const value of [saved, deep, null, "junk", { runs: 1e100, wins: 1e100, unlockedHeat: 99 }]) assert.ok(a.slotSummary(value).length <= 24);
+  // A fresh second slot starts a new house without repeating HOW TO PLAY.
+  const second = appContext(); second.slot = () => ({ index: 2, count: 4, fresh: true });
+  const b = new Crawlspace(second); tap(b);
+  assert.equal(b.guide, -1); assert.equal(b.phase, "play"); assert.equal(b.run.floor, 1);
+  const first = appContext(); first.slot = () => ({ index: 1, count: 4, fresh: true });
+  const f = new Crawlspace(first); tap(f); assert.equal(f.guide, 0, "slot 1 on a new console still teaches");
 });

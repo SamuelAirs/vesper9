@@ -50,7 +50,7 @@ export const GUIDE = [
     "Cook only what the tickets need: plated food goes cold, and stock runs out.", "A table that waits too long leaves, and the kitchen loses goodwill."] },
   { head: "TAKE A BREATH", lines: ["While the button is down, the kitchen slows right down.",
     "So hold to think, then release on the pan you want. Releasing on a cooking pan does nothing.",
-    "The slow-time meter drains as you hold and refills when you serve.", "Four services, with an upgrade between them. HOW TO PLAY is in the system menu."] },
+    "The slow-time meter drains as you hold and refills when you serve.", "Four services, with an upgrade between them. GAME GUIDE in the system menu shows this again."] },
 ];
 
 const bounded = (v, max = MAX_SAVE) => typeof v === "number" && Number.isFinite(v) ? clamp(Math.floor(v), 0, max) : 0;
@@ -226,7 +226,7 @@ export class Supper {
   }
 
   menuActions() {
-    return [{ label: "HOW TO PLAY", run: () => this.openGuide() }, { label: "NEW SERVICE", run: () => { this.guide = -1; this.start(); } }];
+    return [{ label: "GAME GUIDE", run: () => this.openGuide() }, { label: "NEW SERVICE", run: () => { this.guide = -1; this.start(); } }];
   }
 
   act(index) {

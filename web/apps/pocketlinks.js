@@ -286,7 +286,7 @@ export class PocketLinks {
     if (this.phase === "title") this.start();
   }
   menuActions() {
-    return [{ label: "HOW TO PLAY", run: () => this.openGuide() }, { label: "NEW ROUND", run: () => { this.guide = -1; this.start(); } }];
+    return [{ label: "GAME GUIDE", run: () => this.openGuide() }, { label: "NEW ROUND", run: () => { this.guide = -1; this.start(); } }];
   }
   shoot(power, angle) {
     if (this.stage !== "charge" && this.stage !== "aim") return;

@@ -64,7 +64,7 @@ export const GUIDE = [
     "Brace before a big hit. Swing when it shows an OPENING."] },
   { head: "THE HOUSE", lines: ["Win a fight and pick one of three finds. You carry three relics.",
     "Between fights, choose a room: another fight or a safe room.", "Three levels, four rooms each; a boss waits in every fourth room.",
-    "Your crawl is saved. HOW TO PLAY and NEW HOUSE are in the system menu."] },
+    "Your crawl is saved. GAME GUIDE and NEW HOUSE are in the system menu."] },
 ];
 const n = (value, low = 0, high = 1e7) => Number.isFinite(value) ? Math.floor(clamp(value, low, high)) : low;
 const copy = (value) => JSON.parse(JSON.stringify(value));
@@ -111,11 +111,13 @@ export class Crawlspace {
     this.c = ctx;
     this.lamps = new LampBus(ctx);
     this.sv = migrateSave(ctx.progress?.());
+    // A new save slot (2 to 4) belongs to someone who has already met the game in slot 1.
+    if ((ctx.slot?.()?.index || 1) > 1) this.sv.guided = true;
     this.t = 0; this.phase = "title"; this.view = "combat"; this.cursor = 0; this.lock = 0; this.guide = -1;
     this.overAt = 0; this.won = false; this.run = null; this.enemy = null; this.offers = []; this.routeFoe = "mouse"; this.pendingLoot = null;
     this.log = ["One button. Three choices. A very ordinary house.", "Tap to move between cards. Hold and release to do one."];
     this.pulseHit = 0; this.pulsePlayer = 0; this.lastAction = -1; this.held = false; this.pressAt = 0;
-    this.c.hint(this.sv.active ? "Press to continue your saved crawl. The system menu also offers NEW HOUSE and HOW TO PLAY." : "Press to begin. Tap moves between cards; hold and release does one. Enemies wait for you.");
+    this.c.hint(this.sv.active ? "Press to continue your saved crawl. The system menu also offers NEW HOUSE and GAME GUIDE." : "Press to begin. Tap moves between cards; hold and release does one. Enemies wait for you.");
     this.guard = new AppGuard(this, ctx);
   }
   start(heat = 0, resume = false) {
@@ -361,8 +363,16 @@ export class Crawlspace {
   pause() { this.guard.settle(); this.lamps.sleep(); }
   resume() { this.lamps.wake(); }
   dispose() { this.guard.settle(); this.lamps.sleep(); if (this.phase === "play") this.checkpoint(); }
+  // The row for this save in the system menu's SAVE SLOT list (at most 24 characters).
+  slotSummary(value) {
+    const sv = migrateSave(value), a = sv.active;
+    if (a) return "LEVEL " + a.run.floor + ", ROOM " + (a.run.room + 1) + "/4" + (a.run.heat ? " · H" + a.run.heat : "");
+    if (!sv.runs) return "NO CRAWL YET";
+    const count = (v) => (v > 9999 ? "9999+" : String(v));
+    return (sv.wins ? count(sv.wins) + " CLEARED" : count(sv.runs) + " CRAWLS") + (sv.unlockedHeat ? " · HEAT " + sv.unlockedHeat : "");
+  }
   menuActions() {
-    const actions = [{ label: "HOW TO PLAY", run: () => this.openGuide() }, { label: "NEW HOUSE", run: () => { this.guide = -1; this.start(0); } }];
+    const actions = [{ label: "GAME GUIDE", run: () => this.openGuide() }, { label: "NEW HOUSE", run: () => { this.guide = -1; this.start(0); } }];
     if (this.sv.unlockedHeat > 0) actions.push({ label: "HEAT " + this.sv.unlockedHeat + " HOUSE", run: () => { this.guide = -1; this.start(this.sv.unlockedHeat); } });
     return actions;
   }
@@ -544,3 +554,5 @@ export class Crawlspace {
     g.restore();
   }
 }
+// Up to four separate houses: SAVE SLOT in the system menu (docs/ENGINE.md, "Save slots").
+Crawlspace.saveSlots = true;

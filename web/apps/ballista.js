@@ -347,6 +347,7 @@ export class Ballista {
     this.trail = new Float32Array(TRAIL * 2);
     this.trailN = 0;
     this.hudKey = "";
+    this.boardKey = "";
     this.hintKey = "";
     this.notice = "";
     this.noticeT = 0;
@@ -527,12 +528,12 @@ export class Ballista {
     this.btn = false;
     this.armed = false;
     this.cancelCharge();
-    this.c.leds(lightsOff());
+    this.lightsDown();
   }
   pause() {
     this.guard.settle();
     this.cancelCharge();
-    this.c.leds(lightsOff());
+    this.lightsDown();
   }
   resume() {
     this.btn = false;
@@ -541,7 +542,12 @@ export class Ballista {
   dispose() {
     this.guard.settle();
     this.cancelCharge();
-    this.c.leds(lightsOff());
+    this.lightsDown();
+  }
+  // Every lamp dark, and the board LED too.
+  lightsDown() {
+    this.c.leds(lightsOff(this.c.lampCount?.() === 4 ? 4 : 3));
+    if (this.boardKey && this.boardKey !== "0,0,0") { this.boardKey = ""; this.c.board?.([0, 0, 0]); }
   }
   cancelCharge() {
     this.charging = false;
@@ -790,6 +796,10 @@ export class Ballista {
     else if (this.phase === "fly") this.fly(step);
     else if (this.phase === "over") this.deadT += step;
     this.c.leds(this.lampValues());
+    if (this.c.hasBoardLed?.()) {
+      const b = this.boardValue(), key = b.join(",");
+      if (key !== this.boardKey) { this.boardKey = key; this.c.board?.(b); }
+    }
   }
   aim(step) {
     if (!this.charging) {
@@ -1210,39 +1220,67 @@ export class Ballista {
 
   // ---- lamps -------------------------------------------------------------------------------------
   // Aiming: a spot that follows the barrel (left low, right high). Charging: a meter that fills
-  // green, amber, red. Flight: left = height, middle = speed in the zone's colour, right = thrusters
-  // left. A coming touchdown turns all three cyan, brightest at the perfect moment. A sinkhole close
-  // ahead of a low pod blinks the middle lamp red; a growing chain whitens it. Pads, skips and blasts flash.
+  // green, amber, red. Flight: left = height, next = speed in the zone's colour (whiter as a chain
+  // grows), next = thrusters left. On three lamps a coming touchdown turns all of them cyan,
+  // brightest at the perfect moment, and a sinkhole close ahead of a low pod blinks the middle red.
+  // A fourth lamp, when the node has one, is the landing lamp: what the pod will come down on and
+  // when to press. While aiming it shows where this shot lands (cyan on a pad, booster or mine, red
+  // on a sinkhole); in flight it carries the skip cue, rising to white at the perfect moment (then
+  // all four flash), and blinks red for a sinkhole ahead, so the other three stay instruments.
   lampValues() {
+    const n = this.c.lampCount?.() === 4 ? 4 : 3, four = n === 4;
     const ph = this.phase;
-    if (ph === "title" || ph === "shop") return spot(0.5 + 0.5 * Math.sin(this.t * 0.8), dim(ZONES[this.sv.far].col, 0.12));
+    if (ph === "title" || ph === "shop") return spot(0.5 + 0.5 * Math.sin(this.t * 0.8), dim(ZONES[this.sv.far].col, 0.12), 0.75, n);
     if (ph === "over") {
-      if (this.deadT < 1) return this.reason === "pit" ? fill(LAMP.red, 0.35 * (1 - this.deadT)) : fill(LAMP.amber, 0.2 * (1 - this.deadT));
-      if (this.newRecord) return fill(LAMP.cyan, 0.06 + 0.1 * pulse(this.t, 0.5));
-      return spot(0.5 + 0.5 * Math.sin(this.t * 0.5), dim(ZONES[this.zone].col, 0.07));
+      if (this.deadT < 1) return this.reason === "pit" ? fill(LAMP.red, 0.35 * (1 - this.deadT), n) : fill(LAMP.amber, 0.2 * (1 - this.deadT), n);
+      if (this.newRecord) return fill(LAMP.cyan, 0.06 + 0.1 * pulse(this.t, 0.5), n);
+      return spot(0.5 + 0.5 * Math.sin(this.t * 0.5), dim(ZONES[this.zone].col, 0.07), 0.75, n);
     }
     if (ph === "aim") {
+      const land = four ? this.landLamp(this.groundAt(this.carry(this.angle, this.charging ? this.power : 1))) : null;
       if (this.charging) {
         const col = ramp(this.power, [LAMP.green, LAMP.amber, LAMP.red]);
-        return this.flash > 0 ? fill(LAMP.white, 0.6) : meter(Math.max(0.04, this.power), dim(col, 0.45));
+        if (this.flash > 0) return fill(LAMP.white, 0.6, n);
+        const bar = meter(Math.max(0.04, this.power), dim(col, 0.45));
+        return four ? [...bar, ...land] : bar;
       }
-      return spot((this.angle - A_LO) / (A_HI - A_LO), dim(LAMP.amber, 0.3));
+      const aim = spot((this.angle - A_LO) / (A_HI - A_LO), dim(LAMP.amber, 0.3), 0.75, 3);
+      return four ? [...aim, ...land] : aim;
     }
     if (this.flash > 0) {
       const col = { white: LAMP.white, red: LAMP.red, amber: LAMP.amber, cyan: LAMP.cyan }[this.flashCol] || LAMP.white;
-      return fill(col, 0.25 + 1.2 * this.flash);
+      return fill(col, 0.25 + 1.2 * this.flash, n);
     }
-    const p = this.p, tti = this.skipWindow();
-    if (tti >= 0 && !this.skip) {
-      const near = 1 - tti / SKIP_WIN, perfect = tti <= this.L.perfect;
-      return fill(perfect ? blend(LAMP.cyan, LAMP.white, 0.5) : LAMP.cyan, perfect ? 0.6 : 0.08 + 0.25 * near);
-    }
+    const p = this.p, tti = this.skipWindow(), cue = tti >= 0 && !this.skip;
+    const perfect = cue && tti <= this.L.perfect, near = cue ? 1 - tti / SKIP_WIN : 0;
+    if (perfect) return fill(blend(LAMP.cyan, LAMP.white, 0.5), 0.6, n);
+    if (cue && !four) return fill(LAMP.cyan, 0.08 + 0.25 * near, 3);
     const height = clamp(p.y / 400, 0, 1), speed = clamp(Math.hypot(p.vx, p.vy) / 900, 0, 1);
     const left = dim(LAMP.blue, 0.04 + 0.36 * height);
     let mid = dim(blend(ZONES[this.zone].col, LAMP.white, Math.min(this.chain, 10) / 12), 0.06 + 0.32 * speed); // whiter as a chain grows
-    if (this.pitAhead()) mid = blink(this.runT, 6) ? dim(LAMP.red, 0.45) : [0, 0, 0];
+    const pit = this.pitAhead();
+    if (pit && !four) mid = blink(this.runT, 6) ? dim(LAMP.red, 0.45) : [0, 0, 0];
     const right = this.kicks > 0 ? dim(LAMP.amber, 0.06 + 0.3 * (this.kicks / this.L.kicks)) : null;
-    return lamps(left, mid, right);
+    if (!four) return lamps(left, mid, right);
+    let landing = null;
+    if (cue) landing = dim(LAMP.cyan, 0.15 + 0.35 * near);
+    else if (pit) landing = blink(this.runT, 6) ? dim(LAMP.red, 0.45) : null;
+    else if (p.mode === "air") landing = this.landLamp(this.groundAt(p.x + p.vx * timeToGround(p.y, p.vy, this.L.g)), 0.5);
+    return lamps(left, mid, right, landing);
+  }
+  // The landing lamp's colour for the ground feature a shot comes down on.
+  landLamp(f, level = 1) {
+    if (f && f.k === "pit") return dim(LAMP.red, 0.4 * level);
+    if (f && (f.k === "pad" || f.k === "boost" || f.k === "mine")) return dim(LAMP.cyan, 0.3 * level);
+    if (f && f.k === "drift") return dim(LAMP.amber, 0.12 * level);
+    return dim(LAMP.white, 0.03 * level);
+  }
+  // The board LED, when the node has one, is an accent for chains: dark until a chain of two,
+  // then the zone's colour whitening as it grows, and a red flash when a sinkhole takes the pod.
+  boardValue() {
+    if (this.phase === "over" && this.reason === "pit" && this.deadT < 0.6) return dim(LAMP.red, 0.5);
+    if (this.phase !== "fly" || this.chain < 2) return [0, 0, 0];
+    return dim(blend(ZONES[this.zone].col, LAMP.white, Math.min(this.chain, 10) / 10), 0.12 + 0.03 * Math.min(this.chain, 8));
   }
   pitAhead() {
     const p = this.p;

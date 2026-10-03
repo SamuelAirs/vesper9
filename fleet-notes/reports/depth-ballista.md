@@ -49,3 +49,16 @@ The review scored Ballista 6.5: "luck outweighs skill", a press near touchdown s
   - When the console picks Ballista as one of today's three, Ballista states its order as "Daily run: <goal>".
   - It calls `ctx.dailyMet()` when that goal is met.
 - Tests: 37 in tests/ballista.test.mjs, including a test of the logbook calls with stub context functions. Not tested against PR #16's real host or on the device.
+
+## Round 5: four lamps (2026-10-03)
+
+- Merged PR #16's branch (lamp helpers for four lamps, ctx.lampCount, ctx.board) into this one. PR #6 still lands after #16.
+- On a four-lamp node the fourth lamp is the **landing lamp**:
+  - While aiming and charging it shows what this shot will land on, matching the strip's marker: cyan on a pad, booster or mine, red on a sinkhole, faint amber on a drift.
+  - In flight it carries the skip cue, rising as touchdown nears. At the perfect moment all four lamps flash white-cyan.
+  - It blinks red when a sinkhole is ahead of a low pod, and otherwise shows what the pod will come down on.
+  - The first three lamps stay instruments throughout: height, speed and chain, thrusters.
+- On a three-lamp node the frames are exactly as before.
+- The board LED, when there is one, is an accent for chains: dark until a chain of two, then the zone's colour whitening as the chain grows, and a red flash when a sinkhole takes the pod. It is sent only when it changes, and it goes dark on pause or exit.
+- Gameplay is unchanged.
+- Tests: 38 in tests/ballista.test.mjs, including the four-lamp frames, the landing lamp, the three-lamp skip cue being unchanged, and the board LED. Not checked on the new node.

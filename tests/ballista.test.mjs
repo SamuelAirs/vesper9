@@ -316,6 +316,67 @@ test("lamp values are always nine whole numbers 0-255 and change during play", (
   assert.ok(new Set(ctx.calls.leds.map((v) => v.join())).size > 20);
 });
 
+test("on a four-lamp node the fourth lamp is the landing lamp; three-lamp frames stay as they were", () => {
+  const four = () => {
+    const ctx = appContext({ seed: 11 });
+    ctx.lampCount = () => 4;
+    const board = [];
+    ctx.hasBoardLed = () => true;
+    ctx.board = (rgb) => board.push(rgb.slice());
+    return { ctx, app: new Ballista(ctx), board };
+  };
+  const L4 = (v) => v.slice(9, 12), sum = (v) => v.reduce((a, b) => a + b, 0);
+  const { ctx, app, board } = four();
+  playRun(app, { skill: 0.8, jitter: new Random(2) });
+  assert.ok(ctx.calls.leds.every((v) => v.length === 12 && v.every((x) => Number.isInteger(x) && x >= 0 && x <= 255)), "twelve values every frame");
+  assert.ok(new Set(ctx.calls.leds.map((v) => L4(v).join())).size > 5, "the fourth lamp does something");
+  // aiming: the landing lamp says what this shot comes down on
+  const a = four().app;
+  tap(a);
+  const pad = { k: "pad", x: 0, w: 1e6, y: 0, h: 0, a: 0, used: 0 }, pit = { ...pad, k: "pit" };
+  a.features = [pad]; a.update(F);
+  const onPad = L4(a.lampValues());
+  a.features = [pit]; a.update(F);
+  const onPit = L4(a.lampValues());
+  assert.ok(onPad[2] > onPad[0], "cyan over a pad: " + onPad);
+  assert.ok(onPit[0] > onPit[2], "red over a sinkhole: " + onPit);
+  // in flight the skip cue is on the landing lamp, and the three instruments stay themselves
+  const b = four().app;
+  fire(b, 30);
+  b.features = []; b.nextX = 1e9;
+  Object.assign(b.p, { x: 300, y: 200, vx: 400, vy: -300, mode: "air" });
+  let cue = null;
+  for (let i = 0; i < 200 && b.p.vy < 0; i++) {
+    const t = b.skipWindow();
+    if (t > b.L.perfect && t < SKIP_WIN) { cue = b.lampValues(); break; }
+    b.update(F);
+  }
+  assert.ok(cue, "reached the skip window");
+  assert.ok(L4(cue)[2] > 20 && L4(cue)[1] > 20, "landing lamp cyan: " + L4(cue));
+  assert.notDeepEqual(cue.slice(0, 3), cue.slice(9, 12), "the height lamp is not the cue");
+  // the same moment on a three-lamp node floods all three cyan, as before
+  const c = mount().app;
+  fire(c, 30);
+  c.features = []; c.nextX = 1e9;
+  Object.assign(c.p, { x: 300, y: 200, vx: 400, vy: -300, mode: "air" });
+  for (let i = 0; i < 200 && c.p.vy < 0; i++) {
+    const t = c.skipWindow();
+    if (t > c.L.perfect && t < SKIP_WIN) { const v = c.lampValues(); assert.equal(v.length, 9); assert.deepEqual(v.slice(0, 3), v.slice(3, 6)); break; }
+    c.update(F);
+  }
+  // the board LED: an accent for chains, sent only when it changes, dark when the app is left
+  const d = four();
+  fire(d.app, 30);
+  d.app.chain = 3; d.app.update(F); d.app.update(F);
+  assert.ok(sum(d.board.at(-1)) > 0, "a chain lights the board LED");
+  const sent = d.board.length;
+  d.app.update(F);
+  assert.equal(d.board.length, sent, "unchanged, not resent");
+  d.app.dispose();
+  assert.deepEqual(d.board.at(-1), [0, 0, 0]);
+  assert.equal(d.ctx.calls.leds.at(-1).length, 12);
+});
+
 // ---- tolerance -----------------------------------------------------------------------------
 
 test("cancel() and dispose() at any moment leave the lamps off and nothing charging", () => {

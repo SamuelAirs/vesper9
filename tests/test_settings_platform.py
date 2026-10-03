@@ -2,6 +2,7 @@
 import unittest
 
 from vesper.catalog import DEFAULT_SETTINGS, validate_setting
+from vesper.server import progress_id
 
 
 class PlatformSettingsTest(unittest.TestCase):
@@ -22,6 +23,12 @@ class PlatformSettingsTest(unittest.TestCase):
         for bad in ('high', 1, None):
             with self.assertRaises(ValueError):
                 validate_setting('renderQuality', bad)
+
+    def test_save_slot_progress_ids(self):
+        for good in ('outpost', 'outpost#2', 'outpost#4', 'console', 'slots'):
+            self.assertTrue(progress_id(good), good)
+        for bad in ('outpost#1', 'outpost#5', 'outpost#02', 'outpost#', 'nope#2', '#2', 'outpost#2#3', 'slots#2'):
+            self.assertFalse(progress_id(bad), bad)
 
 
 if __name__ == '__main__':

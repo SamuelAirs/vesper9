@@ -498,3 +498,20 @@ test("in a game a knock goes to the game and never goes back", () => {
   assert.equal(h.raw.length, 2);
   assert.equal(h.count("down"), 0, "a knock is not a press");
 });
+
+test("inside the system menu tap, tap, hold chooses the third row and never reopens the menu", () => {
+  for (const pace of PACES) {
+    const p = GESTURE_PACES[pace];
+    const h = rig({ pace, mode: "menu" });
+    h.host.gestureOff = () => true;
+    // Sam's case: two taps down to DASHBOARD, then a hold well past the gesture's, and a release.
+    gesture(h, { tap: 60, gap: 60, hold: gestureHoldMs(p, 650) + 400 });
+    assert.equal(h.menus().length, 0, pace);
+    assert.deepEqual(h.log.filter((e) => e[0] === "select"), [["select", 2]], pace);
+    assert.ok(!h.log.some((e) => e[0] === "hold" && e[3]), "the bar never counts towards the menu");
+    // Even a very long hold only chooses: no silent fallback over the menu.
+    h.wait(400); h.down(); h.wait(FALLBACK_HOLD_MS + 200); h.up();
+    assert.equal(h.menus().length, 0, pace);
+    assert.equal(h.count("select"), 2, pace);
+  }
+});

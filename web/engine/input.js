@@ -224,10 +224,13 @@ export class InputRouter {
         stamp - seq.end > pace.gapMs || stamp < seq.end || at - seq.received > pace.gapMs + 100)) this.resetSequence();
     const live = this.sequence;
     // The third press of tap, tap, hold. A sequence of three or more taps is not the gesture.
-    const armed = !!live && live.count === GESTURE_TAPS;
+    // Inside the system menu it is not the gesture either (host.gestureOff): there tap, tap and a
+    // hold is how the third row is chosen, so the menu must not open over itself.
+    const off = !!this.host.gestureOff?.();
+    const armed = !off && !!live && live.count === GESTURE_TAPS;
     // Where the highlight stood before the first tap, so the gesture can put it back.
     const mark = live ? live.mark : this.host.focusMark?.() ?? null;
-    this.press = { at, stamp, epoch: this.host.epoch, mode, event, source, generation, consumed: false, armed, mark };
+    this.press = { at, stamp, epoch: this.host.epoch, mode, event, source, generation, consumed: false, armed, mark, off };
     this.host.pressVisual(true);
     if (mode === 'raw') this.host.rawDown(event);
   }
@@ -287,7 +290,7 @@ export class InputRouter {
       return;
     }
     if (menu) this.host.holdVisual(Math.min(1, elapsed / this.host.holdMs()), elapsed >= this.host.holdMs(), false);
-    if (menu && elapsed >= FALLBACK_HOLD_MS && !press.consumed) this.open(press, 'hold');
+    if (menu && !press.off && elapsed >= FALLBACK_HOLD_MS && !press.consumed) this.open(press, 'hold');
   }
   reconcile(pressed, source = 'node') {
     const press = this.press;

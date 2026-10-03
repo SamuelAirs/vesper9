@@ -11,7 +11,7 @@ import { HostLamps, levelScale } from "./engine/ambient.js";
 import { microphoneStatus } from "./engine/status.js";
 import { planVoice } from "./engine/voice.js";
 import { LOGICAL_W, LOGICAL_H, renderFactor } from "./engine/render.js";
-import { SLOT_COUNT, SLOTS_ID, slotKey, cleanSlots, activeSlot, setActive, isEmpty, noteSaved, forget, describeSlot } from "./engine/slots.js";
+import { SLOT_COUNT, SLOTS_ID, slotKey, cleanSlots, activeSlot, setActive, isEmpty, noteSaved, forget, describeSlot, firstEmpty } from "./engine/slots.js";
 import { cleanLogbook, ensureDay, dateKey, pickOf, ownOrder, meetOrder, noteScore, addFeat, streak, doneCount, PICKS } from "./engine/logbook.js";
 const Log = { cleanLogbook, ensureDay, dateKey, pickOf, ownOrder, meetOrder, noteScore, addFeat, streak, doneCount, PICKS };
 
@@ -589,11 +589,12 @@ export class Vesper {
       },
       // The active save slot's progress (engine/slots.js): slot 1 is the save the game always had.
       progress: () => this.state.progress?.[slotKey(meta.id, slot)] || {},
-      saveProgress: (value) => {
+      // The optional second argument's label (24 characters at most) names the save on its slot row.
+      saveProgress: (value, { label } = {}) => {
         if (!alive()) return Promise.resolve({ ignored: true });
         const key = slotKey(meta.id, slot);
         this.state.progress[key] = value;
-        if (noteSaved(this.slotBook(), meta.id, slot, Log.dateKey())) this.saveSlotBook();
+        if (noteSaved(this.slotBook(), meta.id, slot, Log.dateKey(), label)) this.saveSlotBook();
         return this.bridge.command("progress", { app: key, value }, true);
       },
       // Which save slot this run is on: { index: 1..count, count, fresh: the slot was empty at launch }.
@@ -797,26 +798,41 @@ export class Vesper {
   slotRow(id, n) {
     let summary = null;
     try { summary = this.app?.slotSummary?.bind(this.app); } catch {}
-    return describeSlot(this.state.progress?.[slotKey(id, n)], this.slotBook().at[slotKey(id, n)], summary);
+    const key = slotKey(id, n);
+    return describeSlot(this.state.progress?.[key], this.slotBook().at[key], summary, this.slotBook().label[key]);
   }
   // Choose a slot: the active one carries on, any other relaunches the game on it (an empty one is a new save).
   slotMenu() {
     const id = this.meta.id, name = this.meta.name, active = this.slotOf(id);
     const rows = Array.from({ length: SLOT_COUNT }, (_, i) => i + 1);
     const used = rows.filter((n) => !isEmpty(this.state.progress?.[slotKey(id, n)]));
-    this.openMenu("Save slots / " + name, `Playing slot ${active}. Choose another slot to switch to it; an empty slot starts a new save. Each slot keeps its own save; best scores and the logbook are shared.`, [
+    const empty = firstEmpty(id, this.state.progress);
+    this.openMenu("Save slots / " + name, `Playing slot ${active}. Choose another slot to switch to it; NEW SAVE starts a fresh one and keeps the others. Each slot keeps its own save; best scores and the logbook are shared.`, [
       ...rows.map((n) => ({
         label: (n === active ? "▸ SLOT " : "SLOT ") + n + " / " + this.slotRow(id, n),
-        run: () => {
-          if (n === active) return this.closeMenu();
-          setActive(this.slotBook(), id, n);
-          this.saveSlotBook();
-          this.toast("SLOT " + n + " · " + name);
-          this.launch(id);
-        },
+        run: () => (n === active ? this.closeMenu() : this.switchSlot(n)),
       })),
+      { label: empty ? "NEW SAVE / SLOT " + empty : "NEW SAVE / REPLACE A SLOT", run: () => (empty ? this.switchSlot(empty) : this.replaceSlotMenu()) },
       ...(used.length ? [{ label: "CLEAR A SLOT", run: () => this.clearSlotMenu() }] : []),
       { label: "BACK", run: () => this.systemMenu() },
+    ]);
+  }
+  // Leave the game (its last save goes to the slot it was opened on), then open it on slot n.
+  switchSlot(n) {
+    const id = this.meta.id, name = this.meta.name;
+    this.closeMenu(false);
+    this.unmount();
+    setActive(this.slotBook(), id, n);
+    this.saveSlotBook();
+    this.toast("SLOT " + n + " · " + name);
+    this.launch(id);
+  }
+  // Every slot holds a save: NEW SAVE replaces one, after asking.
+  replaceSlotMenu() {
+    const id = this.meta.id, rows = Array.from({ length: SLOT_COUNT }, (_, i) => i + 1);
+    this.openMenu("New save", "Every slot holds a save. Choose one to replace with a new save; you will be asked again.", [
+      ...rows.map((n) => ({ label: "SLOT " + n + " / " + this.slotRow(id, n), run: () => this.confirmClear(n, true) })),
+      { label: "BACK", run: () => this.slotMenu() },
     ]);
   }
   clearSlotMenu() {
@@ -827,21 +843,24 @@ export class Vesper {
       { label: "BACK", run: () => this.slotMenu() },
     ]);
   }
-  confirmClear(n) {
+  // Clear slot n after asking; `start` then opens the game on it as a new save.
+  confirmClear(n, start = false) {
     const id = this.meta.id, name = this.meta.name;
-    this.openMenu("Clear slot " + n + "?", "Slot " + n + " of " + this.meta.name + " (" + this.slotRow(id, n) + ") will be deleted.", [
+    this.openMenu((start ? "Replace slot " : "Clear slot ") + n + "?", "Slot " + n + " of " + this.meta.name + " (" + this.slotRow(id, n) + ") will be deleted" + (start ? " and a new save started there." : "."), [
       { label: "KEEP SLOT " + n, run: () => this.slotMenu() },
       {
-        label: "CLEAR SLOT " + n,
+        label: (start ? "REPLACE SLOT " : "CLEAR SLOT ") + n,
         run: () => {
-          const key = slotKey(id, n), playing = n === this.slotOf(id);
+          const key = slotKey(id, n), playing = start || n === this.slotOf(id);
           // Leave the game first when it is on that slot: whatever it saves on the way out must not refill it.
           if (playing) { this.closeMenu(false); this.unmount(); }
           this.state.progress[key] = {};
           this.bridge.command("progress", { app: key, value: {} }, true)?.catch?.(() => {});
-          if (forget(this.slotBook(), id, n)) this.saveSlotBook();
-          this.toast("SLOT " + n + " CLEARED · " + name);
+          const dropped = forget(this.slotBook(), id, n);
+          this.toast("SLOT " + n + (start ? " · NEW SAVE · " : " CLEARED · ") + name);
           // The game on that slot starts again from nothing; another slot's game carries on.
+          if (start) setActive(this.slotBook(), id, n);
+          if (start || dropped) this.saveSlotBook();
           if (playing) this.launch(id);
           else this.slotMenu();
         },

@@ -81,3 +81,16 @@ The long integrated run was started while final review continued. The final held
 - Per PR #16's cut list: feats are reported with `ctx.feat` (announced by the console), the daily run states its goal with `ctx.daily` and calls `ctx.dailyMet`. The songbook loses its FEATS screen, the daily streak and the feat ticker. Without PR #16 the calls are skipped and the game announces feats itself.
 - Unlocks no longer count feats: ACCELERANDO opens on reaching the clave, the BELL and CHIP kits at 6 and 14 rhythms learned. The ON THE DAY feat is retired.
 - Save schema 2: drops the daily streak and the daily-goal count; tested from schema 1.
+
+## 2026-10-01 — dashboard tidy (desktop, not verified on the device)
+
+- Sectors regrouped by kind instead of PLAY / PLAY II / PLAY III and INSTRUMENTS / II: VOYAGES (Perihelion, Outpost, Undertow, Ballista, Tideline), ARCADE (Orbit Lock, Ricochet, Moonrunner, Light Trial, Descent), MIND (Echo Vault, Glyph Archive), TOOLS (Lantern, Cadence, Oracle, Signal School), SENSORS (Atmosphere, Resonance, Field Notes). Pulsar and Helix (retired by Sam) are off the dashboard; their own pull requests remove them. Sectors may carry an optional `tagline`.
+- The decorative hero became a sector header (serif sector name, tagline, the orrery) and a strip of every sector with the current one lit; with NEXT SECTOR highlighted, the sector it leads to is marked in amber. Game cards show their kind, best score and runs (or UNCHARTED); part-filled pages square off with empty bays. Headless 1024 × 600, 800 × 900 and 400 × 800 screenshots looked at.
+- Storage migration `ballista_metres_v2`: the old artillery best moves to `ballista:artillery` once, so the rebuilt launcher's metres start a fresh best (tests/test_storage_migrations.py).
+
+## 2026-10-02 — platform polish from the review (desktop, not verified on the device)
+
+- Play mode: the console's chrome folds into a 34 px top row and a 26 px bottom row while a game runs, so on 1024 × 600 the game is shown at 960 × 540 instead of about 670 × 377. The canvas backing store follows the shown size; RENDER QUALITY (auto, sharp, fast) can draw fewer pixels. Headless Chromium at 12× CPU throttling: Perihelion's slow frames 37/147 sharp, 21/165 fast; Ballista 12/174 and 2/182. Not a Pi measurement.
+- The menu gesture's final hold is 600 ms longer inside a game (1.6 s at the standard pace); menus keep 1 s. `SETTLE` is 2.8 s.
+- TIMING OFFSET in Calibration (`latencyMs`, tap-along), two knocks on the case go back outside a game (needs PR #4's firmware and service), and the console logbook (today's three, streak, feats; progress id `console`, version 1).
+- Report and per-game cut list: `fleet-notes/reports/platform-polish.md`.

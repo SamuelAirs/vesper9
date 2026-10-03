@@ -314,3 +314,4 @@ The long integrated run was started while final review continued. The final held
 - Two-minute sessions; four parks (The Bowl, The Yard, The Tower, The Night Pipe), five goals each, three goals open the next park. Three save slots chosen on the title's setup screen (hold), with erase (hold twice). Save schema 1 with a migration test.
 - Lamps: in the air a spot shows the angle to the ground (centred and green is a safe landing); on a bar the swing; on the ground the roll window, else speed. Four lamps on the new node, three on the old. The board LED flashes amber on a five-trick bank or a goal and is otherwise dark.
 - Tests: tests/highbar.test.mjs (17), plus the menu-gesture suite. Headless Chromium at 4× CPU throttling: draw median 0.6 ms, p95 1.4 ms, no long frames. Not played on the console.
+- 2026-10-03: Tideline ditched (Sam): off the dashboard and voice, code and saves kept, matching PR #8's catalog change.

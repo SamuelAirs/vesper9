@@ -14,6 +14,7 @@ import {
 } from "./utilities.js";
 import { Pulsar } from "./pulsar.js";
 import { Perihelion } from "./perihelion.js";
+import { HighBar } from "./highbar.js";
 import { Descent } from "./descent.js";
 import { Ricochet } from "./ricochet.js";
 import { Helix } from "./helix.js";
@@ -29,7 +30,7 @@ import { Telemetry } from "./telemetry.js";
 import { CARTRIDGES } from "./catalog.js";
 const FACTORIES = { OrbitLock, Moonrunner, Undertow, EchoVault, LightTrial, GlyphVault,
   MorseSchool, Timers, Transcription, Environment, Diagnostics, Settings,
-  Pulsar, Perihelion, Descent, Ricochet, Helix, Ballista,
+  Pulsar, Perihelion, HighBar, Descent, Ricochet, Helix, Ballista,
   Tideline, Outpost,
   Lantern, Cadence, Ephemeris, Resonance, Oracle, Telemetry };
 export const APPS = CARTRIDGES.map(meta => {

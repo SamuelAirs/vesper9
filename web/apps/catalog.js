@@ -168,6 +168,32 @@ export const CARTRIDGES = [
     }
   },
   {
+    "id": "highbar",
+    "name": "HIGH BAR",
+    "subtitle": "Skate the bowl. Swing the bars. String tricks.",
+    "description": "Ride a skate park and chain tricks into combos. Near a bar, hold to swing and release to fly; on the ground, hold to pump and release to ollie; in the air, hold to flip and let go to land upright. Land clean to bank the combo. Two-minute sessions, four parks with goals, three save slots (hold on the title).",
+    "controls": "HOLD: SWING · PUMP · FLIP · RELEASE: FLY · OLLIE · LAND · HOLD ON TITLE: SETUP",
+    "category": "PLAY / TRICKS",
+    "glyph": 3,
+    "factory": "HighBar",
+    "voice": [
+      "high bar",
+      "skate"
+    ],
+    "capabilities": [
+      "button",
+      "lights",
+      "audio",
+      "progress"
+    ],
+    "icon": "<path d=\"M8 40Q8 30 18 30H30Q40 30 40 40\"/><path d=\"M14 8V30M34 8V30\"/><path d=\"M10 10H38\"/><circle cx=\"24\" cy=\"17\" r=\"3\"/><path d=\"M24 10V14\"/>",
+    "record": {
+      "score": "Score",
+      "combo": "Best combo",
+      "park": "Park"
+    }
+  },
+  {
     "id": "descent",
     "name": "DESCENT",
     "subtitle": "Set down gently, or not at all.",
@@ -533,7 +559,7 @@ export const CARTRIDGES = [
     ]
   }
 ];
-export const SECTORS = [{"name": "VOYAGES", "tagline": "Long games to sink an evening into.", "apps": ["perihelion", "outpost", "drift", "ballista", "tideline"]}, {"name": "ARCADE", "tagline": "Quick runs for sharp hands.", "apps": ["orbit", "ricochet", "runner", "reaction", "descent"]}, {"name": "MIND", "tagline": "Memory, reading and pattern.", "apps": ["echo", "glyphs"]}, {"name": "TOOLS", "tagline": "Useful things for the desk.", "apps": ["lantern", "cadence", "oracle", "morse"]}, {"name": "SENSORS", "tagline": "What the node hears and feels.", "apps": ["environment", "resonance", "transcribe"]}];
+export const SECTORS = [{"name": "VOYAGES", "tagline": "Long games to sink an evening into.", "apps": ["perihelion", "outpost", "drift", "ballista", "tideline"]}, {"name": "ARCADE", "tagline": "Quick runs for sharp hands.", "apps": ["orbit", "ricochet", "runner", "reaction", "descent", "highbar"]}, {"name": "MIND", "tagline": "Memory, reading and pattern.", "apps": ["echo", "glyphs"]}, {"name": "TOOLS", "tagline": "Useful things for the desk.", "apps": ["lantern", "cadence", "oracle", "morse"]}, {"name": "SENSORS", "tagline": "What the node hears and feels.", "apps": ["environment", "resonance", "transcribe"]}];
 export const SYSTEM_APPS = ["settings", "diagnostics", "telemetry"];
 export const DEFAULT_SETTINGS = {
   "sound": true,

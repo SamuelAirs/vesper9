@@ -75,3 +75,10 @@ The long integrated run was started while final review continued. The final held
 - The menu gesture's final hold is 600 ms longer inside a game (1.6 s at the standard pace); menus keep 1 s. `SETTLE` is 2.8 s.
 - TIMING OFFSET in Calibration (`latencyMs`, tap-along), two knocks on the case go back outside a game (needs PR #4's firmware and service), and the console logbook (today's three, streak, feats; progress id `console`, version 1).
 - Report and per-game cut list: `fleet-notes/reports/platform-polish.md`.
+
+## 2026-10-03 — High Bar, a skate-park trick game (desktop, not verified on the device)
+
+- New game `highbar` (HIGH BAR, ARCADE page, voice "high bar" or "skate"), from Sam's idea after playing Perihelion: Perihelion's grab-and-release swing, but in a skate park where the goal is tricks. One button by context: near a marked bar, hold to swing and release to fly; on the ground, hold to pump and release to ollie; in the air, hold to tuck and flip and let go to land upright. Tricks build a combo (sum × trick count) that banks after 1.2 s rolling on the ground; a crooked landing bails and loses it. Bowl walls are vert (straight up and back down the same wall).
+- Two-minute sessions; four parks (The Bowl, The Yard, The Tower, The Night Pipe), five goals each, three goals open the next park. Three save slots chosen on the title's setup screen (hold), with erase (hold twice). Save schema 1 with a migration test.
+- Lamps: in the air a spot shows the angle to the ground (centred and green is a safe landing); on a bar the swing; on the ground the roll window, else speed. Four lamps on the new node, three on the old. The board LED flashes amber on a five-trick bank or a goal and is otherwise dark.
+- Tests: tests/highbar.test.mjs (17), plus the menu-gesture suite. Headless Chromium at 4× CPU throttling: draw median 0.6 ms, p95 1.4 ms, no long frames. Not played on the console.

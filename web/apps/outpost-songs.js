@@ -46,6 +46,17 @@ export const SONGS = [
     notes: "B4 F#4 G4 A4 G4 F#4 E4 E4 G4 B4 A4 G4 F#4 G4 A4 B4 G4 E4 E4 | A4 C5 E5 D5 C5 B4 G4 B4 A4 G4 F#4 F#4 G4 A4 B4 G4 E4 E4 | B4 G4 A4 F#4 G4 E4 D#4 | B4 G4 A4 F#4 G4 B4 E5 E5 D#5" },
   { id: "king", name: "MOUNTAIN KING", by: "GRIEG, 1875 (IN THE HALL OF THE MOUNTAIN KING)", key: "F#", mode: "mk", at: 5e13,
     notes: "F#4 G#4 A#4 B4 C#5 A#4 C#5 D5 A#4 D5 C#5 A#4 C#5 | F#4 G#4 A#4 B4 C#5 A#4 C#5 D5 A#4 D5 C#5 A#4 C#5" },
+  // the long game: tunes that arrive after the first hundred trillion of lifetime signal
+  { id: "saints", name: "WHEN THE SAINTS", by: "AMERICAN TRADITIONAL", key: "C", mode: "maj", at: 3e14,
+    notes: "C4 E4 F4 G4 | C4 E4 F4 G4 | C4 E4 F4 G4 E4 C4 E4 D4 | E4 E4 D4 C4 C4 E4 G4 G4 F4 | E4 F4 G4 E4 C4 D4 C4" },
+  { id: "spring", name: "SPRING", by: "VIVALDI, 1725 (THE FOUR SEASONS)", key: "E", mode: "maj", at: 2e15,
+    notes: "E4 G#4 G#4 G#4 F#4 E4 B4 | B4 A4 G#4 G#4 G#4 F#4 E4 B4 | B4 A4 G#4 A4 B4 A4 G#4 F#4 D#4 B3" },
+  { id: "morning", name: "MORNING MOOD", by: "GRIEG, 1875 (PEER GYNT)", key: "E", mode: "maj", at: 1.5e16,
+    notes: "B4 G#4 F#4 E4 F#4 G#4 | B4 G#4 F#4 E4 F#4 G#4 F#4 G#4 | B4 G#4 B4 C#5 G#4 C#5 B4 G#4 F#4 E4" },
+  { id: "largo", name: "GOING HOME", by: "DVORAK, 1893 (NEW WORLD SYMPHONY, LARGO)", key: "C", mode: "maj", at: 1e17,
+    notes: "E4 G4 G4 E4 D4 C4 D4 E4 G4 E4 D4 | E4 G4 G4 E4 D4 C4 D4 E4 D4 C4 C4" },
+  { id: "danube", name: "THE BLUE DANUBE", by: "J. STRAUSS II, 1866", key: "D", mode: "maj", at: 1e18,
+    notes: "D4 D4 F#4 A4 A4 | A5 A5 F#5 F#5 | D4 D4 F#4 A4 A4 | A5 A5 G5 G5 | C#4 C#4 E4 B4 B4 | B5 B5 G5 G5 | C#4 C#4 E4 B4 B4 | B5 B5 F#5 F#5" },
 ];
 export const NS = SONGS.length;
 export const SCALES = { maj: [0, 2, 4, 5, 7, 9, 11], min: [0, 2, 3, 5, 7, 8, 10, 11], dor: [0, 2, 3, 5, 7, 9, 10], pent: [0, 2, 4, 7, 9], mk: [0, 2, 4, 5, 7, 8, 11] };

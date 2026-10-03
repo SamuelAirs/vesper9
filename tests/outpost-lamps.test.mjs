@@ -164,3 +164,236 @@ test("groove lights the note glow brighter, and cyan when full, on the lamp for 
   assert.ok(full[2] > full[0], "cyan in full groove: " + full);
   assert.deepEqual(full.slice(3), plain.slice(3), "the middle and right status lamps are unchanged");
 });
+
+// ======================= the beat guide, cue lights, flare urgency =======================
+import { cue, previewTune, liveBeat } from "../web/apps/outpost-music.js";
+import { beatFlash, LAMP_LAG } from "../web/apps/outpost-lamps.js";
+
+const keepBeat = (app, beat, n) => { for (let i = 0; i < n; i++) { tap(app); advance(app, beat - 0.06); } };
+const lampSum = (v, i) => v[i * 3] + v[i * 3 + 1] + v[i * 3 + 2];
+
+test("the left lamp flashes on the next beat while the player keeps one, a little early for the lamp's lag", () => {
+  const { ctx, app } = begin();
+  app.s.rt = 100; app.s.sig = 0; app.dirty = true; app.recalc();
+  keepBeat(app, 0.5, 6);
+  // listen without tapping for one more beat
+  const from = ctx.calls.leds.length, t0 = app.lastGather;
+  advance(app, 0.6);
+  const frames = ctx.calls.leds.slice(from);
+  const lefts = frames.map((f) => lampSum(f, 0));
+  const peakAt = lefts.indexOf(Math.max(...lefts));
+  const beat = liveBeat(app);
+  assert.ok(beat > 0.45 && beat < 0.55, "beat " + beat);
+  // frame i is drawn at (from-time + (i+1)/60); the listening starts on the first missed beat,
+  // so the peak lands just before the second one is due
+  const peakT = app.clk - 0.6 + (peakAt + 1) / 60 - t0;
+  assert.ok(peakT > 2 * beat - LAMP_LAG - 0.04 && peakT < 2 * beat + 0.01, `flash at ${peakT.toFixed(3)} s for a ${beat.toFixed(3)} s beat`);
+  assert.ok(Math.max(...lefts) > 3 * Math.min(...lefts), "a real flash: " + Math.min(...lefts) + ".." + Math.max(...lefts));
+  // when the player stops, it goes back to breathing
+  advance(app, 3);
+  assert.equal(beatFlash(app), 0);
+  assert.equal(liveBeat(app), 0);
+});
+
+test("the beat flash turns from white to cyan as the groove fills, and a calibrated latency moves it earlier", () => {
+  const { app } = begin();
+  keepBeat(app, 0.4, 6);
+  for (let i = 0; i < 60 && beatFlash(app) < 0.5; i++) advance(app, 1 / 60); // into the flash
+  assert.ok(beatFlash(app) >= 0.5);
+  app.groove = 0; app.noteFx = null;
+  const white = app.lampValues().slice(0, 3);
+  app.groove = E.GROOVE_MAX;
+  const cyan = app.lampValues().slice(0, 3);
+  assert.ok(white[0] > white[2], "white is warm: " + white);
+  assert.ok(cyan[2] > cyan[0] && cyan[1] > cyan[0], "cyan: " + cyan);
+  // when the flash starts, measured from the last tap
+  const onset = (options) => {
+    const { app: a } = begin(options);
+    keepBeat(a, 0.5, 6);
+    advance(a, 0.2);
+    for (let i = 0; i < 120; i++) { if (beatFlash(a) > 0) return a.clk - a.lastGather; advance(a, 1 / 60); }
+    return Infinity;
+  };
+  const sooner = onset() - onset({ settings: { latencyMs: 120 } });
+  assert.ok(Math.abs(sooner - 0.12) < 0.025, "120 ms of latency shows the beat about 120 ms sooner: " + sooner.toFixed(3));
+});
+
+test("a dropped beat flickers red on the left lamp", () => {
+  const { ctx, app } = begin();
+  keepBeat(app, 0.4, 12);
+  assert.ok(app.groove >= 6, "groove " + app.groove);
+  advance(app, 0.15); // a stumble: the next tap far too early
+  const from = ctx.calls.leds.length;
+  tap(app); advance(app, 0.3);
+  const reds = ctx.calls.leds.slice(from).filter((f) => f[0] > 40 && f[1] < 10 && f[2] < 10);
+  assert.ok(reds.length >= 3, "red frames: " + reds.length);
+});
+
+test("each cue note lights the lamp for its pitch in the cue's colour, rising cues run left to right", () => {
+  const { ctx, app } = begin();
+  app.s.rt = 100; app.s.sig = 0; app.dirty = true; app.recalc();
+  advance(app, 3);
+  app.accent = null;
+  let from = ctx.calls.leds.length;
+  cue(app, "teamBack"); // cyan; ends high
+  advance(app, 0.6);
+  assert.ok(ctx.calls.leds.slice(from).some((f) => f[7] > 60 && f[8] > 50 && f[6] < 20), "a cyan light on the right lamp");
+  advance(app, 0.5);
+  from = ctx.calls.leds.length;
+  cue(app, "buy"); // green; rises
+  advance(app, 0.6);
+  const frames = ctx.calls.leds.slice(from);
+  // the green run: the brightest lamp moves rightwards
+  const greens = frames.filter((f) => [0, 1, 2].some((i) => f[i * 3 + 1] > 60 && f[i * 3 + 1] > 2 * f[i * 3 + 2]));
+  const where = greens.map((f) => [0, 1, 2].reduce((b, i) => (f[i * 3 + 1] > f[b * 3 + 1] ? i : b), 0));
+  assert.ok(where.includes(0) && where.includes(2) && where.indexOf(2) > where.indexOf(0), "left then right: " + where);
+});
+
+test("a cue replaces the generic violet event wash, and the songbook preview plays on the lamps", () => {
+  const { app } = begin();
+  advance(app, 2);
+  app.accent = { k: "event", t: 0, dur: 0.7 };
+  const wash = app.lampValues();
+  assert.ok(wash[0] > 80 && wash[2] > 150 && wash[1] < 40, "violet wash without a cue: " + wash);
+  cue(app, "goal"); advance(app, 0.02);
+  const amber = app.lampValues();
+  assert.ok(Math.max(amber[2], amber[5], amber[8]) < 60, "no violet over the goal's amber: " + amber);
+  app.queue = []; app.cueFx = null; app.accent = null;
+  advance(app, 0.5);
+  previewTune(app, Outpost.music.MEL[2]);
+  const seen = new Set();
+  for (let i = 0; i < 70; i++) { advance(app, 1 / 60); if (app.cueFx) seen.add(Math.round(app.cueFx.pos * 4)); }
+  assert.ok(seen.size >= 2, "the preview moves across the lamps: " + [...seen]);
+});
+
+test("a flare blinks faster and brighter as its catch window closes", () => {
+  const { ctx, app } = begin();
+  const right = () => ctx.calls.leds.at(-1).slice(6, 9);
+  const changes = (secs) => {
+    let n = 0, prev = right().join(), peak = 0;
+    for (let i = 0; i < secs * 60; i++) { advance(app, 1 / 60); const r = right(); peak = Math.max(peak, r[0]); if (r.join() !== prev) n++; prev = r.join(); }
+    return { n, peak };
+  };
+  app.flare = { x: 400, y: 200, t: 14, life: 14 };
+  const early = changes(2);
+  app.flare.t = 2.9;
+  const late = changes(2);
+  assert.ok(late.n > early.n, `blinks ${early.n} early, ${late.n} late`);
+  assert.ok(late.peak > early.peak, `peak ${early.peak} early, ${late.peak} late`);
+});
+
+test("while machines hum, the left lamp breathes brighter and leans cyan", () => {
+  const { app } = begin();
+  app.s.own[0] = 2; app.s.rt = 100; app.dirty = true; app.recalc();
+  advance(app, 3);
+  app.accent = null; app.noteFx = null; app.cueFx = null;
+  const peak = () => { let best = [0, 0, 0]; for (let i = 0; i < 400; i++) { app.update(1 / 60); app.cueFx = null; const v = app.lampValues().slice(0, 3); if (v[1] > best[1]) best = v; } return best; };
+  const quiet = peak();
+  app.hum[0] = 300;
+  const hum = peak();
+  assert.ok(hum[1] > quiet[1], `brighter: ${quiet} -> ${hum}`);
+  assert.ok(hum[2] > quiet[2] + 20, `cyan-ish: ${quiet} -> ${hum}`);
+});
+
+test("answering THE CALL turns the station's colours round the lamps, then fades", () => {
+  const { app } = begin();
+  advance(app, 2);
+  app.accent = null;
+  app.finale = { t: 0 };
+  const seen = new Set();
+  let bright = 0;
+  for (let i = 0; i < 60 * 8; i++) { advance(app, 1 / 60); app.accent = null; app.cueFx = null; const v = app.lampValues(); bright = Math.max(bright, ...v); seen.add(v.map((x) => (x > 40 ? 1 : 0)).join()); }
+  assert.ok(bright > 90, "lit: " + bright);
+  assert.ok(seen.size >= 3, "it turns: " + seen.size);
+  app.finale = { t: 11.99 };
+  const end = app.lampValues();
+  app.finale = null;
+  const none = app.lampValues();
+  assert.ok(end.every((x, i) => Math.abs(x - none[i]) <= 2), `faded by the end: ${end} vs ${none}`);
+});
+
+test("a fitting waiting in the workshop pulses blue on the right lamp", () => {
+  const { ctx, app } = begin();
+  advance(app, 1);
+  assert.deepEqual(ctx.calls.leds.at(-1).slice(6, 9), [0, 0, 0]);
+  app.fitWaiting = () => true;
+  let best = [0, 0, 0];
+  for (let i = 0; i < 120; i++) { advance(app, 1 / 60); const r = ctx.calls.leds.at(-1).slice(6, 9); if (r[2] > best[2]) best = r; }
+  assert.ok(best[2] > 40 && best[2] > best[0] * 3 && best[2] > best[1] * 3, "blue: " + best);
+});
+
+// ======================= four lamps =======================
+const four = (options = {}) => {
+  const made = begin(options);
+  made.ctx.lampCount = () => 4;
+  return made;
+};
+
+test("on a four-lamp node every frame has twelve values; without lampCount it stays nine", () => {
+  const { ctx, app } = four();
+  for (let i = 0; i < 20; i++) { tap(app); advance(app, 0.25); }
+  app.accent = { k: "buy", t: 0, dur: 0.35 }; advance(app, 0.1);
+  app.accent = { k: "tune", t: 0, dur: 1 }; advance(app, 0.3);
+  app.finale = { t: 2 }; advance(app, 0.5); app.finale = null;
+  for (const f of ctx.calls.leds.slice(5)) {
+    assert.equal(f.length, 12);
+    for (const v of f) assert.ok(Number.isInteger(v) && v >= 0 && v <= 255);
+  }
+  const old = begin();
+  advance(old.app, 0.5);
+  assert.equal(old.ctx.calls.leds.at(-1).length, 9);
+});
+
+test("the fourth lamp is the music lamp: the beat guide moves there and the left lamp keeps breathing", () => {
+  const { ctx, app } = four();
+  app.s.rt = 100; app.dirty = true; app.recalc();
+  keepBeat(app, 0.5, 6);
+  const from = ctx.calls.leds.length;
+  advance(app, 1.0);
+  const frames = ctx.calls.leds.slice(from);
+  const lamp4 = frames.map((f) => lampSum(f, 3)), lamp1 = frames.map((f) => lampSum(f, 0));
+  assert.ok(Math.max(...lamp4) > 3 * Math.max(1, Math.min(...lamp4)), "lamp 4 flashes: " + Math.min(...lamp4) + ".." + Math.max(...lamp4));
+  // the left lamp is the slow production breath, with no beat flash in it
+  let jumps = 0;
+  for (let i = 1; i < lamp1.length; i++) if (Math.abs(lamp1[i] - lamp1[i - 1]) > 20) jumps++;
+  assert.equal(jumps, 0, "left lamp breathes smoothly");
+  // a dropped beat flickers red on lamp 4, not on the left
+  keepBeat(app, 0.4, 12);
+  advance(app, 0.15);
+  const n = ctx.calls.leds.length;
+  tap(app); advance(app, 0.3);
+  const after = ctx.calls.leds.slice(n);
+  assert.ok(after.filter((f) => f[9] > 40 && f[10] < 10 && f[11] < 10).length >= 3, "red on lamp 4");
+  assert.ok(!after.some((f) => f[0] > 40 && f[1] < 10 && f[2] < 10), "not on lamp 1");
+});
+
+test("the music lamp grows through the tune and turns cyan in full groove", () => {
+  const { app } = four();
+  advance(app, 2);
+  app.accent = null; app.noteFx = null; app.cueFx = null; app.groove = 0; app.gaps = [];
+  app.s.sp = 0;
+  const start = lampSum(app.lampValues(), 3);
+  app.s.sp = app.mel.n.length - 1;
+  const end = lampSum(app.lampValues(), 3);
+  assert.ok(end > start + 15, `brighter late in the tune: ${start} -> ${end}`);
+  app.groove = E.GROOVE_MAX;
+  const v = app.lampValues().slice(9, 12);
+  assert.ok(v[1] > v[0] && v[2] > v[0], "cyan: " + v);
+});
+
+test("notes, cues and accents spread over all four lamps", () => {
+  const { app } = four();
+  advance(app, 2);
+  app.accent = null; app.cueFx = null;
+  app.noteFx = { pos: 1, t: 0 };
+  const high = app.lampValues();
+  assert.ok(lampSum(high, 3) > lampSum(high, 2) && lampSum(high, 3) > 150, "the highest note lights lamp 4: " + high);
+  app.noteFx = { pos: 1 / 3, t: 0 };
+  const lowMid = app.lampValues();
+  assert.ok(lampSum(lowMid, 1) > lampSum(lowMid, 0) + 100 && lampSum(lowMid, 1) > lampSum(lowMid, 2) + 100, "a third of the way lights lamp 2: " + lowMid);
+  app.noteFx = null;
+  const seen = new Set();
+  app.accent = { k: "tune", t: 0, dur: 1 };
+  for (let t = 0; t < 1; t += 0.05) { app.accent.t = t; const v = app.lampValues(); seen.add([0, 1, 2, 3].reduce((b, i) => (lampSum(v, i) > lampSum(v, b) ? i : b), 0)); }
+  assert.equal(seen.size, 4, "the tune chase visits every lamp");
+});

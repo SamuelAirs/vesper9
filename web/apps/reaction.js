@@ -1,6 +1,6 @@
 import { C, text, circle, space, grid, banner } from "../engine/draw.js";
 import { AppGuard } from "../engine/input.js";
-import { LAMP, fill, only } from "../engine/lightshow.js";
+import { LAMP, fill, only, dim } from "../engine/lightshow.js";
 import { LampBus } from "./game-kit.js";
 import { num, dateKey, cleanFeats, newlyMet, todayOrder, drawToday } from "./goals.js";
 
@@ -12,7 +12,9 @@ export function reactionSummary(values) {
 }
 // ---------------------------------------------------------------------------------------------
 // Light Trial. While a trial is armed and waiting the host writes no light at all: the node times
-// the cue on the middle lamp itself. The lamps are used before arming and after the result only.
+// the cue on lamp II itself (the middle of three; the second of four on the current node). The lamps
+// are used before arming and after the result only. With four lamps, lamp IV compares each trial
+// with the mark to beat (versus()): green when faster, amber when close, red when slower.
 export function reactionGrade(ms) {
   if (ms < 200) return { word: "SHARP", color: LAMP.green };
   if (ms < 300) return { word: "GOOD", color: LAMP.cyan };
@@ -101,18 +103,20 @@ export class LightTrial {
     this.done = null;     // the series just finished: { median, spread, clean, best, rank, feats }
     this.delay = 0;       // the delay the current trial was armed with
     this.newFeats = [];
+    this.vs = null;       // the last trial against the mark to beat (lamp IV), or null
     // Today's order, only on the days the logbook picks Light Trial and while it is not yet met.
     this.order = todayOrder(ctx, ORDER);
     this.goAt = 0;        // this.t when the cue arrived, for the timeout when nobody presses
     this.c.hint(
-      "Wait for the MIDDLE light. Press once it turns green. Early presses fail.",
+      (ctx.lampCount?.() === 4 ? "Wait for LIGHT II." : "Wait for the MIDDLE light.") + " Press once it turns green. Early presses fail.",
     );
   }
   falseStart() {
     this.phase = "early";
     this.c.tone(90, 0.18);
-    // Left and right lamps alternate red twice; the middle lamp stays dark.
-    this.lamps.flash(0.8, (e) => (Math.floor(e / 0.2) % 2 === 0 ? only(0, LAMP.red, 0.8) : only(2, LAMP.red, 0.8)));
+    // Lamps I and III alternate red twice; the cue lamp (II) stays dark.
+    const n = this.lampN();
+    this.lamps.flash(0.8, (e) => (Math.floor(e / 0.2) % 2 === 0 ? only(0, LAMP.red, 0.8, n) : only(2, LAMP.red, 0.8, n)));
   }
   // Too slow: the trial is void. Nothing is scored or saved and the series carries on.
   tooSlow() {
@@ -120,7 +124,7 @@ export class LightTrial {
     this.phase = "slow";
     this.last = null;
     this.c.tone(140, 0.2);
-    this.lamps.flash(0.6, () => fill(LAMP.amber, 0.3));
+    this.lamps.flash(0.6, () => fill(LAMP.amber, 0.3, this.lampN()));
   }
   down(event) {
     this.guard.mark();
@@ -182,20 +186,25 @@ export class LightTrial {
       const points = Math.max(0, 1000 - this.last), saved = this.c.best?.(this.metric) ?? 0;
       this.fresh = points > saved && points > 0;
       this.c.score(points, this.metric);
+      this.vs = this.versus(this.last);
       const finished = this.addToSeries(this.last);
       const sv = this.sv;
       sv.runs++;
       sv.last = { metric: this.metric, milliseconds: this.last, summary: reactionSummary(this.results), milestone: this.results.length };
       sv.milestone = Math.max(sv.milestone, this.results.length);
       this.c.saveProgress?.(JSON.parse(JSON.stringify(sv)))?.catch?.(this.c.error);
-      // The grade colour on all three lamps, then dark; a new best sweeps white across first. A finished
-      // series ends with its own grade running across the lamps three times.
-      const grade = reactionGrade(this.last).color, sweep = this.fresh ? 0.36 : 0;
-      const tail = finished ? 1.08 : 0, sgrade = finished ? reactionGrade(this.done.median).color : grade;
+      // The grade colour on lamps I to III, then dark; a new best sweeps white across first. With four
+      // lamps, lamp IV holds the verdict against the mark to beat meanwhile. A finished series ends with
+      // its own grade running across every lamp three times.
+      const n = this.lampN(), grade = reactionGrade(this.last).color, sweep = this.fresh ? 0.36 : 0, vs = this.vs;
+      const tail = finished ? 0.36 * n : 0, sgrade = finished ? reactionGrade(this.done.median).color : grade;
       this.lamps.flash(1.2 + sweep + tail, (e) => {
-        if (e < sweep) return only(Math.min(2, Math.floor(e / 0.12)), LAMP.white, 0.9);
-        if (e - sweep < 1.2) return fill(grade, e - sweep < 0.15 ? 0.8 : 0.33);
-        return only(Math.floor((e - sweep - 1.2) / 0.12) % 3, sgrade, 0.7);
+        if (e < sweep) return only(Math.min(n - 1, Math.floor(e / 0.12)), LAMP.white, 0.9, n);
+        if (e - sweep < 1.2) {
+          const out = fill(grade, e - sweep < 0.15 ? 0.8 : 0.33);
+          return n === 4 ? out.concat(vs ? dim(vs.lamp, 0.55) : LAMP.off) : out;
+        }
+        return only(Math.floor((e - sweep - 1.2) / 0.12) % n, sgrade, 0.7, n);
       });
     }
   }
@@ -239,6 +248,16 @@ export class LightTrial {
     return finished;
   }
   dayKey() { return dateKey(); }
+  lampN() { return this.c.lampCount?.() === 4 ? 4 : 3; }
+  // The mark a trial is measured against: the best series on this clock, else this series so far.
+  // Returns { lamp, disc, word } or null when there is nothing to beat yet.
+  versus(ms) {
+    const mark = this.sv.bs[this.metric] || (this.seriesClock === this.metric && this.series.length ? reactionSummary(this.series).median : 0);
+    if (!(mark > 0)) return null;
+    if (ms <= mark) return { lamp: LAMP.green, disc: DISC.green, word: "FASTER THAN " + mark + " ms" };
+    if (ms <= mark * 1.1) return { lamp: LAMP.amber, disc: DISC.amber, word: "CLOSE TO " + mark + " ms" };
+    return { lamp: LAMP.red, disc: DISC.red, word: "SLOWER THAN " + mark + " ms" };
+  }
   // The rank comes from the best series on the most trustworthy clock that has one.
   rankClock() { return CLOCKS.find((k) => this.sv.bs[k] > 0) || null; }
   rank() { const k = this.rankClock(); return trialRank(k ? this.sv.bs[k] : 0); }
@@ -297,7 +316,7 @@ export class LightTrial {
     if (this.phase !== "title") this.drawDiscs(g);
     const grade = this.phase === "result" ? reactionGrade(this.last) : null;
     const title = {
-      wait: "WAIT FOR THE MIDDLE LIGHT",
+      wait: this.lampN() === 4 ? "WAIT FOR LIGHT II" : "WAIT FOR THE MIDDLE LIGHT",
       go: "NOW",
       early: "TOO EARLY",
       slow: "TOO SLOW",
@@ -348,12 +367,15 @@ export class LightTrial {
       this.drawGoals(g, 404);
     }
   }
-  // The three discs mirror the node's lamps: a slow breath while armed (the screen only; the lamps
-  // stay dark), the middle one green on the cue, and the grade colour after a result.
+  // The discs mirror the node's lamps: a slow breath while armed (the screen only; the lamps stay
+  // dark), disc II green on the cue, and the grade colour after a result. A fourth disc, on a
+  // four-lamp node, shows the verdict against the mark to beat.
   drawDiscs(g) {
     const go = this.phase === "go", wait = this.phase === "wait", res = this.phase === "result" ? gradeDisc(this.last) : null;
-    for (let i = 0; i < 3; i++) {
-      const x = 290 + i * 190, y = 190;
+    const n = this.lampN(), gap = n === 4 ? 170 : 190;
+    for (let i = 0; i < n; i++) {
+      const x = 480 + (i - (n - 1) / 2) * gap, y = 190;
+      if (i === 3) { this.drawVersus(g, x, y, wait); continue; }
       if (go && i === 1) { g.globalAlpha = 0.3; circle(g, x, y, 84, DISC.green, true); g.globalAlpha = 1; }
       if (res) { g.globalAlpha = 0.22; circle(g, x, y, 58, res, true); g.globalAlpha = 1; }
       circle(g, x, y, 58, go && i === 1 ? DISC.green : res || C.line, go && i === 1, res ? 3 : 2);
@@ -365,6 +387,18 @@ export class LightTrial {
     // While armed: the mark to beat, the best series on this clock.
     const target = this.sv.bs[this.metric];
     if (wait && target) text(g, "TO BEAT: " + target + " ms", 480, 360, 18, C.muted, "center");
+  }
+  // Disc IV: dark while armed and on the cue, the verdict's colour after a result, with its words under it.
+  drawVersus(g, x, y, wait) {
+    const vs = this.phase === "result" ? this.vs : null;
+    if (vs) { g.globalAlpha = 0.22; circle(g, x, y, 58, vs.disc, true); g.globalAlpha = 1; }
+    circle(g, x, y, 58, vs ? vs.disc : C.line, false, vs ? 3 : 2);
+    g.globalAlpha = wait ? 0.35 + 0.35 * Math.sin(this.t * 2.2 + 1.8) : 1;
+    circle(g, x, y, 66, wait ? C.muted : C.line);
+    g.globalAlpha = 1;
+    text(g, "IV", x, y, 27, C.muted, "center");
+    if (vs) text(g, vs.word, x, y + 86, 16, vs.disc, "center");
+    else if (this.phase !== "result") text(g, "VS BEST", x, y + 86, 16, C.muted, "center");
   }
   // The training log: one bar per series, taller is slower, the best one bright.
   drawLog(g, y, h) {

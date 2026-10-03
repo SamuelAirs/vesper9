@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Ricochet, RICOCHET_FEATS, CHARGE_FROM, migrateRicochet, ricochetOrder, UPGRADES, PICK_TIME, PICK_HOLD } from "../web/apps/ricochet.js";
+import { Ricochet, RICOCHET_FEATS, CHARGE_FROM, migrateRicochet, ricochetOrder, UPGRADES, PICK_TIME, PICK_HOLD, TURN_BOOST, TURN_TIME } from "../web/apps/ricochet.js";
 import { appContext, fakeCanvas, run } from "./helpers/app-context.mjs";
 import { makeRig } from "./audit/harness.mjs";
 import { gestureWithUpdates } from "./audit/bots.mjs";
@@ -16,10 +16,11 @@ const fresh = (seed = 11) => { const ctx = appContext({ seed }); const app = new
 // `frames` (the ball's arrival), so a plan has to be robust to a frame or two.
 function simPad(app, frames, flipAt, tx) {
   const lo = G.L + app.padW / 2, hi = G.R - app.padW / 2, v0 = Ricochet.padSpeed(app.chamber) / 60;
-  let x = app.px, dir = app.dir, worst = 0;
+  let x = app.px, dir = app.dir, worst = 0, turn = app.turnT || 0;
   for (let f = 0; f < frames + 4; f++) {
-    if (f === flipAt) dir = -dir;
-    x += dir * v0;
+    if (f === flipAt) { dir = -dir; turn = TURN_TIME; }
+    x += dir * v0 * (1 + TURN_BOOST * Math.max(0, turn) / TURN_TIME);
+    turn = Math.max(0, turn - 1 / 60);
     if (x <= lo) { x = lo; dir = 1; } else if (x >= hi) { x = hi; dir = -1; }
     if (f >= frames - 4) worst = Math.max(worst, Math.abs(x - tx));
   }
@@ -125,7 +126,7 @@ test("at maximum speed the ball never tunnels through a cell, the paddle or a wa
     app.setupChamber(chamber);
     run(app, 1.4); // serve -> live
     assert.equal(app.sub, "live");
-    app.gain = 60;
+    app.gain = 100;
     app.chamber = 20; // beyond every cap: speed is MAX_SPEED
     for (let k = 0; k < 40; k++) {
       const a = (k / 40) * Math.PI * 2 + 0.05;
@@ -135,6 +136,7 @@ test("at maximum speed the ball never tunnels through a cell, the paddle or a wa
       // Bonuses are not under test here: a caught slow-ball bonus (a charge cell can break a bonus
       // cell next to it) would lower the speed below the maximum this test needs.
       app.drops.length = 0; app.pw.slow = 0; app.pw.wide = 0;
+      app.gain = 100; // above anything play reaches, so the speed sits at the cap
       const s = app.speedNow();
       assert.equal(s, G.MAX_SPEED);
       b.vx = s * Math.sin(a); b.vy = -s * Math.cos(a);
@@ -160,7 +162,7 @@ test("at maximum speed the ball never tunnels through a cell, the paddle or a wa
         assert.ok(Math.hypot(b.vx, b.vy) <= G.MAX_SPEED + 1e-6);
       }
       app.balls = app.balls.length ? app.balls : [];
-      if (app.sub !== "live") { app.setupChamber(chamber); run(app, 1.4); app.gain = 60; app.chamber = 20; }
+      if (app.sub !== "live") { app.setupChamber(chamber); run(app, 1.4); app.gain = 100; app.chamber = 20; }
     }
   }
 });
@@ -171,6 +173,8 @@ test("a ball hitting the paddle at full speed always comes back up", () => {
   run(app, 1.4);
   app.chamber = 20; app.gain = 60;
   app.cells.fill(0); app.cells[0] = { hp: 1, hard: false, bonus: "" }; app.remaining = 1;
+  // The paddle stands still (its glide inside a frame would otherwise move it before the bounce).
+  app.padSpeedNow = () => 0;
   let caught = 0;
   for (let k = 0; k < 30; k++) {
     const b = app.balls[0];

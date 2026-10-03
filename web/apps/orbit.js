@@ -1,6 +1,6 @@
 import { TAU, clamp, wrapAngle } from "../engine/math.js";
 import { C, text, line, circle, space, banner } from "../engine/draw.js";
-import { LAMP, lamps, fill, only, dim, blend, pulse } from "../engine/lightshow.js";
+import { LAMP, lamps, fill, only, dim, blend, pulse, ramp, blink } from "../engine/lightshow.js";
 import { GestureGuard, LampBus, lampMax, announce, drawNote } from "./game-kit.js";
 import { num, hashText, dateKey, cleanFeats, newlyMet, todayOrder, reportFeats, panel } from "./goals.js";
 
@@ -199,7 +199,7 @@ export class OrbitLock {
         this.feedback += " / SHIELD SPENT";
         this.flash = 0.3; this.miss = early ? "early" : "late";
         this.c.tone(240, 0.12, "triangle");
-        this.lamps.flash(0.35, () => fill(LAMP.cyan, 0.6));
+        this.lamps.flash(0.35, () => fill(LAMP.cyan, 0.6, this.lampN()));
         this.checkFeats();
         return;
       }
@@ -240,9 +240,10 @@ export class OrbitLock {
     this.c.tone(hz, 0.13);
     if (perfect) this.c.tone(hz * 1.5, 0.1, "triangle");
     this.flash = 0.18; this.miss = null; this.idle = 0;
-    if (p % 5 === 0) this.lamps.flash(0.4, () => fill(LAMP.white, 0.7));
-    else if (perfect) this.lamps.flash(0.18, (e, T, a) => lampMax(a, fill(LAMP.white, 0.5 * (1 - e / T) + 0.2)));
-    else this.lamps.flash(0.15, (e, T, a) => lampMax(a, fill(LAMP.green, 0.55)));
+    const n = this.lampN();
+    if (p % 5 === 0) this.lamps.flash(0.4, () => fill(LAMP.white, 0.7, n));
+    else if (perfect) this.lamps.flash(0.18, (e, T, a) => lampMax(a, fill(LAMP.white, 0.5 * (1 - e / T) + 0.2, n)));
+    else this.lamps.flash(0.15, (e, T, a) => lampMax(a, fill(LAMP.green, 0.55, n)));
     this.checkOrder(news);
     this.checkFeats(news);
     // The announcement line holds about 60 characters at its size; the most important news comes first.
@@ -255,7 +256,8 @@ export class OrbitLock {
     this.clock = Math.max(0, this.clock - RUSH_MISS);
     this.chain = 0; this.R.hurt = 1;
     this.flash = 0.3; this.miss = kind; this.shake = 0.25;
-    this.lamps.flash(0.3, () => (kind === "early" ? only(0, LAMP.red, 0.8) : only(2, LAMP.red, 0.8)));
+    const n = this.lampN();
+    this.lamps.flash(0.3, () => (kind === "early" ? only(0, LAMP.red, 0.8, n) : only(2, LAMP.red, 0.8, n)));
   }
   loseHull(kind) {
     this.shake = 0.3;
@@ -263,7 +265,8 @@ export class OrbitLock {
     this.R.hurt = 1;
     this.chain = 0;
     this.flash = 0.3; this.miss = kind;
-    this.lamps.flash(0.3, () => (kind === "early" ? only(0, LAMP.red, 0.8) : kind === "late" ? only(2, LAMP.red, 0.8) : fill(LAMP.red, 0.6)));
+    const n = this.lampN();
+    this.lamps.flash(0.3, () => (kind === "early" ? only(0, LAMP.red, 0.8, n) : kind === "late" ? only(2, LAMP.red, 0.8, n) : fill(LAMP.red, 0.6, n)));
     if (!this.lives) this.finish();
   }
   // Has today's order been met during this run?
@@ -302,7 +305,8 @@ export class OrbitLock {
     if (this.mode === "standard") sv.milestone = Math.max(sv.milestone, last.milestone);
     this.guard.end(this.mode === "standard" ? [this.points] : [], JSON.parse(JSON.stringify(sv)));
     this.ended.report = { feats: this.fresh.slice(), daily: this.orderMet };
-    this.lamps.flash(0.6, (e, T) => fill(LAMP.red, 0.6 * (1 - e / T)));
+    const n = this.lampN();
+    this.lamps.flash(0.6, (e, T) => fill(LAMP.red, 0.6 * (1 - e / T), n));
   }
   up() {
     this.guard.release();
@@ -329,16 +333,30 @@ export class OrbitLock {
     this.c.saveProgress?.(JSON.parse(JSON.stringify(this.sv)))?.catch?.(this.c.error);
     report(this.c, { feats: this.fresh, daily: this.orderMet });
   }
-  // Left lamp: amber ramp as the satellite nears the gate, bright while it is inside (white at its
-  // centre once the gates go dark, where it is the only guide); middle: hull (green, amber, red), with a
-  // slow cyan breath while a shield is charged; right: progress through the sector in cyan.
+  // Lamp I: amber ramp as the satellite nears the gate, bright while it is inside (white at its
+  // centre once the gates go dark, where it is the only guide); II: hull (green, amber, red);
+  // III: progress through the sector in cyan. On a four-lamp node lamp IV is the shield: it fills
+  // in cyan with each perfect lock of the chain and breathes once the shield is charged; in a rush
+  // it is the clock instead, green to red, blinking in the last ten seconds. With three lamps the
+  // charged shield shows as a cyan breath on the hull lamp, as it always did.
+  lampN() { return this.c.lampCount?.() === 4 ? 4 : 3; }
+  shieldLamp() {
+    if (this.mode === "rush") {
+      const k = this.clock / RUSH_TIME;
+      return dim(ramp(1 - k, [LAMP.green, LAMP.amber, LAMP.red]), this.clock < 10 ? 0.15 + 0.4 * blink(this.t, 2) : 0.3);
+    }
+    if (this.shield) return dim(LAMP.cyan, 0.35 + 0.35 * pulse(this.t, 0.7));
+    return dim(LAMP.cyan, [0, 0.06, 0.12, 0.2][this.chain % SHIELD_CHAIN]);
+  }
   lampValues() {
+    const four = this.lampN() === 4;
     const p = this.points, off = Math.abs(wrapAngle(this.angle - this.target)), inside = off < orbitWindow(p);
     const rate = Math.max(0.5, orbitSpeed(p) - this.drift * this.dir);
     const near = clamp(1 - this.ahead() / rate / 1.2, 0, 1);
     const left = this.dark && off < orbitPerfect(p) ? dim(LAMP.white, 0.9) : dim(LAMP.amber, inside ? 0.9 : 0.33 * near);
-    const hull = this.shield ? blend(HULL_COLOR[this.lives], LAMP.cyan, 0.3 + 0.6 * pulse(this.t, 0.7)) : HULL_COLOR[this.lives];
-    return lamps(left, dim(hull, 0.25), dim(LAMP.cyan, [0, 0.1, 0.17, 0.25, 0.33][p % 5]));
+    const hull = this.shield && (!four || this.mode === "rush") ? blend(HULL_COLOR[this.lives], LAMP.cyan, 0.3 + 0.6 * pulse(this.t, 0.7)) : HULL_COLOR[this.lives];
+    const sector = dim(LAMP.cyan, [0, 0.1, 0.17, 0.25, 0.33][p % 5]);
+    return four ? lamps(left, dim(hull, 0.25), sector, this.shieldLamp()) : lamps(left, dim(hull, 0.25), sector);
   }
   update(dt) {
     this.t += dt;

@@ -42,8 +42,12 @@ const FREE_BALLS = 2; // chamber 1 is practice: a newcomer learns the paddle bef
 const DROP_SPEED = 130;
 const SCALE = [262, 294, 330, 392, 440, 494, 523];
 
-const baseSpeed = (ch) => Math.min(500, 340 + 20 * (ch - 1));
-const padSpeed = (ch) => Math.min(420, 320 + 10 * (ch - 1));
+const baseSpeed = (ch) => Math.min(480, 320 + 18 * (ch - 1));
+// The paddle glides faster than it first did (Sam's playtest: turning felt slow), and for a moment
+// after each tap it moves faster still (TURN_BOOST, fading over TURN_TIME), so a reversal gets back
+// to the ball quickly without making the glide itself twitchy.
+const padSpeed = (ch) => Math.min(500, 390 + 12 * (ch - 1));
+export const TURN_BOOST = 0.6, TURN_TIME = 0.22;
 const PAD_WIDTHS = [168, 156, 144, 132, 120, 110, 100, 92, 84];
 const padWidth = (ch) => PAD_WIDTHS[Math.min(PAD_WIDTHS.length - 1, ch - 1)];
 // Rows of cells per chamber. Kept low so a chamber takes a minute or two, not five: later chambers get
@@ -135,6 +139,9 @@ const emptyBall = () => ({ x: 0, y: 0, vx: 0, vy: 0, pred: null, predN: 0, predC
   tx: [0, 0, 0], ty: [0, 0, 0] });
 
 export class Ricochet {
+  // A tap, tap, hold was just rewound (see cancel). Private, so neither the rewind's snapshot nor a
+  // test's picture of the game sees it: it is about the menu, not the game.
+  #rewound = false;
   constructor(ctx) {
     this.ctx = ctx;
     this.guard = new AppGuard(this, ctx); // takes back a menu gesture that reached the game (docs/ENGINE.md)
@@ -170,6 +177,7 @@ export class Ricochet {
     this.timer = 1.2;
     this.px = (L + R) / 2;
     this.dir = 1;
+    this.turnT = 0;
     this.padW = padWidth(1);
     this.pressing = false;
     this.heldTime = 0;
@@ -317,6 +325,7 @@ export class Ricochet {
 
   down() {
     this.guard.mark();
+    this.#rewound = false;
     if (this.phase === "title") return this.begin();
     if (this.phase === "over") {
       if (this.t - this.endedAt > 0.8) this.begin();
@@ -330,6 +339,7 @@ export class Ricochet {
     if (this.sub === "pick") return; // decided on release
     this.dirBefore = this.dir;
     this.dir = -this.dir;
+    this.turnT = TURN_TIME;
     this.ctx.tone(520, 0.025, "square");
   }
 
@@ -344,12 +354,14 @@ export class Ricochet {
   }
 
   cancel() {
-    this.guard.rewind();
-    // Menu or focus change: drop held input and go dark. If a ball was lost in the
-    // moment the gesture began (during or just before its last press), give it back.
+    // Menu or focus change. A tap, tap, hold is rewound to before its first press (AppGuard), so a
+    // ball its own taps lost is back and one lost before it began stays lost; the pause that follows
+    // calls cancel() again, and that must not give anything back either. A menu opened some other way
+    // (a key, a long hold) gives back a ball lost in the moment before it opened.
+    if (this.guard.rewind()) this.#rewound = true;
     this.pressing = false;
     this.heldTime = 0;
-    if (this.phase === "play" && this.sub === "dying" && this.lostAt >= this.downs[3] - 1.5) {
+    if (!this.#rewound && this.phase === "play" && this.sub === "dying" && this.lostAt >= this.downs[3] - 1.5) {
       if (this.lostFree) this.free++;
       else this.lives = Math.min(LIVES, this.lives + 1);
       this.lostFree = false;
@@ -358,7 +370,7 @@ export class Ricochet {
       this.setHint("Ball returned. Tap reverses the paddle.");
     }
     this.ctx.synth?.stopTone?.();
-    this.ctx.leds(lightsOff());
+    this.ctx.leds(lightsOff(this.lampCount()));
   }
   pause() { this.guard.settle(); this.cancel(); }
   dispose() {
@@ -367,7 +379,7 @@ export class Ricochet {
     if (this.phase === "play" && (this.orderMet || this.fresh.length)) this.persist();
     this.pressing = false;
     this.ctx.synth?.stopTone?.();
-    this.ctx.leds(lightsOff());
+    this.ctx.leds(lightsOff(this.lampCount()));
   }
 
   begin() {
@@ -616,7 +628,9 @@ export class Ricochet {
   movePaddle(dt) {
     const target = this.padTarget();
     this.padW += clamp(target - this.padW, -140 * dt, 140 * dt);
-    this.px += this.dir * this.padSpeedNow() * dt;
+    const boost = 1 + TURN_BOOST * Math.max(0, this.turnT || 0) / TURN_TIME;
+    this.turnT = Math.max(0, (this.turnT || 0) - dt);
+    this.px += this.dir * this.padSpeedNow() * boost * dt;
     const lo = L + this.padW / 2, hi = R - this.padW / 2;
     if (this.px <= lo) { this.px = lo; this.dir = 1; }
     else if (this.px >= hi) { this.px = hi; this.dir = -1; }
@@ -864,33 +878,34 @@ export class Ricochet {
 
   // ---- lamps -------------------------------------------------------------
 
-  // Live: a spot that follows the lowest ball across the chamber, coloured by how
-  // far it has dropped. Overlays, lowest priority first: cell sparkle over the
-  // third of the lattice, bonus catch, then the red wash and the clear chase.
+  // Live: a spot that follows the lowest ball across the chamber on lamps I to III, coloured by how
+  // far it has dropped. Overlays, lowest priority first: cell sparkle over the third of the lattice,
+  // bonus catch, then the red wash and the clear chase. On a four-lamp node lamp IV is the REACH
+  // lamp (reachLamp): it says whether the paddle, left alone, will be under the next ball.
+  lampCount() { return this.ctx.lampCount?.() === 4 ? 4 : 3; }
   lampValues() {
-    const t = this.t;
-    if (this.phase === "title") return spot(0.5 + 0.5 * Math.sin(t * 0.7), dim(LAMP.green, 0.14));
+    const t = this.t, n = this.lampCount();
+    if (this.phase === "title") return spot(0.5 + 0.5 * Math.sin(t * 0.7), dim(LAMP.green, 0.14), 0.75, n);
     if (this.phase === "over") {
       const k = 0.02 + 0.07 * pulse(t, 0.4);
-      return lamps(dim(LAMP.red, k), dim(LAMP.red, k), dim(LAMP.red, k));
+      return lamps(...Array(n).fill(dim(LAMP.red, k)));
     }
     if (this.sub === "dying") {
       const age = (this.clock - this.lostAt) / 1.2;
       const k = clamp(1 - age, 0, 1) * (0.25 + 0.3 * pulse(t, 3));
-      const c = dim(LAMP.red, k);
-      return lamps(c, c, c);
+      return lamps(...Array(n).fill(dim(LAMP.red, k)));
     }
     if (this.sub === "pick") {
-      // Lamp I for the left card, lamp III for the right: the choice can be read on the lamps alone.
-      const k = 0.35 + 0.2 * pulse(t, 1.2);
-      return this.offer.cur ? lamps(dim(LAMP.cyan, 0.06), null, dim(LAMP.cyan, k)) : lamps(dim(LAMP.cyan, k), null, dim(LAMP.cyan, 0.06));
+      // The first lamp for the left card, the last for the right: the choice can be read on the lamps alone.
+      const k = 0.35 + 0.2 * pulse(t, 1.2), out = Array(n).fill(null);
+      out[0] = dim(LAMP.cyan, this.offer.cur ? 0.06 : k); out[n - 1] = dim(LAMP.cyan, this.offer.cur ? k : 0.06);
+      return lamps(...out);
     }
     if (this.sub === "clear") {
       const age = t - this.clearedAt;
-      const on = chase(age, 7, false);
+      const on = chase(age, 7, false, n);
       const hue = [LAMP.green, LAMP.cyan, LAMP.white][Math.floor(age * 3.5) % 3];
-      const out = [0, 1, 2].map((i) => dim(hue, i === on ? 0.45 : 0.06));
-      return lamps(out[0], out[1], out[2]);
+      return lamps(...Array.from({ length: n }, (_, i) => dim(hue, i === on ? 0.45 : 0.06)));
     }
     let pos, rgb;
     if (this.sub === "serve" || !this.balls.length) {
@@ -913,7 +928,35 @@ export class Ricochet {
     // A charge going off: a red burst strongest over its third of the lattice, fading in 0.4 s.
     const blast = t - this.blastAt;
     if (blast < 0.4) for (let i = 0; i < 3; i++) over(i, dim(blast < 0.08 ? LAMP.white : LAMP.red, (i === this.blastCol ? 0.7 : 0.35) * (1 - blast / 0.4)));
-    return out;
+    return n === 4 ? out.concat(this.reachLamp()) : out;
+  }
+  // Where the paddle will be in `secs` if nobody taps, gliding at `dir` and turning at the walls.
+  paddleAt(secs, dir) {
+    const lo = L + this.padW / 2, hi = R - this.padW / 2, span = hi - lo;
+    if (!(span > 0)) return lo;
+    // Unfold the walls into a loop of length 2 * span: going right is going forward from p, going
+    // left is going forward from the mirror point 2 * span - p. Fold the result back.
+    const p = clamp(this.px - lo, 0, span);
+    let u = (dir > 0 ? p : 2 * span - p) + this.padSpeedNow() * secs;
+    u %= 2 * span;
+    return lo + (u <= span ? u : 2 * span - u);
+  }
+  // Will the paddle meet ball b if it keeps going `dir`?
+  meets(b, dir) {
+    return Math.abs(this.paddleAt(this.eta(b), dir) - clamp(b.pred, L + this.padW / 2, R - this.padW / 2)) <= this.padW / 2 + BALL_R * 0.5;
+  }
+  // Lamp IV, the REACH lamp: green while the paddle, left alone, will be under the next ball; red
+  // when a tap now would get it there and leaving it would not; amber when neither would. Dim while
+  // the ball climbs, brighter as it comes down; dark with no ball in play.
+  reachLamp() {
+    if (this.sub !== "live" || !this.balls.length) return LAMP.off;
+    let next = null;
+    for (const b of this.balls) if (b.pred !== null && (!next || this.eta(b) < this.eta(next))) next = b;
+    if (!next) return LAMP.off;
+    const eta = this.eta(next), k = clamp(1 - eta / 2.5, 0.12, 1) * 0.6;
+    if (this.meets(next, this.dir)) return dim(LAMP.green, k);
+    if (this.meets(next, -this.dir)) return dim(LAMP.red, k * (0.7 + 0.3 * pulse(this.t, 4)));
+    return dim(LAMP.amber, k * 0.6);
   }
 
   lampOutput() {

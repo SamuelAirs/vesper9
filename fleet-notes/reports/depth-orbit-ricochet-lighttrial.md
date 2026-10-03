@@ -88,3 +88,28 @@ Shared pieces live in a new `web/apps/goals.js` (only these three games import i
 - Verification: on this branch JS 862 pass, 1 fail (Perihelion bot, as on main), Python OK, catalog
   check, demo build and all four browser suites pass. Merged with #16 in a scratch tree: JS 880 pass,
   same 1 fail; the three titles screenshotted with no page errors. Not verified on the device.
+
+## Round 5 (Sam's playtest of 2026-10-02 and the four-lamp node)
+- Branch now carries PR #16's branch (merged in, for its four-lamp helpers and `ctx.lampCount()`).
+- Ricochet (Sam: fun but hard; turning should be faster): the paddle glides at 390 px/s rising to 500
+  (was 320 to 420), and for 0.22 s after each tap it moves up to 1.6x faster, so a reversal gets back
+  quickly. The ball starts slower (320 px/s, +18 per chamber, cap 480; was 340, +20, cap 500). Bots
+  with 250 to 370 ms reactions reach chamber 4.8 on average (was 3.8 to 4.5); a near-perfect bot does
+  a little worse than before, because the faster paddle asks for finer timing.
+- Ricochet menu fix: after a rewound tap, tap, hold, the pause's second cancel() no longer gives back
+  a ball that was lost before the gesture began (found by the gesture tolerance test once play changed).
+- Four lamps (only when `ctx.lampCount()` is 4; three-lamp frames are unchanged):
+  - Orbit Lock: lamp IV is the shield, filling in cyan with each perfect lock of the chain and
+    breathing once charged; in a rush it is the clock, green to red, blinking in the last 10 s.
+  - Ricochet: lamp IV is the REACH lamp: green when the paddle, left alone, will be under the next
+    ball (walls counted), red when a tap now would get it there, amber when neither would. The
+    upgrade pick uses lamps I and IV.
+  - Light Trial: the cue stays on lamp II (the service arms the node with lamp index 1). Lamp IV and a
+    fourth disc compare each trial with the mark to beat (best series, else this series): green
+    faster, amber within 10 %, red slower. The series chase runs across all four. Prompts say LIGHT II.
+- Tests: `tests/lamps4-games.test.mjs` (8). Two Ricochet tests adjusted to the new speeds (the
+  still-paddle test now really holds it still; the max-speed test pins the gain above play's cap).
+- Verification: JS 893 pass, 1 fail (Perihelion bot, as on main); Python OK; catalog check, demo
+  build and all four browser suites pass. Screenshots of four-disc Light Trial and Ricochet looked at
+  (the simulator reports three lamps, so lamp IV was checked by tests, not by eye). Not verified on
+  the device.

@@ -32,18 +32,18 @@ test("F1a Orbit Lock: opening the menu with tap, tap, hold must not end the run"
   assert.equal(g.lives, 3, "the gesture's taps cost lives");
 });
 
-test("F1b Glyph Archive: opening the menu with tap, tap, hold must not end the run", () => {
-  const c = makeCtx(5, { settings: { scanMs: 1e9 } }), g = new GlyphVault(c), rig = makeRig(g, c);
-  g.down();
-  step(g, 4);                             // inscription hidden, cursor frozen on glyph 0
-  g.sequence = [4, 4, 4]; g.focus = 0;
-  g.round = 6; g.points = 900;
+test("F1b Glyph Archive: opening the menu with tap, tap, hold must not end the session", () => {
+  const c = makeCtx(5), g = new GlyphVault(c), rig = makeRig(g, c);
+  g.down(); g.up({ durationMs: 50 });
+  while (g.phase === "intro") { g.down(); g.up({ durationMs: 50 }); }
+  g.run.cards = 6; g.run.points = 900; g.seals = 1;     // one wrong answer from the end
+  const card = structuredClone(g.card);
   rig.gesture();
   assert.equal(rig.menuOpen, 1);
-  assert.deepEqual(c.log.scores.map((x) => x.n), [900], "run was ended and its score recorded by the gesture");
-  assert.equal(c.log.saves.length, 0, "a run was recorded as finished");
-  assert.equal(g.round, 6, "the run in progress was replaced by a fresh one");
-  assert.equal(g.lives, 3, "the gesture's taps cost attempts");
+  assert.deepEqual(c.log.scores.map((x) => x.n), [900], "the session was ended and its score recorded by the gesture");
+  assert.equal(c.log.saves.length, 0, "a session was recorded as finished");
+  assert.equal(g.phase, "play"); assert.equal(g.seals, 1, "the gesture's presses cost a seal");
+  assert.equal(g.run.cards, 6); assert.deepEqual(g.card, card);
 });
 
 // ---------------------------------------------------------------------------
@@ -78,10 +78,14 @@ function killUndertow(c) {
   const g = new Undertow(c); g.down(); g.up(); g.hull = 1; g.y = 10; g.update(DT); return g;
 }
 function killGlyph(c) {
-  const g = new GlyphVault(c); g.down(); step(g, 4); g.lives = 1; g.sequence = [0, 0, 0]; g.focus = 3; g.down(); return g;
+  const g = new GlyphVault(c); g.down(); g.up({ durationMs: 50 });
+  while (g.phase === "intro") { g.down(); g.up({ durationMs: 50 }); }
+  g.seals = 1; g.card.truth = false; g.down(); g.up({ durationMs: 50 }); return g;
 }
 function killEcho(c) {
-  const g = new EchoVault(c); g.down(); step(g, 2.5); g.down(); g.up({ durationMs: 500 }); return g;
+  const g = new EchoVault(c); g.down(); g.up({ durationMs: 50 });
+  while (g.phase === "intro") { g.down(); g.up({ durationMs: 50 }); }
+  g.shields = 1; g.left = 0.01; g.update(DT); return g;
 }
 for (const [name, kill] of [["Orbit Lock", killOrbit], ["Moonrunner", killRunner], ["Undertow", killUndertow],
   ["Glyph Archive", killGlyph], ["Echo Vault", killEcho]]) {
@@ -101,7 +105,8 @@ for (const [name, build] of [
   ["Orbit Lock", (c) => { const g = new OrbitLock(c); g.down(); g.points = 30; return g; }],
   ["Moonrunner", (c) => { const g = new Moonrunner(c); g.down(); g.up(); g.distance = 1500; return g; }],
   ["Undertow", (c) => { const g = new Undertow(c); g.down(); g.up(); g.points = 30; return g; }],
-  ["Glyph Archive", (c) => { const g = new GlyphVault(c); g.down(); g.round = 9; g.points = 1500; return g; }],
+  ["Glyph Archive", (c) => { const g = new GlyphVault(c); g.down(); g.up({ durationMs: 50 }); g.run.points = 1500; return g; }],
+  ["Echo Vault", (c) => { const g = new EchoVault(c); g.down(); g.up({ durationMs: 50 }); g.run.points = 400; return g; }],
 ]) {
   test(`F4 ${name}: score earned so far is submitted when the player leaves mid-run`, () => {
     const c = makeCtx(3), g = build(c);
@@ -138,45 +143,23 @@ test("F6 Orbit Lock: pressing 4 rad before the gate says EARLY", () => {
 });
 
 // ---------------------------------------------------------------------------
-// F7: Echo Vault REPLAY can re-score a finished sequence and can revive a run
-// that has already ended and been recorded.
-test("F7a Echo Vault: REPLAY is not offered during the between-rounds pause", () => {
-  const c = makeCtx(7), g = new EchoVault(c);
-  g.down(); step(g, 2.5);
-  g.down(); g.up({ durationMs: 100 }); g.down(); g.up({ durationMs: 500 });
-  assert.equal(g.round, 1);
-  assert.equal(g.phase, "between");
-  assert.deepEqual(g.menuActions(), [], "REPLAY would let the same signal be credited again");
-  // The same signal entered again after the pause is a new, longer one, not a second credit.
-  step(g, 4);
-  assert.equal(g.sequence.length, 3);
-});
-
-test("F7b Echo Vault: REPLAY is not offered after ECHO DIVERGED, so an ended run cannot be revived", () => {
+// F7: Echo Vault's replay could re-score a finished sequence and revive a run that had ended. Now the
+// menu offers the signal again only while an echo transmission is being heard or keyed.
+test("F7 Echo Vault: PLAY THE SIGNAL AGAIN only during an echo transmission, never after the run ends", () => {
   const c = makeCtx(8), g = new EchoVault(c);
-  g.down(); step(g, 2.5);
-  g.down(); g.up({ durationMs: 500 });   // wrong first pulse
-  assert.equal(g.phase, "over");
-  assert.deepEqual(g.menuActions(), []);
-  step(g, 4);
-  assert.equal(g.phase, "over");
-  assert.equal(g.round, 0);
-});
-
-test("F7c Echo Vault: REPLAY still works while receiving and entering a signal", () => {
-  const c = makeCtx(8), g = new EchoVault(c);
-  g.down(); step(g, 1);
-  assert.equal(g.phase, "show");
-  assert.equal(g.menuActions().length, 1);
-  step(g, 2);
-  assert.equal(g.phase, "listen");
-  g.down(); g.up({ durationMs: 100 });
+  g.down(); g.up({ durationMs: 50 });
+  while (g.phase === "intro") { g.down(); g.up({ durationMs: 50 }); }
+  g.queue = []; g.kind = "plain";
+  assert.deepEqual(g.menuActions(), [], "a plain transmission is on screen");
+  g.queue = ["TEA"]; g.run.words = 6; g.nextWord();
+  assert.equal(g.kind, "echo"); assert.equal(g.menuActions().length, 1);
+  step(g, 8); assert.equal(g.stage, "send");
+  const left = g.left;
   g.menuActions()[0].run();
-  assert.equal(g.phase, "show");
-  assert.equal(g.entered.length, 0);
-  step(g, 3);
-  g.down(); g.up({ durationMs: 100 }); g.down(); g.up({ durationMs: 500 });
-  assert.equal(g.round, 1);
+  assert.equal(g.stage, "listen"); assert.ok(g.left < left, "hearing it again costs time");
+  g.shields = 1; g.stage = "send"; g.left = 0.01; g.update(DT);
+  assert.equal(g.phase, "over");
+  assert.deepEqual(g.menuActions(), [], "an ended run cannot be revived");
 });
 
 // ---------------------------------------------------------------------------

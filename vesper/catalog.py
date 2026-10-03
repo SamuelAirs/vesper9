@@ -45,9 +45,13 @@ SECTOR_PAGE_SIZE = 6
 
 
 def validate_sectors(sectors, app_ids):
-    """Sectors are named groups of app ids, in order: [{"name": "PLAY", "apps": ["orbit", ...]}, ...].
-    An app in no sector is not on the dashboard (it stays launchable by id and by voice). The older
-    form, a list of names with the apps taken six at a time in catalog order, is still accepted."""
+    """Sectors are named groups of app ids, in order: [{"name": "PLAY", "apps": ["orbit", ...]}, ...],
+    each with an optional one-line "tagline" shown under the sector's name on the dashboard. An app in
+    no sector is not on the dashboard (it stays launchable by id and by voice). A sector may name an
+    app the catalog does not carry yet (a cartridge still on its way in): it is left out of the loaded
+    sectors, and a sector left empty is dropped, so a new cartridge's slot is settled here once and its
+    own change only adds the cartridge. The older form, a list of names with the apps taken six at a
+    time in catalog order, is still accepted."""
     if isinstance(sectors, list) and sectors and all(isinstance(name, str) and name for name in sectors):
         sectors = [{'name': name, 'apps': app_ids[i * SECTOR_PAGE_SIZE:(i + 1) * SECTOR_PAGE_SIZE]} for i, name in enumerate(sectors)]
         sectors = [sector for sector in sectors if sector['apps']]
@@ -55,8 +59,10 @@ def validate_sectors(sectors, app_ids):
         raise ValueError('Invalid sectors')
     seen, names = set(), set()
     for sector in sectors:
-        if not isinstance(sector, dict) or set(sector) != {'name', 'apps'}:
+        if not isinstance(sector, dict) or not {'name', 'apps'} <= set(sector) <= {'name', 'apps', 'tagline'}:
             raise ValueError('Invalid sector')
+        if not isinstance(sector.get('tagline', 'x'), str) or not sector.get('tagline', 'x'):
+            raise ValueError(f'Invalid sector tagline: {sector.get("name")!r}')
         name, apps = sector['name'], sector['apps']
         if not isinstance(name, str) or not name or name in names:
             raise ValueError(f'Invalid or duplicate sector name: {name!r}')
@@ -64,12 +70,17 @@ def validate_sectors(sectors, app_ids):
         if not isinstance(apps, list) or not 1 <= len(apps) <= SECTOR_PAGE_SIZE:
             raise ValueError(f'Sector {name} must list 1 to {SECTOR_PAGE_SIZE} apps')
         for ident in apps:
-            if not isinstance(ident, str) or ident not in app_ids:
-                raise ValueError(f'Sector {name} lists an unknown app: {ident!r}')
+            if not isinstance(ident, str) or not re.fullmatch(r'[a-z][a-z0-9_-]{0,31}', ident):
+                raise ValueError(f'Sector {name} lists an invalid app id: {ident!r}')
             if ident in seen:
                 raise ValueError(f'App listed in two sectors: {ident}')
             seen.add(ident)
-    return sectors
+    known = set(app_ids)
+    loaded = [{**sector, 'apps': [i for i in sector['apps'] if i in known]} for sector in sectors]
+    loaded = [sector for sector in loaded if sector['apps']]
+    if not loaded:
+        raise ValueError('No sector lists a known app')
+    return loaded
 
 
 CATALOG = load_catalog()
@@ -87,6 +98,11 @@ def validate_setting(key, value):
         valid = type(value) is int and value in (600, 850, 1200, 1600)
     elif key == 'gesturePace':
         valid = value in ('quick', 'standard', 'relaxed')
+    elif key == 'renderQuality':
+        valid = value in ('auto', 'sharp', 'fast')
+    elif key == 'latencyMs':
+        # Input timing offset from the tap-along calibration: positive when taps register late.
+        valid = type(value) is int and -150 <= value <= 300
     elif key == 'tempUnit':
         valid = value in ('C', 'F')
     elif key == 'tempOffset':

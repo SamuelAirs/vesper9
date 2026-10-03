@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { OrbitLock, orbitWindow, orbitSpeed } from "../web/apps/orbit.js";
 import { Moonrunner, runnerObstacle, runnerSpeed } from "../web/apps/runner.js";
 import { Undertow, nextGate } from "../web/apps/undertow.js";
-import { EchoVault, echoHeard } from "../web/apps/echo.js";
+import { EchoVault } from "../web/apps/echo.js";
 import { LightTrial, reactionGrade } from "../web/apps/reaction.js";
 import { GlyphVault } from "../web/apps/glyphs.js";
 import { LampBus } from "../web/apps/game-kit.js";
@@ -71,9 +71,13 @@ const plays = {
     return g;
   },
   "Echo Vault": (c) => {
-    const g = new EchoVault(c); g.down(); step(g, 2.4);
-    g.down(); step(g, 0.1); g.up({ durationMs: 100 });
-    g.down(); step(g, 0.5); g.up({ durationMs: 500 });
+    const g = new EchoVault(c); g.down(); g.up({ durationMs: 60 }); step(g, 0.3);
+    g.down(); g.up({ durationMs: 60 });            // past the first new letter, still playing on the lamps
+    while (g.phase === "intro") { g.down(); g.up({ durationMs: 60 }); }
+    step(g, 0.5);
+    g.down(); step(g, 0.1); g.up({ durationMs: 100 });   // E
+    step(g, 0.4);
+    g.down(); step(g, 0.3); g.up({ durationMs: 300 });   // a dash where E's dot belongs: a miss
     step(g, 0.3);
     return g;
   },
@@ -85,10 +89,12 @@ const plays = {
     return g;
   },
   "Glyph Archive": (c) => {
-    const g = new GlyphVault(c); g.down(); step(g, 1);
-    step(g, 4);
-    g.focus = g.sequence[0]; g.down();
-    step(g, 0.3);
+    const g = new GlyphVault(c); g.down(); g.up({ durationMs: 60 }); step(g, 0.5);
+    while (g.phase === "intro") { g.down(); g.up({ durationMs: 60 }); }
+    step(g, 1);
+    g.down(); step(g, 0.05); g.up({ durationMs: 50 });
+    step(g, 1.5);
+    g.down(); step(g, 0.2);
     return g;
   },
   "Signal School": (c) => {
@@ -133,8 +139,8 @@ for (const [name, kill, over] of [
   ["Orbit Lock", (c) => { const g = new OrbitLock(c); g.down(); g.lives = 1; g.angle = 0; g.target = 3; g.down(); return g; }],
   ["Moonrunner", (c) => { const g = new Moonrunner(c); g.down(); g.up(); g.shield = 0; g.obstacles = [{ x: 198, w: 40, h: 70, passed: false }]; g.update(DT); return g; }],
   ["Undertow", (c) => { const g = new Undertow(c); g.down(); g.up(); g.hull = 1; g.y = 10; g.update(DT); return g; }],
-  ["Echo Vault", (c) => { const g = new EchoVault(c); g.down(); step(g, 2.4); g.down(); g.up({ durationMs: 900 }); return g; }],
-  ["Glyph Archive", (c) => { const g = new GlyphVault(c); g.down(); step(g, 4); g.lives = 1; g.sequence = [0, 0, 0]; g.focus = 3; g.down(); return g; }],
+  ["Echo Vault", (c) => { const g = new EchoVault(c); g.down(); g.up({ durationMs: 60 }); while (g.phase === "intro") { g.down(); g.up({ durationMs: 60 }); } g.shields = 1; g.left = 0.01; g.update(DT); return g; }],
+  ["Glyph Archive", (c) => { const g = new GlyphVault(c); g.down(); g.up({ durationMs: 60 }); while (g.phase === "intro") { g.down(); g.up({ durationMs: 60 }); } g.seals = 1; g.card.truth = false; g.down(); g.up({ durationMs: 50 }); return g; }],
 ]) {
   test(`lamps ${name}: flash on death, dark on the result screen`, () => {
     const c = lit(6), g = kill(c);
@@ -341,116 +347,7 @@ test("Undertow lamps: the craft is a cyan spot at its depth; near the surface th
   assert.ok(reds.size >= 2, "the warning does not pulse");
 });
 
-// -------------------------------------------------------------------------------- Echo Vault mechanics
-test("Echo Vault: a near-miss is forgiven while a wobble is in hand, a clear mistake is not", () => {
-  assert.deepEqual(echoHeard(100, 0, 3), { side: 0, ok: true, wobble: false });
-  assert.deepEqual(echoHeard(400, 0, 3), { side: 1, ok: true, wobble: true });
-  assert.deepEqual(echoHeard(300, 1, 3), { side: 0, ok: true, wobble: true });
-  assert.equal(echoHeard(400, 0, 0).ok, false, "no wobble left");
-  assert.equal(echoHeard(520, 0, 3).ok, false, "a clearly long hold for a short pulse");
-  assert.equal(echoHeard(200, 1, 3).ok, false, "a clearly short hold for a long pulse");
-});
-test("Echo Vault: a repeated 330 ms hold runs out of wobbles and ends the run", () => {
-  const c = lit(21), g = new EchoVault(c); g.down();
-  for (let n = 0; n < 40 && g.phase !== "over"; n++) {
-    step(g, 0.1);
-    while (g.phase === "show" || g.phase === "between") step(g, 0.1);
-    for (let i = 0; i < g.sequence.length && g.phase === "listen"; i++) { g.down(); g.up({ durationMs: 330 }); }
-  }
-  assert.equal(g.phase, "over");
-  assert.ok(g.round <= 5, "a fixed hold scored " + g.round);
-});
-test("Echo Vault: the hold gauge fills the lamps and turns cyan at 350 ms; the vault says what it heard", () => {
-  const c = lit(22), g = new EchoVault(c); g.down(); step(g, 3);
-  assert.equal(g.phase, "listen");
-  g.down(); step(g, 0.15);
-  assert.ok(sum(c.ledsNow, 0) > 0 && sum(c.ledsNow, 2) === 0, "only the first lamp at 150 ms");
-  assert.ok(c.ledsNow[0] > c.ledsNow[1], "amber while short");
-  step(g, 0.12);
-  assert.ok(sum(c.ledsNow, 1) > 0, "the second lamp joins");
-  step(g, 0.12);
-  assert.ok(sum(c.ledsNow, 2) > 0, "all three lamps are lit by 350 ms");
-  assert.ok(c.ledsNow[1] > c.ledsNow[0], "cyan, not amber, once long");
-  const tones = []; c.synth.startTone = (hz) => tones.push(hz);
-  step(g, 0.1);
-  g.up({ durationMs: 480 });
-  assert.equal(g.heard.side, 1);
-  const painted = []; g.draw(textRecorder(painted));
-  assert.ok(painted.some((s) => /HEARD LONG/.test(s)), painted.join("|"));
-});
-test("Echo Vault: the sidetone steps up at the long threshold", () => {
-  const c = lit(23), tones = []; c.synth.startTone = (hz) => tones.push(hz);
-  const g = new EchoVault(c); g.down(); step(g, 3);
-  g.down(); step(g, 0.3); assert.deepEqual(tones, [440]);
-  step(g, 0.1); assert.deepEqual(tones, [440, 660]);
-  step(g, 1); assert.deepEqual(tones, [440, 660], "stepped more than once");
-});
-test("Echo Vault: playback quickens from the third sequence and goes dark from the eighth", () => {
-  const g = new EchoVault(lit(24));
-  g.round = 2; const base = g.tempo(); g.round = 6;
-  assert.ok(g.tempo() < base);
-  g.round = 60; assert.equal(g.tempo(), 0.55);
-  g.round = 7; assert.equal(g.dark(), false); g.round = 8; assert.equal(g.dark(), true);
-  g.phase = "show"; const painted = []; g.draw(textRecorder(painted));
-  assert.ok(painted.some((s) => /DARK VAULT/.test(s)));
-});
-test("Echo Vault lamps: a short is one amber lamp, a long is three cyan lamps, a mismatch blinks the wanted colour", () => {
-  const c = lit(25), g = new EchoVault(c); g.down();
-  let sawShort = false, sawLong = false;
-  for (let i = 0; i < 60 * 3; i++) {
-    g.update(DT);
-    const v = c.ledsNow;
-    if (g.lit && !g.sequence[g.active] && sum(v, 1) > 0 && sum(v, 0) === 0 && sum(v, 2) === 0) sawShort = v[3] > v[5];
-    if (g.lit && g.sequence[g.active] && sum(v, 0) > 0 && sum(v, 2) > 0) sawLong = v[1] > v[0];
-  }
-  assert.ok(sawShort, "no amber middle lamp for a short");
-  assert.ok(sawLong, "no cyan bar for a long");
-  step(g, 1);
-  assert.equal(g.phase, "listen");
-  g.down(); g.up({ durationMs: 900 });          // wrong: the first pulse is short
-  assert.equal(g.phase, "over");
-  const frames = []; for (let i = 0; i < 40; i++) { g.update(DT); frames.push(c.ledsNow.slice()); }
-  const blinks = frames.filter((v, i) => !dark(v) && (i === 0 || dark(frames[i - 1]))).length;
-  assert.ok(blinks >= 2, "blinked " + blinks);
-  assert.ok(frames.find((v) => !dark(v))[0] > 0, "the expected short is amber (red channel on)");
-});
-
-// ------------------------------------------------------------------------------ Glyph Archive mechanics
-test("Glyph Archive: the cursor quickens, scrambles from the sixth inscription, and the sequence keeps growing", () => {
-  const g = new GlyphVault(lit(26)); g.down();
-  const s0 = g.scanSeconds(); g.round = 10; assert.ok(g.scanSeconds() < s0);
-  g.round = 100; assert.ok(Math.abs(g.scanSeconds() - 0.6 * 0.85) < 1e-9, "the floor is 60% of the chosen scan");
-  g.round = 4; g.next(); assert.deepEqual(g.order, [0, 1, 2, 3, 4, 5]);
-  g.round = 5; g.next(); assert.deepEqual([...g.order].sort(), [0, 1, 2, 3, 4, 5]); assert.notDeepEqual(g.order, [0, 1, 2, 3, 4, 5]);
-  g.round = 12; g.next(); assert.equal(g.sequence.length, 9);
-  g.round = 40; g.next(); assert.equal(g.sequence.length, 9);
-});
-test("Glyph Archive: the cursor visits every glyph once per pass in its order", () => {
-  const g = new GlyphVault(lit(27, { settings: { scanMs: 600 } })); g.down(); g.round = 6; g.next(); step(g, 6);
-  assert.equal(g.phase, "choose");
-  const seen = []; let last = -1;
-  for (let i = 0; i < 60 * 6; i++) { g.update(DT); if (g.focus !== last) { last = g.focus; seen.push(last); } }
-  assert.deepEqual([...new Set(seen.slice(0, 6))].sort(), [0, 1, 2, 3, 4, 5]);
-});
-test("Glyph Archive: faster cursors pay more, and an attempt is restored every fourth inscription", () => {
-  const pay = (round) => { const g = new GlyphVault(lit(28)); g.down(); g.round = round; g.next(); step(g, 6); g.sequence = [g.focus]; g.entered = []; const b = g.points; g.down(); return g.points - b; };
-  assert.ok(pay(8) > 100 + 8 * 20, "a quickened cursor did not pay a bonus");
-  const g = new GlyphVault(lit(29)); g.down(); g.next(); step(g, 6); g.round = 3; g.lives = 1; g.sequence = [g.focus]; g.entered = []; g.down();
-  assert.equal(g.round, 4); assert.equal(g.lives, 2);
-});
-test("Glyph Archive lamps: memorising fades out, choosing shows progress and a tick on the cursor's third", () => {
-  const c = lit(30), g = new GlyphVault(c); g.down();
-  g.update(DT); const early = c.ledsNow[0];
-  step(g, 2); assert.ok(c.ledsNow[0] < early, "the memorising light did not fade");
-  step(g, 3);
-  assert.equal(g.phase, "choose");
-  g.entered = []; g.sequence = [0, 1, 2, 3]; g.entered = [0, 1];
-  for (let i = 0; i < 90; i++) g.update(DT);
-  g.update(DT);
-  const frames = []; for (let i = 0; i < 120; i++) { g.update(DT); frames.push(c.ledsNow.slice()); }
-  assert.ok(frames.some((v) => v[0] > 0), "no progress on the left lamp");
-  assert.ok(distinct(frames) >= 2, "no cursor tick");
-});
+// Echo Vault and Glyph Archive mechanics are tested in tests/echo.test.mjs and tests/glyphs.test.mjs.
 
 // ----------------------------------------------------------------------------------------- Signal School
 test("Signal School: a letter must be answered correctly twice in a row before the lesson moves on", () => {
@@ -502,10 +399,16 @@ test("canvas text is at least 16 px everywhere in the games and Signal School", 
     () => new OrbitLock(c), () => { const g = new OrbitLock(c); g.down(); g.points = 12; step(g, 1); return g; },
     () => new Moonrunner(c), () => { const g = new Moonrunner(c); g.down(); g.up(); g.obstacles = [{ x: 400, w: 36, h: 112, name: "WALL", hold: true, passed: false }]; step(g, 0.5); return g; },
     () => new Undertow(c), () => { const g = new Undertow(c); g.down(); step(g, 1); return g; },
-    () => new EchoVault(c), () => { const g = new EchoVault(c); g.down(); step(g, 3); g.down(); g.up({ durationMs: 500 }); return g; },
+    () => new EchoVault(c), () => { const g = new EchoVault(c); g.down(); g.up({ durationMs: 60 }); return g; },
+    () => { const g = new EchoVault(c); g.down(); g.up({ durationMs: 60 }); while (g.phase === "intro") { g.down(); g.up({ durationMs: 60 }); } g.down(); g.up({ durationMs: 300 }); return g; },
+    () => { const g = new EchoVault(c); g.phase = "card"; return g; },
+    () => { const g = new EchoVault(c); g.down(); g.up({ durationMs: 60 }); while (g.phase === "intro") { g.down(); g.up({ durationMs: 60 }); } g.shields = 1; g.left = 0.01; g.update(DT); return g; },
     () => new LightTrial(c), () => { const g = new LightTrial(c); g.down({}); return g; },
     () => { const g = new LightTrial(c); g.down({}); g.event({ type: "cue", trial: g.trial, at_us: 1e6 }); g.down({ source: "keyboard" }); return g; },
-    () => new GlyphVault(c), () => { const g = new GlyphVault(c); g.down(); step(g, 1); return g; }, () => { const g = new GlyphVault(c); g.down(); step(g, 6); return g; },
+    () => new GlyphVault(c), () => { const g = new GlyphVault(c); g.down(); g.up({ durationMs: 60 }); return g; },
+    () => { const g = new GlyphVault(c); g.down(); g.up({ durationMs: 60 }); while (g.phase === "intro") { g.down(); g.up({ durationMs: 60 }); } return g; },
+    () => { const g = new GlyphVault(c); g.down(); g.up({ durationMs: 60 }); while (g.phase === "intro") { g.down(); g.up({ durationMs: 60 }); } g.card.truth = false; g.down(); g.up({ durationMs: 50 }); return g; },
+    () => { const g = new GlyphVault(c); g.down(); g.up({ durationMs: 60 }); g.dispose(); return g; },
     () => new MorseSchool(c), () => { const g = new MorseSchool(c); g.start("listen"); step(g, 4); return g; }, () => { const g = new MorseSchool(c); g.start("review"); return g; },
   ];
   for (const make of stages) { const g = make(); g.draw(g2d); }
@@ -521,8 +424,10 @@ const guarded = {
     make: (c) => { const g = new Moonrunner(c); g.down(); g.up(); step(g, 1); g.shield = 1; g.grace = 0.7; g.obstacles = [{ x: 500, w: 36, h: 112, name: "WALL", hold: true, passed: false }]; return g; } },
   Undertow: { keys: ["phase", "points", "y", "vy", "gates", "hull", "grace", "trail", "lastCenter"],
     make: (c) => { const g = new Undertow(c); g.down(); g.up(); g.hull = 1; g.grace = 0.9; g.points = 14; g.y = 100; g.vy = -50; return g; } },
-  "Glyph Archive": { keys: ["phase", "round", "points", "lives", "entered", "sequence", "focus", "order", "step", "scan", "wait"],
-    make: (c) => { const g = new GlyphVault(c); g.down(); g.round = 7; g.next(); step(g, 6); g.points = 700; g.lives = 2; return g; } },
+  "Glyph Archive": { keys: ["phase", "run", "seals", "card", "stage", "window", "left", "sv"],
+    make: (c) => { const g = new GlyphVault(c); g.down(); g.up({ durationMs: 60 }); while (g.phase === "intro") { g.down(); g.up({ durationMs: 60 }); } g.run.points = 700; g.seals = 2; return g; } },
+  "Echo Vault": { keys: ["phase", "run", "shields", "word", "pos", "input", "stage", "left", "sv"],
+    make: (c) => { const g = new EchoVault(c); g.down(); g.up({ durationMs: 60 }); while (g.phase === "intro") { g.down(); g.up({ durationMs: 60 }); } g.run.points = 300; g.shields = 2; return g; } },
 };
 for (const [name, { keys, make }] of Object.entries(guarded)) {
   test(`gesture rewind restores every new field in ${name}`, () => {

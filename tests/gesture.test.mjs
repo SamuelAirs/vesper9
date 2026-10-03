@@ -3,7 +3,7 @@
 // burst, source ownership, the held-back saves and the snapshot helper that make apps tolerate the gesture.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { InputRouter, GESTURE_PACES, GestureTimeline, AppGuard, gestureHoldMs, FALLBACK_HOLD_MS, SELECT_MARGIN_MS } from "../web/engine/input.js";
+import { InputRouter, GESTURE_PACES, GestureTimeline, AppGuard, gestureHoldMs, playHoldMs, PLAY_HOLD_EXTRA_MS, FALLBACK_HOLD_MS, SELECT_MARGIN_MS } from "../web/engine/input.js";
 import { MorseSchool, MORSE } from "../web/apps/morse.js";
 import { appContext } from "./helpers/app-context.mjs";
 
@@ -56,7 +56,7 @@ for (const pace of PACES) {
   const p = GESTURE_PACES[pace];
   test(`${pace} pace: tap, tap, hold in a game opens the menu once, edges stay immediate, the release is consumed`, () => {
     const h = rig({ pace });
-    gesture(h, { tap: Math.round(p.tapMs * 0.6), gap: Math.round(p.gapMs * 0.6), hold: p.holdMs + 30 });
+    gesture(h, { tap: Math.round(p.tapMs * 0.6), gap: Math.round(p.gapMs * 0.6), hold: playHoldMs(p) + 30 });
     assert.equal(h.menus().length, 1);
     assert.equal(h.count("down"), 3, "all three presses reached the game as they happened");
     assert.equal(h.count("up"), 2, "the third release was consumed");
@@ -75,7 +75,7 @@ for (const pace of PACES) {
       h.press(tap); h.wait(gap1); h.press(tap); h.wait(gap2); h.down(); h.wait(hold); h.up();
       return h.menus().length;
     };
-    const { tapMs, gapMs, holdMs } = p;
+    const { tapMs, gapMs } = p, holdMs = playHoldMs(p);
     assert.equal(run(tapMs, gapMs, gapMs, holdMs), 1, "every limit exactly met");
     assert.equal(run(tapMs + 1, gapMs, gapMs, holdMs + 50), 0, "first tap one millisecond too long");
     assert.equal(run(8, gapMs, gapMs, holdMs), 1, "the shortest tap counts");
@@ -184,14 +184,14 @@ test("navigation: the highlight is restored by the mark taken at the first tap, 
 test("the hold bar and lamps are told when the third press is being counted", () => {
   const h = rig();
   h.press(60); h.wait(60); h.press(60); h.wait(60); h.down();
-  h.wait(500);
+  h.wait(800);
   const bars = h.log.filter((e) => e[0] === "hold");
   assert.ok(bars.length > 10 && bars.every((e) => e[3] === true), "armed from the third press");
   assert.ok(bars.at(-1)[1] > 0.45 && bars.at(-1)[1] < 0.55, "half way after half the hold");
   assert.deepEqual(h.log.filter((e) => e[0] === "clicks").map((e) => e[1]).slice(0, 2), [1, 2], "one dot per tap");
   const state = h.router.gestureState();
-  assert.ok(state.armed && state.thresholdMs === 1000 && state.progress > 0.45);
-  h.wait(600);
+  assert.ok(state.armed && state.thresholdMs === 1600 && state.progress > 0.45);
+  h.wait(900);
   assert.equal(h.router.gestureState().armed, false, "once the menu opened there is nothing left to count");
 });
 
@@ -201,18 +201,18 @@ test("node timestamps judge the spacing: a burst of old events is read by their 
   // Delivered together, but stamped 130 ms apart on the node: a gesture's two taps. The hold is real time.
   const h = rig();
   stamp(h, 5000, 60); stamp(h, 5130, 60);
-  h.router.down({ source: "node", generation: 1, at_us: 5260 * 1000 }); h.wait(1020);
+  h.router.down({ source: "node", generation: 1, at_us: 5260 * 1000 }); h.wait(1620);
   assert.equal(h.menus().length, 1);
   // Delivered together, stamped a second apart: not rapid.
   const g = rig();
   stamp(g, 0, 60); stamp(g, 1000, 60);
-  g.router.down({ source: "node", generation: 1, at_us: 2000 * 1000 }); g.wait(1500);
+  g.router.down({ source: "node", generation: 1, at_us: 2000 * 1000 }); g.wait(2100);
   assert.equal(g.menus().length, 0);
   // The whole gesture arrives late, in one burst, with a hold stamped long enough: it completes on release.
   const b = rig();
   stamp(b, 9000, 60); stamp(b, 9130, 60);
   b.router.down({ source: "node", generation: 1, at_us: 9260 * 1000 });
-  b.router.up({ source: "node", generation: 1, at_us: 10300 * 1000 });
+  b.router.up({ source: "node", generation: 1, at_us: 10900 * 1000 });
   assert.equal(b.menus().length, 1);
   assert.equal(b.count("up"), 2, "the third release was consumed");
 });
@@ -221,7 +221,7 @@ test("stamps that run backwards, or stamps from two clocks, never build a gestur
   const h = rig();
   h.router.down({ source: "node", generation: 1, at_us: 9e6 }); h.router.up({ source: "node", generation: 1, at_us: 9.06e6 });
   h.router.down({ source: "node", generation: 1, at_us: 1e6 }); h.router.up({ source: "node", generation: 1, at_us: 1.06e6 }); // node reset
-  h.router.down({ source: "node", generation: 1, at_us: 1.2e6 }); h.wait(1500);
+  h.router.down({ source: "node", generation: 1, at_us: 1.2e6 }); h.wait(2100);
   assert.equal(h.menus().length, 0);
 });
 
@@ -236,13 +236,13 @@ test("source ownership: a release from another source, a different source, gener
     if (scenario === "connection") h.router.cancel();
     h.down(scenario === "release" ? "node" : "node", scenario === "generation" ? 2 : 1);
     if (scenario === "release") { h.router.up({ source: "keyboard", generation: 1, at_us: h.now() * 1000 }); assert.ok(h.router.press, "a keyboard release does not end a node press"); }
-    h.wait(1500);
+    h.wait(2100);
     if (scenario === "release") assert.equal(h.menus().length, 1, "the node press itself still completes");
     else assert.equal(h.menus().length, 0, scenario);
   }
   // A press from the keyboard is a whole gesture of its own, from the keyboard.
   const k = rig();
-  k.press(60, { source: "keyboard" }); k.wait(60); k.press(60, { source: "keyboard" }); k.wait(60); k.down("keyboard"); k.wait(1100);
+  k.press(60, { source: "keyboard" }); k.wait(60); k.press(60, { source: "keyboard" }); k.wait(60); k.down("keyboard"); k.wait(1700);
   assert.equal(k.menus().length, 1);
 });
 
@@ -261,9 +261,28 @@ test("repeat events (a held key) are ignored", () => {
   const h = rig();
   h.press(60); h.wait(60); h.press(60); h.wait(60);
   h.router.down({ source: "keyboard", repeat: true });
-  h.down(); h.router.down({ source: "node", generation: 1, repeat: true }); h.wait(1100); h.up();
+  h.down(); h.router.down({ source: "node", generation: 1, repeat: true }); h.wait(1700); h.up();
   assert.equal(h.menus().length, 1);
   assert.equal(h.count("down"), 3);
+});
+
+// The review found two quick taps and then a long press opening the menu mid-run (Undertow feathering
+// thrust, Perihelion's two taps and a long swing). In a game the hold is longer; in menus it is not.
+test("in a game the gesture needs the longer play hold; menus keep the shorter one", () => {
+  for (const pace of PACES) {
+    const p = GESTURE_PACES[pace];
+    assert.equal(playHoldMs(p), p.holdMs + PLAY_HOLD_EXTRA_MS);
+    const game = rig({ pace });
+    gesture(game, { tap: 60, gap: 60, hold: p.holdMs + 300 });
+    assert.equal(game.menus().length, 0, `${pace}: a ${p.holdMs + 300} ms swing after two taps stays in the game`);
+    assert.equal(game.count("up"), 3, "and its release reached the game");
+    const swing = rig({ pace });
+    gesture(swing, { tap: 60, gap: 60, hold: playHoldMs(p) + 20 });
+    assert.equal(swing.menus().length, 1, `${pace}: held past ${playHoldMs(p)} ms it opens`);
+    const menu = rig({ pace, mode: "menu" });
+    gesture(menu, { tap: 60, gap: 60, hold: gestureHoldMs(p, 650) + 20, release: false });
+    assert.equal(menu.menus().length, 1, `${pace}: in a menu the shorter hold still opens it`);
+  }
 });
 
 // ------------------------------------------------------------------------------------ Morse keying
@@ -429,4 +448,70 @@ test("AppGuard snapshots are cheap enough to take at every press", () => {
   for (let i = 0; i < 200; i++) guard.snapshot();
   const each = (performance.now() - t0) / 200;
   assert.ok(each < 2, `a snapshot of a large game takes ${each.toFixed(3)} ms`);
+});
+
+// ------------------------------------------------------------------------------- knocks on the case
+// Two knocks go back outside a game; one stray knock, a knock near a button press, or knocks too far
+// apart never do. In a game a knock is the game's, as PR #4 defined it.
+function knockRig(mode = "menu") {
+  const h = rig({ mode });
+  const backs = [], raw = [];
+  h.host.back = (via) => backs.push(via);
+  h.host.rawKnock = (e) => raw.push(e);
+  h.host.knockVisual = (on) => h.log.push(["knock", on]);
+  h.knock = (at = h.now()) => h.router.knock({ source: "node", generation: 1, at_us: at * 1000 });
+  return Object.assign(h, { backs, raw });
+}
+test("two knocks go back in menus, the dashboard and instruments", () => {
+  const h = knockRig();
+  h.wait(1000);
+  assert.equal(h.knock(), false);
+  assert.deepEqual(h.log.at(-1), ["knock", true], "the first knock says a second would go back");
+  h.wait(300);
+  assert.equal(h.knock(), true);
+  assert.deepEqual(h.backs, ["knock"]);
+  // Right after a back, nothing counts for a second.
+  h.wait(200); h.knock(); h.wait(250); h.knock();
+  assert.equal(h.backs.length, 1);
+  h.wait(1200); h.knock(); h.wait(250); h.knock();
+  assert.equal(h.backs.length, 2);
+});
+test("one stray knock, knocks too close or too far apart, or near a press, never go back", () => {
+  const lone = knockRig(); lone.wait(1000); lone.knock(); lone.wait(3000);
+  assert.equal(lone.backs.length, 0);
+  assert.deepEqual(lone.log.at(-1), ["knock", false], "the hint clears once a second knock can no longer come");
+  const slow = knockRig(); slow.wait(1000); slow.knock(); slow.wait(800); slow.knock();
+  assert.equal(slow.backs.length, 0, "800 ms apart is two separate knocks");
+  const quick = knockRig(); quick.wait(1000); quick.knock(); quick.wait(60); quick.knock();
+  assert.equal(quick.backs.length, 0, "60 ms apart is one ringing knock");
+  const pressed = knockRig(); pressed.wait(1000); pressed.press(60); pressed.wait(100); pressed.knock(); pressed.wait(250); pressed.knock();
+  assert.equal(pressed.backs.length, 0, "knocks just after a press are the switch, not the player");
+  const between = knockRig(); between.wait(1000); between.knock(); between.wait(100); between.press(60); between.wait(100); between.knock();
+  assert.equal(between.backs.length, 0, "a press between the knocks breaks the pair");
+  const held = knockRig(); held.wait(1000); held.down(); held.wait(600); held.knock(); held.wait(250); held.knock();
+  assert.equal(held.backs.length, 0, "never while the button is down");
+});
+test("in a game a knock goes to the game and never goes back", () => {
+  const h = knockRig("raw");
+  h.wait(1000); h.knock(); h.wait(250); h.knock();
+  assert.equal(h.backs.length, 0);
+  assert.equal(h.raw.length, 2);
+  assert.equal(h.count("down"), 0, "a knock is not a press");
+});
+
+test("inside the system menu tap, tap, hold chooses the third row and never reopens the menu", () => {
+  for (const pace of PACES) {
+    const p = GESTURE_PACES[pace];
+    const h = rig({ pace, mode: "menu" });
+    h.host.gestureOff = () => true;
+    // Sam's case: two taps down to DASHBOARD, then a hold well past the gesture's, and a release.
+    gesture(h, { tap: 60, gap: 60, hold: gestureHoldMs(p, 650) + 400 });
+    assert.equal(h.menus().length, 0, pace);
+    assert.deepEqual(h.log.filter((e) => e[0] === "select"), [["select", 2]], pace);
+    assert.ok(!h.log.some((e) => e[0] === "hold" && e[3]), "the bar never counts towards the menu");
+    // Even a very long hold only chooses: no silent fallback over the menu.
+    h.wait(400); h.down(); h.wait(FALLBACK_HOLD_MS + 200); h.up();
+    assert.equal(h.menus().length, 0, pace);
+    assert.equal(h.count("select"), 2, pace);
+  }
 });

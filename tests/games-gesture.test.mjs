@@ -20,7 +20,7 @@ const snap = (g, keys) => Object.fromEntries(keys.map((k) => [k, structuredClone
 function killOrbit(c) { const g = new OrbitLock(c); g.down(); g.lives = 1; g.angle = 0; g.target = 3; g.down(); return g; }
 function killRunner(c) { const g = new Moonrunner(c); g.down(); g.up(); g.shield = 0; g.obstacles = [{ x: 198, w: 40, h: 70, passed: false }]; g.update(DT); return g; }
 function killUndertow(c) { const g = new Undertow(c); g.down(); g.up(); g.hull = 1; g.y = 10; g.update(DT); return g; }
-function killGlyph(c) { const g = new GlyphVault(c); g.down(); step(g, 4); g.lives = 1; g.sequence = [0, 0, 0]; g.focus = 3; g.down(); return g; }
+function killGlyph(c) { const g = new GlyphVault(c); g.down(); g.up({ durationMs: 50 }); while (g.phase === "intro") { g.down(); g.up({ durationMs: 50 }); } g.down(); g.up({ durationMs: 50 }); for (let i = 0; i < 40 && g.stage !== "ask"; i++) g.update(DT); g.seals = 1; g.card.truth = false; g.down(); g.up({ durationMs: 50 }); return g; }
 const killers = [["Orbit Lock", killOrbit], ["Moonrunner", killRunner], ["Undertow", killUndertow], ["Glyph Archive", killGlyph]];
 
 const gestureCases = {
@@ -29,8 +29,8 @@ const gestureCases = {
     make: (c) => { const g = new OrbitLock(c); g.down(); g.points = 12; g.target = 0; g.angle = 3; return g; },
   },
   "Glyph Archive": {
-    keys: ["phase", "round", "points", "lives", "entered", "sequence", "focus"],
-    make: (c) => { const g = new GlyphVault(c); g.down(); step(g, 4); g.sequence = [4, 4, 4]; g.round = 6; g.points = 900; return g; },
+    keys: ["phase", "run", "seals", "card", "stage", "window", "sv"],
+    make: (c) => { const g = killGlyph(c); g.phase = "title"; g.down(); g.up({ durationMs: 50 }); while (g.phase === "intro") { g.down(); g.up({ durationMs: 50 }); } g.run.points = 900; g.run.cards = 6; return g; },
   },
   Moonrunner: {
     keys: ["phase", "points", "distance", "y", "obstacles"],
@@ -128,8 +128,10 @@ test("a finished run is recorded once, after the gesture window, and never twice
   for (const [name, kill] of killers) {
     const c = makeCtx(27), g = kill(c);
     step(g, 0.5);
-    assert.equal(c.log.saves.length, 0, name + " recorded inside the gesture window");
-    step(g, 2);
+    // Glyph Archive holds its writes with AppGuard (engine/input.js), which saves as soon as no gesture
+    // can still include the last press; the others wait out GestureGuard's SETTLE.
+    if (name !== "Glyph Archive") assert.equal(c.log.saves.length, 0, name + " recorded inside the gesture window");
+    step(g, 2.4);
     assert.equal(c.log.saves.length, 1, name + " did not record the finished run");
     assert.equal(c.log.scores.length, 1);
     g.pause(); g.dispose(); step(g, 5);
@@ -150,30 +152,24 @@ test("leaving or restarting right after a run ends still records that run once",
   step(g, 0.7);
   g.down();
   assert.equal(g.phase, "play");
-  step(g, 2.1);
+  step(g, 2.9);
   assert.equal(c.log.saves.length, 1, "restarting lost the previous run");
   g.pause(); g.dispose();
   assert.equal(c.log.saves.length, 1, "the previous run was recorded twice");
 });
 
-test("Echo Vault: leaving mid-run keeps the sequences completed, an unscored run submits nothing", () => {
+test("Echo Vault: leaving mid-run keeps the score reached and saves the run, an unscored title submits nothing", () => {
   const c = makeCtx(30), g = new EchoVault(c);
-  g.down(); step(g, 2.5);
-  g.down(); g.up({ durationMs: 100 }); g.down(); g.up({ durationMs: 500 });
+  g.down(); g.up({ durationMs: 60 }); while (g.phase === "intro") { g.down(); g.up({ durationMs: 60 }); }
+  g.queue = []; g.word = "E"; g.pos = 0; g.input = ""; g.stage = "send";
+  g.down(); g.up({ durationMs: 60 });
   step(g, 1.1);
   g.pause();
-  assert.deepEqual(c.log.scores.map((x) => x.n), [1]);
-  const d = new EchoVault(makeCtx(31)); d.down(); d.pause();
+  assert.ok(c.log.scores.length >= 1 && c.log.scores.at(-1).n > 0);
+  g.dispose(); step(g, 1);
+  assert.equal(c.log.saves.at(-1).last.reason, "left");
+  const d = new EchoVault(makeCtx(31)); d.pause(); d.dispose();
   assert.equal(d.c.log.scores.length, 0, "a zero score was submitted");
-});
-
-test("Echo Vault: the result screen has a lockout but accepts a press afterwards", () => {
-  const c = makeCtx(32), g = new EchoVault(c);
-  g.down(); step(g, 2.5); g.down(); g.up({ durationMs: 500 });
-  assert.equal(g.phase, "over");
-  step(g, 0.7);
-  g.down();
-  assert.equal(g.phase, "show");
 });
 
 test("F5b Undertow: a clean passage is credited once the craft has cleared the column", () => {

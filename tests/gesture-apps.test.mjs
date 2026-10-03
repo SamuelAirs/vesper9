@@ -52,12 +52,11 @@ const PER_APP = {
   orbit: { only: ["phase", "points", "lives", "target", "angle", "dir", "drift", "miss", "feedback"] },
   runner: { only: ["phase", "points", "distance", "y", "vy", "obstacles", "shield", "grace", "next"] },
   drift: { only: ["phase", "points", "y", "vy", "gates", "hull", "grace", "lastCenter"] },
-  glyphs: { only: ["phase", "round", "points", "lives", "entered", "sequence", "focus", "order", "step"] },
   // A fish on the line gets 1.5 s of grace after any menu, and a menu choice that was held is cancelled.
   tideline: { ignore: ["done", "grace"] },
   // An armed trial is cancelled by every pause (the node's timing is gone), so it returns to the title.
   reaction: { skipResume: true },
-  // Resuming a signal that was playing or being keyed replays it from its start.
+  // Resuming a new letter or an echo transmission that was playing replays it from its start.
   echo: { skipResume: true },
   morse: { listenResume: true },
   // An incremental game: a tap is a gather and gathering is its whole point, so the two taps keep the signal

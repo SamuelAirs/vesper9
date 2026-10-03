@@ -292,10 +292,10 @@ test("the highlight lands somewhere sensible after every choice, never on RETURN
   const second = rig();
   const h2 = second.hand;
   h2.hold(); h2.hold(); // light, then the scene list
-  h2.to("THREE-LAMP SETS").hold();
+  h2.to("LAMP PALETTES").hold();
   assert.match(h2.label, /DUSK/); second.watch();
   h2.to("BACK").hold();
-  assert.match(h2.label, /THREE-LAMP SETS/); second.watch();
+  assert.match(h2.label, /LAMP PALETTES/); second.watch();
   h2.to("EMBER AND SUNRISE").hold();
   h2.to("BACK").hold();
   assert.match(h2.label, /EMBER AND SUNRISE/); second.watch();
@@ -402,6 +402,20 @@ test("preview on highlight: each tap shows the highlighted choice on the lamps, 
   assert.equal(r.ctx.calls.saved.at(-1).colour, 5);
 });
 
+test("host highlight updates reverse and keyboard previews without double advancing a button tap", () => {
+  const ctx = appContext({ lampCount: 4 }); let focus;
+  const actions = ctx.actions;
+  ctx.actions = (items, options) => { actions(items); focus = options?.onFocus; };
+  const app = new Lantern(ctx); app.go("colour");
+  focus(0); app.event({ type: "button", pressed: true, at_us: 0 });
+  focus(1); app.event({ type: "button", pressed: false, at_us: 80000 });
+  assert.equal(app.cursor, 1); assert.equal(app.preview.colour, 1);
+  focus(0); assert.equal(app.cursor, 0); assert.equal(app.preview.colour, 0);
+  focus(4); assert.equal(app.cursor, 4); assert.equal(app.preview.colour, 4);
+  const before = ctx.calls.leds.length; app.pause(); focus(3);
+  assert.equal(ctx.calls.leds.length, before, "a background highlight cannot take menu lights");
+});
+
 test("preview: leaving a list without choosing puts the lamps back, dark lamps go dark again", () => {
   const r = rig({ progress: saved });
   r.hand.hold();
@@ -454,7 +468,7 @@ test("the app's idea of the highlight matches the host's through lists, sets and
   for (let i = 0; i < 12; i++) { r.hand.tap(); r.watch("main list tap " + i); }
   r.hand.to("SCENE").hold(); r.watch();
   for (let i = 0; i < 9; i++) { r.hand.tap(); r.watch("scene list tap " + i); }
-  r.hand.to("THREE-LAMP SETS").hold(); r.watch();
+  r.hand.to("LAMP PALETTES").hold(); r.watch();
   for (let i = 0; i < 6; i++) { r.hand.tap(); r.watch("sets tap " + i); }
   r.hand.to("NEBULA").hold(); r.watch();
   assert.equal(r.app.s.set, 3);

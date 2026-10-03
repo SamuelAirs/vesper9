@@ -10,7 +10,7 @@ Each different trick name adds to the multiplier, capped at eight. Repeating a t
 
 Case taps:
 - Ground: start a manual. Its balance drifts; another generic tap corrects toward centre. With sides enabled, left/right bias the correction. The button release pops an ollie out of it. A manual lasting at least 0.6 s earns its trick; five seconds is the maximum before the rider banks normally. Ignoring balance causes a bail.
-- Air: one shove-it per flight, completed after at least 0.28 s. It has a broad window but needs a straighter landing (0.56 rad versus the normal 0.8). A late tap near landing does not initiate it.
+- Air: one shove-it per flight, completed after at least 0.28 s. It has a broad window but needs a straighter landing (0.56 rad versus the normal 0.8). A short trajectory preview checks the actual floor, rising transitions, walls and vert return; a late tap without enough flight time does not initiate it or tighten the landing tolerance. The fourth lamp shows this same readiness rule.
 - Bar: one regrip per catch, giving a small capped swing boost and a trick when released after 0.4 s. It cannot slow an already faster swing. Repeated tapping cannot farm it.
 
 Taps have a 450 ms game cooldown. Nothing depends on exact case-tap timestamps or tap strength; node detection arrives about 100 ms late. All actions remain local and use the app context.
@@ -19,11 +19,13 @@ Taps have a 450 ms game cooldown. Nothing depends on exact case-tap timestamps o
 
 The four existing parks and five existing goals retain their original indexes and unlock rule (three goals open the next park). Each park also has three permanent named line challenges involving combinations of flips, transfers, gaps, clean landings and manuals.
 
-SESSION lasts two minutes. LINE RUN lasts 45 seconds and names one target; its separate best is recorded only when that target was banked. Selected gap bars/spans are marked in the world. PRACTICE uses the same mechanics without clock, career goals, line unlocks, medals, bests or console scores.
+SESSION lasts two minutes. LINE RUN names one target and lasts 45 seconds, except the Tower's TOP STYLE and CROSSOVER LINE attempts, which allow 75 seconds for climbing and a safe return. The chosen duration appears in setup, on the title and in the coach. Its separate session best is recorded only when that target was banked. This record uses the full attempt's banked score. The coach shows current-line requirements and says when they are ready to bank; a bail clears that pending progress. Selected gap bars/spans are marked in the world. PRACTICE uses the same mechanics without clock, career goals, line unlocks, medals, bests or console scores, and its result explicitly labels the absence of a career record.
+
+The existing eight-second last-trick overtime also keeps an active manual alive; the rider still has to finish and bank before its cutoff. An unfinished manual is forfeited at that cutoff. OVER THE MOON now spans x=470 through x=1230, centred on the same pipe (760 px, previously 860 px). A Windows control-route audit repeatedly fell short of the older markers; the modest symmetric correction has a recorded banked route while retaining the gap's name, points, saved goal/line indexes and all movement physics. This is an empirical difficulty correction, not proof that every older route was impossible.
 
 Bronze requires three banked trick types and one clean landing. Silver requires four types and two clean landings. Gold requires five types, three clean landings and no bails in the session. Scores alone cannot buy medals.
 
-The first launch shows six short teaching pages, with button-tap next and hold to ride. GAME GUIDE can be reopened and returns to the exact paused game/setup rather than restarting. In play the top coach says what the next button and tap do, then shows landing or balance safety. All guide/menu choices happen on release.
+The first launch shows six short teaching pages, including when riding through park/setup selection, with button-tap next and hold to ride. GAME GUIDE can be reopened and returns to the exact paused game/setup rather than restarting. Game-menu actions close the host menu so the chosen guide, restart or result is visible. In play the top coach says what the next button and tap do, marks an available airborne bar catch, reports consumed regrips and unavailable air style, then shows landing or balance safety. All guide/menu choices happen on release.
 
 ## Final-node lamps and lifetime
 
@@ -44,6 +46,8 @@ High Bar deliberately remains a private three-slot UI in this wave. Moving these
 ## Acceptance and evidence
 
 Windows automated tests cover prior physics, junk and schema-1 migration, slot isolation, no-tap play, generic and optional sides, air/manual/regrip mechanics, challenge banking, repeat scoring, practice isolation, dangerous final-flight cutoff, light/board lifetime and host-confirmed burst menu cancellation at each pace. A real-controls two-minute bot audit checks that banking and progression are achievable without case taps and that style adds risk and variety.
+
+The extended Windows pass ran 2,200 complete two-minute deterministic attempts across all four parks and a targeted release/catch search. `tests/highbar-routes.test.mjs` retains twelve compact button/tap recordings, each replayed from the normal drop-in in SESSION, LINE RUN and PRACTICE. All 36 routes land and bank their target through actual simulation within their selected mode's clock; the current park's goals, rider positions, trick names, gap flags and scores are never injected. Practice replays verify that the same route leaves career data and console scores untouched. The deepest recorded Tower return banks at 78.43 s, within its 75 s clock plus unchanged overtime; the linked Moon route banks at 50.77 s, within 45 s plus overtime. Deterministic controllers establish achievable software routes, not comfortable human timing.
 
 Offline Chrome screenshots at 1024x600 are simulator/layout evidence only. Real button comfort, manual balance cadence, shove-it landing fairness, four-lamp colour readability and case-tap false positives remain owner acceptance on the Pi. No Pi access, live sound/lights, firmware update or physical qualification is claimed.
 

@@ -1,5 +1,12 @@
 # Hardware profile
 
+**Current target: board 2, four RGB lamps, two microphones and board LED; no
+temperature/humidity sensor.** Start with [the second-node section](#the-second-node-board-2-2026-10-02)
+below. The first-node pin map and sensor/microphone notes are historical board-1
+evidence. The application refresh does not change firmware or wiring. The last
+device check reported node firmware 0.2.0; the packaged 0.1.2 prebuilt belongs
+to board 1 and is not the final node's replacement image.
+
 This profile reflects the node as actually wired, confirmed by Sam's wiring table and by live readings on 2026-09-30. The colour order within each lamp was then established by lighting one output at a time while Sam watched (firmware 0.1.2): the wiring table gives the right pins per lamp but not the right colour per pin. The pin map originally supplied with 0.2.0 (button 7, sensor 8/9, lights 14/13/12, 11/10/18, 17/16/15) did not match the board and is superseded. No rewiring is part of the software design.
 
 ## Pin mapping

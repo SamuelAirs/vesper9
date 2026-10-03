@@ -1,5 +1,6 @@
 import { Bridge } from "./engine/bridge.js";
 import { DemoBridge } from "./engine/demo.js";
+import { SaveQueue } from "./engine/save-queue.js";
 import { InputRouter, GESTURE_TAPS } from "./engine/input.js";
 import { Synth, BrowserMicrophone } from "./engine/audio.js";
 import { Random, escapeHTML as esc, formatTime } from "./engine/math.js";
@@ -69,6 +70,11 @@ export class Vesper {
       mic: { mode: "off" },
       device: { connected: false },
     };
+    this.saves = new SaveQueue({
+      send: (command, values) => this.bridge.command(command, values),
+      onChange: (status) => this.saveStatus(status),
+      onError: (error) => this.toast("Save waiting: " + error.message),
+    });
     this.synth = new Synth();
     this.browserMic = new BrowserMicrophone(bridge);
     this.input = new InputRouter(this);
@@ -269,6 +275,12 @@ export class Vesper {
     else this.event({ type: "knock", at_us: performance.now() * 1000, peak: 20000, source: "keyboard", ...(side ? { side, sideVotes: 5 } : {}) });
   }
   bind() {
+    window.addEventListener("beforeunload", (event) => {
+      const status = this.saves.status();
+      if (!status.pending && !status.error) return;
+      event.preventDefault();
+      event.returnValue = "";
+    });
     const bindButton = (element) => {
       element.addEventListener("pointerdown", (e) => {
         if (e.button !== 0) return;
@@ -357,12 +369,14 @@ export class Vesper {
       }
     });
   }
-  setNav(items, containerIndex = null) {
+  setNav(items, containerIndex = null, onFocus = null) {
     const prior = this.menu ? this.menu.prior : this.nav;
     const previousId = prior.items[prior.index]?.id;
     const matchingIndex = previousId ? items.findIndex(item => item.id === previousId) : -1;
     const nav = {
       items,
+      onFocus,
+      focusedItem: null,
       index: Math.min(
         containerIndex ?? (matchingIndex >= 0 ? matchingIndex : prior.index) ?? 0,
         Math.max(0, items.length - 1),
@@ -398,6 +412,14 @@ export class Vesper {
         index === nav.index ? "true" : "false",
       );
     });
+    // Instruments may preview the highlighted choice. Report every navigation
+    // source through one owned callback, never a background list under a menu.
+    const focused = nav.items[nav.index];
+    if (nav === this.nav && !this.menu && focused && nav.focusedItem !== focused) {
+      nav.focusedItem = focused;
+      try { nav.onFocus?.(nav.index, focused.id); }
+      catch (error) { this.fail(error); }
+    }
     if (!this.app && !this.menu)
       $("focus-counter").textContent =
         String(nav.index + 1).padStart(2, "0") +
@@ -525,6 +547,9 @@ export class Vesper {
     this.silentTicks = false;
   }
   launch(id) {
+    // A new app must never start from an empty placeholder save while the first
+    // service snapshot is still on its way. AppGuard can defer writes past it.
+    if (!this.loaded) return this.toast("Waiting for the console to load your saves.");
     const meta = APPS.find((a) => a.id === id);
     if (!meta) return;
     this.closeMenu(false);
@@ -575,8 +600,8 @@ export class Vesper {
       get: (path) => this.bridge.get(path),
       best: (metric = meta.scoreMetric || "default") => this.state.scores[metric === "default" ? meta.id : meta.id + ":" + metric] || 0,
       score: (score, metric = "default") => {
-        if (!alive()) return;
-        this.bridge.command("score", { app: meta.id, score, metric }, true);
+        if (!alive() || this.state.controller === false) return;
+        this.persist("score", { app: meta.id, score, metric });
         const book = this.logbook();
         const primary = meta.scoreMetric || 'default';
         if (metric === primary && Log.noteScore(book, meta.id, score, 'default')) this.orderMet(meta);
@@ -606,11 +631,10 @@ export class Vesper {
       progress: () => this.state.progress?.[slotKey(meta.id, slot)] || {},
       // The optional second argument's label (24 characters at most) names the save on its slot row.
       saveProgress: (value, { label } = {}) => {
-        if (!alive()) return Promise.resolve({ ignored: true });
+        if (!alive() || this.state.controller === false) return Promise.resolve({ ignored: true });
         const key = slotKey(meta.id, slot);
-        this.state.progress[key] = value;
         if (noteSaved(this.slotBook(), meta.id, slot, Log.dateKey(), label)) this.saveSlotBook();
-        return this.bridge.command("progress", { app: key, value }, true);
+        return this.persist("progress", { app: key, value });
       },
       // Which save slot this run is on: { index: 1..count, count, fresh: the slot was empty at launch }.
       slot: () => ({ index: slot, count: SLOT_COUNT, fresh }),
@@ -644,7 +668,7 @@ export class Vesper {
         }
       },
       // `focus` names the action (by id, or label when it has none) to highlight after this render.
-      actions: (items, { focus } = {}) => {
+      actions: (items, { focus, onFocus } = {}) => {
         if (this.token !== token) return;
         const container = $("utility-actions");
         // A long list (Calibration, Node Scope) goes to three columns so it fits above the fold.
@@ -667,7 +691,7 @@ export class Vesper {
           run: guarded(items[i].run),
         }));
         const at = focus === undefined ? -1 : entries.findIndex((item) => item.id === focus);
-        this.setNav(entries, at >= 0 ? at : null);
+        this.setNav(entries, at >= 0 ? at : null, typeof onFocus === "function" ? guarded(onFocus) : null);
       },
       home: guarded(() => this.home()),
       resume: guarded(() => this.closeMenu()),
@@ -759,6 +783,79 @@ export class Vesper {
     }
     w.n = w.slow = 0;
   }
+  // Only idempotent saves enter this RAM queue. Hardware commands remain immediate.
+  // Queued means accepted for retry; pending reaches zero only after service ACKs.
+  persist(command, values) {
+    if (!this.loaded || this.state.controller !== true || this.discardingSaves) return Promise.resolve({ ignored: true });
+    const result = this.saves.enqueue(command, values, command === "progress"
+      ? { baseline: this.state.progress?.[values.app] || {} } : {});
+    this.state = this.saves.overlay(this.state);
+    return result.catch((error) => ({ queued: false, error: error.message }));
+  }
+  saveStatus(status = this.saves.status()) {
+    const element = $("save-status");
+    if (!element) return;
+    const waiting = status.pending && !status.ready;
+    element.hidden = !(waiting || status.error || this.saveConflict);
+    element.textContent = this.saveConflict ? "SAVE CHOICE NEEDED · OPEN MENU"
+      : status.error ? "SAVE NEEDS ATTENTION · OPEN MENU" : "SAVES WAITING · KEEP THIS TAB OPEN";
+    element.title = status.error?.message || status.error || "Unsaved progress is held in this tab until the service reconnects.";
+  }
+  saveMenu() {
+    const status = this.saves.status();
+    if (this.saveConflict) {
+      const canChoose = this.bridge.connected && this.state.controller === true;
+      return this.openMenu("Two save copies", "The service copy changed, or another tab controlled the console, while this tab had waiting saves. Keep this tab open until you choose." +
+        (canChoose ? " Choose which progress to use; you will confirm before either copy is replaced." : " Close the other controlling tab and reconnect this one before choosing."), [
+        ...(canChoose ? [
+          { label: "USE THIS TAB'S WAITING SAVES", run: () => this.confirmSaveConflict(true) },
+          { label: "USE SERVICE SAVES", run: () => this.confirmSaveConflict(false) },
+        ] : this.bridge.connected ? [
+          { label: "RECONNECT THIS TAB", run: () => this.bridge.ws?.close() },
+        ] : []),
+        { label: "BACK", run: () => this.systemMenu() },
+      ]);
+    }
+    const detail = status.error ? " " + (status.error.message || status.error) + "." : "";
+    this.openMenu("Save status", `${status.pending} save records are waiting. Keep this tab open: waiting saves are held in memory until the service acknowledges them.${detail}`, [
+      ...(status.pending ? [{ label: "RETRY WAITING SAVES", run: () => { this.saves.flush(); this.saveMenu(); } }] : []),
+      { label: "BACK", run: () => this.systemMenu() },
+    ]);
+  }
+  confirmSaveConflict(useWaiting) {
+    this.openMenu("Choose this save copy?", useWaiting
+      ? "Waiting progress from this tab will replace the corresponding service saves. Changes made in the other tab may be lost. Best scores keep the higher value."
+      : "Discard this tab's waiting changes and return to the dashboard using the service's saved progress. Unsaved changes in this tab will be lost.", [
+      { label: "KEEP BOTH / GO BACK", run: () => this.saveMenu() },
+      { label: useWaiting ? "CONFIRM / USE WAITING SAVES" : "CONFIRM / USE SERVICE SAVES", run: () => this.resolveSaveConflict(useWaiting) },
+    ]);
+  }
+  async resolveSaveConflict(useWaiting) {
+    if (!this.saveConflict || !this.bridge.connected || this.state.controller !== true)
+      return this.toast("This tab must control the connected console before choosing saves.");
+    if (useWaiting) {
+      this.saveConflict = false;
+      this.saves.setReady(true);
+      this.closeMenu();
+      return;
+    }
+    const current = await this.bridge.get("state");
+    if (!this.bridge.connected || this.state.controller !== true) return;
+    // Leaving the old app must not recreate the copy the user just declined.
+    this.discardingSaves = true;
+    try { this.closeMenu(false); this.unmount(); }
+    finally { this.discardingSaves = false; }
+    this.saves.setReady(false);
+    this.saves.discard();
+    this.state.progress = current.progress || {};
+    this.state.scores = current.scores || {};
+    this.book = Log.cleanLogbook(this.state.progress.console);
+    this.slots = cleanSlots(this.state.progress[SLOTS_ID]);
+    this.saveConflict = false;
+    this.saves.setReady(true);
+    this.home();
+    this.toast("Using service saves. Waiting changes from this tab were discarded.");
+  }
   // The console logbook, started for today (a new date picks a new three).
   logbook() {
     this.book ||= Log.cleanLogbook(this.state.progress?.console);
@@ -771,8 +868,7 @@ export class Vesper {
   }
   saveBook() {
     if (!this.loaded || this.state.controller === false) return;
-    this.state.progress.console = this.book;
-    this.bridge.command("progress", { app: "console", value: this.book }, true)?.catch?.(() => {});
+    this.persist("progress", { app: "console", value: this.book });
   }
   orderMet(meta) {
     this.saveBook();
@@ -798,8 +894,7 @@ export class Vesper {
   }
   saveSlotBook() {
     if (!this.loaded || this.state.controller === false) return;
-    this.state.progress[SLOTS_ID] = this.slots;
-    this.bridge.command("progress", { app: SLOTS_ID, value: this.slots }, true)?.catch?.(() => {});
+    this.persist("progress", { app: SLOTS_ID, value: this.slots });
   }
   slotOf(id) {
     return id ? activeSlot(this.slotBook(), id) : 1;
@@ -869,8 +964,7 @@ export class Vesper {
           const key = slotKey(id, n), playing = start || n === this.slotOf(id);
           // Leave the game first when it is on that slot: whatever it saves on the way out must not refill it.
           if (playing) { this.closeMenu(false); this.unmount(); }
-          this.state.progress[key] = {};
-          this.bridge.command("progress", { app: key, value: {} }, true)?.catch?.(() => {});
+          this.persist("progress", { app: key, value: {} });
           const dropped = forget(this.slotBook(), id, n);
           this.toast("SLOT " + n + (start ? " · NEW SAVE · " : " CLEARED · ") + name);
           // The game on that slot starts again from nothing; another slot's game carries on.
@@ -981,6 +1075,10 @@ export class Vesper {
         label: this.app ? "RESUME / " + this.meta.name : "CLOSE MENU",
         run: () => this.closeMenu(),
       },
+      ...(this.saves.status().pending || this.saves.status().error ? [{
+        label: "SAVE STATUS / RETRY",
+        run: () => this.saveMenu(),
+      }] : []),
       // The last app played, one choice away from the dashboard.
       ...(!this.app && this.lastApp && APPS.some((a) => a.id === this.lastApp) ? [{ label: "CONTINUE / " + APPS.find((a) => a.id === this.lastApp).name, run: () => this.launch(this.lastApp) }] : []),
       ...(this.app ? [{ label: "RESTART / " + this.meta.name, run: () => this.launch(this.meta.id) }, ...(this.app.menuActions?.() || []),
@@ -1214,12 +1312,15 @@ export class Vesper {
     }
     switch (e.type) {
       case "state":
-        this.state = {
+        if ((e.controller === false && this.saves.status().pending) || this.saves.conflicts(e).length) this.saveConflict = true;
+        this.state = this.saves.overlay({
           ...e,
           settings: { ...DEFAULT, ...e.settings },
           progress: e.progress || {},
-        };
+        });
         this.loaded = true;
+        this.saves.setReady(this.bridge.connected && e.controller === true && !this.saveConflict);
+        this.saveStatus();
         this.book = Log.cleanLogbook(this.state.progress.console);
         this.slots = cleanSlots(this.state.progress[SLOTS_ID]);
         this.logbook();
@@ -1232,6 +1333,7 @@ export class Vesper {
         this.lights.invalidate();
         break;
       case "offline":
+        this.saves.setReady(false);
         this.state.device.connected = false;
         this.lights.invalidate();
         this.browserMic.stop();
@@ -1343,7 +1445,7 @@ export class Vesper {
         $("level-fill").style.width = Math.min(100, e.value * 450) + "%";
         break;
       case "scores":
-        this.state.scores = e.scores;
+        this.state.scores = this.saves.overlay({ scores: e.scores }).scores;
         this.cardStats();
         this.todayLine();
         break;

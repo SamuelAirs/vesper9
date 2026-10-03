@@ -8,6 +8,25 @@ import { LightDirector, normalizeLeds } from "../web/engine/lights.js";
 globalThis.localStorage = { getItem: () => null, setItem() {} };
 const { DemoBridge } = await import("../web/engine/demo.js");
 
+test("standalone save commands report browser storage failure and permit a later retry", async () => {
+  const before = globalThis.localStorage;
+  let blocked = true, stored;
+  globalThis.localStorage = {
+    getItem: () => null,
+    setItem: (key, value) => { if (blocked) throw new Error("quota"); stored = JSON.parse(value); },
+  };
+  try {
+    const demo = new DemoBridge();
+    await assert.rejects(demo.command("progress", { app: "orbit", value: { runs: 4 } }), /storage could not save/);
+    await assert.rejects(demo.command("score", { app: "orbit", score: 900 }), /storage could not save/);
+    blocked = false;
+    await demo.command("progress", { app: "orbit", value: { runs: 5 } });
+    await demo.command("score", { app: "orbit", score: 910 });
+    assert.equal(stored.progress.orbit.runs, 5);
+    assert.equal(stored.scores.orbit, 910);
+  } finally { globalThis.localStorage = before; }
+});
+
 function harness(mode = "raw", policy = { pace: "standard" }) {
   let now = 0;
   const events = [];

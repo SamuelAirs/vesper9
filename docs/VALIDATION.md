@@ -2,6 +2,35 @@
 
 > Current finished-node candidate (2026-10-02): see [candidate status and product decisions](NODE-CONSOLE-CANDIDATE.md). Developed and verified on Windows; Pi deployment and physical acceptance remain pending. Older implementation/firmware/sensor notes below describe their historical snapshots.
 
+## Extended console polish — 2026-10-03
+
+Native Windows `DESKTOP-FD66EV2`, branch `codex/console-polish`, parent candidate
+`b818558`. All agents were GPT-6.1 Sol. No Pi connection, deployment, restart,
+firmware build or flash occurred during this pass.
+
+| Check | Fresh result |
+| --- | --- |
+| `scripts/check.py` | Exit 0: 275 Python tests (273 pass, 2 expected skips); 1,508 JS tests pass; generated catalog fresh |
+| High Bar | 73 focused tests; 12 real-control recorded routes replayed in SESSION, their timed LINE RUN, and PRACTICE (36 route/mode combinations) |
+| Existing game audit | Eight games reviewed; 219 focused regressions including 16 new Ricochet practice/progression tests; actual physics pilots for Ricochet rooms 1/4/9 and Moonrunner zones 1/4/6 |
+| Save queue | 23 focused tests: bounded immutable snapshots/baselines, score maximum, coalescing, ACK generations, rejection/retry, explicit discard and conflicting service state |
+| Save browser | 10 complete scenarios pass against a real isolated service and independent SQLite connection, including delayed initial state, offline pause saves, ordinary reconnect, observer ownership, both confirmed conflict choices, an unseen intervening controller, retired context/clear, rejection and recovery |
+| Release browser regression | 35-app service/standalone smoke, extension example, host 36/36, injected voice 37/37 and Twinbeat 29/29 pass on the final runtime |
+| Utilities | 109 focused JS and 21 Python checks pass; 25 real-host browser checks use the staged real Wikipedia archive and private book/timer fixtures |
+| Game browser | 21 Ricochet/High Bar journey checks and 12 screenshots at 1024×600; no injected physical-device claims |
+| Sustained final rotation | 1200.64 seconds, 35/35 apps, 78 samples; reconnect and timer complete, no app/page errors, ends muted; same source hash as the package |
+
+Final evidence is under `C:/Users/ayers/vesper9-investigation/polish/`:
+`release-check.log`, `save-verified/`, `release-browser/`, and `release-soak/`.
+The final worklog records the completed soak and release artifacts. Earlier
+pre-fix results remain under their own names. Two attempted soaks were stopped
+when runtime fixes were added; they are not counted as completed long runs.
+
+The Python skips remain the missing local Vosk model vocabulary and the POSIX
+shutdown check unavailable on Windows. Synthetic controls and deterministic
+routes establish software behavior and reachability, not physical case timing,
+human difficulty, real lamps, speech recognition or Pi frame/thermal behavior.
+
 ## Twinbeat follow-up verification — 2026-10-03
 
 The second requested new game, [Twinbeat](TWINBEAT.md), is implemented on the same

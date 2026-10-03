@@ -1,29 +1,77 @@
-# Continue on the actual Pi
+# Next steps for the finished node
 
-> Current finished-node candidate (2026-10-02): see [candidate status and product decisions](NODE-CONSOLE-CANDIDATE.md). Developed and verified on Windows; Pi deployment and physical acceptance remain pending. Older implementation/firmware/sensor notes below describe their historical snapshots.
+The current candidate is developed on Windows in `codex/console-polish`, based
+on `codex/node-console` at `b818558`. It is not deployed. Read
+[the candidate](NODE-CONSOLE-CANDIDATE.md), [validation](VALIDATION.md),
+[the worklog](WORKLOG.md), and [the trial/rollback plan](PI-ACCEPTANCE.md).
+Earlier release notes describe earlier hardware and must not drive a flash.
 
+## 1. Review and stage one recoverable release
 
-The largest remaining uncertainty is the physical appliance. The source, simulator and automated tests have improved; actual Pi performance, four-click comfort, microphone gain/acoustics and the as-wired ESP32 remain unqualified in this environment.
+Agree the candidate with Sam before changing the running console. Recheck the
+actual service working directory, source identity, data path and node identity.
+The last read-only Pi snapshot was `live/` at detached `f3bfacc`, separate from
+`vesper9/` main at `5db9ae8`. Preserve both and the exact service configuration.
+Verify the candidate manifest after transfer; use a consistent private copy of
+saves for the trial. No firmware update is needed. All builds and broad tests
+stay on Windows.
 
-## First local pass
+Acceptance: the chosen commit/source hash matches the files actually served by
+the Pi; the service stays loopback-only with one controlling browser, the node
+connected, microphone off, original saves retained and rollback ready.
 
-1. Read `AGENTS.md`, `RELEASE-NOTES.md`, `VALIDATION.md`, and the installation/hardware guides. Inspect any newer local work before selecting a code base.
-2. Identify the Pi OS, RAM, display/scaling, audio output and COM serial path. Preserve current code, service files, data and working firmware.
-3. If the node already runs compatible VESPER protocol v1 firmware, connect and qualify it without a needless reflash. Otherwise verify the exact board, obtain a full 16 MB backup and use the existing flash/restore workflow.
-4. Exercise all nine LED legs, sensor freshness, button edges, sustained holds, rapid-click profiles and idle/held reconnect cases. Test with microphone off first.
-5. Try guided/listening/review lessons and ordinary play. Tune the existing timing presets if physical evidence supports a change; record the chosen values and accidental menu-trigger tradeoffs.
-6. Test local speech explicitly, end muted, and measure frame/speech latency under the Pi's real cooling and power conditions. Compare a local model alternative only if the current one is inadequate.
-7. Install/update the project user service with the correct existing data path; test restart and rollback. Do not enable OS autologin as an incidental change.
+## 2. Test controls in the finished case
 
-## Honest design limits
+Generic taps remain the default. Check comfortable back taps for previous menu
+item/page, deliberate double taps for back, button next and hold-release select.
+Test tap/tap/hold and resume inside games, and verify normal game holds remain
+available. Exercise four independent RGB lamps and the board LED. There is no
+temperature/humidity sensor to qualify.
 
-- Tap, tap, hold can still be typed by accident in a game played with rapid taps followed by a held press (Pulsar's long signals after two eighth notes); the hold only counts after exactly two quick taps and the game then puts back what the gesture changed. The thresholds (taps up to 150 ms, pauses up to 220 ms, hold 1000 ms at the standard pace) are a best guess and need human testing on the real button. Software tests establish state behavior, not comfort.
-- The new review scheduler uses per-character attempt counts and streaks. It is not a calendar-based spaced-repetition curriculum or an educationally validated course. Word/digit lessons and free-key mode remain useful future additions.
-- Game progression is deeper but still compact. Physics checks validate representative obstacle profiles and seeded flight, not every conceivable run or every player's ability. Human play-testing should guide further difficulty changes.
-- Reaction numbers use the node clock for physical trials. Electrical/PWM/optical onset and debounce have not been calibrated; keyboard measurements remain approximate.
-- Timers intentionally follow wall-clock deadlines, including forward/backward clock corrections. They recover after restart; no powered-off alert is possible.
-- Notes page by session and line. A single extremely long dictated paragraph can still need normal panel scrolling. No search, editing, arbitrary text labels, or automatic retention deletion has been added.
-- Decorated rendering and speech share Pi resources. Diagnostic frame times are useful, but the development host's headless numbers are not a Pi benchmark.
-- There is no general-purpose plugin sandbox, ROM emulator, campaign editor, network multiplayer, or arbitrary game save state. Add these only for a concrete cartridge need.
+Acceptance: deliberate input works at a comfortable speaker volume; speaker
+sounds do not create actions; cancellation costs no life or purchase; all four
+lamp channels and the board accent clear on exit. Keep optional sides off until
+actual left/right/back confusion counts support enabling them.
 
-The earlier handoff remains historical design context. Do not repeat already completed work simply because a historical brief still says “implement.” Record new findings and decisions in `WORKLOG.md`.
+## 3. Play revised games and readers
+
+High Bar needs human judgment on manuals, landings, coaching and line pace;
+software routes establish reachability, not enjoyable difficulty. Ricochet's
+reached-chamber practice should be easy to find and useful for learning.
+Wayfinder needs exploration/save-resume feedback. Twinbeat needs real acoustic
+timing and optional side accuracy, starting with the first two levels; assist
+and side careers stay separate. Exactly two new games were added.
+
+The Stacks should reopen existing positions/bookmarks. Encyclopedia should
+resume recent articles, follow/return along links, and offer a useful choice at
+article end. Stage its verified archive and matching ARM reader wheel separately.
+Lantern previews should follow either navigation direction; Cadence should
+identify the timer selected.
+
+Acceptance: old saves remain recognizable, results survive restart, and Sam can
+identify frustrating controls, unclear rules or shallow loops. The
+[game review](GAME-POLISH.md) distinguishes audited games from games that received
+deeper new mechanics.
+
+## 4. Qualify interruptions and Pi resources
+
+Waiting progress/scores remain in the controlling browser's bounded RAM queue
+until acknowledged. Keep that tab open during an outage; the notice and save
+status menu report waiting or failed writes. Hardware commands are never
+replayed. This protects temporary link loss, not browser/power loss before ACK.
+If the service copy changed or another tab controlled the console, use the save
+status menu to compare the choice and explicitly confirm which copy to keep.
+The menu can reconnect this tab after the other controlling tab closes.
+
+After ordinary play, collect a brief frame/resource/status snapshot, with no Pi
+benchmark or broad suite. Inspect stutter, audio, cooling, battery behavior, CRC
+counters and microphone state. Windows/Chromium timing is not a Pi result. Local
+speech vocabulary and POSIX shutdown remain separate on-target checks.
+
+## 5. Promote deliberately
+
+After physical acceptance, select the authoritative candidate data directory and
+GitHub PR/merge path, retaining original saves and rollback artifacts. Record
+the accepted commit, source hash, service path and release archive hash. Decide
+separately whether the deck should launch into Vesper at login; this pass does
+not change desktop autologin or kiosk startup.

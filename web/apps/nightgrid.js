@@ -8,7 +8,7 @@ import { clamp } from "../engine/math.js";
 import { LAMP, lamps, dim } from "../engine/lightshow.js";
 import { AppGuard } from "../engine/input.js";
 import { LampBus, LOCKOUT } from "./game-kit.js";
-import { HOLD, lampCount, withFourth, holdFraction, drawGuide, drawPressHelp, caseChoice, choiceAccent } from "./after-hours-kit.js";
+import { HOLD, resumeActions, lampCount, withFourth, holdFraction, drawGuide, drawPressHelp, caseChoice, choiceAccent } from "./after-hours-kit.js";
 
 export const NIGHTGRID_SHIFTS = 10;
 // A new stage ignores presses this long, so the press that ended the last stage cannot carry over.
@@ -295,7 +295,7 @@ export class NightGrid {
   }
 
   menuActions() {
-    return [{ label: "GAME GUIDE", run: () => this.openGuide() }, { label: "NEW NIGHT", run: () => { this.guide = -1; this.start(); } }];
+    return resumeActions(this.c, [{ label: "GAME GUIDE", run: () => this.openGuide() }, { label: "NEW NIGHT", run: () => { this.guide = -1; this.start(); } }]);
   }
 
   commit(index) {

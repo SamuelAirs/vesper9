@@ -31,7 +31,8 @@ export function migrateWiki(raw) {
   save.recent = (Array.isArray(raw.recent) ? raw.recent : [])
     .filter((r) => r && okPath(r.path) && !seen.has(r.path) && seen.add(r.path))
     .slice(0, MAX_RECENT)
-    .map((r) => ({ path: r.path, title: fit(String(r.title || r.path), 80), f: Number.isFinite(r.f) ? clamp(Math.round(r.f * 100) / 100, 0, 1) : 0 }));
+    .map((r) => ({ path: r.path, title: fit(String(r.title || r.path), 80), f: Number.isFinite(r.f) ? clamp(Math.round(r.f * 100) / 100, 0, 1) : 0,
+      ...(r.para !== undefined || r.char !== undefined ? { para: int(r.para, 0, 1e6, 0), char: int(r.char, 0, 1e6, 0) } : {}) }));
   const trail = (Array.isArray(raw.trail) ? raw.trail : []).map(place).filter(Boolean).slice(-12);
   const marks = (Array.isArray(raw.marks) ? raw.marks : []).map(place).filter(Boolean).slice(0, 12);
   if (trail.length) save.trail = trail;
@@ -164,7 +165,7 @@ export class Encyclopedia {
     if (this.phase === "recent") {
       return [{ label: "BACK", run: () => this.go("home") },
         ...this.save.recent.map((r) => ({ label: fit(r.title, 52), sub: r.f >= 0.99 ? "READ TO THE END" : Math.round(r.f * 100) + "% READ", progress: r.f,
-          run: () => this.open(r.path, r.title, { trail: false }) }))];
+          run: () => this.open(r.path, r.title, { pos: r.para !== undefined ? r : this.save.last?.path === r.path ? this.save.last : null, trail: false }) }))];
     }
     // Home.
     if (!this.ready()) return [
@@ -260,6 +261,11 @@ export class Encyclopedia {
       // The end of the article: where next?
       this.markRead(1);
       if (this.current()?.links.length) { this.go("links", 1); this.c.tone?.(660, 0.05, "sine"); }
+      else {
+        this.notice = { title: "ARTICLE COMPLETE", lines: [fit(this.article?.title, 60),
+          "Hold to return to Encyclopedia home, or tap to stay on the last page."], back: "read", end: true };
+        this.go("notice");
+      }
       return;
     }
     if (dir < 0 && this.page === 0) return;
@@ -279,7 +285,7 @@ export class Encyclopedia {
     else delete this.save.trail;
     const was = this.save.recent.find((r) => r.path === path);
     const read = Math.max(was?.f || 0, f ?? this.fraction());
-    this.save.recent = [{ path, title: fit(title, 80), f: Math.round(read * 100) / 100 }, ...this.save.recent.filter((r) => r.path !== path)].slice(0, MAX_RECENT);
+    this.save.recent = [{ path, title: fit(title, 80), f: Math.round(read * 100) / 100, ...this.pos }, ...this.save.recent.filter((r) => r.path !== path)].slice(0, MAX_RECENT);
     this.dirty = true;
   }
   flush() {
@@ -317,7 +323,11 @@ export class Encyclopedia {
   }
   choose() {
     if (this.phase === "read") { this.go("menu"); this.c.tone?.(660, 0.04, "sine"); return; }
-    if (this.phase === "notice") { this.step(); return; }
+    if (this.phase === "notice") {
+      if (this.notice?.end) { this.notice = null; this.home(); }
+      else this.step();
+      return;
+    }
     const row = this.rows()[this.cursor];
     if (!row) return;
     this.c.tone?.(880, 0.04, "sine");
@@ -425,7 +435,7 @@ export class Encyclopedia {
     const depth = Math.min(this.trail.length, 12);
     for (let i = 0; i < depth; i++) { g.fillStyle = C.cyan; g.fillRect(60 + i * 14, 514, 8, 8); }
     const links = this.current()?.links.length || 0, last = this.page + 1 >= pages.length;
-    text(g, last && links ? "TAP: WHERE NEXT? · " + links + " LINKS" : links + " LINKS", 900, 518, 16, last ? C.cyan : C.muted, "right");
+    text(g, last ? links ? "TAP: WHERE NEXT? · " + links + " LINKS" : "END OF ARTICLE · TAP TO FINISH" : links + " LINKS", 900, 518, 16, last ? C.cyan : C.muted, "right");
     if (!depth) text(g, "ENCYCLOPEDIA", 60, 518, 16, C.muted);
   }
   drawHome(g) {

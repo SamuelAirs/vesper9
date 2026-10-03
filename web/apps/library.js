@@ -143,7 +143,7 @@ export class Library {
   }
   want(ch) {
     const key = this.book + ":" + ch, data = this.data;
-    if (data.chapters.has(key) || data.pending.has(key) || this.book === "guide" || ch < 0 || ch >= this.chapterCount()) return;
+    if (data.chapters.has(key) || data.pending.has(key) || data.failed.has(key) || this.book === "guide" || ch < 0 || ch >= this.chapterCount()) return;
     data.pending.add(key);
     data.failed.delete(key);
     Promise.resolve()

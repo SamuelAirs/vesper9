@@ -234,10 +234,12 @@ test("several timers: the nearest leads, NEXT TIMER steps through them, others a
   r.hand.to("START 5 MIN").hold();
   assert.equal(r.ctx.state().timers.length, 2);
   assert.match(r.ctx.calls.content.at(-1), /cad-timer-big[^>]*>05:00</, "the one just started is shown");
-  assert.match(r.ctx.calls.content.at(-1), /25 MIN/); assert.match(r.ctx.calls.content.at(-1), /1 OF 2/);
+  assert.match(r.ctx.calls.content.at(-1), /25 MIN/);
+  assert.match(r.ctx.calls.content.at(-1), /TIMER 2 OF 2/, "the selected new timer is the second service timer");
   assert.ok(r.hand.labels.some((l) => l.startsWith("NEXT TIMER")));
   r.hand.to("NEXT TIMER").hold();
   assert.match(r.ctx.calls.content.at(-1), /cad-timer-big[^>]*>2[45]:\d\d</);
+  assert.match(r.ctx.calls.content.at(-1), /TIMER 1 OF 2/, "NEXT selects the first service timer and updates its number");
   // acting on the large timer only
   r.hand.to("CANCEL").hold();
   assert.equal(r.ctx.state().timers.length, 1); assert.equal(r.ctx.state().timers[0].duration, 300);

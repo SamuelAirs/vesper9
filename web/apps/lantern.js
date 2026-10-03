@@ -198,6 +198,7 @@ export class Lantern {
     this.previewStart = 0;
     this.items = []; // the actions as last published, and where the host's highlight is
     this.cursor = 0;
+    this.focusVersion = 0;
     this.down = null; // the press in progress, for counting taps
     this.clock = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
     this.render();
@@ -404,7 +405,7 @@ export class Lantern {
     if (e.pressed) {
       if (e.repeat) return;
       const node = Number.isFinite(e.at_us);
-      this.down = { stamp: node ? e.at_us / 1000 : this.clock(), node, arrival: this.clock() };
+      this.down = { stamp: node ? e.at_us / 1000 : this.clock(), node, arrival: this.clock(), focusVersion: this.focusVersion };
       return;
     }
     const d = this.down;
@@ -412,6 +413,7 @@ export class Lantern {
     if (!d) return; // a release whose press the host took for something else
     const dur = d.node && Number.isFinite(e.at_us) ? e.at_us / 1000 - d.stamp : this.clock() - d.arrival;
     if (!(dur >= 0) || dur >= (Number.isFinite(this.ctx.settings?.().holdMs) ? this.ctx.settings().holdMs : 650)) return;
+    if (d.focusVersion !== this.focusVersion) return; // the host already reported this highlight
     if (!this.items.length) return;
     this.cursor = (this.cursor + 1) % this.items.length;
     this.setPreview(this.items[this.cursor].preview || null);
@@ -419,6 +421,15 @@ export class Lantern {
   // The host dropped held input (the system menu gesture, or focus moving). Taps it let
   // through already moved the highlight, so the preview stays with the highlight.
   cancel() { this.down = null; }
+
+  highlight(index) {
+    if (this.dead || this.paused || !this.items[index]) return;
+    this.focusVersion++;
+    // Opening a palette leaves the saved scene showing until the first step.
+    if (index === this.cursor && !this.preview) return;
+    this.cursor = index;
+    this.setPreview(this.items[index].preview || null);
+  }
 
   // The host keeps the highlight on the action with the same id, else on the same row number,
   // which after a menu change is an arbitrary row (once it was RETURN TO DASHBOARD). So the
@@ -455,7 +466,7 @@ export class Lantern {
       case "scene":
         items = [
           withScene("steady", "STEADY LIGHT"), withScene("candle"), withScene("breathe"), withScene("aurora"), withScene("tide"),
-          { id: "sets", label: mark(this.s.scene === "set") + "THREE-LAMP SETS →", run: () => this.go("sets") },
+          { id: "sets", label: mark(this.s.scene === "set") + "LAMP PALETTES →", run: () => this.go("sets") },
           { id: "night", label: mark(this.s.scene === "ember" || this.s.scene === "sunrise") + "EMBER AND SUNRISE →", run: () => this.go("night") },
           back("main", "scene"),
         ];
@@ -516,7 +527,7 @@ export class Lantern {
         );
     }
     this.focusOn(items, want, park);
-    this.ctx.actions(items);
+    this.ctx.actions(items, { onFocus: (index) => this.highlight(index) });
     this.ctx.hint(hint);
   }
   tick() {

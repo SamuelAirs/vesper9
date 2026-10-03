@@ -29,7 +29,8 @@ MONTHS = ["January", "February", "March", "April", "May", "June", "July", "Augus
 # Page furniture that is not part of the text a person reads.
 SKIP_CLASSES = ("infobox", "navbox", "reflist", "references", "mw-references", "metadata", "noprint",
                 "thumb", "gallery", "mw-editsection", "reference", "toc", "sistersitebox", "ambox",
-                "navigation-not-searchable", "mw-cite-backlink", "external")
+                "navigation-not-searchable", "mw-cite-backlink", "external", "catlinks", "mw-normal-catlinks",
+                "mw-hidden-catlinks", "zim-footer")
 VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
 
 

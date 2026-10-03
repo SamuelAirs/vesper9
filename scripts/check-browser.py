@@ -15,7 +15,7 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
-CHECKS = ['browser-smoke', 'extension-smoke', 'host-browser', 'voice-host', 'twinbeat-browser', 'soak']
+CHECKS = ['browser-smoke', 'extension-smoke', 'host-browser', 'voice-host', 'twinbeat-browser', 'save-browser', 'utility-polish', 'game-polish-browser', 'soak']
 
 
 def main():

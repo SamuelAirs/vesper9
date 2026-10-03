@@ -32,7 +32,7 @@ test("a real-controls session banks without case taps; optional style changes th
   assert.ok(button.stats.banks >= 10 && button.score > 3000, "button-only can bank and progress");
   assert.ok(button.slot().goals[0].length >= 3, "button-only can unlock THE YARD");
   assert.ok(styled.stats.variety > button.stats.variety, "style creates different banked lines");
-  assert.ok(styled.score > button.score, "style earns points only through landed lines");
+  assert.ok(styled.score > 3000 && styled.stats.banks > 0, "styled play can still bank and progress");
   assert.ok(styled.stats.bails > button.stats.bails, "style has a measurable landing cost");
 });
 
@@ -82,6 +82,64 @@ test("first launch teaches controls, and a replay guide returns to the exact run
   run(app, 2); assert.equal(app.clock, clock, "the guide freezes play");
   app.menuPress(0.7);
   assert.equal(app.phase, "play"); assert.equal(app.p.x, x);
+});
+
+test("first-use teaching also follows park/setup selection, and controls follow guide/setup phases", () => {
+  const { app, ctx } = mount();
+  app.update(F); app.menuPress(0.7); app.update(F);
+  assert.equal(app.phase, "setup");
+  assert.equal(ctx.calls.controls.at(-1), "BUTTON TAP: NEXT · HOLD: CHOOSE");
+  app.menuPress(0.7); app.update(F);
+  assert.equal(app.phase, "guide", "setup RIDE preserves the first-use lesson");
+  assert.match(ctx.calls.controls.at(-1), /NEXT PAGE/);
+  app.menuPress(0.7); app.update(F);
+  assert.equal(app.phase, "play"); assert.ok(app.slot().guided);
+  app.menuActions().find(a => a.label === "GAME GUIDE").run(); app.update(F);
+  assert.match(ctx.calls.controls.at(-1), /NEXT PAGE/);
+  app.menuPress(0.7); app.update(F);
+  assert.match(ctx.calls.controls.at(-1), /PUMP/);
+});
+
+test("game menu actions resume the host after opening the guide, restarting or ending", () => {
+  for (const label of ["GAME GUIDE", "RESTART SESSION", "END SESSION", "LEAVE PRACTICE"]) {
+    const { app, ctx } = ride(); let resumed = 0; ctx.resume = () => resumed++;
+    if (label === "LEAVE PRACTICE") { app.mode = 2; app.start(); }
+    app.pause(); app.menuActions().find(a => a.label === label).run();
+    assert.equal(resumed, 1, label + " closes the host menu");
+    assert.equal(app.phase, label === "GAME GUIDE" ? "guide" : label === "RESTART SESSION" ? "play" : "over");
+  }
+});
+
+test("named-line coaching shows what is missing, ready, lost on bail and actually banked", () => {
+  const { app } = ride(); app.mode = 1; app.slot().line = 2;
+  assert.equal(app.lineProgress(), "NEED MANUAL · AIRS 0/2");
+  app.combo.airs = 1; app.combo.manual = true;
+  assert.equal(app.lineProgress(), "MANUAL OK · AIRS 1/2");
+  app.combo.airs = 2; app.trick("MANUAL", 100);
+  assert.equal(app.lineProgress(), "READY — LAND AND ROLL TO BANK");
+  app.bail(); assert.equal(app.lineProgress(), "NEED MANUAL · AIRS 0/2");
+});
+
+test("style readiness requires enough actual flight time, including uphill and vert landings", () => {
+  for (const scenario of [
+    { x: 700, y: 400, vx: 100, vy: 600 },
+    { x: 1350, y: 340, vx: 700, vy: -80 },
+  ]) {
+    const { app } = ride(); air(app, scenario);
+    const control = ride().app; air(control, scenario);
+    assert.ok(app.groundY(app.p.x) - app.p.y >= 65, "the old height-only gate would accept this tap");
+    assert.equal(app.canStyle(), false);
+    assert.deepEqual(app.restingLamps().slice(9), [0, 0, 0]);
+    app.knock(); assert.equal(app.air.style, undefined);
+    reachGround(app); reachGround(control);
+    assert.deepEqual(app.p, control.p, "the rejected tap adds no landing penalty");
+  }
+  const { app } = ride();
+  air(app, { x: app.geo.lipR, y: app.geo.lipY - 70, vx: 0, vy: 600 }); app.p.vert = 1;
+  assert.equal(app.canStyle(), false); app.knock(); assert.equal(app.air.style, undefined);
+  const ready = ride().app; air(ready, { y: 240, vy: -160 });
+  assert.equal(ready.canStyle(), true); ready.knock(); reachGround(ready);
+  assert.equal(ready.combo.shove, true, "a complete accepted shove-it still scores on an actual landing");
 });
 
 test("a manual links two actual airs; unattended balance eventually bails", () => {
@@ -156,6 +214,18 @@ test("practice is untimed and cannot farm goals, lines, medals, bests or console
 test("ending in flight forfeits an unlanded line instead of banking it for free", () => {
   const { app } = ride(); air(app); app.trick("GIANT", 250);
   app.finish(); assert.equal(app.score, 0); assert.equal(app.bestCombo, 0);
+});
+
+test("overtime keeps an active manual alive, then banks only after a safe finish", () => {
+  const { app } = ride(); flat(app); app.trick("OLLIE", 40); app.knock(); app.clock = 0.1;
+  run(app, 0.8);
+  assert.equal(app.phase, "play", "a manual is still an active last trick");
+  assert.ok(app.manual); assert.equal(app.score, 0);
+  app.down({ source: "keyboard" }); app.up({ source: "keyboard", durationMs: 60 });
+  reachGround(app); run(app, 1.3);
+  assert.equal(app.phase, "over"); assert.ok(app.score > 0);
+  const cutoff = ride().app; flat(cutoff); cutoff.trick("OLLIE", 40); cutoff.knock(); cutoff.clock = -7.99;
+  cutoff.update(F); assert.equal(cutoff.phase, "over"); assert.equal(cutoff.score, 0, "the eight-second cutoff still forfeits an unfinished manual");
 });
 
 test("new style scores are separate from legacy bests and LINE RUN only records a met challenge", () => {

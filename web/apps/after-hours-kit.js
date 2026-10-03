@@ -11,6 +11,12 @@ import { lamps } from "../engine/lightshow.js";
 // A press at least this long, then released, chooses. Shorter presses are taps.
 export const HOLD = 0.5;
 
+// Game-owned menu actions draw on the canvas. Close the system overlay after
+// they succeed so their guide/new-run screen is visible and lamps wake again.
+export function resumeActions(ctx, actions) {
+  return actions.map((action) => ({ ...action, run: () => { action.run(); ctx.resume?.(); } }));
+}
+
 // Case taps complement the button: reverse a choice without committing it. Calibrated right
 // taps optionally step forward. A tap while the button is held must never move its target.
 export function caseChoice(game, event = {}, pages = 1) {

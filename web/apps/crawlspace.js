@@ -7,7 +7,7 @@ import { clamp } from "../engine/math.js";
 import { LAMP, lamps, dim, fill, ramp, blink } from "../engine/lightshow.js";
 import { AppGuard } from "../engine/input.js";
 import { LampBus, LOCKOUT } from "./game-kit.js";
-import { HOLD, lampCount, withFourth, holdFraction, drawGuide, drawPressHelp, caseChoice, choiceAccent } from "./after-hours-kit.js";
+import { HOLD, resumeActions, lampCount, withFourth, holdFraction, drawGuide, drawPressHelp, caseChoice, choiceAccent } from "./after-hours-kit.js";
 
 // After an action lands, presses are ignored this long so one press is one action.
 export const ACTION_LOCK = 0.35;
@@ -375,7 +375,7 @@ export class Crawlspace {
   menuActions() {
     const actions = [{ label: "GAME GUIDE", run: () => this.openGuide() }, { label: "NEW HOUSE", run: () => { this.guide = -1; this.start(0); } }];
     if (this.sv.unlockedHeat > 0) actions.push({ label: "HEAT " + this.sv.unlockedHeat + " HOUSE", run: () => { this.guide = -1; this.start(this.sv.unlockedHeat); } });
-    return actions;
+    return resumeActions(this.c, actions);
   }
   update(dt) {
     choiceAccent(this);

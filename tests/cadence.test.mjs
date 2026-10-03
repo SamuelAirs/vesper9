@@ -572,3 +572,11 @@ test("RESET on the stopwatch leaves START highlighted", () => {
   hand.hold();
   assert.equal(hand.label, "START");
 });
+
+test("the timer header identifies the selected timer rather than always saying first", () => {
+  const timers = ["first", "second", "third"].map((id, i) => ({ id, label: id, running: true, remaining: 60 * (i + 1), duration: 60 * (i + 1) }));
+  const { app } = open({ state: { timers } });
+  app.go("timer"); assert.match(app.timerHtml(app.clock()), /TIMER 1 OF 3/);
+  app.nextTimer(); assert.match(app.timerHtml(app.clock()), /TIMER 2 OF 3/);
+  app.nextTimer(); assert.match(app.timerHtml(app.clock()), /TIMER 3 OF 3/);
+});

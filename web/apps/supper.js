@@ -7,7 +7,7 @@ import { clamp } from "../engine/math.js";
 import { LAMP, lamps, dim, ramp, blink } from "../engine/lightshow.js";
 import { AppGuard } from "../engine/input.js";
 import { LampBus, LOCKOUT } from "./game-kit.js";
-import { HOLD, lampCount, withFourth, holdFraction, drawGuide, drawPressHelp, caseChoice, choiceAccent } from "./after-hours-kit.js";
+import { HOLD, resumeActions, lampCount, withFourth, holdFraction, drawGuide, drawPressHelp, caseChoice, choiceAccent } from "./after-hours-kit.js";
 
 // How fast the kitchen runs while the button is down (and slow-time is left).
 export const SLOW = 0.18;
@@ -227,7 +227,7 @@ export class Supper {
   }
 
   menuActions() {
-    return [{ label: "GAME GUIDE", run: () => this.openGuide() }, { label: "NEW SERVICE", run: () => { this.guide = -1; this.start(); } }];
+    return resumeActions(this.c, [{ label: "GAME GUIDE", run: () => this.openGuide() }, { label: "NEW SERVICE", run: () => { this.guide = -1; this.start(); } }]);
   }
 
   act(index) {

@@ -1,5 +1,14 @@
 # Installation and bring-up
 
+**For the current finished-node candidate, use [PI-ACCEPTANCE.md](PI-ACCEPTANCE.md)
+first.** Sam's existing service runs from `live/`, not the main checkout. Trial
+the candidate in a new directory with a consistent private save copy and the
+exact existing service options; review before switching or restarting. The
+generic installation procedure below is not an instruction to replace that
+running installation. The current node is board 2 (four lamps, two microphones,
+board LED, no environmental sensor); bundled prebuilt 0.1.2 is board 1. No
+firmware change is needed for this application refresh.
+
 ## Updating an existing VESPER installation
 
 Extract 0.2.0 into a new folder. Preserve your working copy and consistently back up its data while its service is stopped. The bundled node firmware is unchanged; do not reflash an already compatible VESPER node just to update the app. Point the new service at the existing data directory:
@@ -50,7 +59,7 @@ sudo usermod -aG dialout "$USER"
 
 Log out and back in after changing group membership. Close serial monitors, Arduino IDE monitors, and any previous program using the COM port before flashing or starting VESPER.
 
-## 2. Install the supplied node firmware
+## 2. Firmware replacement (only if separately required)
 
 The Pi runtime speaks the VESPER v1 protocol; it cannot infer the format used by an existing sketch. The supplied firmware is a complete replacement for the node program and uses the existing wiring. Your board description specifies 16 MB flash and 8 MB octal PSRAM. Review `firmware/main/hardware.h` if your board variant uses nonstandard UART pins.
 

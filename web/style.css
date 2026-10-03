@@ -813,6 +813,20 @@ main {
   color: var(--muted);
   margin: 16px 0 0;
 }
+#save-status {
+  position: fixed;
+  top: 44px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 31;
+  max-width: calc(100% - 24px);
+  padding: 6px 12px;
+  border: 1px solid var(--amber);
+  border-radius: 3px;
+  background: var(--screen);
+  color: var(--amber);
+  font-size: 11px;
+}
 #toast {
   position: fixed;
   left: 50%;

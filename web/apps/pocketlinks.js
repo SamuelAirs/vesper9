@@ -6,7 +6,7 @@ import { clamp } from "../engine/math.js";
 import { LAMP, lamps, fill, dim, meter, spot } from "../engine/lightshow.js";
 import { AppGuard } from "../engine/input.js";
 import { LampBus, LOCKOUT } from "./game-kit.js";
-import { HOLD, lampCount, withFourth, drawGuide } from "./after-hours-kit.js";
+import { HOLD, resumeActions, lampCount, withFourth, drawGuide } from "./after-hours-kit.js";
 
 export const COURSE_W = 680;
 export const COURSE_H = 328;
@@ -297,7 +297,7 @@ export class PocketLinks {
     if (this.phase === "title") this.start();
   }
   menuActions() {
-    return [{ label: "GAME GUIDE", run: () => this.openGuide() }, { label: "NEW ROUND", run: () => { this.guide = -1; this.start(); } }];
+    return resumeActions(this.c, [{ label: "GAME GUIDE", run: () => this.openGuide() }, { label: "NEW ROUND", run: () => { this.guide = -1; this.start(); } }]);
   }
   shoot(power, angle) {
     if (this.stage !== "charge" && this.stage !== "aim") return;

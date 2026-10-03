@@ -100,6 +100,16 @@ class Parsing(unittest.TestCase):
         self.assertEqual([b[1] for b in blocks], ["One two", "three"])
         self.assertEqual(links, [["two", "X", 0]])
 
+    def test_categories_and_kiwix_footer_are_not_article_text_or_link_choices(self):
+        markup = """<h1>Village</h1><p>A village in <a href='Illinois'>Illinois</a>.</p>
+        <div class='catlinks'><div class='mw-normal-catlinks'>Category: Villages</div>
+        <div class='mw-hidden-catlinks'>Hidden category: geography stubs</div></div>
+        <div class='zim-footer'>This page is issued from <a href='Boilerplate'>source</a>.</div>"""
+        blocks, links, sections = parse_article(markup, "Village")
+        self.assertEqual(blocks, [["h", "Village"], ["p", "A village in Illinois."]])
+        self.assertEqual(links, [["Illinois", "Illinois", 1]])
+        self.assertEqual(sections, [["Village", 0]])
+
 
 @unittest.skipIf(Creator is None, "libzim is not installed")
 class Archive(unittest.TestCase):

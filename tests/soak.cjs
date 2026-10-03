@@ -17,6 +17,7 @@ const procMatches=(()=>{try{return Number(/^Pid:\s+(\d+)/m.exec(fs.readFileSync(
  const page=await browser.newPage({viewport:{width:1280,height:720}}), errors=[],samples=[];
  page.on('pageerror',e=>errors.push(e.message));
  await page.goto(origin);await page.waitForFunction(()=>vesper.loaded);
+ const build=await page.evaluate(()=>vesper.state.build), startedUtc=new Date().toISOString();
  await page.evaluate(async()=>{await vesper.bridge.command('settings',{key:'sound',value:false});await vesper.bridge.command('timer',{op:'create',seconds:15,label:'SOAK TIMER'});vesper.launch('runner');});
  let speech=null;
  if(process.env.SOAK_WAV){
@@ -32,11 +33,26 @@ const procMatches=(()=>{try{return Number(/^Pid:\s+(\d+)/m.exec(fs.readFileSync(
   speech=await page.evaluate(async()=>({state:(await vesper.bridge.get('state')).mic,sessions:await vesper.bridge.get('sessions')}));
   assert.equal(speech.state.mode,'off');assert.equal(speech.state.droppedChunks,0);assert.ok(speech.sessions[0]?.lines>0);
  }
- const started=Date.now();const apps=['orbit','runner','drift','echo','reaction','glyphs','morse','timers','environment','transcribe','diagnostics','settings'];
- let cycle=-1,reconnected=false;
+ // Read the current registry: the old fixed twelve-app rotation omitted the
+ // newer games and readers, so even a long run never exercised their lifetimes.
+ const apps=await page.evaluate(async()=>{
+  const {APPS}=await import('/apps/registry.js');
+  return ['highbar','twinbeat','wayfinder',...APPS.map(app=>app.id)].filter((id,index,all)=>all.indexOf(id)===index);
+ });
+ const started=Date.now(), visited=new Set();
+ let cycle=-1,reconnected=false, strokes=0;
  while(Date.now()-started<seconds*1000){
   const elapsed=(Date.now()-started)/1000,next=Math.floor(elapsed/20);
-  if(next!==cycle){cycle=next;await page.evaluate(id=>vesper.launch(id),apps[cycle%apps.length]);}
+  if(next!==cycle){
+   cycle=next;const id=apps[cycle%apps.length];visited.add(id);
+   await page.evaluate(id=>vesper.launch(id),id);
+   // Several current cartridges select their first canvas row with a hold.
+   // Exercise actual input rather than leaving those games on their title.
+   if(['twinbeat','wayfinder','crawlspace','supper','nightgrid','pocketlinks'].includes(id)){
+    await page.evaluate(()=>vesper.softwareButton(true));await pause(800);
+    await page.evaluate(()=>vesper.softwareButton(false));
+   }
+  }
   if(elapsed>seconds/2&&!reconnected){
    reconnected=true;await page.evaluate(()=>{vesper.bridge.ws.close();});
    await page.waitForFunction(()=>vesper.bridge.connected&&vesper.state.controller!==false&&vesper.state.device.connected);
@@ -45,10 +61,12 @@ const procMatches=(()=>{try{return Number(/^Pid:\s+(\d+)/m.exec(fs.readFileSync(
   await page.evaluate(()=>{if(vesper.inputMode()==='raw')vesper.softwareButton(true);});
   await pause(cycle%2?220:70);
   await page.evaluate(()=>vesper.softwareButton(false));
-  const sample=await page.evaluate(()=>({app:vesper.meta?.id,frames:vesper.frameStats(),errors:vesper.errors.slice(),pending:vesper.bridge.pending.size,mic:vesper.state.mic.mode,heap:performance.memory?.usedJSHeapSize||null}));
+  if(++strokes%3===0)await page.evaluate(()=>{if(vesper.inputMode()==='raw')vesper.softwareKnock();});
+  const sample=await page.evaluate(()=>({app:vesper.meta?.id,phase:vesper.app?.phase||vesper.app?.phase_||null,frames:vesper.frameStats(),errors:vesper.errors.slice(),pending:vesper.bridge.pending.size,mic:vesper.state.mic.mode,heap:performance.memory?.usedJSHeapSize||null}));
   if(!samples.length||elapsed-samples.at(-1).elapsed>=15){
    let rss=null;try{if(procMatches)rss=Number(/VmRSS:\s+(\d+)/.exec(fs.readFileSync('/proc/'+server.pid+'/status','utf8'))?.[1])||null;}catch{}
    samples.push({elapsed:Math.round(elapsed),...sample,pythonRssKiB:rss});
+   fs.writeFileSync(path.join(output,'soak-progress.json'),JSON.stringify({startedUtc,build,elapsed:Math.round(elapsed),visitedApps:[...visited],sample:samples.at(-1)},null,2));
   }
   assert.deepEqual(sample.errors,[]);assert.deepEqual(errors,[]);assert.ok(sample.pending<10);assert.equal(sample.mic,'off');
   await pause(900);
@@ -56,7 +74,8 @@ const procMatches=(()=>{try{return Number(/^Pid:\s+(\d+)/m.exec(fs.readFileSync(
  await page.evaluate(()=>vesper.home());await page.waitForFunction(()=>vesper.state.leds.every(n=>n===0));
  const state=await page.evaluate(()=>vesper.bridge.get('state'));
  assert.equal(state.mic.mode,'off');assert.equal(state.device.capture,false);assert.equal(state.timers[0].finished,true);
- const result={passed:true,scope:'Development-host simulated node; not Pi/hardware',browser:await browser.version(),durationSeconds:(Date.now()-started)/1000,reconnected,recordedSpeech:speech?{passed:true,savedLines:speech.sessions[0].lines,droppedChunks:speech.state.droppedChunks}:null,timerCompleted:true,endsMuted:true,samples,pageErrors:errors};
+ if(seconds>=apps.length*20)assert.equal(visited.size,apps.length,'a complete-duration soak must visit every current cartridge');
+ const result={passed:true,scope:'Development-host simulated node; not Pi/hardware',startedUtc,build,browser:await browser.version(),durationSeconds:(Date.now()-started)/1000,registeredApps:apps,visitedApps:[...visited],reconnected,recordedSpeech:speech?{passed:true,savedLines:speech.sessions[0].lines,droppedChunks:speech.state.droppedChunks}:null,timerCompleted:true,endsMuted:true,samples,pageErrors:errors};
  fs.writeFileSync(path.join(output,'soak-results.json'),JSON.stringify(result,null,2));
  console.log(JSON.stringify({passed:true,durationSeconds:result.durationSeconds,samples:samples.length,recordedSpeech:result.recordedSpeech,endsMuted:true}));
 })().catch(e=>{console.error(e);console.error(logs.slice(-1800));process.exitCode=1;}).finally(async()=>{if(browser)await browser.close();await require('./browser-cleanup.cjs')(server,data);});

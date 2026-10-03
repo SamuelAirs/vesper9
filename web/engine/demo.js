@@ -51,7 +51,7 @@ export class DemoBridge extends EventTarget {
   emit(event) {
     this.dispatchEvent(new CustomEvent("event", { detail: event }));
   }
-  save() {
+  save(required = false) {
     try {
       localStorage.setItem(
         "vesper-demo",
@@ -62,7 +62,9 @@ export class DemoBridge extends EventTarget {
           progress: this.state.progress,
         }),
       );
-    } catch {}
+    } catch (error) {
+      if (required) throw new Error("Browser storage could not save progress: " + error.message);
+    }
   }
   connect() {
     queueMicrotask(() => {
@@ -205,11 +207,11 @@ export class DemoBridge extends EventTarget {
         this.state.scores[key] || 0,
         data.score,
       );
-      this.save();
+      this.save(true);
       this.emit({ type: "scores", scores: this.state.scores });
     } else if (command === "progress") {
       this.state.progress[data.app] = data.value;
-      this.save();
+      this.save(true);
     } else if (command === "settings") {
       this.state.settings[data.key] = data.value;
       this.save();

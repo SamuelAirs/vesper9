@@ -59,6 +59,21 @@ test("the shelf keeps unavailable books' bookmarks accessible and explains how t
   app.rows()[1].run(); assert.equal(app.notice.title, "BOOK NOT ON THE SHELF"); assert.equal(app.save.marks.length, 1);
   app.step(); app.rows()[0].run(); assert.equal(app.phase, "shelf");
 });
+
+test("a failed chapter waits for an intentional retry instead of requesting on every frame", async () => {
+  let chapterRequests = 0;
+  const { app } = mount({ get: (path) => {
+    if (path === "library") return { books: [BOOK] };
+    chapterRequests++;
+    throw new Error("temporarily unavailable");
+  } });
+  await settle(); app.openBook(BOOK); await settle();
+  for (let i = 0; i < 10; i++) { run(app, .1); app.draw(fakeCanvas()); await settle(); }
+  assert.equal(chapterRequests, 1);
+  assert.ok(app.data.failed.has(BOOK.id + ":0"));
+  tap(app); await settle(); run(app, .1); await settle();
+  assert.equal(chapterRequests, 2, "a deliberate page tap retries once");
+});
 async function openBook(app) {
   await settle();
   while (app.rows()[app.cursor].book?.id !== BOOK.id) tap(app);

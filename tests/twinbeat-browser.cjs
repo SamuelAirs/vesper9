@@ -36,6 +36,7 @@ const check = (name, ok, detail) => {
   await page.goto(origin);
   await page.waitForFunction(() => window.vesper?.loaded);
   const shot = name => page.screenshot({ path: path.join(output, name + '.png') });
+  const drainSaves = () => page.waitForFunction(() => !vesper.saves.status().pending);
   const button = async (ms = 60) => {
     await page.keyboard.down('Space');
     await page.waitForFunction(() => !!vesper.input.press);
@@ -146,6 +147,7 @@ const check = (name, ok, detail) => {
     { sent: assist.pilot.sent.length, phase: assist.phase, progress: assist.progress, frameStats: assist.stats });
   await shot('result-assist');
   await fit('assist result');
+  await drainSaves();
   const storedAssist = await fetch(origin + '/api/state').then(response => response.json());
   check('service received the assist career and score', storedAssist.progress.twinbeat?.careers?.assist?.[0]?.cleared &&
     storedAssist.scores['twinbeat:assist'] > 0 && !storedAssist.scores['twinbeat:sides'],
@@ -248,6 +250,7 @@ const check = (name, ok, detail) => {
     sides.pilot.knocks);
   await shot('result-two-side');
   await fit('two-side result');
+  await drainSaves();
   const storedSides = await fetch(origin + '/api/state').then(response => response.json());
   check('service keeps separate assist and two-side scores', storedSides.scores['twinbeat:assist'] > 0 &&
     storedSides.scores['twinbeat:sides'] > 0 && storedSides.progress.twinbeat?.careers?.sides?.[0]?.cleared,

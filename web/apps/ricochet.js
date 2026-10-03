@@ -209,6 +209,10 @@ export class Ricochet {
     this.R = { picks: 0, practice: 0, bonuses: 0, twin: 0, sweep: 0, blast: 0, relay: 0, few: 0, lastBall: 0, cells: 0, lostHere: 0, touchesHere: 0 };
     this.fresh = [];
     this.orderMet = false;
+    this.training = false;
+    this.trainingCleared = false;
+    this.practiceChamber = 1;
+    this.practiceCursor = 1;
     // Today's order, only on the days the logbook picks Ricochet and while it is not yet met.
     this.order = todayOrder(this.ctx, ricochetOrder(this.dayKey()));
     this.news = null;
@@ -283,6 +287,12 @@ export class Ricochet {
     }
     this.R.touchesHere = 0;
     this.R.lostHere = 0;
+    // Reaching a room earns its practice access immediately, even if this run
+    // is later abandoned. AppGuard defers a save made by a menu gesture.
+    if (this.phase === "play" && !this.training && ch > 1 && ch > this.sv.st.far) {
+      this.sv.st.far = ch;
+      this.persist();
+    }
     this.checkGoals(); // reaching a chamber can meet the order or a feat
     this.remaining = 0;
     for (const c of this.cells) if (c) this.remaining++;
@@ -325,6 +335,11 @@ export class Ricochet {
 
   // Acoustic taps use arrival time for a broad turn; they never replace collision timing.
   knock(event = {}) {
+    if (this.phase === "practice" && !this.pressing) {
+      const forward = this.ctx.settings?.().tapMode === "sides" && event.side === "right";
+      this.practiceCursor = (this.practiceCursor + (forward ? 1 : -1) + this.practiceLimit() + 1) % (this.practiceLimit() + 1);
+      return;
+    }
     if (this.phase !== "play" || this.pressing || this.frozen) return;
     if (this.sub === "pick") {
       const side = this.ctx.settings?.().tapMode === "sides" ? event.side : "";
@@ -344,9 +359,10 @@ export class Ricochet {
     this.#rewound = false;
     if (this.phase === "title") return this.begin();
     if (this.phase === "over") {
-      if (this.t - this.endedAt > 0.8) this.begin();
+      if (this.t - this.endedAt > 0.8) this.begin(this.practiceChamber, this.training);
       return;
     }
+    if (this.phase === "practice") { this.pressing = true; this.heldTime = 0; return; }
     if (this.phase !== "play") return;
     this.downs.shift();
     this.downs.push(this.clock);
@@ -361,6 +377,12 @@ export class Ricochet {
 
   up() {
     this.guard.release();
+    if (this.phase === "practice" && this.pressing) {
+      if (this.heldTime >= (this.ctx.settings?.().holdMs || 650) / 1000) {
+        if (this.practiceCursor) this.begin(this.practiceCursor, true);
+        else { this.phase = "title"; this.reset(); this.setupChamber(1); }
+      } else this.practiceCursor = (this.practiceCursor + 1) % (this.practiceLimit() + 1);
+    }
     if (this.phase === "play" && this.sub === "pick" && this.pressing) {
       if (this.heldTime >= PICK_HOLD) this.take();
       else { this.offer.cur = 1 - this.offer.cur; this.offer.t = 0; this.ctx.tone(this.offer.cur ? 660 : 523, 0.05, "sine"); }
@@ -393,18 +415,34 @@ export class Ricochet {
   dispose() {
     this.guard.settle();
     // Leaving for good mid-run: today's order met or a feat earned on the way is kept.
-    if (this.phase === "play" && (this.orderMet || this.fresh.length)) this.persist();
+    if (this.phase === "play" && !this.training && (this.orderMet || this.fresh.length)) this.persist();
     this.pressing = false;
     this.ctx.synth?.stopTone?.();
     this.ctx.leds(lightsOff(this.lampCount()));
     this.ctx.board?.(LAMP.off);
   }
 
-  begin() {
+  begin(chamber = 1, training = false) {
+    const target = training ? clamp(Math.floor(num(chamber, 1)), 1, this.practiceLimit()) : 1;
     this.reset();
+    this.training = training === true;
+    this.practiceChamber = target;
+    if (this.training) this.order = null;
     this.phase = "play";
-    this.setupChamber(1);
+    this.padW = padWidth(target);
+    this.setupChamber(target);
     this.setHint("Button or case tap reverses the paddle. Meet the amber bracket.");
+  }
+  practiceLimit() { return Math.max(1, this.sv.st.far); }
+  openPractice() {
+    if (this.phase === "play" && !this.training) this.end();
+    this.phase = "practice";
+    this.pressing = false; this.heldTime = 0;
+    this.practiceCursor = this.practiceLimit();
+    this.setHint("Tap: next chamber. Case: previous. Hold-release: practice. Return to title follows the last chamber.");
+  }
+  menuActions() {
+    return [{ label: this.phase === "play" && !this.training ? "RICOCHET / END RUN AND PRACTICE" : "RICOCHET / PRACTICE CHAMBERS", run: () => { this.openPractice(); this.ctx.resume?.(); } }];
   }
 
   // ---- ball physics ------------------------------------------------------
@@ -639,6 +677,7 @@ export class Ricochet {
     this.t += dt;
     this.frame++;
     if (this.phase === "play") this.step(dt);
+    else if (this.phase === "practice" && this.pressing) this.heldTime += dt;
     this.lampOutput();
     this.ctx.board?.(this.phase === "play" && this.sub === "pick" ? dim(LAMP.cyan, 0.18) : this.phase === "play" && this.turnT > 0 ? dim(LAMP.amber, 0.2) : LAMP.off);
     if (this.frame % 6 === 0) this.updateHud();
@@ -829,6 +868,7 @@ export class Ricochet {
     this.ctx.tone(659, 0.3, "triangle");
     this.setHint("Chamber cleared.");
     this.checkGoals();
+    if (this.training) { this.trainingCleared = true; this.phase = "over"; this.endedAt = this.t; this.setHint("Practice cleared. Tap to replay; choose Practice Chambers in the system menu to change room."); }
   }
   // Today's order and feats, checked whenever a tally moves. News shows under the clear banner or
   // in the announcement slot. Both reach the logbook at once (AppGuard holds them while a menu
@@ -842,7 +882,7 @@ export class Ricochet {
     return this.R.sweep >= 1;
   }
   checkGoals() {
-    if (this.phase !== "play") return;
+    if (this.phase !== "play" || this.training) return;
     if (this.order && !this.orderMet && this.orderDone()) {
       this.orderMet = true;
       this.ctx.dailyMet?.();
@@ -865,6 +905,7 @@ export class Ricochet {
     this.phase = "over";
     this.endedAt = this.t;
     this.pressing = false;
+    if (this.training) { this.setHint("Practice ended. Tap to retry; choose Practice Chambers in the system menu to change room."); return; }
     this.ctx.score(this.score);
     const sv = this.sv, R = this.R;
     sv.runs++;
@@ -884,11 +925,11 @@ export class Ricochet {
   }
 
   updateHud() {
-    const key = this.phase + this.score + "/" + this.chamber + "/" + this.lives + "/" + this.ctx.best();
+    const key = this.phase + this.training + this.score + "/" + this.chamber + "/" + this.lives + "/" + this.ctx.best();
     if (key === this.lastKey) return;
     this.lastKey = key;
     this.ctx.hud([
-      ["SCORE", this.score],
+      [this.training ? "PRACTICE" : "SCORE", this.score],
       ["CHAMBER", this.chamber],
       ["BALLS", this.phase === "title" ? LIVES : this.lives],
       ["BEST", this.ctx.best()],
@@ -904,10 +945,11 @@ export class Ricochet {
   lampCount() { return this.ctx.lampCount?.() === 4 ? 4 : 3; }
   lampValues() {
     const t = this.t, n = this.lampCount();
+    if (this.phase === "practice") return lightsOff(n);
     if (this.phase === "title") return spot(0.5 + 0.5 * Math.sin(t * 0.7), dim(LAMP.green, 0.14), 0.75, n);
     if (this.phase === "over") {
       const k = 0.02 + 0.07 * pulse(t, 0.4);
-      return lamps(...Array(n).fill(dim(LAMP.red, k)));
+      return lamps(...Array(n).fill(dim(this.trainingCleared ? LAMP.green : LAMP.red, k)));
     }
     if (this.sub === "dying") {
       const age = (this.clock - this.lostAt) / 1.2;
@@ -992,9 +1034,16 @@ export class Ricochet {
     g.translate?.(shake, 0);
     this.drawChamber(g);
     g.restore?.();
-    if (this.phase === "title") {
+    if (this.phase === "practice") {
+      panel(g, 100, 430);
+      text(g, "CHAMBER PRACTICE", 480, 145, 32, C.cyan, "center");
+      text(g, "REACHED CHAMBERS 1–" + this.practiceLimit(), 480, 190, 18, C.muted, "center");
+      text(g, this.practiceCursor ? "CHAMBER " + this.practiceCursor : "RETURN TO TITLE", 480, 270, 40, C.ink, "center");
+      text(g, "SINGLE ROOM / FRESH PADDLE / NO CAREER REWARDS", 480, 322, 18, C.amber, "center");
+      text(g, "TAP: NEXT / CASE: PREVIOUS / HOLD RELEASE: START", 480, 384, 18, C.muted, "center");
+    } else if (this.phase === "title") {
       banner(g, "RICOCHET", "TAP TO REVERSE THE PADDLE / BREAK THE LATTICE");
-      text(g, "THE LAMPS FOLLOW THE BALL: GREEN HIGH, RED LOW", 480, 392, 18, C.muted, "center");
+      text(g, "SYSTEM MENU: PRACTICE THE CHAMBERS YOU HAVE REACHED", 480, 392, 18, C.muted, "center");
       this.drawGoals(g, 430);
     } else if (this.phase === "play") {
       this.drawPlay(g);
@@ -1167,14 +1216,14 @@ export class Ricochet {
     g.fillStyle = "#0c1511f0";
     g.fillRect(190, 95, 580, 330);
     line(g, 235, 105, 725, 105, C.line, 2);
-    text(g, "SIGNAL LOST", 480, 145, 40, C.red, "center");
+    text(g, this.training ? this.trainingCleared ? "PRACTICE CLEARED" : "PRACTICE ENDED" : "SIGNAL LOST", 480, 145, 40, this.trainingCleared ? C.cyan : C.red, "center");
     const rows = [["SCORE", this.score], ["CHAMBER", this.chamber], ["CELLS BROKEN", this.cellsBroken],
       ["BEST CHAIN", "x" + this.bestChain]];
     rows.forEach(([label, value], i) => {
       text(g, label, 270, 210 + i * 40, 20, C.muted);
       text(g, value, 690, 210 + i * 40, 28, C.ink, "right");
     });
-    text(g, "RECORD " + this.ctx.best(), 480, 378, 18, C.amber, "center");
+    text(g, this.training ? "PRACTICE DOES NOT CHANGE YOUR RECORDS" : "RECORD " + this.ctx.best(), 480, 378, 18, C.amber, "center");
     if (this.t - this.endedAt > 0.8) text(g, "PRESS TO PLAY AGAIN", 480, 406, 18, C.amber, "center");
     const lines = [];
     if (this.orderMet) lines.push(["TODAY'S ORDER MET", C.cyan]);

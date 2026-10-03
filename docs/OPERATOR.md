@@ -1,5 +1,12 @@
 # Operator's field guide
 
+Current finished-node additions are covered in [the refresh report](REFRESH-REPORT.md),
+[High Bar](HIGH-BAR.md), [Twinbeat](TWINBEAT.md), [Ricochet practice](GAME-POLISH.md)
+and [readers/utilities](UTILITY-POLISH.md). Several older cartridge descriptions
+below predate their current in-game guides; use those guides for detailed rules.
+The universal gesture is tap, tap, hold; a plain hold inside a game does not
+open the menu.
+
 ## One switch, one convention
 
 Tap the arcade button to move the highlighted menu item forward. Tap anywhere comfortable on the case to move backward. Two deliberate generic case taps go back; the dashboard also has explicit Previous Sector and Next Sector buttons. Hold until the display says **RELEASE TO SELECT**, then release. The default selection threshold is 0.65 seconds and can be adjusted in Calibration.
@@ -41,7 +48,7 @@ Lamps: the left lamp is the speed in the zone's colour (cyan while diving). In t
 
 ### Undertow
 
-A small craft moves through submerged columns. Hold to apply upward thrust; release to sink. Thread the gaps without hitting a column or the upper/lower boundaries. Each successful passage gives one point. The hull takes two hits (a column or a boundary, followed by a moment of grace); the last hit ends the run, and every twelve passages repair one point. The openings start wide and narrow continuously, from the tenth passage they drift up and down, and the current quickens until the thirty-second. Sustained thrust is allowed; quick clicks open the menu in the default profile. Changes between successive column centers are bounded and failure feedback identifies the limit reached.
+A small craft moves through submerged columns. Hold to apply upward thrust; release to sink. Thread the gaps without hitting a column or the upper/lower boundaries. Each successful passage gives one point. The hull takes two hits (a column or a boundary, followed by a moment of grace); the last hit ends the run, and every twelve passages repair one point. The openings start wide and narrow continuously, from the tenth passage they drift up and down, and the current quickens until the thirty-second. Sustained thrust is allowed; tap, tap, hold opens the menu; an ordinary sustained game hold remains available. Changes between successive column centers are bounded and failure feedback identifies the limit reached.
 
 Lamps: the craft is a cyan spot at its depth (top lamp near the surface, bottom lamp near the floor) and the next opening is an amber spot that brightens as it arrives, so the two merge when you are lined up. Near the surface or the floor the end lamp pulses red. A passage blips the middle lamp green, a hull hit flashes red.
 
@@ -49,7 +56,7 @@ Lamps: the craft is a cyan spot at its depth (top lamp near the surface, bottom 
 
 The vault sends a pattern of short and long pulses: a short lights the middle lamp in amber for 180 ms, a long lights all three lamps in cyan for 620 ms, and the three circles on screen mirror the lamps. After playback, reproduce the pattern: less than 350 ms is short, 350 ms or more is long. While you hold, the lamps fill left to right in amber and turn cyan at 350 ms, the sidetone steps up from 440 to 660 Hz at the same moment, and a bar on screen shows the hold against the 350 ms line. After each release the vault says what it heard (SHORT or LONG and the time). A hold within 100 ms of the line on the wrong side is forgiven as a close call while you have a wobble left (three at the start, one more every three sequences, at most four), so a run ends on a wrong memory, not on a close call.
 
-Each correct sequence adds a chamber to the score and grows the pattern. At ten elements, new ten-element patterns keep the game going. From the third sequence playback quickens, and from the eighth the screen stops listing the pulses during playback (DARK VAULT: lamps, circles and tone only). A mismatch ends the attempt and blinks the lamps three times in the colour of the pulse that was expected (amber short, cyan long). The first sequence is deliberately simple: short, long. Hold three seconds for the menu, which includes Replay Current Signal. A mismatch identifies the expected short/long pulse.
+Each correct sequence adds a chamber to the score and grows the pattern. At ten elements, new ten-element patterns keep the game going. From the third sequence playback quickens, and from the eighth the screen stops listing the pulses during playback (DARK VAULT: lamps, circles and tone only). A mismatch ends the attempt and blinks the lamps three times in the colour of the pulse that was expected (amber short, cyan long). The first sequence is deliberately simple: short, long. Use tap, tap, hold for the system menu; current replay choices are shown there. A mismatch identifies the expected short/long pulse.
 
 ### Light Trial
 

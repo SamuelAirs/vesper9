@@ -814,7 +814,7 @@ export class Cadence {
     const big = lead.finished ? "DONE" : longClock(lead.left);
     const others = view.filter((t) => t !== lead).sort((x, y) => x.left - y.left);
     const row = (t) => `<div class="timer-row"><div><div class="data-label">${esc(t.label)}</div><span class="recording-tag">${t.finished ? "DONE" : t.running ? "RUNNING" : "PAUSED"}</span></div><div class="big-readout">${t.finished ? "DONE" : longClock(t.left)}</div></div>`;
-    return `<div class="utility-panel"><div class="data-label cad-timer-head"><span>${esc(lead.label)} / OF ${longClock(lead.duration)}${view.length > 1 ? " / 1 OF " + view.length : ""}</span><span class="recording-tag">${state}</span></div>` +
+    return `<div class="utility-panel"><div class="data-label cad-timer-head"><span>${esc(lead.label)} / OF ${longClock(lead.duration)}${view.length > 1 ? " / TIMER " + (view.indexOf(lead) + 1) + " OF " + view.length : ""}</span><span class="recording-tag">${state}</span></div>` +
       `<div class="big-readout cad-timer-big"${colour ? ` style="color:${colour}"` : ""}>${big}</div>` +
       `<div class="timer-bar" role="img" aria-label="${Math.round(lead.fraction * 100)} percent remaining"><i style="width:${(lead.fraction * 100).toFixed(1)}%"></i></div>` +
       others.slice(0, SHOWN_TIMERS).map(row).join("") + (others.length > SHOWN_TIMERS ? `<p>+ ${others.length - SHOWN_TIMERS} MORE</p>` : "") + `</div>${voice}`;

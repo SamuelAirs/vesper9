@@ -1,6 +1,8 @@
 # VESPER—9
 
-> Current finished-node candidate (2026-10-02): see [candidate status and product decisions](docs/NODE-CONSOLE-CANDIDATE.md). Developed and verified on Windows; Pi deployment and physical acceptance remain pending. Older implementation/firmware/sensor notes below describe their historical snapshots.
+> Finished-node refresh (2026-10-03): [what changed](docs/REFRESH-REPORT.md),
+> [candidate/source status](docs/NODE-CONSOLE-CANDIDATE.md), and
+> [Pi acceptance/rollback](docs/PI-ACCEPTANCE.md). Developed on Windows; not deployed.
 
 
 **A small signal in the dark.**
@@ -9,7 +11,7 @@ Version **0.2.0** — the second implementation pass of a one-button game consol
 
 See [what changed in 0.2.0](docs/RELEASE-NOTES.md) and [the remaining Pi qualification work](docs/NEXT-STEPS.md).
 
-The project includes a custom 2D game engine, a dashboard, six original games, six instruments, the Pi service, ESP32 firmware, a browser simulator, installation tools, tests, and an expansion example. The engine runs original applications; it does not emulate another console or load commercial ROMs.
+The project includes a custom 2D engine, a sector dashboard, games and instruments, the Pi service, ESP32 firmware source, a browser simulator, development tools, tests and an expansion example. The current node has one arcade button, four independent RGB lamps, two microphones and a board LED accent. It has no temperature/humidity sensor. Applications are original cartridges, not commercial ROMs.
 
 ![The VESPER dashboard](docs/images/VESPER-9-Dashboard.png)
 
@@ -22,17 +24,20 @@ On a phone, tablet or Steam Deck, open the published copy at **https://samuelair
 | Gesture | Dashboard, instruments and menus | Inside a game |
 | --- | --- | --- |
 | Short press | Next item | The game's action |
+| Generic case tap | Previous item; two deliberate taps go back | The game's optional case action |
 | Hold about 0.65 s, then release | Select item | The game's held action |
 | **Tap, tap, hold** (two quick taps, then press and hold for about a second) | System menu | System menu |
 | Escape on the keyboard, or the PAUSE button | System menu / close menu | Pause menu |
 
 Tap, tap, hold is the same in every game, instrument and on the dashboard. The two taps and the start of the hold reach a game as ordinary presses; when the menu opens, the game puts back anything they changed. Calibration sets how quick the taps must be (quick, standard, relaxed). A plain three-second hold also opens the menu from the dashboard, instruments and menus, silently.
 
-The standalone file simulates the lights and environmental sensor. It does **not** access the ESP32 or perform speech recognition. Its scores and settings stay in that browser. The full Pi service supplies real hardware and local speech.
+The standalone file simulates the final four-lamp node and board LED, without fictional environmental readings. It does **not** access the ESP32 or perform speech recognition. Its saves stay in that browser. **K** simulates a generic case tap. Optional left/right mode is calibrated separately; generic is the default so comfortable back taps work. The full Pi service supplies real hardware and local speech.
 
 ## Install on the Pi
 
-Use Raspberry Pi OS **64-bit Desktop**, Python 3.10 or newer, Chromium, and the node's **COM** USB-C port. Keep this project folder intact.
+For Sam's existing console, follow [the save-preserving candidate trial](docs/PI-ACCEPTANCE.md) before replacing any source, data or service configuration. A matching main checkout does not identify the source that the service actually runs.
+
+For a fresh installation, use Raspberry Pi OS **64-bit Desktop**, Python 3.10 or newer, Chromium and the node's configured serial link (native USB or COM bridge). Keep this project folder intact.
 
 ```bash
 cd vesper9
@@ -43,21 +48,17 @@ bash scripts/install-pi.sh
 
 That installs the service and downloads the small English speech model. Use `--no-speech` to omit speech. See [the installation guide](docs/INSTALL.md) for serial permissions, the first firmware install, rollback, and troubleshooting.
 
-The unchanged 0.1.0 firmware uses protocol v1 and the provided pin map. If your node already runs it, an app update does not require reflashing. To replace the node's current firmware, use the prebuilt installer; it **backs up the existing 16 MB flash before writing**:
+The final node last reported firmware **0.2.0**, using compatible protocol v1. These application changes do not require flashing. The bundled **0.1.2 prebuilt is for the older three-lamp board**; it is not the current node's deployment image. Any future firmware replacement requires target identification, the correct board profile, a verified full 16 MB backup and a restore command. See [hardware](docs/HARDWARE.md).
 
-```bash
-ls -l /dev/serial/by-id/
-bash scripts/flash-prebuilt.sh /dev/serial/by-id/YOUR_COM_PORT
-.venv/bin/python -m vesper.server --port /dev/serial/by-id/YOUR_COM_PORT
-```
-
-Open **http://localhost:8799** on the Pi. Begin with **Instruments → Node Scope** to exercise the button, each light, sensor readings, and microphone. No wiring changes are required by this design.
+Open **http://localhost:8799** on the Pi. Use **System tools → Node Scope** to check the button, all four RGB lamps, board LED and microphone status. No rewiring is part of this refresh.
 
 For desktop simulation with the full service:
 
 ```bash
 bash scripts/run-simulator.sh
 ```
+
+For native Windows development and browser tests, use [the Windows testing workflow](docs/TESTING.md). Broad tests and builds belong on the development host, not the battery-powered Pi.
 
 For automatic service startup and a full-screen kiosk at desktop login:
 
@@ -72,20 +73,26 @@ For automatic service startup and a full-screen kiosk at desktop login:
 | **Orbit Lock** | Catch a satellite as it crosses an increasingly narrow amber gate. |
 | **Moonrunner** | Fly a survey sled over the moon's hills before night falls: hold to dive down a slope, let go to fly off the crest, land along a downslope for a perfect slide; six zones, survey orders and unlocks. |
 | **Undertow** | Hold to rise, release to sink, and fly through submerged ruins. |
-| **Echo Vault** | Repeat growing sequences of short and long pulses, accompanied by the three lights. |
+| **Echo Vault** | Learn and answer pulse transmissions with lamp cues and paid replay. |
 | **Light Trial** | React to the middle physical light; the ESP32 timestamps the cue and button edge on the same clock. |
 | **Glyph Archive** | Remember an inscription, then reconstruct it with an automatically scanning cursor. |
+| **High Bar** | Skate, swing, flip and link manuals/regrips/shove-its; four parks, twelve lines and isolated practice. |
+| **Ricochet** | Reverse the paddle through increasingly difficult chambers; practice any chamber reached. |
+| **Wayfinder** | Explore three expedition regions, manage supplies, research equipment and resume saved routes. |
+| **Twinbeat** | Drum through eight original levels; separate calibrated-side and generic/button-assist careers. |
 
 | Instrument | What it provides |
 | --- | --- |
 | **Signal School** | Guided keying, listening/scanned answers, adaptive review, and progress saved after each answer. |
 | **Chronometer** | Custom durations/labels, saved presets, eight persistent timers, pause/resume and background alerts. |
 | **Field Notes** | Local dictation, older-note/text paging, selected-session export and explicit start/stop. |
-| **Atmosphere** | Freshness-aware SHT3x readings, 24-hour charts and 30-day retention. |
+| **The Stacks** | Offline books, saved places, reverse pages, bookmarks and optional auto-turn. |
+| **Encyclopedia** | Optional offline Wikipedia archive, saved article positions, links, trails and bookmarks. |
+| **Lantern / Cadence** | Four-lamp scenes and previews; metronome, sequencer and persistent timer tools. |
 | **Node Scope** | Button state, individual RGB checks, mic meter, transport counters, audio test. |
 | **Calibration** | Sound, texture, Morse/scan speed, menu-gesture timing and selection hold. Under SYSTEM TOOLS in the system menu, with Node Scope and Telemetry. |
 
-The dashboard shows the sectors named in `vesper/catalog.json` (at most six cards each): the fourteen games first, then the instruments. Calibration, Node Scope and Telemetry are under SYSTEM TOOLS in the system menu; Ephemeris is retired from the dashboard. [Game and operator notes](docs/OPERATOR.md) explain the controls and scoring.
+These are selected cartridges; `vesper/catalog.json` owns the full catalog and sector order. Calibration, Node Scope and Telemetry are under SYSTEM TOOLS. Retired games keep their source and saves without returning to the dashboard. [Game and operator notes](docs/OPERATOR.md) explain the controls and scoring; newer detailed guides are linked from [the refresh report](docs/REFRESH-REPORT.md).
 
 ## Voice and sound
 
@@ -99,16 +106,16 @@ Recognition uses a local Vosk model. No cloud account, API key, or ongoing netwo
 
 - **Browser engine:** dependency-free ES modules, a 960 × 540 Canvas 2D stage, fixed 60 Hz simulation, collision helpers, procedural visuals, synthesized audio, app lifecycle, and a shared input router.
 - **Pi service:** Python / aiohttp, WebSocket events, serial transport, local speech, SQLite storage, background timers, and reconnect handling.
-- **ESP32 node:** ESP-IDF C firmware, button debounce, nine independent PWM channels, I²S audio, I²C sensor, framed serial protocol, node-clock reaction trials, and a host watchdog.
+- **ESP32 node:** ESP-IDF C firmware with board profiles, button debounce, independent lamp PWM, stereo tap input, explicit audio modes, framed serial protocol, node-clock reaction trials and a host watchdog. The final board has twelve lamp channels and no I²C environmental sensor.
 - **Simulator:** the same apps and rendering code with either a Python simulated node or an in-browser device adapter.
 
 [Engine and extension guide](docs/ENGINE.md) · [Protocol](docs/PROTOCOL.md) · [Hardware profile](docs/HARDWARE.md) · [Design system](docs/DESIGN.md)
 
 ## Verification and limits
 
-This pass reran the Python and JavaScript regressions, C protocol check, all-app browser workflows, added-cartridge example, and real recorded-audio Vosk inference. See the versioned validation report for exact results. The ESP32-S3 firmware builds successfully with ESP-IDF **v5.4.2**; prebuilt images and checksums are included.
+Fresh Windows results, browser journeys and test limitations are in [VALIDATION.md](docs/VALIDATION.md). The current pass does not claim physical-device validation, Pi benchmarks, firmware builds or real speech recognition. It uses simulated input and isolated temporary data; readers were also exercised against a real offline archive.
 
-**This release has not been flashed onto or benchmarked on your physical Pi and node.** Real USB reliability, microphone level, PWM output, sensor timing, and Pi frame rate still need the short bring-up procedure in the guide. Speech accuracy depends on acoustics and the model. Light Trial measures software-scheduled light activation, not a laboratory-calibrated optical response.
+Progress and scores wait in a bounded browser RAM queue until the service acknowledges them. Keep the tab open during a connection outage. Changed service saves or another controlling tab require an explicit confirmed choice before replacement. Waiting RAM saves cannot survive browser/power loss. Physical tap accuracy, comfort, acoustic false positives, lamp timing and Pi performance remain acceptance checks. Light Trial is not a laboratory-calibrated optical measurement.
 
 [Current validation results](docs/VALIDATION.md) · [Reproduction commands](docs/TESTING.md) · [Third-party notices](THIRD_PARTY.md)
 

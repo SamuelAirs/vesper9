@@ -345,7 +345,7 @@ export const CARTRIDGES = [
     "id": "ricochet",
     "name": "RICOCHET",
     "subtitle": "Break the lattice.",
-    "description": "The paddle never stops. Tap to reverse it and keep the signal bouncing through the lattice. The first chamber is practice.",
+    "description": "The paddle never stops. Tap to reverse it and keep the signal bouncing through the lattice. Reached chambers unlock focused practice from the game menu.",
     "controls": "BUTTON / CASE: REVERSE PADDLE",
     "category": "PLAY / BREAKOUT",
     "glyph": 5,

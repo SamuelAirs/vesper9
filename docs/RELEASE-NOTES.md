@@ -1,5 +1,11 @@
 # VESPER-9 0.2.0 — the second pass
 
+> Latest Windows refresh (2026-10-03): [what changed and what remains](REFRESH-REPORT.md).
+> `codex/console-polish` adds deeper High Bar/Ricochet play, reader/utility fixes,
+> and acknowledged save recovery with conflict protection. It is not deployed.
+> Use the current candidate and acceptance documents; the older hardware and
+> gesture descriptions below are historical release notes.
+
 > Current finished-node candidate (2026-10-02): see [candidate status and product decisions](NODE-CONSOLE-CANDIDATE.md). Developed and verified on Windows; Pi deployment and physical acceptance remain pending. Older implementation/firmware/sensor notes below describe their historical snapshots.
 
 

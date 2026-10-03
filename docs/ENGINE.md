@@ -108,10 +108,10 @@ K simulates a generic tap; J/L simulate left/right only in the optional side mod
 | `leds(values)` / `lampCount()` | Nine legacy or twelve current RGB values, 0–255, left to right. `lampCount()` is 3 or 4. Host coalesces writes and clips to hardware. |
 | `board([r,g,b])` / `hasBoardLed()` | Optional dim accent owned by the app; clear on cancel/pause/exit. It never replaces an essential lamp cue. |
 | `pattern(steps)` | Node-timed finite light sequence. Each step has `ms` and nine `values`. |
-| `best(metric?)` / `score(number, metric?)` | Persisted high score; higher is better. Reaction uses physical/keyboard/simulator classes; Glyph uses scan interval classes. |
-| `progress()` / `saveProgress(object)` | This app's small JSON progress object, at most 8 KiB. |
+| `best(metric?)` / `score(number, metric?)` | Highest score, including waiting local saves; higher is better. Reaction uses physical/keyboard/simulator classes; Glyph uses scan interval classes. |
+| `progress()` / `saveProgress(object)` | This app's small JSON progress object, at most 8 KiB. A resolved `{queued:true}` means accepted into the RAM retry queue, not yet acknowledged on disk. |
 | `content(html)` | Set instrument-panel markup; escape variable/user text. |
-| `actions([{id?, label, run}, ...], { focus }?)` | Render actions and make them navigable with the switch. `focus` names the action (by `id`, else label) to highlight after this render. A freshly launched app starts on its first action. |
+| `actions([{id?, label, run}, ...], { focus, onFocus }?)` | Render actions and make them navigable with the switch. `focus` names the action (by `id`, else label) to highlight. Optional `onFocus(index, id)` follows the active highlight for previews across button, case, keyboard and pointer navigation. Background lists under a menu and retired contexts cannot preview. A freshly launched app starts on its first action. |
 | `command(name, data)` | Validated service command; returns a Promise. |
 | `get(path)` | JSON GET under `/api/`, for history or saved notes. |
 | `setMic(mode)` | Central microphone mode transition. |
@@ -129,6 +129,25 @@ The shared `LightDirector` serializes commands and invalidates generations/cache
 **Four lamps and the board LED.** The current node has four RGB lamps (the first had three) and the ESP32's own board LED. `ctx.leds()` takes nine values (three lamps, as every game was written) or twelve (four). The director keeps twelve internally: a nine-value frame leaves the fourth lamp dark, and what goes to the service is cut to the node's own count (`state.lamps.count` from the service, or `lamps` in the node's STATUS; 3 until the node reports 4), so a game written for three lamps looks and plays the same on either node. Patterns are padded or cut the same way. `ctx.lampCount()` says how many there are; every `lightshow.js` helper (`lightsOff`, `lamps`, `fill`, `only`, `meter`, `spot`, `chase`) takes the count as its last argument and defaults to three. The host's own layer (`ambient.js`) uses all four when the node has them, with the microphone lamp on the rightmost. The board LED is not a lamp: it is outside the lamp count and the helpers. `ctx.board([r, g, b])` sets it as an optional accent (the lamp level applies), `ctx.hasBoardLed()` says whether the node has one (`state.lamps.board` is `[r, g, b]`, or `null` without one), nothing lights it unless an app does, and it goes dark when the app is left. It is sent as the service's `board_led` command (`{values: [r, g, b]}`, node message BOARD_LED, PR #19), never inside `leds` or `pattern`. The director compares the node's echo (the `leds` event's `lamps`, every physical value) with what it last sent, so a four-lamp frame cut for the old node is not rewritten every frame.
 
 Lamp ownership is explicit. `LightDirector.owner` is `host` until an app calls `ctx.leds`, `ctx.pattern` or a reaction command (or `cancel`), then `app`; `release()` (leaving an app, opening a menu) writes zero and returns it to `host`. While the owner is `app`, `setHost()` is ignored, so host effects cannot leak into a game. While it is `host`, `Vesper.driveHostLamps()` feeds `HostLamps` in `web/engine/ambient.js` the scene (dashboard, menu, instrument, game), the focused item's index and count, button hold progress, the quick-click count, recent acknowledgements, the nearest running timer's remaining seconds and the node's confirmed microphone capture, and writes the nine values it returns. `ambient.js` is pure: it needs only state and a time. The `lampLevel` setting (`full` 1, `medium` 0.5, `low` 0.2, `off` 0) is applied by the director to plain `leds` values and to the colours of `pattern` steps (a lit channel never rounds to zero while the level is above zero); a reaction cue has fixed colours in the service and is passed through unscaled. The microphone lamp is composed last, scaled by the level but never below a floor. The `light_effect` event (timer completion, `durationMs`) suspends writes and keeps the ambient layer quiet for the effect plus 1.5 s, then fades it back in over 2 s.
+
+**Acknowledged saves.** `SaveQueue` holds only progress and scores, at most 256
+records / 256 KiB, in browser RAM. Progress coalesces by app/slot and scores by
+app/metric maximum. Payloads are immutable snapshots. Writes leave the queue
+only after the matching service acknowledgement; a newer revision or connection
+generation cannot be cleared by an older reply. Pending local values overlay
+incoming state. Apps cannot launch before the first service state has loaded.
+A monitor tab neither flushes nor adds app saves. A changed service baseline or
+an intervening controlling tab holds waiting writes for an explicit choice:
+use this tab's copy or the service copy, with a second confirmation. Baseline
+snapshots count toward the same byte limit. Matching the latest queued payload
+is safe to retry after a lost ACK; an intermediate acknowledged revision can
+conservatively require the same choice. Failed writes
+stay visible, with an explicit retry in the system menu; repeated identical
+rejected payloads do not spin. A refused payload is not stored and must be
+corrected and submitted again. Keep the tab open during an interruption: RAM
+does not survive closing the browser or power loss. `flush()` starts attempts;
+`status().pending === 0` and no error indicate acknowledgement of all accepted
+records. Button, microphone, light and timer commands never enter this queue.
 
 Apps are trusted source files shipped with the project. This is not a sandbox for downloaded, untrusted JavaScript. There is one foreground app and one controlling browser tab.
 

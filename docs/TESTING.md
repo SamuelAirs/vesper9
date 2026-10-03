@@ -23,8 +23,9 @@ $env:TEST_BROWSER_BIN = "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
 .venv\Scripts\python scripts/check-browser.py
 ```
 
-The runner builds the catalog and standalone simulator, then runs the app smoke,
-extension, host, injected voice-event and 60-second soak checks. Logs and JSON go
+The runner builds the catalog and standalone simulator, then runs app smoke,
+extension, host, injected voice-event, Twinbeat, save recovery, utility and game
+journeys, and a 60-second smoke soak. Logs and JSON go
 to ignored `test-output/browser/`; `--only host-browser` selects one check.
 `scripts/check.py` runs native Python/JS regressions with time limits. Vosk's
 model-vocabulary check is skipped without a local model, and Windows cannot prove
@@ -36,6 +37,26 @@ drumming game's actual host routing, separate assist/side records, progression,
 pause/resume and 1024×600 layout. These use simulated/keyboard input and private
 data, not the physical microphones. `tests/twinbeat.test.mjs` covers chart timing,
 judgement and campaign rules deterministically.
+
+`--only save-browser` exercises real service/database acknowledgement, initial
+state loading, disconnected saves, competing controllers, both confirmed save
+choices, changed baselines, rejection and retry. `--only utility-polish` covers
+Stacks/Lantern/Cadence and optional real Encyclopedia journeys; set `VESPER_ZIM`
+to an existing archive to include the latter. It links/copies that archive into
+private test data and never edits the source archive. `--only game-polish-browser`
+checks Ricochet practice and High Bar teaching/menu flows.
+
+The short soak is a smoke check, not full-catalog sustained coverage. For the
+release rotation through every registered app, use:
+
+```powershell
+.venv\Scripts\python scripts/check-browser.py --only soak --soak-seconds 1200
+```
+
+It records source identity, visited apps, frame/heap samples, a WebSocket
+reconnect, timer completion and microphone-off state. Results are Windows
+simulator evidence, not Pi measurements. RSS is null where the runner cannot
+establish a matching Linux process; it does not substitute another PID's memory.
 
 Each browser test starts its own loopback service on a free port and temporary
 database. Port 8799 is rejected as an explicit test port. Cleanup terminates only

@@ -63,6 +63,7 @@ let browser;
   await page.waitForTimeout(3200);
   const after = await page.textContent("#timer-badge");
   check("F6 timer badge counts down and is marked stale while offline", before !== after && /STALE/.test(after) && !/STALE/.test(before), `before="${before}" after 3 s offline="${after}"`);
+  await page.evaluate(async () => vesper.event({ ...(await vesper.bridge.get('state')), type: 'state', controller: true }));
   await page.evaluate(() => vesper.event({ type: "timers", timers: [] }));
 
   // F10: leaving an app returns to its card on its sector.
@@ -264,6 +265,38 @@ let browser;
     } finally { vesper.state.scores = scores; vesper.cardStats(); }
   });
   check('new scoring rules keep legacy and region records separate and labelled', records.style === 321 && records.scout === 123 && records.label === 'SCOUT BEST 123', JSON.stringify(records));
+
+  const gameMenus = await page.evaluate(() => {
+    return ['crawlspace', 'supper', 'pocketlinks', 'nightgrid'].map(id => {
+      vesper.home(); vesper.launch(id); vesper.systemMenu();
+      vesper.activate(vesper.nav.items.find(item => item.element.textContent === 'GAME GUIDE'));
+      const guide = !vesper.menu && !vesper.paused && vesper.app.guide === 0;
+      vesper.systemMenu();
+      vesper.activate(vesper.nav.items.find(item => /^NEW (HOUSE|SERVICE|ROUND|NIGHT)$/.test(item.element.textContent)));
+      return { id, guide, started: !vesper.menu && !vesper.paused && vesper.app.guide === -1 };
+    });
+  });
+  check('all After Hours guide and new-run actions close the overlay and resume', gameMenus.every(row => row.guide && row.started), JSON.stringify(gameMenus));
+
+  await ctxOf('lantern');
+  const previews = await page.evaluate(() => {
+    const seen = [], items = ['one', 'two', 'three'].map(id => ({ id, label: id, run() {} }));
+    const onFocus = (index, id) => seen.push([index, id]);
+    window.__ctx.actions(items, { focus: 'one', onFocus });
+    vesper.advance(1); vesper.advance(-1); vesper.nav.items[2].element.click();
+    const inputs = seen.slice(), retired = vesper.nav.onFocus;
+    vesper.systemMenu();
+    window.__ctx.actions(items, { focus: 'two', onFocus });
+    const background = seen.length;
+    vesper.closeMenu();
+    const resumed = seen.slice();
+    vesper.home(); retired(0, 'one'); window.__ctx.actions(items, { onFocus });
+    return { inputs, background, resumed, final: seen };
+  });
+  check('instrument previews follow all focus changes and respect menus/lifetime',
+    JSON.stringify(previews.inputs) === JSON.stringify([[0,'one'],[1,'two'],[0,'one'],[2,'three']]) &&
+    previews.background === 4 && previews.resumed.length === 5 && previews.resumed[4][1] === 'two' && previews.final.length === 5,
+    JSON.stringify(previews));
 
   check("no uncaught page errors", pageErrors.length === 0, JSON.stringify(pageErrors));
   fs.writeFileSync(path.join(output, "host-browser.json"), JSON.stringify(results, null, 2));

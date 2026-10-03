@@ -204,3 +204,25 @@ test("an article that fails to load says so and a tap tries again", async () => 
   await settle();
   assert.ok(gets.length > asked, "asked again");
 });
+
+test("recently read articles keep their own places across another article and reload", async () => {
+  const { app, ctx } = mount(); await settle(); app.open("Sun", "Sun", { trail: false }); await settle(); run(app, .1);
+  tap(app); tap(app); const position = { ...app.pos }, page = app.page;
+  app.open("Star", "Star", { trail: false }); await settle(); run(app, .1); app.dispose();
+  const saved = JSON.parse(JSON.stringify(ctx.calls.saved.at(-1)));
+  const again = mount({ progress: saved }).app; await settle();
+  again.go("recent"); again.rows().find(row => row.label === "Sun").run(); await settle(); run(again, .1);
+  assert.equal(again.page, page); assert.deepEqual(again.pos, position);
+  assert.equal(migrateWiki(saved).recent.find(row => row.path === "Sun").para, position.para);
+});
+
+test("a link-free article ends with button choices and automatic turning stops there", async () => {
+  const { app } = mount(); await settle(); app.open("Hydrogen", "Hydrogen", { trail: false }); await settle(); run(app, .1);
+  app.save.auto = 3;
+  run(app, 120);
+  assert.equal(app.phase, "notice"); assert.equal(app.notice.title, "ARTICLE COMPLETE");
+  assert.equal(app.save.recent.find(row => row.path === "Hydrogen").f, 1);
+  const time = app.autoT; run(app, 20); assert.equal(app.autoT, time);
+  tap(app); assert.equal(app.phase, "read", "a tap stays on the last page");
+  app.turn(1); hold(app); assert.equal(app.phase, "home", "hold returns to home");
+});

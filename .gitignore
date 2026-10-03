@@ -6,6 +6,7 @@ data/**
 models/
 backups/
 firmware/build/
+firmware/build-board*/
 firmware/sdkconfig
 firmware/sdkconfig.old
 node_modules/

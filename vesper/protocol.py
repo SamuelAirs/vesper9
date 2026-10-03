@@ -23,6 +23,7 @@ class Kind(enum.IntEnum):
     STATUS = 6
     ACK = 7
     KNOCK = 8
+    AUDIO2 = 9
     PING = 16
     LEDS = 17
     MIC = 18
@@ -30,6 +31,7 @@ class Kind(enum.IntEnum):
     CANCEL = 20
     PATTERN = 21
     KNOCK_SET = 22
+    BOARD_LED = 23
 
 
 def crc16(data):

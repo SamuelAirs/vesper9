@@ -32,13 +32,16 @@ Decoders retain partial frames, reject invalid versions/lengths/CRC, and resynch
 | STATUS | 6 | UTF-8 JSON status, about once/s and in response to PING |
 | ACK | 7 | `u16 command_sequence, u8 result, u8 command_type` |
 | KNOCK | 8 | `u64 at_us, u16 peak, u8 hf` (firmware 0.1.3 and later; the first 0.1.3 build sent 10 bytes, without `hf`) |
+| AUDIO2 | 9 | `u32 first_frame_index`, followed by left/right pairs of signed 16-bit PCM samples (a two-microphone node, firmware 0.2.0, after MIC `2`) |
 | KNOCK_CLIP | 10 | `u64 at_us, u8 pre, u8 channels (2)`, then interleaved `s16` left/right frames: the tap from both microphones, `pre` frames before its onset. Two-microphone nodes only; proposed for firmware 0.2.x (see KNOCK) |
 
-Status fields: `fw`, `link` (`uart`, `usb` or `none`), `mic` (actual capture active, meaning audio is being streamed; listening for knocks alone is not capture), `button`, `audio_drops`, `rx_crc`, `sensor` (`addr`, `ok`, `fail`, last `err`), `leds` (nine current brightness values) and, from firmware 0.1.3, `knock`: `thr` (the threshold in use, 0 = not listening), `n` (knocks sent), `btn` (knocks dropped because a button edge was within 60 ms), `long` (sounds that started sharply but lasted, so were not knocks), `bright` (rejected as too bright, see below), and `peak` and `hf` of the latest of these. The Pi enriches browser diagnostics with its own CRC errors, observed missing audio samples, and audio byte totals.
+Status fields: `fw`, from firmware 0.2.0 `board` (`1` the first node, `2` the second), `lamps` (3 or 4), `mics` (1 or 2), `stereo` (both microphones are being streamed) and `mic2` (`setup`: the error from setting up the second microphone, 0 = fine; `err`: failed or short reads of it), `slots` (wiring diagnostics: the largest raw magnitude in the latest microphone read in each I²S slot, left port slot 0 and 1, right port slot 0 and 1; a working microphone shows in slot 0 of its port) and `board_led` (its three values), then `link` (`uart`, `usb` or `none`), `mic` (actual capture active, meaning audio is being streamed; listening for knocks alone is not capture), `button`, `audio_drops`, `rx_crc`, `sensor` (`addr`, `ok`, `fail`, last `err`), `leds` (the current brightness values, nine or on four lamps twelve) and, from firmware 0.1.3, `knock`: `thr` (the threshold in use, 0 = not listening), `n` (knocks sent), `btn` (knocks dropped because a button edge was within 60 ms), `long` (sounds that started sharply but lasted, so were not knocks), `bright` (rejected as too bright, see below), and `peak` and `hf` of the latest of these. The Pi enriches browser diagnostics with its own CRC errors, observed missing audio samples, and audio byte totals.
 
 BUTTON uses an 8 ms debounce window and timestamps the initial edge that became stable. A button held at boot is inhibited until released. CUE is timestamped immediately after the light-update call. Both timestamps use the same ESP32 monotonic clock; no USB transit-time subtraction is required for physical button reaction trials. Debounce, GPIO polling, PWM phase, and real LED response still contribute measurement uncertainty.
 
 Audio is **16 kHz, mono, signed 16-bit little-endian**, normally 320 samples per packet (20 ms). Sample indices count transmitted source samples modulo 2³² and expose dropped chunks. The INMP441 supplies 24-bit data in the left slot of a 32-bit stereo I²S frame; firmware clocks both slots, discards the right slot, and shifts the left sample down to 16 bits. No audio packets are sent while acquisition is disabled.
+
+On the two-microphone node the right microphone sits on its own pins but is clocked by the left one's bit and word clocks (the firmware drives both sets of clock pins from one port and reads the right microphone with a second port in slave mode), so the two channels sample on the same edges. AUDIO2 carries 160 frames (10 ms) per packet and its index counts frames. The knock detector listens to the left microphone.
 
 KNOCK is a sharp knock on the case, found by the node in its own microphone signal (`firmware/main/knock.h`, tested by `firmware/host-test/knock_test.c`). While KNOCK_SET holds a non-zero threshold, the node runs the microphone continuously whether or not the host has asked for audio, and only KNOCK events leave it; nothing about the sound is sent. A knock is a 1 ms block whose peak reaches the threshold and at least 8 times the background level, whose sound has died away by 40 to 90 ms later to 20 % of the level of the first 10 ms, or 40 % if the onset clipped (speech, a whistle or a tone from the speaker do not), at least 150 ms after the previous one, and not within 60 ms of any button edge, press, release or bounce (the switch itself clicks). The Pi's service drops more, by `at_us`: any knock while the button was down, from 60 ms before a button edge, or up to 200 ms after one (in play at full volume a hard press still got past the node's guard about once a minute). `at_us` is the onset on the same clock as BUTTON and CUE, estimated from the end of the 20 ms microphone buffer that held it; `peak` is the highest 1 ms peak of the first 10 ms (16-bit sample units, as streamed audio). `hf` (0 … 255) is the brightness of those 10 ms: the mean sample-to-sample change as a percentage of the mean level, about 35 for a 900 Hz ring and about 130 for broadband noise such as a clap. A limit on it (`KNOCK_MAX_HF`) is in place but not yet set. The event is sent about 90 ms after the onset. Measured on the real case (PR #4): light taps peak around 8000 and below, firm ones clip, a quiet room peaks near 2300; `hf` for taps is 48 to 126, so it does not separate claps, which count as taps by choice.
 
@@ -51,14 +54,15 @@ ACK result `0` means accepted, `1` invalid payload, `2` unknown command. Accepta
 | Type | Value | Payload and effect |
 | --- | ---: | --- |
 | PING | 16 | Empty; returns STATUS rather than ACK |
-| LEDS | 17 | Nine `u8`: L.R, L.G, L.B, M.R, M.G, M.B, R.R, R.G, R.B |
-| MIC | 18 | One `u8`: `0` stops capture, `1` starts |
+| LEDS | 17 | Nine `u8`: L.R, L.G, L.B, M.R, M.G, M.B, R.R, R.G, R.B. A four-lamp node also takes twelve, one triplet per lamp from left to right; given nine, it shows the middle triplet on both middle lamps |
+| MIC | 18 | One `u8`: `0` stops capture, `1` starts (one channel, AUDIO; on a two-microphone node the left one), `2` starts both microphones (AUDIO2; rejected by a one-microphone node) |
 | ARM | 19 | `u32 trial_id, u32 delay_ms, u8 light_index, u8 r, u8 g, u8 b` |
 | CANCEL | 20 | Empty; cancels scheduled reaction and pattern |
-| PATTERN | 21 | `u8 repeat, u8 step_count`, then steps of `u16 ms` + nine `u8` light values |
+| PATTERN | 21 | `u8 repeat, u8 step_count`, then steps of `u16 ms` + nine `u8` light values (or, on a four-lamp node, twelve in every step) |
 | KNOCK_SET | 22 | `u16 threshold`: `0` stops knock detection, `256` … `32767` sets the peak a knock must reach (firmware 0.1.3 and later) |
+| BOARD_LED | 23 | Three `u8`: red, green, blue for the development board's own RGB LED (firmware 0.2.0; older firmware answers unknown). It goes dark when the host has been silent for 3 s |
 
-ARM delay: 250–10000 ms; light index 0–2. ARM cancels a running pattern. A cue clears all lights and activates the chosen light, then emits CUE. LEDS cancels a pattern but does not cancel an armed reaction; CANCEL explicitly does so.
+ARM delay: 250–10000 ms; light index 0–2 (left, middle, right; on four lamps the middle is both middle lamps). ARM cancels a running pattern. A cue clears all lights and activates the chosen light, then emits CUE. LEDS cancels a pattern but does not cancel an armed reaction; CANCEL explicitly does so.
 
 PATTERN: 1–16 steps, duration 10–10000 ms per step, repeat 1–8. It cancels an armed reaction and starts immediately. Lights turn off after the final repeat. CANCEL cancels scheduling but does not itself change LED values; the host sends lights-off when exiting an app.
 
@@ -204,3 +208,19 @@ Read-only JSON for instruments such as TELEMETRY. It is cheap enough to poll abo
 | `node.knockGuarded` | Knocks the service dropped as the button's own sound (see KNOCK); `n` counts them too, since the node sent them. |
 | `node.tapDirection` | The tap-direction calibration status, as the `tap_direction` event. |
 | `node.sensor` | The node's sensor diagnostics (`addr`, `ok`, `fail`, last `err`); `{"simulated": true, …}` in the simulator. |
+
+## Lamps as the controlling tab drives them (four lamps and the board LED)
+
+The browser never speaks the node protocol; it sends commands over the service's WebSocket. For lights these are:
+
+| Command | Fields | Effect |
+| --- | --- | --- |
+| `leds` | `values`: 9 or 12 integers 0–255 | Nine values are the three logical lamps (left, middle, right), as before. Twelve address four lamps directly, one RGB triplet per lamp from left to right. |
+| `pattern` | `steps`: 1–16 of `{ms, values}`, `repeat` 1–8 | `values` is 9 or 12 integers; every step of one pattern has the same count. |
+| `board_led` | `values`: 3 integers 0–255 (red, green, blue) | Sets the development board's own LED. It is not part of `leds` or `pattern`; a node-timed pattern leaves it alone. |
+
+Either count works on either node. Nine values on a four-lamp node: the node shows the middle value on lamps 2 and 3. Twelve values on a three-lamp node: the service folds them to nine, the middle lamp taking the brighter of lamps 2 and 3 channel by channel. `board_led` on a node without one (firmware before 0.2.0) succeeds and does nothing.
+
+`state.lamps` tells a page what it has: `count` (3 or 4), `values` (every physical lamp's current values, 9 or 12) and `board` (the board LED's `[r, g, b]`, or `null` when the node has none). `state.leds` and the `leds` event's `values` stay nine values, the logical lamps, for everything written for three; the `leds` event also carries `lamps`, every physical value. A `board_led` event carries `values`. The simulated node (`--simulate`) stands in for the four-lamp node: `count` 4 and a board LED.
+
+Everything goes dark, the board LED included, when the controlling tab leaves, and the node itself puts all of it out after 3 s without the host.

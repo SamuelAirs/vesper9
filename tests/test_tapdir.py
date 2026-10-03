@@ -19,7 +19,7 @@ from vesper.protocol import Decoder, Kind, encode  # noqa: E402
 from vesper.tapdir import MIN_TAPS, Classifier, TapDirection, features  # noqa: E402
 
 SESSION = Path(__file__).resolve().parent / "fixtures" / "tap-direction-2026-10-02.json"
-SPOTS = {"left-side": "left", "right-side": "right", "top": "top"}
+SPOTS = {"left-side": "left", "right-side": "right", "top": "back"}  # that session tapped the top; stands in for back
 
 
 def ring(delay, amplitude, n=176, pre=16):
@@ -60,7 +60,7 @@ class Deciding(unittest.TestCase):
     def labelled(self, n, seed=1):
         rng = random.Random(seed)
         out = []
-        for side in ("left", "right", "top"):
+        for side in ("back", "left", "right"):
             for _ in range(n):
                 clip = simulated_tap(side, rng)
                 out.append({"side": side, **features(clip["left"], clip["right"], clip["pre"])})
@@ -69,7 +69,7 @@ class Deciding(unittest.TestCase):
     def test_simulated_sides_are_told_apart_from_a_calibration(self):
         classifier = Classifier(self.labelled(10))
         rng, right = random.Random(7), 0
-        for side in ("left", "right", "top"):
+        for side in ("back", "left", "right"):
             for _ in range(10):
                 clip = simulated_tap(side, rng)
                 got, votes = classifier.classify(features(clip["left"], clip["right"], clip["pre"]))
@@ -78,7 +78,7 @@ class Deciding(unittest.TestCase):
         self.assertGreaterEqual(right, 24)
 
     def test_disagreeing_neighbours_leave_the_side_unsure(self):
-        taps = [{"side": s, "level_db": 0, "lag": 0, "onset": 0} for s in ("left", "left", "right", "right", "top", "top")]
+        taps = [{"side": s, "level_db": 0, "lag": 0, "onset": 0} for s in ("left", "left", "right", "right", "back", "back")]
         self.assertEqual(Classifier(taps).classify({"level_db": 0, "lag": 0, "onset": 0})[0], None)
 
     def test_the_pi_session_of_2026_10_02(self):
@@ -100,6 +100,23 @@ class Deciding(unittest.TestCase):
         self.assertLess(placed, 0.75, "if this rises, the drift finding in the report needs revisiting")
 
 
+    def test_the_pi_session_of_2026_10_03_back_left_right(self):
+        """The second sitting, measured from its clips by this module: back, left and right are placed
+        well both left-out and from one half of the sitting to the other."""
+        taps = json.loads((SESSION.parent / "tap-direction-2026-10-03.json").read_text())["taps"]
+        self.assertEqual({t["side"] for t in taps}, {"back", "left", "right"})
+        check = Classifier(taps).leave_one_out()
+        self.assertGreaterEqual(sum(r["right"] for r in check.values()) / len(taps), 0.88)
+        first, second = [], []
+        for side in ("back", "left", "right"):
+            mine = [t for t in taps if t["side"] == side]
+            first += mine[:len(mine) // 2]
+            second += mine[len(mine) // 2:]
+        for train, test in ((first, second), (second, first)):
+            classifier = Classifier(train)
+            self.assertGreaterEqual(sum(classifier.classify(t)[0] == t["side"] for t in test) / len(test), 0.8)
+
+
 class Calibration(unittest.TestCase):
     def test_label_save_classify_clear(self):
         store = MemoryStore()
@@ -110,14 +127,14 @@ class Calibration(unittest.TestCase):
         self.assertNotIn("side", event, "no calibration, no side")
         self.assertNotIn("clip", event, "the clip never goes on to the browser")
         taps.command("start", "left")
-        for side in ("left", "right", "top"):
+        for side in ("back", "left", "right"):
             taps.command("label", side)
             for _ in range(MIN_TAPS + 2):
                 self.assertEqual(taps.annotate({"type": "knock", "clip": simulated_tap(side, rng)})["labelled"], side)
-        self.assertEqual(taps.status()["pending"], {"left": 8, "right": 8, "top": 8})
+        self.assertEqual(taps.status()["pending"], {"back": 8, "left": 8, "right": 8})
         status = taps.command("save")
         self.assertTrue(status["calibrated"])
-        self.assertEqual(status["saved"], {"left": 8, "right": 8, "top": 8})
+        self.assertEqual(status["saved"], {"back": 8, "left": 8, "right": 8})
         self.assertEqual(sum(r["total"] for r in status["check"].values()), 24)
         event = taps.annotate({"type": "knock", "clip": simulated_tap("left", rng)})
         self.assertIn(event.get("side"), ("left", None))
@@ -179,7 +196,7 @@ class Service(ServiceCase):
         self.assertIn("tap", knock)
         self.assertNotIn("side", knock)
         await self.collect(ws, "tap_direction", op="start")
-        for side in ("left", "right", "top"):
+        for side in ("back", "left", "right"):
             await self.collect(ws, "tap_direction", op="label", side=side)
             for _ in range(MIN_TAPS + 2):
                 seen = await self.collect(ws, "knock", side=side)

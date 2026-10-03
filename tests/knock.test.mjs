@@ -86,34 +86,35 @@ test("Calibration cycles knock sensitivity off, low, medium, high", () => {
   }
 });
 
-test("tap direction: label each side on its lamp, save, then show where taps land", () => {
+test("tap direction: label back, left and right on their lamps, save, then show where taps land", () => {
   const ctx = appContext({ settings: { gesturePace: "standard", lampLevel: "medium" },
-    state: { tapDirection: { calibrated: false, label: null, pending: { left: 0, right: 0, top: 0 }, saved: {} } } });
+    state: { tapDirection: { calibrated: false, label: null, pending: { back: 0, left: 0, right: 0 }, saved: {} } } });
   const app = new Settings(ctx);
   const act = (id) => ctx.currentActions.find((a) => a.id === id);
   assert.equal(act("tap-direction").label, "TAP DIRECTION / NOT CALIBRATED");
   act("tap-direction").run();
   assert.match(ctx.calls.content.at(-1), /NOT CALIBRATED/);
   act("tap-start").run();
-  assert.deepEqual(ctx.calls.command.at(-1), ["tap_direction", { op: "start", side: "left" }]);
-  assert.deepEqual(ctx.calls.leds.at(-1).slice(0, 3), [70, 70, 70], "the left lamp shows where to tap");
+  assert.deepEqual(ctx.calls.command.at(-1), ["tap_direction", { op: "start", side: "back" }], "back, the main tap, first");
+  assert.deepEqual(ctx.calls.leds.at(-1).slice(3, 6), [70, 70, 70], "the middle lamp asks for the back");
   const status = (label, pending) => app.event({ type: "tap_direction", calibrated: false, label, pending, saved: {} });
-  status("left", { left: 3, right: 0, top: 0 });
-  assert.match(ctx.calls.content.at(-1), /TAP THE LEFT SIDE OF THE CASE/);
+  status("back", { back: 3, left: 0, right: 0 });
+  assert.match(ctx.calls.content.at(-1), /TAP THE BACK OF THE CASE/);
   assert.match(ctx.calls.content.at(-1), new RegExp(`3 / ${TAP_TARGET}`));
-  status("left", { left: TAP_TARGET, right: 0, top: 0 });
+  status("back", { back: TAP_TARGET, left: 0, right: 0 });
+  assert.deepEqual(ctx.calls.command.at(-1), ["tap_direction", { op: "label", side: "left" }]);
+  assert.deepEqual(ctx.calls.leds.at(-1).slice(0, 3), [70, 70, 70]);
+  act("tap-skip").run();
   assert.deepEqual(ctx.calls.command.at(-1), ["tap_direction", { op: "label", side: "right" }]);
   assert.deepEqual(ctx.calls.leds.at(-1).slice(6), [70, 70, 70]);
-  act("tap-skip").run();
-  assert.deepEqual(ctx.calls.command.at(-1), ["tap_direction", { op: "label", side: "top" }]);
-  status("top", { left: TAP_TARGET, right: 4, top: TAP_TARGET });
+  status("right", { back: TAP_TARGET, left: 4, right: TAP_TARGET });
   assert.deepEqual(ctx.calls.command.at(-1), ["tap_direction", { op: "save" }]);
-  const check = { left: { right: 10, wrong: 0, unsure: 0, total: 10 }, top: { right: 8, wrong: 1, unsure: 1, total: 10 } };
-  app.event({ type: "tap_direction", calibrated: true, label: null, pending: { left: 0, right: 0, top: 0 }, saved: { left: 10, top: 10 }, check });
-  assert.match(ctx.calls.content.at(-1), /CALIBRATED · 10 LEFT · 10 TOP/);
-  assert.match(ctx.calls.content.at(-1), /18 \/ 20 PLACED · LEFT 10\/10 · TOP 8\/10/);
-  app.event({ type: "knock", peak: 9000, tap: { level_db: 0 }, side: "top", sideVotes: 4 });
-  assert.match(ctx.calls.content.at(-1), /LAST TAP · TOP · 4 OF 5 AGREE/);
+  const check = { back: { right: 10, wrong: 0, unsure: 0, total: 10 }, right: { right: 8, wrong: 1, unsure: 1, total: 10 } };
+  app.event({ type: "tap_direction", calibrated: true, label: null, pending: { back: 0, left: 0, right: 0 }, saved: { back: 10, right: 10 }, check });
+  assert.match(ctx.calls.content.at(-1), /CALIBRATED · 10 BACK · 10 RIGHT/);
+  assert.match(ctx.calls.content.at(-1), /18 \/ 20 PLACED · BACK 10\/10 · RIGHT 8\/10/);
+  app.event({ type: "knock", peak: 9000, tap: { level_db: 0 }, side: "back", sideVotes: 4 });
+  assert.match(ctx.calls.content.at(-1), /LAST TAP · BACK · 4 OF 5 AGREE/);
   app.dispose();
 });
 

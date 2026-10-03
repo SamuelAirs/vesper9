@@ -629,10 +629,10 @@ export function voicePages() {
 // Tap direction (vesper/tapdir.py): the service decides which side of the case a tap landed on from
 // this node's own labelled taps. The page labels TAP_TARGET taps on each side in turn, lit on that
 // side's lamp, then saves them and shows how each new tap is placed.
-export const TAP_SIDES = ["left", "right", "top"];
+export const TAP_SIDES = ["back", "left", "right"]; // in calibration order; back is the main tap
 export const TAP_TARGET = 10;
-const TAP_CUE = { left: [70, 70, 70, 0, 0, 0, 0, 0, 0], top: [0, 0, 0, 70, 70, 70, 0, 0, 0], right: [0, 0, 0, 0, 0, 0, 70, 70, 70] };
-const TAP_WHERE = { left: "THE LEFT SIDE", right: "THE RIGHT SIDE", top: "THE TOP" };
+const TAP_CUE = { left: [70, 70, 70, 0, 0, 0, 0, 0, 0], back: [0, 0, 0, 70, 70, 70, 0, 0, 0], right: [0, 0, 0, 0, 0, 0, 70, 70, 70] };
+const TAP_WHERE = { left: "THE LEFT SIDE", right: "THE RIGHT SIDE", back: "THE BACK" };
 export function tapCheck(check) {
   if (!check) return "";
   const rows = TAP_SIDES.filter((s) => check[s]);
@@ -661,8 +661,8 @@ export class Settings {
   }
   startTaps() {
     this.lastTap = null;
-    this.tapCommand("start", "left");
-    this.c.leds(TAP_CUE.left);
+    this.tapCommand("start", TAP_SIDES[0]);
+    this.c.leds(TAP_CUE[TAP_SIDES[0]]);
   }
   // The next side once this one has its taps; after the last, save.
   nextTapSide(skip = false) {

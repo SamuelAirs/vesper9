@@ -1,8 +1,8 @@
-"""Where on the case a tap landed: left side, right side or top (docs/PROTOCOL.md, KNOCK_CLIP).
+"""Where on the case a tap landed: its back, left side or right side (docs/PROTOCOL.md, KNOCK_CLIP).
 
 A two-microphone node sends, after each KNOCK, the first 11 ms of the tap from both microphones on
 one clock. Three numbers are measured from it, as in the Pi's labelled session of 2026-10-02
-(fleet-notes/reports/knock-input.md): the level difference, the cross-correlation lag and the
+(fleet-notes/reports/knock-input.md; that session tapped the top, not the back): the level difference, the cross-correlation lag and the
 difference in onset between the right and the left microphone. No fixed rule separates the spots
 on a real case, and every node and tapping style differs, so the side is decided by the nearest
 labelled taps of this node's own calibration (Calibration > TAP DIRECTION). Without a calibration
@@ -11,7 +11,7 @@ no side is given. When the nearest taps disagree the side is left out ("unsure")
 import math
 import time
 
-SIDES = ("left", "right", "top")
+SIDES = ("back", "left", "right")  # back is the main tap; left and right are for games
 WINDOW = 160                  # samples after the onset that are measured: 10 ms at 16 kHz
 MAX_LAG = 24                  # cross-correlation search, samples either way
 LAG_LIMIT = 8                 # a lag beyond this is a correlation peak at the edge: clamp it

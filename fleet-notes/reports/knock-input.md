@@ -277,3 +277,17 @@ Test on the device once the KNOCK_CLIP firmware is on the node: Calibration > TA
 light taps where each lamp shows, then tap each side a few times and read LAST TAP. Then recalibrate in a
 second sitting and compare: the check line and how often LAST TAP is right tell whether three sides are
 dependable or only left against the rest.
+
+**Spots changed (Sam, 2026-10-03):** left side, right side and **back**, not top. Back is the most comfortable
+and is the main tap; left and right are there for games. `side` is now `back`, `left` or `right`; calibration
+asks for the back first (middle lamp), then left and right. The first session's top taps stay in the test
+fixture as a stand-in only; the second labelled session decides how well back separates.
+
+**Second labelled session (back, left, right; Pi, firmware with KNOCK_CLIP live: 89 KNOCK, 89 clips, clip
+first, pre 16).** Measured by `vesper/tapdir.py` itself from each tap's 11 ms clip (fixture
+`tests/fixtures/tap-direction-2026-10-03.json`, features only): each tap left out in turn 78/85 placed
+(left 26/28, right 25/28, back 27/29); first half of each spot calibrating the second 40/43, the other way
+36/42. Left versus right is clean on level (left -1.5 to -0.3 dB bar one, right +1.3 to +4.5). Back sits
+between them in level with a lag that scatters to the edge (±20), so it is the one most often confused.
+Clamping the lag differently or adding correlation did not help. The service's measurement agrees with
+the Pi's tool. Next: Sam's own calibration through Calibration > TAP DIRECTION, then a few taps per spot.

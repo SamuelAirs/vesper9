@@ -213,7 +213,7 @@ export class Vesper {
       });
   }
   // K on the keyboard: a knock on the case, for the simulator and for trying a game without the node.
-  // K knocks; J, I and L knock on the left side, the top and the right side of the case.
+  // K knocks; J, I and L knock on the left side, the back and the right side of the case.
   softwareKnock(side) {
     if (this.state.controller === false) return;
     if (this.state.simulated) this.bridge.command("knock", side ? { side } : {}, true).catch(() => {});
@@ -243,7 +243,7 @@ export class Vesper {
         e.preventDefault();
         if (!e.repeat) this.softwareButton(true);
       }
-      const knockKeys = { KeyK: null, KeyJ: "left", KeyI: "top", KeyL: "right" };
+      const knockKeys = { KeyK: null, KeyJ: "left", KeyI: "back", KeyL: "right" };
       if (e.code in knockKeys && !e.repeat) {
         e.preventDefault();
         this.softwareKnock(knockKeys[e.code]);

@@ -531,7 +531,7 @@ class Console:
             if not self.device.simulated:
                 raise ValueError("Desktop controls are disabled in hardware mode")
             side = data.get("side")
-            if side is not None and side not in ("left", "right", "top"):
+            if side is not None and side not in ("back", "left", "right"):
                 raise ValueError("Unknown tap side")
             await self.device.knock(side)
         elif kind == "tap_direction":

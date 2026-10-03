@@ -74,7 +74,7 @@ async function button(page, ms = 80) {
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(origin);
   await page.waitForFunction(() => window.vesper?.loaded);
-  assert.equal(await page.locator(".app-card").count(), 5, "the first sector holds five games");
+  assert.equal(await page.locator(".app-card").count(), 4, "the first sector (VOYAGES) holds four games");
   await page.screenshot({
     path: path.join(output, "VESPER-9-Dashboard.png"),
     fullPage: true,

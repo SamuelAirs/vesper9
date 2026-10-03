@@ -469,6 +469,21 @@ export function sensorBus(sensor) {
   return { bus, error };
 }
 
+// Knock-on-the-case input as Node Scope shows it: the setting, and the node's own counters (firmware
+// 0.1.3 status "knock": thr, n sent, btn dropped at a button edge, long judged sustained, bright too
+// bright, peak and hf of the last candidate). Older firmware has no counters.
+const KNOCK_LEVELS = ['off', 'low', 'medium', 'high'];
+export function knockReadout(setting, knock, lastKnock, now = performance.now()) {
+  const level = KNOCK_LEVELS.includes(setting) ? setting : 'medium';
+  const peakDb = (peak) => (!(peak > 0) ? '—' : peak >= 32767 ? 'FULL SCALE' : (20 * Math.log10(peak / 32768)).toFixed(1) + ' dBFS');
+  const input = !knock || typeof knock !== 'object' ? level.toUpperCase() + ' · NOT IN THIS FIRMWARE'
+    : level.toUpperCase() + (knock.thr ? ' · THRESHOLD ' + peakDb(knock.thr) : ' · NODE NOT LISTENING');
+  const counts = !knock || typeof knock !== 'object' ? '—'
+    : `${knock.n ?? 0} SENT · ${knock.btn ?? 0} AT BUTTON · ${knock.long ?? 0} TOO LONG` + (knock.bright ? ` · ${knock.bright} TOO BRIGHT` : '') + ` · LAST ${peakDb(knock.peak)}` + (Number.isFinite(knock.hf) ? ` HF ${knock.hf}` : '');
+  const last = lastKnock ? `${peakDb(lastKnock.peak)}${lastKnock.side ? ' · ' + lastKnock.side.toUpperCase() : ''} · ${Math.max(0, Math.round((now - lastKnock.at) / 1000))} S AGO` : 'NONE YET';
+  return { input, counts, last };
+}
+
 export class Diagnostics {
   constructor(c) {
     this.c = c;
@@ -498,7 +513,9 @@ export class Diagnostics {
       d = s.device || {},
       level = this.level(),
       node = this.node,
-      four = this.c.lampCount?.() === 4;
+      four = this.c.lampCount?.() === 4,
+      bus = sensorBus(node?.sensor),
+      knock = knockReadout(this.c.settings().knock, node?.knock, this.lastKnock);
     const waiting = s.simulated ? 'SIMULATOR' : d.connected ? 'AWAITING STATUS' : '—';
     const rows = [
       ["NODE", d.connected ? "CONNECTED" : "DISCONNECTED"],
@@ -517,6 +534,9 @@ export class Diagnostics {
       ["AUDIO BYTES", d.audioBytes || 0],
       ["CRC ERRORS", d.crcErrors || 0],
       ["MISSING SAMPLES", d.missingSamples || 0],
+      ["KNOCK INPUT", s.simulated ? String(this.c.settings().knock || 'medium').toUpperCase() + ' · K, J I L KEYS KNOCK' : node ? knock.input : waiting],
+      ["KNOCK COUNTS", node ? knock.counts : waiting],
+      ["LAST KNOCK", knock.last + (this.lastKnock && performance.now() - this.lastKnock.at < 1500 ? " ◆" : "")],
     ];
     const notice = level === 'off' ? '<p class="recording-tag">LAMP LEVEL IS OFF (CALIBRATION): CHANNEL CHECKS CANNOT LIGHT THE LAMPS.</p>'
       : level === 'low' ? '<p class="recording-tag">LAMP LEVEL IS LOW (CALIBRATION): CHANNEL CHECKS ARE DIM.</p>' : '';
@@ -578,7 +598,10 @@ export class Diagnostics {
       this.lastButton = e.pressed ? "DOWN" : "UP";
       this.render();
     } else if (e.type === "node_status") {
-      this.node = { link: e.link, fw: e.fw, sensor: e.sensor };
+      this.node = { link: e.link, fw: e.fw, sensor: e.sensor, knock: e.knock };
+      this.render();
+    } else if (e.type === "knock") {
+      this.lastKnock = { at: performance.now(), peak: e.peak, side: e.side };
       this.render();
     } else if (e.type === "node_reset" || (e.type === "device" && e.connected === false)) {
       this.node = null;
@@ -609,6 +632,26 @@ export function voicePages() {
 }
 const RENDER_NEXT = { auto: 'sharp', sharp: 'fast', fast: 'auto' };
 const RENDER_WORDS = { auto: 'AUTO', sharp: 'SHARP', fast: 'FAST' };
+// Tap direction (vesper/tapdir.py): the service decides which side of the case a tap landed on from
+// this node's own labelled taps. The page labels TAP_TARGET taps on each side in turn, lit on that
+// side's lamp, then saves them and shows how each new tap is placed.
+export const TAP_SIDES = ["back", "left", "right"]; // in calibration order; back is the main tap
+export const TAP_TARGET = 10;
+const TAP_CUE = { left: [70, 70, 70, 0, 0, 0, 0, 0, 0], back: [0, 0, 0, 70, 70, 70, 0, 0, 0], right: [0, 0, 0, 0, 0, 0, 70, 70, 70] };
+const TAP_WHERE = { left: "THE LEFT SIDE", right: "THE RIGHT SIDE", back: "THE BACK" };
+export function tapCheck(check) {
+  if (!check) return "";
+  const rows = TAP_SIDES.filter((s) => check[s]);
+  const right = rows.reduce((n, s) => n + check[s].right, 0), total = rows.reduce((n, s) => n + check[s].total, 0);
+  return `${right} / ${total} PLACED · ` + rows.map((s) => `${s.toUpperCase()} ${check[s].right}/${check[s].total}`).join(" · ");
+}
+export function tapLabel(knock) {
+  if (!knock) return "NO TAP YET";
+  if (!knock.tap) return "NO SIDE · THIS NODE SENDS NO TWO-MICROPHONE CLIP";
+  if (knock.side) return knock.side.toUpperCase() + ` · ${knock.sideVotes} OF 5 AGREE`;
+  if (Number.isFinite(knock.sideVotes)) return "UNSURE · NEIGHBOURS DISAGREE";
+  return "NO SIDE · NOT CALIBRATED";
+}
 export class Settings {
   constructor(c) {
     this.c = c;
@@ -618,6 +661,9 @@ export class Settings {
     // then comes back here with its result to save or discard.
     this.sync = null;
     this.syncResult = null;
+    this.tapPage = false;
+    this.tapStatus = c.state?.()?.tapDirection || null;
+    this.lastTap = null;
     this.render();
   }
   startSync() {
@@ -663,6 +709,60 @@ export class Settings {
     ]);
     this.c.hint('Tap to advance. Hold and release to choose.');
   }
+  tapCommand(op, side) {
+    return this.c.command("tap_direction", side === undefined ? { op } : { op, side }).catch(this.c.error);
+  }
+  startTaps() {
+    this.lastTap = null;
+    this.tapCommand("start", TAP_SIDES[0]);
+    this.c.leds(TAP_CUE[TAP_SIDES[0]]);
+  }
+  // The next side once this one has its taps; after the last, save.
+  nextTapSide(skip = false) {
+    const t = this.tapStatus;
+    if (!t?.label) return;
+    if (!skip && (t.pending?.[t.label] || 0) < TAP_TARGET) return;
+    const next = TAP_SIDES[TAP_SIDES.indexOf(t.label) + 1];
+    this.tapStatus = { ...t, label: next || null };
+    if (next) {
+      this.tapCommand("label", next);
+      this.c.leds(TAP_CUE[next]);
+    } else {
+      this.tapCommand("save");
+      this.c.leds(lightsOff());
+    }
+  }
+  stopTaps() {
+    if (this.tapStatus?.label) this.tapCommand("cancel");
+    this.c.leds(lightsOff());
+  }
+  renderTaps() {
+    const t = this.tapStatus || {}, label = t.label;
+    let body;
+    if (label) {
+      body = `<p class="big">TAP ${TAP_WHERE[label]} OF THE CASE</p><p>${t.pending?.[label] || 0} / ${TAP_TARGET} · lightly, the way you would in a game; the lit lamp shows the side.</p>`;
+    } else {
+      const saved = t.calibrated ? TAP_SIDES.filter((s) => t.saved?.[s]).map((s) => `${t.saved[s]} ${s.toUpperCase()}`).join(" · ") : "";
+      body = `<p>${t.calibrated ? "CALIBRATED · " + saved : "NOT CALIBRATED: taps carry no side yet."}</p>` +
+        (t.check ? `<p>Each saved tap, left out in turn: ${tapCheck(t.check)}</p>` : "") +
+        `<p>LAST TAP · ${tapLabel(this.lastTap)}</p>` +
+        "<p>Needs a node with two microphones. Calibrate in the seat and with the tapping you use in games; redo it if the side is often wrong.</p>";
+    }
+    this.c.content(panel("Tap direction", body));
+    this.c.actions(label ? [
+      { id: "tap-skip", label: "SKIP THIS SIDE", run: () => this.nextTapSide(true) },
+      { id: "tap-cancel", label: "CANCEL", run: () => { this.stopTaps(); this.tapStatus = { ...t, label: null }; this.render(); } },
+    ] : [
+      { id: "tap-start", label: t.calibrated ? "CALIBRATE AGAIN" : "CALIBRATE", run: () => this.startTaps() },
+      ...(t.calibrated ? [{ id: "tap-clear", label: this.confirmTapClear ? "CONFIRM / FORGET TAP SIDES" : "FORGET CALIBRATION…", run: () => {
+        if (this.confirmTapClear) { this.confirmTapClear = false; return this.tapCommand("clear"); }
+        this.confirmTapClear = true; this.render();
+      } }] : []),
+      { id: "tap-back", label: "BACK TO CALIBRATION", run: () => { this.tapPage = false; this.render(); } },
+      { id: "home", label: "RETURN TO DASHBOARD", run: this.c.home },
+    ]);
+    this.c.hint(label ? "Tap the case where the lamp is lit. Hold and release the button to skip or cancel." : "Tap to advance. Hold and release to choose.");
+  }
   renderVoice() {
     const pages = voicePages(), page = pages[this.voicePage];
     this.c.content(panel('Voice commands ' + (this.voicePage + 1) + ' / ' + pages.length + ' · ' + page.title,
@@ -681,6 +781,7 @@ export class Settings {
     if (this.sync) return;
     if (this.syncResult) return this.renderSync();
     if (this.voicePage !== null) return this.renderVoice();
+    if (this.tapPage) return this.renderTaps();
     const s = this.c.settings();
     this.c.content(
       panel(
@@ -729,6 +830,10 @@ export class Settings {
         run: () => this.setting('lampLevel', ({ full: 'medium', medium: 'low', low: 'off', off: 'full' })[s.lampLevel] || 'full') },
       { id: 'lamp-ambient', label: 'AMBIENT GLOW / ' + (s.lampAmbient === false ? 'OFF' : 'ON'),
         run: () => this.setting('lampAmbient', s.lampAmbient === false) },
+      { id: 'knock', label: 'KNOCK SENSITIVITY / ' + String(s.knock || 'medium').toUpperCase(),
+        run: () => this.setting('knock', ({ off: 'low', low: 'medium', medium: 'high', high: 'off' })[s.knock] || 'high') },
+      { id: 'tap-direction', label: 'TAP DIRECTION / ' + (this.tapStatus?.calibrated ? 'CALIBRATED' : 'NOT CALIBRATED'),
+        run: () => { this.tapPage = true; this.render(); } },
       { id: 'gesture-pace', label: 'MENU GESTURE TIMING / ' + s.gesturePace.toUpperCase(),
         run: () => this.setting('gesturePace', ({ quick: 'standard', standard: 'relaxed', relaxed: 'quick' })[s.gesturePace]) },
       { id: 'timing', label: 'TIMING OFFSET / ' + describe(latencyMs(s)) + ' · CALIBRATE', run: () => this.startSync() },
@@ -747,5 +852,17 @@ export class Settings {
   }
   event(e) {
     if (e.type === "settings" && !this.sync) this.render();
+    else if (e.type === "tap_direction") {
+      this.tapStatus = e;
+      this.nextTapSide();
+      this.render();
+    } else if (e.type === "knock" && this.tapPage) {
+      this.lastTap = e;
+      if (!this.tapStatus?.label && e.side) this.c.leds(TAP_CUE[e.side].map((v) => v * 3));
+      this.render();
+    }
+  }
+  dispose() {
+    if (this.tapPage) this.stopTaps();
   }
 }

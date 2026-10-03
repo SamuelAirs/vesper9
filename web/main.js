@@ -149,8 +149,8 @@ export class Vesper {
     this.updateFocus(nav);
   }
   // The single way into the system menu from wherever the player is. The gesture (tap, tap, hold), the
-  // Escape key, the on-screen PAUSE button, the voice command, an interruption and any later trigger (a
-  // knock on the case) all call this, so they all get the same guarantees: held input is cancelled and its
+  // Escape key, the on-screen PAUSE button, the voice command, an interruption and any later trigger
+  // all call this, so they all get the same guarantees: held input is cancelled and its
   // release swallowed, the app is told to cancel() and then pause(), the lamps go back to the host, and the
   // highlight a gesture's taps moved is put back. `source` says who asked; `focus` is a focusMark().
   requestMenu(source = "api", { focus = null } = {}) {
@@ -1188,6 +1188,11 @@ export class Vesper {
     }
   }
   event(e) {
+    // The console's own low tones shake the case into a tap: drop knocks while one plays.
+    if (e.type === "knock" && this.synth.shaking()) {
+      this.knocksMuted = (this.knocksMuted || 0) + 1;
+      return;
+    }
     switch (e.type) {
       case "state":
         this.state = {

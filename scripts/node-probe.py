@@ -2,7 +2,7 @@
 """Talk protocol v1 to a real node without the console service.
 
 Reports firmware/link, sensor, button edges, command ACKs and (optionally)
-microphone level statistics. It records no audio and always ends muted with
+microphone level statistics or knocks on the case (firmware 0.1.3). It records no audio and always ends muted with
 the lights off. Stop vesper.service first: only one program can own the port.
 """
 import argparse
@@ -40,6 +40,7 @@ class Probe:
         self.peak = 0
         self.last_ping = 0
         self.presses = 0
+        self.knocks = 0
 
     def send(self, kind, payload=b""):
         sequence = self.sequence
@@ -72,6 +73,12 @@ class Probe:
             self.presses += bool(pressed)
             if show:
                 print(f"BUTTON {'down' if pressed else 'up  '} at {at / 1e6:.3f} s", flush=True)
+        elif kind == Kind.KNOCK and len(p) in (10, 11):
+            at, peak = struct.unpack_from("<QH", p)
+            self.knocks += 1
+            if show:
+                hf = f"  hf {p[10]}" if len(p) > 10 else ""
+                print(f"KNOCK at {at / 1e6:.3f} s  peak {peak} ({20 * math.log10(max(peak, 1) / 32768):.1f} dBFS){hf}", flush=True)
         elif kind == Kind.SENSOR and len(p) == 16 and show:
             _, t, rh = struct.unpack("<Qff", p)
             print(f"SENSOR {t:.2f} C  {rh:.2f} %RH", flush=True)
@@ -95,6 +102,7 @@ class Probe:
     def close(self):
         try:
             self.send(Kind.MIC, b"\x00")
+            self.send(Kind.KNOCK_SET, b"\x00\x00")
             self.send(Kind.CANCEL)
             self.send(Kind.LEDS, bytes(9))
             self.link.flush()
@@ -112,6 +120,10 @@ def main():
     parser.add_argument("--mic", type=float, default=0, help="seconds of microphone level statistics")
     parser.add_argument("--identify", action="store_true",
                         help="light one output at a time; each button press advances (maps real lamp/colour per GPIO)")
+    parser.add_argument("--knock", type=float, default=0,
+                        help="seconds to listen for knocks on the case (prints each one, then the node's counters)")
+    parser.add_argument("--threshold", type=int, default=4000,
+                        help="knock peak threshold, 256-32767 (the service uses 8000 low, 4000 medium, 3000 high)")
     args = parser.parse_args()
     probe = Probe(args.port, args.baud)
     try:
@@ -155,6 +167,16 @@ def main():
             print(f"MIC {n} samples in {elapsed:.2f} s ({n / elapsed:.0f}/s), rms {rms:.0f}"
                   f" ({20 * math.log10(rms / 32768) if rms else -99:.1f} dBFS), peak {probe.peak}, missing {probe.audio_gaps}")
             probe.pump(1.5, show=False)
+        if args.knock:
+            print(f"ACK knock threshold {args.threshold}:", probe.command(Kind.KNOCK_SET, struct.pack("<H", args.threshold)),
+                  "(2 = this firmware has no knock detection)", flush=True)
+            print(f"Knock on the case for {args.knock:.0f} s. Also try: the button alone, talking, clapping, a game tone.", flush=True)
+            probe.pump(args.knock)
+            knock = (probe.status or {}).get("knock")
+            print(f"KNOCKS {probe.knocks} received; node counters {knock}"
+                  " (n sent, btn dropped at a button edge, long judged sustained, bright too bright,"
+                  " peak and hf of the latest)", flush=True)
+            probe.command(Kind.KNOCK_SET, b"\x00\x00")
         print("FINAL", probe.status)
         print("packets", probe.counts, "host crc errors", probe.decoder.errors, "discarded bytes", probe.decoder.discarded)
     finally:

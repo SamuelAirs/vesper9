@@ -74,8 +74,8 @@ async function button(page, ms = 80) {
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(origin);
   await page.waitForFunction(() => window.vesper?.loaded);
-  // Tideline is retired from the dashboard (2026-10-03), so the first page holds four games.
-  assert.equal(await page.locator(".app-card").count(), 4, "the first sector holds four games");
+  const firstSector = require("../vesper/catalog.json").sectors[0].apps.length;
+  assert.equal(await page.locator(".app-card").count(), firstSector, "the first sector's games are shown");
   await page.screenshot({
     path: path.join(output, "VESPER-9-Dashboard.png"),
     fullPage: true,

@@ -19,11 +19,12 @@ from pathlib import Path
 from aiohttp import web, WSMsgType, WSCloseCode
 
 from . import analysis
-from .device import SerialDevice, SimulatedDevice
+from .device import KNOCK_THRESHOLDS, SerialDevice, SimulatedDevice
 from .health import HostProbe, safe
 from .protocol import Kind
 from .speech import Speech, COMMANDS
 from .storage import Store
+from .tapdir import TapDirection
 
 ROOT = Path(__file__).resolve().parents[1]
 from .catalog import APP_IDS, DEFAULT_SETTINGS, validate_setting
@@ -82,6 +83,7 @@ class Console:
     def __init__(self, args):
         self.args = args
         self.store = Store(args.data)
+        self.tap_direction = TapDirection(self.store)
         self.clients = set()
         self.outboxes = {}
         self.controller = None
@@ -119,6 +121,9 @@ class Console:
                 self.settings[key] = validate_setting(key, value)
             except Exception:
                 logging.warning("Ignoring stored setting %r", key)
+        self.device.knock_threshold = self.knock_threshold()
+        if self.device.simulated:
+            self.device.status["knock"]["thr"] = self.device.knock_threshold
         self.started = time.time()
         self.host = HostProbe(args.data)
         self.tasks = []
@@ -135,6 +140,16 @@ class Console:
         task.add_done_callback(done)
         return task
 
+    def knock_threshold(self):
+        return KNOCK_THRESHOLDS.get(self.settings.get("knock"), KNOCK_THRESHOLDS["medium"])
+
+    async def apply_knock(self):
+        """Tell the node the knock sensitivity. A disconnected node is told when it reconnects."""
+        try:
+            await self.device.set_knock(self.knock_threshold())
+        except Exception as exc:
+            logging.warning("Knock sensitivity not sent to the node: %s", exc)
+
     def mic_error(self):
         return self.speech.error or self.analysis_error
 
@@ -149,7 +164,8 @@ class Console:
                            "analysis": {"rate": analysis.RATE, "bands": analysis.BANDS, "edgesHz": analysis.EDGES,
                                         "intervalMs": round(analysis.HOP * 1000 / analysis.RATE)}},
                 "sensor": self.sensor, "timers": self.public_timers(), "settings": self.settings,
-                "scores": self.store.scores(), "progress": self.store.get("progress", {}), "serverTime": time.time()}
+                "scores": self.store.scores(), "progress": self.store.get("progress", {}),
+                "tapDirection": self.tap_direction.status(), "serverTime": time.time()}
 
     def public_timers(self):
         now = time.time()
@@ -230,6 +246,10 @@ class Console:
 
     async def event(self, event):
         kind = event["type"]
+        if kind == "knock" and "clip" in event:
+            event = self.tap_direction.annotate(event)
+            if event.get("labelled"):
+                await self.broadcast({"type": "tap_direction", **self.tap_direction.status()})
         if kind == "audio":
             if self.mode != "off":
                 pcm = event["pcm"]
@@ -502,6 +522,19 @@ class Console:
             if type(data.get("pressed")) is not bool:
                 raise ValueError("pressed must be true or false")
             await self.device.button(data["pressed"])
+        elif kind == "knock":
+            if not self.device.simulated:
+                raise ValueError("Desktop controls are disabled in hardware mode")
+            side = data.get("side")
+            if side is not None and side not in ("back", "left", "right"):
+                raise ValueError("Unknown tap side")
+            await self.device.knock(side)
+        elif kind == "tap_direction":
+            op, side = data.get("op"), data.get("side")
+            if not isinstance(op, str) or (side is not None and not isinstance(side, str)):
+                raise ValueError("Unknown tap direction operation")
+            status = self.tap_direction.command(op, side)
+            await self.broadcast({"type": "tap_direction", **status})
         elif kind == "mic":
             mode = data.get("mode")
             if not isinstance(mode, str):
@@ -545,11 +578,14 @@ class Console:
             self.store.put("settings", settings)
             self.settings = settings
             await self.broadcast({"type": "settings", "settings": self.settings})
+            if key == "knock":
+                await self.apply_knock()
         elif kind == "reset_settings":
             settings = dict(DEFAULT_SETTINGS)
             self.store.put("settings", settings)
             self.settings = settings
             await self.broadcast({"type": "settings", "settings": self.settings})
+            await self.apply_knock()
         elif kind == "focus":
             focus = data.get("app")
             if not isinstance(focus, str) or (focus != "home" and focus not in APP_IDS):
@@ -682,6 +718,9 @@ class Console:
             "nodeRxCrc": status.get("rx_crc"),
             "audioDrops": status.get("audio_drops"),
             "sensor": status.get("sensor"),
+            "knock": status.get("knock"),
+            "knockGuarded": getattr(device, "knock_guarded", 0),
+            "tapDirection": self.tap_direction.status(),
         }
         alive = {name: not task.done() for name, task in zip(self.task_names, self.tasks)}
         service = {

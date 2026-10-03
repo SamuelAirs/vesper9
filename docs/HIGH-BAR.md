@@ -1,8 +1,9 @@
 # High Bar: skate, swing and earn your height
 
-The current Windows candidate is `codex/highbar-momentum`, following Sam's
-physical feedback on deployed trial `b14db57`. This revision has not replaced
-that Pi trial. It removes free swing acceleration, separates grabbing from
+Release `0c1bf13` from `codex/highbar-momentum` is the current Pi trial,
+deployed on 2026-10-03 after Sam's physical feedback on `b14db57`. The older
+trial and its separate saves remain available for rollback. This revision
+removes free swing acceleration, separates grabbing from
 flipping, lengthens the web and removes manuals. The skateboarding spider,
 quiet play screen, tall parks and sixteen named challenges remain.
 

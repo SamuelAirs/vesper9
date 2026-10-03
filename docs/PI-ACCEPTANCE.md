@@ -1,27 +1,52 @@
 # Candidate acceptance and rollback
 
-## Pending Windows momentum / CAIRN candidate
+## Current High Bar momentum / CAIRN trial
 
-`codex/highbar-momentum` has not replaced the last verified Pi trial `b14db57`.
-Before any new switch, identify the then-current release and copy its latest
-private trial data after the controlling browser has acknowledged pending saves
-and writes are quiescent. Use SQLite backup plus integrity/count checks. Stage
-a separate release/data directory and reversible service override. Preserve
-`b14db57` and its data as this candidate's rollback; the older rollback command
-below deliberately targets `60adf7a` and must not be reused for the new switch.
-Do not point an older release at High Bar's migrated schema-5 save. Keep model,
-Encyclopedia, firmware, calibration and other private assets intact.
+Sam authorized deployment of `0c1bf135408aba9894fb136ffc962b0abfa62f84`,
+completed 2026-10-03 at 22:11 UTC. Source runs from
+`/home/sam/VESPER-9-v0.2.0-Claude/releases/0c1bf135408aba9894fb136ffc962b0abfa62f84/VESPER-9-v0.2.0/vesper9`.
+Verified source SHA-256:
+`2c6dfb3d619bf31a122bee8ea880ec90458422536eec8a71ed3efd229c932254`.
+Nine served JavaScript files match the tested Windows package, including High
+Bar and CAIRN. The ZIP SHA-256 is
+`3e215b0303535581f2162349cc16578601d76a639646471272700dd4731880c0`.
 
-After an authorized switch, verify exact source/served hashes, source/data
-paths, one browser, loopback listener, node connection, microphone OFF and CRC
-counters. Physical priorities: quick press then second hold flips without an
+The service was healthy on b14db57 with zero clients and no deck browser.
+After writes stopped, SQLite backup, quick_check and table counts/digests
+verified a copy of its latest saves into the new release's `trial-data/`.
+Private assets were copied and checked; b14db57 data remains unchanged.
+The base unit and both 90/95 overrides are preserved byte-for-byte. Only
+`97-highbar-momentum.conf` was added, changing source/data paths while keeping
+the interpreter, serial arguments, model and shared Encyclopedia dependencies.
+Firmware 0.2.0, calibration and content were not replaced. One fresh browser
+opened successfully; its stale Chromium restore-pages bubble was dismissed.
+
+Rollback command for this trial:
+`python3 /home/sam/VESPER-9-v0.2.0-Claude/releases/0c1bf135408aba9894fb136ffc962b0abfa62f84/deploy.py rollback`.
+It removes only owned 97, restores **b14db57 with its separate b14db57 data**,
+verifies the previous source/node/microphone and opens one browser. Candidate
+progress remains preserved. On a healthy service it allows save acknowledgement
+before closing; it never forces an unsaved-data prompt. This rollback was
+reviewed on Windows, not live-rehearsed. Earlier helpers below target older
+releases and must not be used for this trial. Never open schema-5 saves with
+an older build.
+
+Post-switch checks passed before and after browser launch: exact source/served
+hashes, source/data paths, one client, loopback-only 8799, connected board 2
+with four lamps/two microphones, mic OFF/no capture, CRC zero and healthy
+service tasks. Encyclopedia was ready and an article returned 37 blocks.
+A 56.8 C unthrottled snapshot is not a gameplay benchmark. Private evidence
+is in `C:/Users/ayers/vesper9-investigation/momentum/deployment/`.
+
+Physical priorities: quick press then second hold flips without an
 accidental grab; plain hold grabs and release detaches; single/double case taps
 give shove-it/kickflip; camping a post loses momentum; decks allow earned
 height gain. Confirm the quieter scene and landing readability. CAIRN needs
 human judgment on its difficult upper jumps and large falls. All broad tests
-and builds remain on Windows; none of these are yet physical-device results.
+and builds remain on Windows; play feel and acoustic inputs still need Sam's
+physical acceptance. No GitHub push or merge occurred.
 
-## Current High Bar trial: spider / sky-route mastery follow-up
+## Previous High Bar trial: spider / sky-route mastery follow-up
 
 Sam authorized deployment, completed 2026-10-03 at approximately 17:25 UTC.
 The Pi runs release `b14db571c199f91b60e23942ffc7a753f064e3c1` from

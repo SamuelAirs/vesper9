@@ -1,13 +1,13 @@
 # VESPER-9 0.2.0 — the second pass
 
-> Windows candidate `codex/highbar-momentum`: High Bar now uses held grabs,
+> Current Pi trial `0c1bf13` from `codex/highbar-momentum`: High Bar now uses held grabs,
 > quick-press/second-hold flips, shove-it/kickflip case taps, dissipative swings,
 > longer webs and elevated skate decks. Manuals are removed. Schema 5 preserves
 > careers and archives flow-v4 PBs. CAIRN adds a fixed, difficult climb with two
-> permanent milestones. Existing-game remodeling is paused. This candidate is
-> not deployed; see [High Bar](HIGH-BAR.md), [CAIRN](CAIRN.md) and current validation.
+> permanent milestones. Existing-game remodeling is paused. Deployed and source-verified
+> on 2026-10-03 at 22:11 UTC; see [High Bar](HIGH-BAR.md), [CAIRN](CAIRN.md) and current validation.
 
-> Current Pi trial: release `b14db57`, installed on 2026-10-03 with a verified
+> Previous Pi trial: release `b14db57`, installed on 2026-10-03 with a verified
 > copy of the latest `60adf7a` trial saves. `codex/highbar-mastery` delivers:
 > less visual clutter, easier acceleration, a skateboarding spider and sixteen
 > challenges including four sustained upper routes. Existing catch behavior is retained.

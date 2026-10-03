@@ -1,11 +1,13 @@
 # Finished-node development candidate — 2026-10-02
 
-> Current Windows work (2026-10-03): `codex/highbar-momentum`, based on the
-> `c0633d0` deployment record for Pi trial `b14db57`. High Bar's new controls,
+> Current Pi trial (2026-10-03, 22:11 UTC): `0c1bf13` from `codex/highbar-momentum`.
+> High Bar's new controls,
 > momentum rules, decks and schema-5/flow-v5 migration are described in
 > [High Bar](HIGH-BAR.md). [CAIRN](CAIRN.md) is integrated; the existing-game
-> remodel is paused. This wave has made no Pi connection, deployment or GitHub
-> publication. Paragraphs below retain the earlier deployment/investigation.
+> remodel is paused. Source and nine served assets match the Windows package;
+> latest b14db57 saves were copied into separate trial data. The former release
+> and data remain intact for rollback. No firmware change or GitHub publication
+> occurred. Paragraphs below retain the earlier deployment/investigation.
 
 > High Bar follow-up: the current Windows branch is `codex/highbar-mastery`,
 > based on airflow candidate `aab8aa0` and the preserved Pi trial `60adf7a`.

@@ -812,3 +812,47 @@ The complete Tower prefix uses a normal ollie followed 200 ms later by a fresh
 grab press, reaching the crown deck by 30.2 seconds. Final Tower browser source
 hashes match the accepted geometry; the generated standalone and service each
 mount all 36 apps. Verification reports retain their source hashes and limits.
+
+## High Bar momentum / CAIRN Pi trial deployment — 2026-10-03 22:11 UTC
+
+Sam explicitly requested deployment and offered to refresh the Vesper window.
+Root reverified native Windows DESKTOP-FD66EV2 and clean candidate 0c1bf13,
+then centrally checked Pi SSH. The running source was the expected b14db57,
+healthy with zero browser clients and no visible deck window. Free disk was
+about 60 GiB. A GPT-6.1 Sol high-effort agent reviewed the bounded helper on
+Windows; no agent accessed the Pi. No new gameplay edits or broad tests were
+performed during rollout.
+
+The 0c1bf13 package was staged in its own release directory; transferred ZIP
+SHA-256, every manifest hash and extracted build identity matched Windows.
+After verifying zero clients and stopping writes, SQLite backup/quick_check
+and table counts/digests verified the latest b14db57 saves in a new trial-data
+directory. Private assets were copied and compared. The old database and
+assets remained unchanged after startup. Original live/main trees and prior
+releases remain intact.
+
+The helper preserves base service and both 90/95 overrides with exact hashes,
+loaded order, arguments and environment guards. Only the removable
+97-highbar-momentum.conf changes source/data paths. Shared 60ad Encyclopedia
+content/dependencies, model path, serial arguments and installed firmware
+0.2.0 remain unchanged. The independently reviewed rollback removes only 97
+and returns to b14db57 with its own saves, keeping migrated candidate progress
+separate. Healthy-service rollback waits for save acknowledgement before close;
+failed-API cleanup never forces unsaved-data prompts. No live rollback rehearsal
+was performed. PI-ACCEPTANCE.md contains the exact candidate-specific command.
+
+Fresh checks before and after opening one fullscreen Chromium window verified
+0c1bf13, clean source hash 2c6dfb3d619bf31a122bee8ea880ec90458422536eec8a71ed3efd229c932254,
+nine matching served files (including CAIRN), new source/data paths, one client,
+loopback-only port 8799, node board 2/four lamps/two mics, mic OFF/no capture,
+CRC zero and healthy service tasks. Encyclopedia was ready and the Guitar
+article returned 37 blocks. A 56.8 C unthrottled status snapshot is not a gameplay
+benchmark. The dashboard was visually checked, including the CAIRN card; a
+Chromium restore-pages bubble was dismissed without restoring old tabs.
+
+Private deployment JSON and screenshots are retained under
+C:/Users/ayers/vesper9-investigation/momentum/deployment/. No personal data was
+published. There was no firmware flash, model inference, build, benchmark or
+broad suite on the Pi. GitHub was not changed or refreshed. Sam's physical
+input/feel acceptance remains pending. This documentation-only follow-up is
+separate from the deployed 0c1bf13 source identity.

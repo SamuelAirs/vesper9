@@ -1,11 +1,11 @@
 # VESPER—9
 
-> Current Windows candidate: [High Bar momentum and corrected controls](docs/HIGH-BAR.md)
+> Current Pi trial: [High Bar momentum and corrected controls](docs/HIGH-BAR.md)
 > on `codex/highbar-momentum`, plus [CAIRN](docs/CAIRN.md), a difficult fixed climb.
-> This revision is not deployed. The last verified Pi trial remains `b14db57`;
-> the deployment paragraph below describes that earlier source.
+> Release `0c1bf13` was deployed and source-verified on 2026-10-03 at 22:11 UTC.
+> Latest saves were copied; `b14db57` and its data remain the rollback. Physical playtesting is next.
 
-> High Bar follow-up (deployed 2026-10-03): [a skateboarding spider, faster kicks, taller routes and a quieter screen](docs/HIGH-BAR.md), now with sixteen challenges and four sustained aerial sky routes. Tested release `b14db57` from `codex/highbar-mastery` is running on the Pi.
+> Previous High Bar follow-up (deployed earlier on 2026-10-03): [a skateboarding spider, faster kicks, taller routes and a quieter screen](docs/HIGH-BAR.md), with sixteen challenges and four sustained aerial sky routes. Release `b14db57` from `codex/highbar-mastery` is preserved for rollback.
 > Finished-node refresh (2026-10-03): [what changed](docs/REFRESH-REPORT.md),
 > [candidate/source status](docs/NODE-CONSOLE-CANDIDATE.md), and
 > [Pi acceptance/rollback](docs/PI-ACCEPTANCE.md). Release `b14db57` uses a verified copy of the latest `60adf7a` trial saves; that prior release remains preserved for rollback. Physical play acceptance is pending.

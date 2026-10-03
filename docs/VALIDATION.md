@@ -1,10 +1,24 @@
 # VESPER-9 0.2.0 validation
 
+## Momentum / CAIRN Pi deployment — 2026-10-03, 22:11 UTC
+
+Sam authorized switching to the already-tested Windows release `0c1bf13`.
+The Pi's extracted source and nine served JS files match the package; source
+hash is `2c6dfb3d619bf31a122bee8ea880ec90458422536eec8a71ed3efd229c932254`.
+SQLite backup, quick_check and table counts/digests verified latest b14db57
+saves in separate trial data; prior source/data and both overrides are intact.
+One browser, connected board 2/firmware 0.2.0, mic OFF/no capture, CRC zero,
+healthy service tasks, loopback-only listener and an Encyclopedia article passed
+targeted checks. The visible dashboard includes CAIRN. No Pi builds, agents,
+inference or broad suites ran. Physical playtesting remains separate; see
+[current acceptance and rollback](PI-ACCEPTANCE.md).
+
 ## High Bar momentum and CAIRN — current Windows candidate, 2026-10-03
 
 Native Windows `DESKTOP-FD66EV2`, `codex/highbar-momentum`, based on `c0633d0`.
-This wave follows Sam's playtest of `b14db57`. It has made no Pi connection,
-deployment, firmware change or GitHub publication. Earlier validation below
+This development phase followed Sam's playtest of `b14db57` and made no Pi
+connection, deployment, firmware change or GitHub publication. The later
+authorized deployment is recorded above. Earlier validation below
 belongs to its named source snapshots. Current source is described in
 [High Bar](HIGH-BAR.md) and [CAIRN](CAIRN.md).
 
@@ -71,8 +85,8 @@ slots; a real menu journey switches, reloads and recovers the original career.
 Evidence is under `C:/Users/ayers/vesper9-investigation/momentum/`, with earlier
 CAIRN evidence in `../cairn/` and bounded route searches in `../energy/`.
 Windows screenshots and CPU-throttled Canvas submission samples are not Pi
-FPS, physical button comfort or acoustic case-tap qualification. The last
-verified device source remains `b14db57`, recorded in the section below.
+FPS, physical button comfort or acoustic case-tap qualification. Device source
+was still `b14db57` during this development phase; the later switch is above.
 
 > Release `b14db57` from `codex/highbar-mastery` was installed on the Pi on
 > 2026-10-03, preserving the previous `60adf7a` release and copying its latest

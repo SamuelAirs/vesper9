@@ -1,8 +1,7 @@
 # Next steps for the finished node
 
-The current Windows candidate is `codex/highbar-momentum`, based on the
-`c0633d0` deployment record. The last verified Pi source is `b14db57`; this
-wave has made no Pi connection or deployment. High Bar has revised controls,
+The current Pi trial is `0c1bf13` from `codex/highbar-momentum`, deployed and
+source-verified on 2026-10-03 at 22:11 UTC. High Bar has revised controls,
 earned momentum, longer webs and skate decks. CAIRN is the one requested new
 skill game. Remodeling another existing game remains paused at Sam's request.
 
@@ -20,21 +19,17 @@ airtime without camping a post to gain height. Test deck landings and finding
 a useful launch speed, readable spider/obstacles, and clean versus sketchy
 landings. Software recordings prove possibility, not enjoyable difficulty.
 
-## 2. Stage the next recoverable trial when authorized
+## 2. Preserve the current trial and its rollback
 
-Package and build on Windows. First recheck the Pi's then-current source,
-service paths and saves. Close the one controlling browser only after its save
-queue is acknowledged, quiesce writes, and copy the latest trial data using
-SQLite backup and integrity/count checks. Preserve original saves, the current
-`b14db57` trial and its exact service configuration. Use a separate candidate
-source/data directory and removable override; prepare a rollback that returns
-to `b14db57`, not the older `60adf7a` trial.
-
-After switching, verify source identity and served JS hashes, source/data
-paths, one browser, loopback-only service, connected node, microphone OFF and
-CRC counters. Keep firmware 0.2.0, models, calibration and Encyclopedia assets
-unchanged. An older release must never open the candidate schema-5 save.
-[PI-ACCEPTANCE.md](PI-ACCEPTANCE.md) records earlier deployments separately.
+The authorized switch copied the latest quiescent b14db57 trial saves using
+SQLite backup and integrity/count checks. Its source, data and service overrides
+remain intact. The new release has separate trial data and a removable
+`97-highbar-momentum.conf`; its rollback returns to b14db57 with b14db57 saves.
+Source identity, nine served assets, one browser, node connection, microphone
+OFF and CRC zero passed targeted checks. Firmware 0.2.0, models, calibration
+and Encyclopedia assets remain unchanged. Never point the older release at
+migrated schema-5 saves. [PI-ACCEPTANCE.md](PI-ACCEPTANCE.md) gives the exact
+rollback command. Build and broad testing remain on Windows for future changes.
 
 ## 3. Play CAIRN after the High Bar check
 

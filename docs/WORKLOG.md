@@ -62,3 +62,20 @@ The long integrated run was started while final review continued. The final held
 - Browser workflow and extension tests pass on this Pi with Playwright 1.63 driving the system Chromium 151 (32 s). Tests now take a free port each and mute audio so several checkouts can run them at once.
 - Project placed under local git: `v0.2.0-as-delivered`, then bring-up commits. The generated simulator is no longer tracked.
 - Sam's feedback after playing: fun; the lamps are underused; dictation a little inaccurate; wants more games and instruments. Plan for the overnight agent fleet: `../fleet/PLAN.md`.
+
+## 2026-10-01 — The Stacks, a book library (desktop, not verified on the device)
+
+- New app `library` (THE STACKS, `web/apps/library.js`) and service module `vesper/library.py` with `GET /api/library`, `GET /api/library/{book}/{chapter}` and the commands `library_import` and `library_fetch` (docs/PROTOCOL.md). Tap turns the page, hold-and-release opens the reader's menu (previous page, chapters, auto-turn at 160/220/300 words a minute, text size, shelf). Lamps: a low amber bar of the chapter, cyan filling while a hold is counted, a cyan dot walking to the next auto-turn.
+- Books: DRM-free EPUB, plain text (Gutenberg licence trimmed), a Kindle `My Clippings.txt` as a book of highlights. Kindle purchases (AZW/AZW3/KFX) and DRM EPUBs are listed as locked with the reason; nothing removes DRM. Amazon withdrew Download & Transfer via USB in February 2025, so there is no legitimate export of Kindle book text.
+- Reading places are saved per book in the app's progress, versioned (`v: 1`, `migrateSave`), at most 30 books (tests/library.test.mjs). The menu gesture's two taps turn pages that are taken back (AppGuard).
+- The download and USB import could not be exercised from the desktop (no network to gutenberg.org here, no USB drive); both are covered by tests with fakes only.
+- 2026-10-03: fifteen Standard Ebooks classics ship in `books/` (3.4 MB, text only, CC0; `scripts/pack-books.py`), listed after Sam's own books. MORE CLASSICS now fetches sixteen more Standard Ebooks titles from GitHub (which the Pi already reaches to update) instead of Project Gutenberg. The shelf is drawn as spines (width by length) with a card for the chosen book; a new book opens at its first chapter, past the title page.
+
+## 2026-10-03 — Encyclopedia, an offline Wikipedia (desktop, not verified on the device)
+
+- New app `encyclopedia` (ENCYCLOPEDIA, `web/apps/encyclopedia.js`) beside The Stacks, and `vesper/encyclopedia.py` with `GET /api/encyclopedia`, `/api/encyclopedia/article` and `/api/encyclopedia/random` (docs/PROTOCOL.md). Home: continue, article of the day, on this day, random, front page, recently read. Tap turns the page; at the end of an article a tap opens "where next?", the article's links; hold opens the menu (links on this page first, sections, back to the article you came from, auto-turn, text size). Lamps: the amber article bar, a cyan light that moves right as the trail of links gets deeper, cyan filling during a hold.
+- The page layout and the reader's shared screens moved to `web/apps/reader-kit.js`, used by both apps.
+- Content: Simple English Wikipedia without pictures, downloaded on the Pi by `scripts/get-encyclopedia.py` (resumable, SHA-256 checked) into `<data>/encyclopedia`; read with the optional `libzim` extra. Nothing is bundled. kiwix.org is blocked from this desktop, so the download script has not been run; the service and app are tested against small ZIM files written with libzim (tests/test_encyclopedia.py, tests/encyclopedia.test.mjs).
+- Saved (versioned `v: 1`, `migrateWiki`): text size, auto-turn, the last place and the 20 most recent articles with how far each was read.
+- Voice name "encyclopedia" still needs the Vosk vocabulary check on the Pi.
+- Dashboard placement belongs to PR #11: The Stacks and the Encyclopedia sit in its TOOLS sector. This branch adds only the two catalog entries, no sector lines, so on this branch alone they open by voice or `vesper.launch` but have no dashboard card.

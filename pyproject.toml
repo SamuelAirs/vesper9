@@ -13,6 +13,8 @@ dependencies = ["aiohttp>=3.10,<4", "pyserial>=3.5,<4"]
 speech = ["vosk==0.3.45"]
 # Optional more accurate dictation (second pass over each finished utterance); needs the model from scripts/get-voice-model.py
 refine = ["sherpa-onnx==1.13.8", "numpy==2.5.3"]
+# Optional offline encyclopedia (a Kiwix ZIM file; see scripts/get-encyclopedia.py)
+encyclopedia = ["libzim>=3.4,<4"]
 
 [project.scripts]
 vesper = "vesper.server:main"

@@ -594,6 +594,46 @@
       "capabilities": [
         "sensor"
       ]
+    },
+    {
+      "id": "library",
+      "name": "THE STACKS",
+      "subtitle": "A shelf of books, one page at a time.",
+      "description": "A library of DRM-free books: EPUB and text files, fifteen classics on the shelf and more to fetch, and your Kindle highlights. Tap turns the page; hold for the reader's menu.",
+      "controls": "TAP: NEXT PAGE · HOLD & RELEASE: MENU",
+      "category": "INSTRUMENT / READING",
+      "glyph": 3,
+      "icon": "<path d=\"M8 10h9v30H8zM19 10h8v30h-8z\"/><path d=\"M30 12l7-2 6 28-7 2z\"/><path d=\"M10 16h5M21 16h4M10 34h5M21 34h4\"/><path d=\"M4 42h40\"/>",
+      "factory": "Library",
+      "voice": [
+        "library"
+      ],
+      "capabilities": [
+        "button",
+        "lights",
+        "audio",
+        "progress"
+      ]
+    },
+    {
+      "id": "encyclopedia",
+      "name": "ENCYCLOPEDIA",
+      "subtitle": "Offline Wikipedia, one link at a time.",
+      "description": "Simple English Wikipedia kept on the console: the article of the day, today in history, a random article or the front page. Tap turns the page; at the end, pick a link and go deeper. Hold for links, sections and the way back.",
+      "controls": "TAP: NEXT PAGE · HOLD & RELEASE: LINKS, SECTIONS, BACK",
+      "category": "INSTRUMENT / READING",
+      "glyph": 3,
+      "icon": "<circle cx=\"24\" cy=\"24\" r=\"17\"/><path d=\"M7 24h34M24 7c-6 5-6 29 0 34M24 7c6 5 6 29 0 34M10 15h28M10 33h28\"/>",
+      "factory": "Encyclopedia",
+      "voice": [
+        "encyclopedia"
+      ],
+      "capabilities": [
+        "button",
+        "lights",
+        "audio",
+        "progress"
+      ]
     }
   ],
   "system": [

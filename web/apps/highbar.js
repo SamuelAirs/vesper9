@@ -10,141 +10,14 @@
 // Repeated tricks earn less and do not grow the multiplier. Practice teaches the same physics.
 // The lamps show what the button will do: the flip's angle in the
 // air (green: safe to land), the swing on a bar, the combo's roll window on the ground.
-import { C, space, text, line, circle } from "../engine/draw.js";
+import { C } from "../engine/draw.js";
 import { TAU, clamp, wrapAngle, Random } from "../engine/math.js";
 import { LAMP, dim, fill, meter, spot, pulse } from "../engine/lightshow.js";
 import { AppGuard } from "../engine/input.js";
-import { LampBus, LOCKOUT, announce, drawNote } from "./game-kit.js";
+import { LampBus, LOCKOUT, announce } from "./game-kit.js";
 
-const G = 650; // px/s^2
-const STEP = 4; // heightmap spacing, px
-const LIP_ANGLE = 78 * Math.PI / 180; // the steepest a ramp gets before it is vert
-const MAX_SPEED = 820;
-const FRICTION = 6; // px/s^2 rolling resistance
-const PUMP = 1.7; // a crouch multiplies the slope's pull when it helps
-const PUSH_MIN = 220, PUSH = 420; // below this speed on the ground the rider kicks
-const OLLIE = 240; // px/s off the ground, along its normal
-const REACH = 190, MIN_R = 45; // how far a bar can be grabbed from
-const CATCH_LAG = 4 / 60; // the grab takes this long to land
-const REGRAB = 0.45; // seconds before the bar just left can be grabbed again
-const TUCK = 8.5; // rad/s of a full tuck
-const SETTLE = 4.2; // rad/s at most while untucked, turning towards the landing
-const LAND_TOL = 0.8; // radians off the ground's angle that still land
-const ROLL = 1.2; // seconds on the ground before a combo banks
-const BAIL_T = 1.1;
-const SESSION = 120;
-const OVERTIME = 8; // seconds after the clock for the last trick
-const HOLD_PICK = 0.5; // a press this long on a menu screen chooses
-const WHIP_GAIN = 1.12, WHIP_CAP = 760;
-const SLOTS = 3;
-const MAX_TRICKS = 40;
-const MAX_PARTS = 24;
-const REPEAT = [1, 0.75, 0.5, 0.25, 0.1];
-const FLIPS = ["", "", "DOUBLE ", "TRIPLE ", "QUAD "];
-const FLIP_PTS = [0, 300, 750, 1400, 2200];
-const MODES = ["SESSION", "LINE RUN", "PRACTICE"];
-const MANUAL_LIMIT = 5;
-const TAP_COOLDOWN = 0.45;
-const STYLE_TIME = 0.28;
-const MEDALS = ["—", "BRONZE", "SILVER", "GOLD"];
-const GUIDE = [
-  ["ROLL AND FLY", "Hold on a slope to pump for speed.", "Let go to ollie. Hold in the air to tuck and flip.", "Release early enough to straighten before landing."],
-  ["SWING THE BARS", "The ring marks the bar a press will catch.", "Hold to swing. Release to fly along the tangent.", "Catch another bar or land upright to keep your line."],
-  ["CASE TAP: STYLE", "On the ground: manual. Tap again to balance.", "In the air: shove-it. On a bar: one regrip boost.", "Button-only still works. Tap direction is optional."],
-  ["BANK YOUR LINE", "Land, then roll for 1.2 seconds to bank the combo.", "Ollie or manual before it banks to keep linking.", "Different tricks grow the multiplier. Repeats do not."],
-  ["PARK LINES", "SESSION: two minutes. Three goals open the next park.", "LINE RUN: a short attempt at one named challenge.", "PRACTICE: no clock or records. Leave with the menu."],
-  ["THE FOUR LAMPS", "I: speed / swing. II: safe landing or manual balance.", "III: variety in your combo. IV: when to tap for style.", "Board LED flashes only for a bank or new challenge."],
-];
-const LINES = [
-  [
-    { id: "first", name: "FIRST FLIGHT", text: "Bank a flip and a swing in one line", flip: 1, swing: true },
-    { id: "style", name: "BOWL STYLE", text: "Bank three different tricks with a clean landing", variety: 3, clean: true },
-    { id: "link", name: "ROLLING LINK", text: "Link two airs with a manual, then bank", manual: true, airs: 2 },
-  ],
-  [
-    { id: "ladder", name: "LADDER LINE", text: "Bank THE LADDER and a flip", gap: "ladder", flip: 1 },
-    { id: "spine", name: "SPINE STYLE", text: "Bank OVER THE SPINE and four different tricks", gap: "spine", variety: 4 },
-    { id: "whips", name: "WHIP LINE", text: "Bank WHIP TO WHIP and a regrip", gap: "whips", regrip: true },
-  ],
-  [
-    { id: "climb", name: "UP THE TOWER", text: "Bank three transfers and a double flip", transfers: 3, flip: 2 },
-    { id: "top", name: "TOP STYLE", text: "Reach TOP RUNG and bank four different tricks", gap: "top", variety: 4, seconds: 75 },
-    { id: "cross", name: "CROSSOVER LINE", text: "Bank CROSSOVER with a clean landing", gap: "cross", clean: true, seconds: 75 },
-  ],
-  [
-    { id: "moon", name: "MOON LINE", text: "Bank OVER THE MOON and a double flip", gap: "moon", flip: 2 },
-    { id: "summit", name: "NIGHT STYLE", text: "Bank SUMMIT and a shove-it", gap: "summit", shove: true },
-    { id: "master", name: "PIPE MASTER", text: "Bank five different tricks and a triple flip", variety: 5, flip: 3 },
-  ],
-];
-
-// ---- parks -------------------------------------------------------------------
-// w, h: world size. floor: floor height. r: quarter-pipe radius. bumps: [centre, height, width]
-// (positive is a hump). bars: [x, y, kind]. gaps: named lines worth points (bar to bar, an air
-// spanning x1..x2, or reaching a bar). goals: five per park.
-const PARKS = [
-  {
-    id: "bowl", name: "THE BOWL", text: "A small bowl and three low bars.", w: 1500, h: 540, floor: 470, r: 250, bumps: [],
-    bars: [[430, 300], [750, 260], [1070, 300]],
-    gaps: [{ id: "bowlx", name: "BAR HOP", t: "bars", a: 0, b: 2, pts: 500 }],
-    goals: [
-      { t: "score", n: 3000, text: "Score 3,000 in a session" },
-      { t: "flip", n: 1, text: "Land a flip" },
-      { t: "giants", n: 1, text: "Swing a full giant round a bar" },
-      { t: "count", n: 4, text: "String 4 tricks in one combo" },
-      { t: "score", n: 10000, text: "Score 10,000 in a session" },
-    ],
-  },
-  {
-    id: "yard", name: "THE YARD", text: "A ladder of bars, a spine and two whips.", w: 2200, h: 540, floor: 470, r: 250,
-    bumps: [[1100, 80, 60]],
-    bars: [[480, 330], [620, 235], [770, 150], [1100, 200, "whip"], [1440, 300], [1640, 190, "whip"], [1840, 310]],
-    gaps: [
-      { id: "ladder", name: "THE LADDER", t: "bars", a: 1, b: 2, pts: 800 },
-      { id: "spine", name: "OVER THE SPINE", t: "span", x1: 1030, x2: 1170, pts: 600 },
-      { id: "whips", name: "WHIP TO WHIP", t: "bars", a: 3, b: 5, pts: 1000 },
-    ],
-    goals: [
-      { t: "score", n: 8000, text: "Score 8,000 in a session" },
-      { t: "gap", id: "ladder", text: "Climb THE LADDER: bar to top bar" },
-      { t: "gap", id: "spine", text: "Fly OVER THE SPINE" },
-      { t: "flip", n: 2, text: "Land a double flip" },
-      { t: "value", n: 3000, text: "Bank a 3,000 point combo" },
-    ],
-  },
-  {
-    id: "tower", name: "THE TOWER", text: "Bars stacked high. Climb them.", w: 1300, h: 1400, floor: 1330, r: 300, bumps: [],
-    bars: [[400, 1140], [900, 1140], [560, 1010], [740, 1010], [400, 880], [900, 880], [560, 750], [740, 750],
-      [400, 620, "whip"], [900, 620, "whip"], [650, 470], [650, 250]],
-    gaps: [
-      { id: "top", name: "TOP RUNG", t: "reach", a: 11, pts: 2000 },
-      { id: "cross", name: "CROSSOVER", t: "bars", a: 8, b: 9, pts: 900 },
-    ],
-    goals: [
-      { t: "score", n: 15000, text: "Score 15,000 in a session" },
-      { t: "gap", id: "top", text: "Reach the TOP RUNG" },
-      { t: "giants", n: 3, text: "3 giants in one combo" },
-      { t: "count", n: 8, text: "String 8 tricks in one combo" },
-      { t: "score", n: 35000, text: "Score 35,000 in a session" },
-    ],
-  },
-  {
-    id: "pipe", name: "THE NIGHT PIPE", text: "A deep half-pipe with bars over the drop.", w: 1700, h: 700, floor: 640, r: 380, bumps: [],
-    bars: [[600, 380], [1100, 380], [850, 450], [850, 210, "whip"]],
-    gaps: [
-      { id: "moon", name: "OVER THE MOON", t: "span", x1: 470, x2: 1230, pts: 1500 },
-      { id: "summit", name: "SUMMIT", t: "reach", a: 3, pts: 700 },
-    ],
-    goals: [
-      { t: "score", n: 25000, text: "Score 25,000 in a session" },
-      { t: "gap", id: "moon", text: "Fly OVER THE MOON, across the pipe" },
-      { t: "flip", n: 3, text: "Land a triple flip" },
-      { t: "value", n: 10000, text: "Bank a 10,000 point combo" },
-      { t: "score", n: 60000, text: "Score 60,000 in a session" },
-    ],
-  },
-];
-const UNLOCK = 3; // goals in a park that open the next one
+import { G, STEP, LIP_ANGLE, MAX_SPEED, FRICTION, PUMP, PUSH_MIN, OLLIE, REACH, CATCH_LAG, REGRAB, TUCK, SETTLE, LAND_TOL, ROLL, BAIL_T, SESSION, OVERTIME, HOLD_PICK, WHIP_GAIN, SLOTS, MAX_TRICKS, MAX_PARTS, REPEAT, FLIPS, FLIP_PTS, MODES, MANUAL_LIMIT, TAP_COOLDOWN, STYLE_TIME, MEDALS, GUIDE, LINES, PARKS, UNLOCK, PUSH, MIN_R, WHIP_CAP } from "./highbar-content.js";
+import { HighBarView } from "./highbar-view.js";
 
 // The park's ground as heights every STEP px, plus its lips (where the walls turn vert).
 function buildPark(park) {
@@ -174,7 +47,8 @@ function skyline(park, seed) {
 const fmt = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 const freshSlot = () => ({ runs: 0, park: 0, goals: PARKS.map(() => []), best: PARKS.map(() => 0), bestCombo: 0, last: null,
   guided: false, mode: 0, line: 0, lines: PARKS.map(() => []), medals: PARKS.map(() => 0),
-  styleBest: PARKS.map(() => 0), lineBest: PARKS.map(() => [0, 0, 0]), clean: 0 });
+  styleBest: PARKS.map(() => 0), lineBest: PARKS.map(() => [0, 0, 0]), clean: 0,
+  lineComboBest: PARKS.map(() => [0, 0, 0]), lineTimeBest: PARKS.map(() => [0, 0, 0]), lineMedals: PARKS.map(() => [0, 0, 0]) });
 
 // Preserve schema-1 slots and active selection. New skill records never overwrite old score records.
 export function migrateSave(raw) {
@@ -198,6 +72,10 @@ export function migrateSave(raw) {
       slot.medals[p] = num(o.medals?.[p], 0, 3);
       slot.lines[p] = [...new Set((Array.isArray(o.lines?.[p]) ? o.lines[p] : []).filter((i) => Number.isInteger(i) && i >= 0 && i < 3))].sort();
       slot.lineBest[p] = [0, 1, 2].map((i) => num(o.lineBest?.[p]?.[i], 0, 1e9));
+      slot.lineComboBest[p] = [0, 1, 2].map(i => num(o.lineComboBest?.[p]?.[i], 0, 1e9));
+      slot.lineMedals[p] = [0, 1, 2].map(i => num(o.lineMedals?.[p]?.[i], 0, 3));
+      slot.lineTimeBest[p] = [0, 1, 2].map(i => Number.isFinite(o.lineTimeBest?.[p]?.[i])
+        ? Math.round(clamp(o.lineTimeBest[p][i], 0, SESSION + OVERTIME) * 100) / 100 : 0);
     }
     slot.park = num(o.park, 0, PARKS.length - 1);
     if (!unlocked(slot, slot.park)) slot.park = 0;
@@ -217,8 +95,9 @@ function finishSave(save) {
   return save;
 }
 
-export class HighBar {
+export class HighBar extends HighBarView {
   constructor(ctx) {
+    super();
     this.c = ctx;
     this.lamps = new LampBus(ctx);
     this.save = migrateSave(ctx.progress?.());
@@ -233,6 +112,8 @@ export class HighBar {
     this.note = ""; this.noteT = 0;
     this.board = 0; this.boardSent = false;
     this.hudKey = "";
+    this.practiceStart = 0; this.practiceCheckpoint = null;
+    this.practiceSlow = false; this.resumeT = 0;
     this.resetRun();
     this.setHint("Tap to ride. Hold for park and save slot.");
     this.guard = new AppGuard(this, ctx, { skip: ["hm", "hmFor", "geo", "sky"] });
@@ -258,6 +139,8 @@ export class HighBar {
     this.ensurePark();
     const g = this.geo;
     this.score = 0; this.clock = SESSION; this.ending = false;
+    this.runTime = 0; this.resumeT = 0; this.landing = null; this.lastBank = null;
+    if (this.practiceCheckpoint?.park !== this.parkId) this.practiceCheckpoint = null;
     this.p = { mode: "ground", x: g.lipL + 4, y: 0, s: 160, vx: 0, vy: 0, rot: 0, rotV: 0, tuck: false, crouch: false, vert: 0,
       bar: -1, r: 0, phi: 0, om: 0, held: 0, loops: 0, phiAcc: 0, lastBar: -1, lastBarT: 9, bailT: 0 };
     this.p.y = this.groundY(this.p.x);
@@ -276,7 +159,8 @@ export class HighBar {
     this.placeCamera(true);
   }
   freshCombo() { return { tricks: [], sum: 0, roll: -1, giants: 0, maxFlip: 0, gaps: [],
-    airs: 0, clean: false, manual: false, regrip: false, shove: false, transfers: 0 }; }
+    airs: 0, clean: false, manual: false, regrip: false, shove: false, transfers: 0,
+    cleanLandings: 0, landings: 0, sketchy: 0, started: this.runTime || 0 }; }
 
   // ---- input -------------------------------------------------------------
   down() {
@@ -284,6 +168,7 @@ export class HighBar {
     if (this.pressed) return;
     this.pressed = true; this.pt = this.t;
     if (this.phase !== "play") { this.armed = !(this.phase === "over" && this.overT < LOCKOUT); return; }
+    if (this.resumeT > 0) return;
     const p = this.p;
     if (p.mode === "bail") return;
     const bar = this.pickBar();
@@ -296,7 +181,14 @@ export class HighBar {
     if (!this.pressed) return;
     this.pressed = false;
     const dur = Number.isFinite(e?.durationMs) ? e.durationMs / 1000 : this.t - this.pt;
-    if (this.phase !== "play") { if (this.armed) this.menuPress(dur); this.armed = false; return; }
+    if (this.phase !== "play") {
+      // A completed ordinary selection hold is not one of the gesture's two
+      // quick taps. The source-owned duration also settles burst-delivered
+      // holds even when the render clock has not advanced between their edges.
+      if (dur >= HOLD_PICK) this.guard.settle();
+      if (this.armed) this.menuPress(dur); this.armed = false; return;
+    }
+    if (this.resumeT > 0) return;
     const p = this.p;
     this.pending = null;
     if (p.mode === "bar") this.letGo();
@@ -311,18 +203,31 @@ export class HighBar {
     if (this.p) { this.p.crouch = false; this.p.tuck = false; if (this.p.mode === "bar" && !restored) this.letGo(); }
   }
   pause() { this.guard.settle(); this.lamps.sleep(); this.boardOff(); }
-  resume() { this.lamps.wake(); }
+  resume() { this.lamps.wake(); if (this.phase === "play") this.resumeT = 0.6; }
   dispose() { this.guard.settle(); this.lamps.sleep(); this.boardOff(); }
   menuActions() {
     const guide = { label: "GAME GUIDE", run: () => { this.guideReturn = this.phase; this.phase = "guide"; this.guide = 0; this.c.resume?.(); } };
-    if (this.phase !== "play") return [guide];
+    if (this.phase !== "play") return [
+      ...(this.phase === "over" ? [{ label: this.mode === 1 ? "RETRY THIS LINE" : this.mode === 2 ? "RETRY PRACTICE" : "RIDE AGAIN", run: () => { this.start(); this.c.resume?.(); } }] : []), guide];
     return [{ label: this.mode === 2 ? "LEAVE PRACTICE" : "END SESSION", run: () => { this.finish(); this.c.resume?.(); } },
-      { label: "RESTART SESSION", run: () => { this.start(); this.c.resume?.(); } }, guide];
+      { label: "RESTART SESSION", run: () => { this.start(); this.c.resume?.(); } },
+      ...(this.mode === 2 ? [
+        { label: "RESET PRACTICE START", run: () => { this.resetPractice(); this.c.resume?.(); } },
+        ...(this.practiceCheckpoint?.park === this.parkId ? [{ label: "RESET TO LAST SAFE BANK", run: () => { this.resetPractice(true); this.c.resume?.(); } }] : []),
+        { label: "PRACTICE PACE / " + (this.practiceSlow ? "HALF SPEED" : "NORMAL"), run: () => { this.practiceSlow = !this.practiceSlow; this.c.resume?.(); } },
+        { label: "CHANGE PRACTICE START", run: () => { this.phase = "setup"; this.cursor = this.setupItems().findIndex(i => i.id === "start"); this.c.resume?.(); } },
+      ] : []), guide];
   }
   // A forgiving optional style action; never a button edge or a menu choice.
   knock(event = {}) {
-    if (this.phase === "guide") { this.menuPress(0); return; }
-    if (this.phase !== "play" || this.p.mode === "bail" || this.t - this.tapAt < TAP_COOLDOWN) return;
+    if (this.phase === "guide") { this.guide = (this.guide + GUIDE.length - 1) % GUIDE.length; return; }
+    if (this.phase === "setup" && !this.pressed) {
+      const step = this.c.settings?.().tapMode === "sides" && event.side === "right" ? 1 : -1;
+      this.cursor = (this.cursor + step + this.setupItems().length) % this.setupItems().length;
+      this.erase = 0; this.c.tone?.(440, 0.03, "sine"); return;
+    }
+    if (this.phase === "over") { if (!this.pressed && this.overT >= LOCKOUT) this.start(); return; }
+    if (this.phase !== "play" || this.resumeT > 0 || this.p.mode === "bail" || this.t - this.tapAt < TAP_COOLDOWN) return;
     this.tapAt = this.t;
     const p = this.p;
     const side = this.c.settings?.().tapMode === "sides" ? event.side : null;
@@ -331,7 +236,7 @@ export class HighBar {
         const direction = side === "left" ? -1 : side === "right" ? 1 : -Math.sign(this.manual.balance || this.manual.drift);
         this.manual.balance = clamp(this.manual.balance + direction * 0.43, -1.2, 1.2);
         this.manual.corrections++;
-        this.styleNotice = "MANUAL: TAP WHEN THE BALANCE DRIFTS";
+        this.styleNotice = Math.abs(this.manual.balance) < 0.3 ? "BALANCE CENTRED — LET IT DRIFT BEFORE TAPPING" : "MANUAL: TAP BEFORE THE BALANCE REACHES THE EDGE";
       } else {
         this.manual = { t: 0, balance: 0.12, drift: 1, corrections: 0 };
         this.combo.roll = -1;
@@ -382,7 +287,7 @@ export class HighBar {
     const long = dur >= HOLD_PICK;
     if (this.phase === "guide") {
       if (long || ++this.guide >= GUIDE.length) {
-        if (this.guideReturn) { this.phase = this.guideReturn; this.guideReturn = null; return; }
+        if (this.guideReturn) { this.phase = this.guideReturn; this.guideReturn = null; if (this.phase === "play") this.resumeT = 0.6; return; }
         this.slot().guided = true; this.persist(); this.start();
       }
       return;
@@ -405,20 +310,25 @@ export class HighBar {
       const s = this.slot();
       let p = this.parkId;
       do p = (p + 1) % PARKS.length; while (!unlocked(s, p));
-      this.parkId = p; s.park = p; this.persist(); this.ensurePark(); this.resetRun();
+      this.parkId = p; s.park = p; this.practiceStart = 0; this.practiceCheckpoint = null;
+      this.persist(); this.ensurePark(); this.resetRun();
       this.c.tone?.(620, 0.05, "triangle");
     } else if (id === "slot") {
       this.save.slot = (this.save.slot + 1) % SLOTS; finishSave(this.save);
-      this.parkId = this.slot().park; this.mode = this.slot().mode; this.persist(); this.ensurePark(); this.resetRun();
+      this.parkId = this.slot().park; this.mode = this.slot().mode; this.practiceStart = 0; this.practiceCheckpoint = null;
+      this.persist(); this.ensurePark(); this.resetRun();
       this.c.tone?.(580, 0.05, "triangle");
     } else if (id === "erase") {
       if (!this.erase) { this.erase = 1; this.c.tone?.(300, 0.08, "square"); return; }
       this.save.slots[this.save.slot] = freshSlot(); finishSave(this.save);
-      this.parkId = 0; this.mode = 0; this.persist(); this.ensurePark(); this.resetRun(); this.erase = 0;
+      this.parkId = 0; this.mode = 0; this.practiceStart = 0; this.practiceCheckpoint = null;
+      this.persist(); this.ensurePark(); this.resetRun(); this.erase = 0;
       announce(this, "SLOT " + (this.save.slot + 1) + " ERASED", 2);
       this.c.tone?.(200, 0.2, "sawtooth");
     } else if (id === "mode") { this.mode = (this.mode + 1) % MODES.length; this.slot().mode = this.mode; this.persist(); }
     else if (id === "line") { this.slot().line = (this.slot().line + 1) % 3; this.persist(); }
+    else if (id === "start") { this.practiceStart = (this.practiceStart + 1) % this.practiceSpawns().length; }
+    else if (id === "pace") this.practiceSlow = !this.practiceSlow;
     else if (id === "guide") { this.guideReturn = "setup"; this.phase = "guide"; this.guide = 0; }
     else if (id === "back") { this.phase = "title"; this.setHint("Tap to ride. Hold for park and save slot."); }
   }
@@ -430,7 +340,9 @@ export class HighBar {
       { id: "slot", label: "SAVE SLOT: " + (this.save.slot + 1) + (used ? "  (" + s.runs + " SESSIONS)" : "  (NEW)") },
       { id: "erase", label: this.erase ? "HOLD AGAIN TO ERASE SLOT " + (this.save.slot + 1) : "ERASE SLOT " + (this.save.slot + 1) },
       { id: "mode", label: "MODE: " + MODES[this.mode] },
-      { id: "line", label: "LINE: " + this.challenge().name + "  (" + this.lineSeconds() + "s)" },
+      { id: "line", label: "LINE: " + this.challenge().name + (this.mode === 2 ? "  (PRACTICE TARGET)" : "  (" + this.lineSeconds() + "s)") },
+      ...(this.mode === 2 ? [{ id: "start", label: "START: " + this.practiceSpawns()[this.practiceStart % this.practiceSpawns().length].name },
+        { id: "pace", label: "PRACTICE PACE: " + (this.practiceSlow ? "HALF SPEED" : "NORMAL") }] : []),
       { id: "guide", label: "GAME GUIDE" },
       { id: "back", label: "BACK" },
     ];
@@ -440,9 +352,34 @@ export class HighBar {
     this.resetRun();
     this.clock = this.mode === 1 ? this.lineSeconds() : SESSION;
     this.phase = "play";
+    if (this.mode === 2) this.placePractice(this.practiceSpawns()[this.practiceStart % this.practiceSpawns().length]);
     announce(this, this.mode === 1 ? this.challenge().name : this.mode === 2 ? "PRACTICE — NO CLOCK OR RECORDS" : this.park().name, 2.2);
     this.setHint("Near a bar: hold to swing. Ground: hold to pump, let go to ollie. Air: hold to flip.");
     this.c.tone?.(660, 0.08, "triangle");
+  }
+  practiceSpawns() {
+    return [{ id: "drop", name: "DROP-IN" },
+      ...(this.park().training ? [{ id: "training", name: "FLAT SCHOOL", ...this.park().training }] : []),
+      ...(this.practiceCheckpoint?.park === this.parkId ? [{ id: "checkpoint", name: "LAST SAFE BANK", checkpoint: true }] : [])];
+  }
+  practiceLabel() { return this.practiceSpawns()[this.practiceStart % this.practiceSpawns().length].name; }
+  placePractice(spawn) {
+    if (spawn?.checkpoint && this.practiceCheckpoint?.park === this.parkId) {
+      const q = this.practiceCheckpoint;
+      Object.assign(this.p, { x: q.x, s: q.s, y: this.groundY(q.x), rot: Math.atan(this.slope(q.x)) });
+    } else if (Number.isFinite(spawn?.x)) {
+      const x = clamp(spawn.x, this.geo.lipL + 4, this.geo.lipR - 4);
+      Object.assign(this.p, { x, s: clamp(spawn.speed || 220, -MAX_SPEED, MAX_SPEED), y: this.groundY(x), rot: Math.atan(this.slope(x)) });
+    }
+    this.placeCamera(true);
+  }
+  resetPractice(checkpoint = false) {
+    if (this.mode !== 2) return;
+    const restoring = checkpoint && this.practiceCheckpoint?.park === this.parkId;
+    if (restoring) this.practiceStart = this.practiceSpawns().findIndex(spawn => spawn.checkpoint);
+    this.start();
+    this.resumeT = 0.6; this.pressed = false; this.armed = false;
+    announce(this, restoring ? "LAST SAFE BANK — TRY THE NEXT LINK" : "PRACTICE RESET — NO RECORDS", 1.6);
   }
 
   // ---- the rider ---------------------------------------------------------
@@ -577,20 +514,28 @@ export class HighBar {
     const along = p.vx * cos + p.vy * sin, speed = Math.hypot(p.vx, p.vy);
     const s = speed > 1 ? Math.sign(along) * speed * (0.75 + 0.25 * Math.abs(along) / speed) : along;
     p.y = this.groundY(p.x);
-    if (off > (this.air?.style ? LAND_TOL * 0.7 : LAND_TOL)) { this.bail(); return; }
-    if (off < 0.22 && this.air?.t >= 0.35) { this.combo.clean = true; this.stats.clean++; }
+    const tol = this.air?.style ? LAND_TOL * 0.7 : LAND_TOL;
+    if (off > tol) { this.bail("RELEASE EARLIER — MATCH THE SLOPE BEFORE TOUCHDOWN", off); return; }
+    const clean = off < 0.22 && this.air?.t >= 0.35;
+    const sketchy = off >= tol * 0.75;
+    this.combo.landings++;
+    if (clean) { this.combo.clean = true; this.combo.cleanLandings++; this.stats.clean++; }
+    if (sketchy) this.combo.sketchy++;
+    this.landing = { kind: clean ? "clean" : sketchy ? "sketchy" : "safe", off, t: 1.3,
+      reason: clean ? "CLEAN — BODY MATCHED THE SLOPE" : sketchy ? "SKETCHY — RELEASE EARLIER FOR A CLEANER LANDING" : "SAFE — STRAIGHTEN A LITTLE MORE FOR CLEAN" };
     this.endAir(false);
     Object.assign(p, { mode: "ground", s: clamp(s, -MAX_SPEED, MAX_SPEED), rot: ang, rotV: 0, tuck: false, vert: 0 });
     if (this.combo.tricks.length) this.combo.roll = ROLL;
     this.burst(p.x, p.y, C.muted, 4);
     this.c.tone?.(180, 0.05, "triangle");
   }
-  bail() {
+  bail(reason = "LAND UPRIGHT — RELEASE IN TIME TO STRAIGHTEN", off = null) {
     const p = this.p;
     if (this.combo.tricks.length) announce(this, "BAIL! " + fmt(this.comboValue()) + " LOST", 1.6);
     else announce(this, "BAIL!", 1.2);
     this.combo = this.freshCombo();
     this.manual = null; this.stats.bails++;
+    this.landing = { kind: "bail", off, t: 2.3, reason };
     this.air = null; this.pending = null;
     Object.assign(p, { mode: "bail", bailT: BAIL_T, tuck: false, crouch: false, vert: 0, s: 0, bar: -1 });
     p.y = this.groundY(p.x);
@@ -605,6 +550,12 @@ export class HighBar {
     this.score += value;
     this.bestCombo = Math.max(this.bestCombo, value);
     this.stats.banks++; this.stats.variety = Math.max(this.stats.variety, mult);
+    const matched = LINES[this.parkId].map((line, i) => this.meetsLine(line, c) ? i : -1).filter(i => i >= 0);
+    this.lastBank = { value, variety: this.variety(c), clean: c.cleanLandings || 0, matched,
+      newBest: false, newMedal: false, time: Math.max(0, this.runTime - (c.started || 0)) };
+    if (this.mode === 2 && this.p.mode === "ground" && !this.manual) {
+      this.practiceCheckpoint = { park: this.parkId, x: this.p.x, s: this.p.s, rot: this.p.rot };
+    }
     announce(this, (mult > 1 ? fmt(c.sum) + " x " + mult + " = " : "+") + fmt(value), 1.6);
     if (mult >= 5) {
       this.lamps.flash(0.7, (e) => spot((e * 3) % 1, LAMP.white, 0.8, this.n()));
@@ -614,7 +565,14 @@ export class HighBar {
       this.lamps.flash(0.35, () => fill(LAMP.green, 1, this.n()));
       this.c.tone?.(740, 0.08, "triangle");
     }
-    if (this.mode !== 2) { this.checkGoals(c); this.checkLines(c); }
+    if (this.mode !== 2) {
+      const before = JSON.stringify([this.slot().goals[this.parkId], this.slot().lines[this.parkId],
+        this.slot().lineComboBest[this.parkId], this.slot().lineTimeBest[this.parkId], this.slot().lineMedals[this.parkId]]);
+      this.checkGoals(c); this.checkLines(c);
+      const after = JSON.stringify([this.slot().goals[this.parkId], this.slot().lines[this.parkId],
+        this.slot().lineComboBest[this.parkId], this.slot().lineTimeBest[this.parkId], this.slot().lineMedals[this.parkId]]);
+      if (before !== after) this.persist();
+    }
     this.combo = this.freshCombo();
   }
   // Goals are met by banked combos, and the score goals by the session's score so far.
@@ -636,6 +594,28 @@ export class HighBar {
   }
   challenge() { return LINES[this.parkId][this.slot().line]; }
   lineSeconds() { return this.challenge().seconds || 45; }
+  lineRecord(park = this.parkId, line = this.slot().line) {
+    const s = this.slot();
+    return { best: s.lineComboBest[park][line], medal: s.lineMedals[park][line], time: s.lineTimeBest[park][line] };
+  }
+  masteryCount() { return this.slot().lineMedals.reduce((n, park) => n + park.reduce((a, m) => a + m, 0), 0); }
+  masteryRequirements(line = this.challenge()) {
+    return { silverClean: 1, silverVariety: Math.max(3, line.variety || 0),
+      goldClean: 2, goldVariety: Math.max(4, (line.variety || 0) + 1) };
+  }
+  lineMedal(line, c) {
+    if (!this.meetsLine(line, c)) return 0;
+    const r = this.masteryRequirements(line), clean = c.cleanLandings || 0, variety = this.variety(c);
+    return clean >= r.goldClean && variety >= r.goldVariety && !c.sketchy ? 3
+      : clean >= r.silverClean && variety >= r.silverVariety ? 2 : 1;
+  }
+  masteryGoal(line = this.challenge()) {
+    const medal = this.lineRecord().medal, r = this.masteryRequirements(line);
+    return medal === 0 ? "BRONZE: BANK THE TARGET" : medal === 1
+      ? "SILVER: TARGET + " + r.silverClean + " CLEAN + " + r.silverVariety + " TYPES"
+      : medal === 2 ? "GOLD: TARGET + " + r.goldClean + " CLEAN + " + r.goldVariety + " TYPES · NO SKETCHY LANDINGS"
+      : "GOLD MASTERED · IMPROVE THE LINE PB OR ATTEMPT TIME";
+  }
   lineProgress(c = this.combo) {
     const line = this.challenge(), parts = [];
     if (line.flip) parts.push("FLIP " + Math.min(c.maxFlip, line.flip) + "/" + line.flip);
@@ -661,6 +641,24 @@ export class HighBar {
     const done = this.slot().lines[this.parkId];
     LINES[this.parkId].forEach((line, i) => {
       if (!this.meetsLine(line, c)) return;
+      const s = this.slot(), value = this.comboValue(), medal = this.lineMedal(line, c);
+      if (value > s.lineComboBest[this.parkId][i]) {
+        s.lineComboBest[this.parkId][i] = value;
+        this.lastBank.newBest = true;
+      }
+      if (medal > s.lineMedals[this.parkId][i]) {
+        s.lineMedals[this.parkId][i] = medal;
+        this.lastBank.newMedal = true;
+        this.newGoals.push(MEDALS[medal] + " LINE: " + line.name);
+        this.board = 1.2;
+      }
+      // Time trials start at the normal drop-in, so practice gates and late
+      // session combos cannot buy a faster record for a different route.
+      if (this.mode === 1 && i === s.line && this.runTime > 0) {
+        const elapsed = Math.round(Math.min(SESSION + OVERTIME, this.runTime) * 100) / 100;
+        const old = s.lineTimeBest[this.parkId][i];
+        if (!old || elapsed < old) { s.lineTimeBest[this.parkId][i] = elapsed; this.lastBank.newBest = true; }
+      }
       if (i === this.slot().line) this.lineMet = true;
       if (done.includes(i)) return;
       done.push(i); done.sort(); this.stats.lines++;
@@ -675,7 +673,11 @@ export class HighBar {
     this.t += dt;
     this.ensurePark();
     if (this.noteT > 0) this.noteT -= dt;
-    if (this.phase === "play") this.stepPlay(dt);
+    if (this.landing) { this.landing.t -= dt; if (this.landing.t <= 0) this.landing = null; }
+    if (this.phase === "play" && this.resumeT > 0) {
+      this.resumeT = Math.max(0, this.resumeT - dt);
+      if (this.resumeT === 0) { this.pressed = false; this.pending = null; this.p.crouch = false; this.p.tuck = false; }
+    } else if (this.phase === "play") this.stepPlay(this.mode === 2 && this.practiceSlow ? dt * 0.5 : dt);
     else if (this.phase === "over") this.overT += dt;
     for (const q of this.parts) { q.t += dt; q.x += q.vx * dt; q.y += q.vy * dt; q.vy += 400 * dt; }
     this.parts = this.parts.filter((q) => q.t < 0.6);
@@ -691,6 +693,7 @@ export class HighBar {
   }
   stepPlay(dt) {
     const p = this.p;
+    this.runTime += dt;
     if (this.pending) { this.pending.t -= dt; if (this.pending.t <= 0) { const b = this.pending.bar; this.pending = null; if (this.pressed && !this.grab(b)) this.heldAway(); } }
     p.lastBarT += dt;
     if (p.mode === "ground") this.stepGround(dt);
@@ -699,23 +702,23 @@ export class HighBar {
     else if (p.mode === "bail") {
       p.bailT -= dt;
       // Back up, rolling towards the middle of the park at a fair speed.
-      if (p.bailT <= 0) { Object.assign(p, { mode: "ground", s: p.x < this.park().w / 2 ? 260 : -260, rot: Math.atan(this.slope(p.x)), rotV: 0 }); }
+      if (p.bailT <= 0) { Object.assign(p, { mode: "ground", s: p.x < this.park().w / 2 ? 260 : -260, rot: Math.atan(this.slope(p.x)), rotV: 0, crouch: this.pressed }); }
     }
     if (p.mode === "ground" && this.manual) {
       const m = this.manual; m.t += dt;
       m.balance += m.drift * (0.2 + Math.abs(p.s) / MAX_SPEED * 0.32) * dt;
-      if (Math.abs(m.balance) >= 1) this.bail();
+      if (Math.abs(m.balance) >= 1) this.bail("MANUAL DRIFT — TAP TO CENTRE BEFORE THE EDGE");
       else if (m.t >= MANUAL_LIMIT) { this.endManual(); this.combo.roll = ROLL; }
     }
     if (p.mode === "ground" && !this.manual && this.combo.roll >= 0) { this.combo.roll -= dt; if (this.combo.roll <= 0) this.bank(); }
-    if (this.mode === 2) { this.placeCamera(false); return; }
+    if (this.mode === 2) { this.placeCamera(false, dt); return; }
     this.clock -= dt;
     if (this.clock <= 0) {
       if (!this.ending) { this.ending = true; announce(this, "TIME! LAST TRICK", 2); this.c.tone?.(300, 0.2, "square"); }
       const idle = (p.mode === "ground" && !this.manual && this.combo.roll < 0) || p.mode === "bail";
       if (idle || this.clock <= -OVERTIME) this.finish();
     } else if (this.clock < 10 && Math.floor(this.clock) !== Math.floor(this.clock + dt)) this.c.tone?.(880, 0.03, "square");
-    this.placeCamera(false);
+    this.placeCamera(false, dt);
   }
   stepGround(dt) {
     const p = this.p, g = this.geo, sub = 4, h = dt / sub;
@@ -831,18 +834,23 @@ export class HighBar {
     this.setHint("Tap to ride again. Hold for park and save slot.");
     this.c.tone?.(520, 0.2, "triangle");
   }
-  persist() { this.c.saveProgress?.(finishSave(this.save))?.catch?.(this.c.error); }
+  persist() { this.c.saveProgress?.(structuredClone(finishSave(this.save)))?.catch?.(this.c.error); }
 
   burst(x, y, color, n) {
     for (let i = 0; i < n && this.parts.length < MAX_PARTS; i++) {
       this.parts.push({ x, y, vx: this.c.rng.range(-120, 120), vy: this.c.rng.range(-160, -40), t: 0, color });
     }
   }
-  placeCamera(snap) {
+  placeCamera(snap, dt = 1 / 60) {
     const park = this.park(), p = this.p;
-    const tx = clamp(p.x - 480, 0, Math.max(0, park.w - 960));
-    const ty = clamp(p.y - 300, Math.min(0, park.h - 540) - 360, Math.max(0, park.h - 540));
-    const k = snap ? 1 : 0.12;
+    const vx = p.mode === "ground" ? p.s / Math.sqrt(1 + this.slope(p.x) ** 2) : p.vx;
+    const ahead = clamp(vx * 0.16, -110, 110);
+    let lookY = p.y + clamp(p.vy * 0.15, -85, 65);
+    if (p.mode === "ground" || p.mode === "bail") lookY = p.y;
+    else if (p.mode === "air" && p.vy < 0) lookY = Math.min(lookY, p.y - Math.min(130, p.vy * p.vy / (2 * G)));
+    const tx = clamp(p.x + ahead - 480, 0, Math.max(0, park.w - 960));
+    const ty = clamp(lookY - 300, Math.min(0, park.h - 540) - 360, Math.max(0, park.h - 540));
+    const k = snap ? 1 : 1 - Math.exp(Math.log(0.88) * 60 * dt);
     this.camX += (tx - this.camX) * k; this.camY += (ty - this.camY) * k;
   }
 
@@ -858,7 +866,8 @@ export class HighBar {
       const out = Array(12).fill(0), lamp = (i, rgb, level) => out.splice(i * 3, 3, ...dim(rgb, level));
       const target = Math.atan(this.slope(p.x)), off = Math.abs(wrapAngle(p.rot - target));
       lamp(0, p.mode === "bar" ? LAMP.cyan : LAMP.green,
-        p.mode === "bar" ? 0.2 + 0.65 * Math.abs(Math.sin(p.phi)) : Math.min(0.85, Math.hypot(p.vx || p.s, p.vy) / MAX_SPEED));
+        p.mode === "bar" ? 0.2 + 0.65 * Math.abs(Math.sin(p.phi)) : Math.min(0.85,
+          (p.mode === "ground" ? Math.abs(p.s) : Math.hypot(p.vx, p.vy)) / MAX_SPEED));
       const risk = this.manual ? Math.abs(this.manual.balance) : p.mode === "air" ? off / (this.air?.style ? LAND_TOL * 0.7 : LAND_TOL) : 0;
       lamp(1, risk > 0.8 ? LAMP.red : risk > 0.4 ? LAMP.amber : LAMP.green, 0.25 + Math.min(0.65, risk * 0.5));
       lamp(2, LAMP.violet, 0.1 + Math.min(0.75, this.variety() * 0.13));
@@ -898,195 +907,10 @@ export class HighBar {
     if (key === this.hudKey) return;
     this.hudKey = key;
     this.c.hud?.(items);
-    this.c.controls?.(this.phase === "guide" ? "BUTTON TAP: NEXT PAGE · HOLD: RIDE / RETURN" : this.phase === "play"
+    this.c.controls?.(this.phase === "guide" ? "BUTTON: NEXT PAGE · CASE: PREVIOUS · HOLD: RIDE / RETURN" : this.phase === "play"
       ? "HOLD: PUMP / GRAB / TUCK · RELEASE: OLLIE / FLY / SETTLE · CASE TAP: STYLE"
-      : this.phase === "setup" ? "BUTTON TAP: NEXT · HOLD: CHOOSE"
+      : this.phase === "setup" ? "BUTTON: NEXT · CASE: PREVIOUS · HOLD: CHOOSE"
       : "BUTTON TAP: RIDE · HOLD: SETUP");
   }
 
-  // ---- drawing ----------------------------------------------------------------
-  draw(g) {
-    this.ensurePark();
-    space(g, this.t, 0.5);
-    this.drawSkyline(g);
-    g.save();
-    g.translate(-Math.round(this.camX), -Math.round(this.camY));
-    this.drawPark(g);
-    if (this.phase === "play" || this.phase === "over") {
-      g.fillStyle = C.cyan;
-      this.trail.forEach(([x, y], i) => { g.globalAlpha = 0.08 + 0.4 * i / this.trail.length; g.fillRect(x - 2, y - 14, 4, 4); });
-      g.globalAlpha = 1;
-      this.drawRider(g);
-    }
-    for (const q of this.parts) { g.globalAlpha = 1 - q.t / 0.6; g.fillStyle = q.color; g.fillRect(q.x - 2, q.y - 2, 4, 4); }
-    g.globalAlpha = 1;
-    for (const q of this.popups) text(g, q.text, q.x, q.y - q.t * 40, 14, C.amber, "center");
-    g.restore();
-    if (this.phase !== "play") { g.fillStyle = C.bg; g.globalAlpha = 0.78; g.fillRect(0, 0, 960, 540); g.globalAlpha = 1; }
-    if (this.phase === "play") { this.drawCombo(g); this.drawCoach(g); }
-    else if (this.phase === "title") this.drawTitle(g);
-    else if (this.phase === "setup") this.drawSetup(g);
-    else if (this.phase === "over") this.drawOver(g);
-    else if (this.phase === "guide") this.drawGuide(g);
-    if (this.noteT > 0 && this.phase === "play") text(g, this.note, 480, this.mode === 1 ? 146 : 98, 19, C.amber, "center");
-    else if (this.phase === "setup") drawNote(g, this);
-  }
-  drawSkyline(g) {
-    const k = 0.35, ox = -this.camX * k, oy = -this.camY * 0.2, base = 470 + oy;
-    g.fillStyle = "#101d16";
-    for (const [x, w, h] of this.sky) { const sx = x + ox; if (sx > -w && sx < 960) g.fillRect(sx, base - h, w, h + 80); }
-    g.fillStyle = C.amber; g.globalAlpha = 0.35;
-    for (const [x, w, h, wx, wy] of this.sky) { const sx = x + ox; if (sx > -w && sx < 960) g.fillRect(sx + wx, base - h + wy, 4, 5); }
-    g.globalAlpha = 1;
-  }
-  drawPark(g) {
-    const park = this.park(), hm = this.hm;
-    const i0 = Math.max(0, Math.floor((this.camX - 20) / STEP)), i1 = Math.min(hm.length - 1, Math.ceil((this.camX + 980) / STEP));
-    const bottom = Math.max(park.h, this.camY + 560);
-    g.beginPath();
-    g.moveTo(i0 * STEP, bottom);
-    for (let i = i0; i <= i1; i += 2) g.lineTo(i * STEP, hm[i]);
-    g.lineTo(i1 * STEP, hm[i1]);
-    g.lineTo(i1 * STEP, bottom);
-    g.closePath();
-    g.fillStyle = C.dark; g.fill();
-    g.beginPath();
-    for (let i = i0; i <= i1; i += 2) { if (i === i0) g.moveTo(i * STEP, hm[i]); else g.lineTo(i * STEP, hm[i]); }
-    g.strokeStyle = C.ink; g.lineWidth = 2; g.stroke();
-    g.beginPath();
-    for (let i = i0; i <= i1; i += 3) { if (i === i0) g.moveTo(i * STEP, hm[i] + 7); else g.lineTo(i * STEP, hm[i] + 7); }
-    g.strokeStyle = C.line; g.lineWidth = 1; g.stroke();
-    // Seams in the flat, the walls above the lips and the copings.
-    const geo = this.geo;
-    for (let x = Math.ceil(this.camX / 120) * 120; x < this.camX + 960; x += 120) {
-      const y = this.groundY(x);
-      if (x > geo.lipL + park.r * 0.9 && x < geo.lipR - park.r * 0.9) line(g, x, y + 2, x, y + 7, C.line, 1);
-    }
-    line(g, geo.lipL, geo.lipY, geo.lipL, geo.lipY - 600, C.line, 2);
-    line(g, geo.lipR, geo.lipY, geo.lipR, geo.lipY - 600, C.line, 2);
-    circle(g, geo.lipL, geo.lipY, 4, C.cyan, true);
-    circle(g, geo.lipR, geo.lipY, 4, C.cyan, true);
-    // Bars on posts. The bar a press would grab now is marked.
-    const target = this.phase === "play" && this.p.mode !== "bar" && this.p.mode !== "bail" ? this.pickBar() : -1;
-    park.bars.forEach(([x, y, kind], i) => {
-      if (x < this.camX - 40 || x > this.camX + 1000) return;
-      line(g, x, y, x, this.groundY(x), C.line, 3);
-      const col = kind === "whip" ? C.amber : C.cyan;
-      line(g, x - 16, y, x + 16, y, col, 4);
-      text(g, "B" + (i + 1), x, y - 22, 12, col, "center");
-      if (i === target) circle(g, x, y, 14 + 2 * Math.sin(this.t * 10), C.ink, false, 2);
-    });
-    if (this.mode === 1) {
-      const gap = park.gaps.find(gap => gap.id === this.challenge().gap);
-      if (gap?.t === "span") {
-        const y = park.floor - 115;
-        line(g, gap.x1, y, gap.x2, y, C.amber, 2);
-        text(g, gap.name, (gap.x1 + gap.x2) / 2, y - 18, 14, C.amber, "center");
-      } else if (gap) {
-        for (const i of [gap.a, gap.b].filter(i => i !== undefined)) {
-          const [x, y] = park.bars[i]; circle(g, x, y, 21, C.amber, false, 2);
-          text(g, gap.name, x, y - 42, 14, C.amber, "center");
-        }
-      }
-    }
-  }
-  drawRider(g) {
-    const p = this.p;
-    if (p.mode === "bar") {
-      const [bx, by] = this.park().bars[p.bar];
-      const reach = ((p.tuck || p.crouch ? 8 : 14) + 30) * 1.35;
-      line(g, bx, by, p.x + reach * Math.sin(p.rot), p.y - reach * Math.cos(p.rot), C.muted, 2);
-    }
-    g.save();
-    g.translate(p.x, p.y);
-    g.rotate(p.mode === "bail" ? p.rot + (BAIL_T - p.bailT) * 9 : p.rot);
-    g.scale(1.35, 1.35);
-    const ink = p.mode === "bail" ? C.red : C.ink;
-    const legs = p.tuck || p.crouch ? 8 : 14;
-    // board, legs, body, head (local up is -y)
-    const styleSpin = this.air?.style ? Math.cos((this.air.t - this.air.style.at) * 12) : 1;
-    line(g, -14 * styleSpin, -2, 14 * styleSpin, -2, C.amber, 3);
-    circle(g, -9, 1, 2, C.amber, true); circle(g, 9, 1, 2, C.amber, true);
-    line(g, -5, -3, 0, -3 - legs, ink, 3); line(g, 5, -3, 0, -3 - legs, ink, 3);
-    line(g, 0, -3 - legs, 0, -19 - legs, ink, 3);
-    if (p.mode === "bar") line(g, 0, -17 - legs, 0, -30 - legs, ink, 2);
-    else { line(g, 0, -15 - legs, -9, -9 - legs, ink, 2); line(g, 0, -15 - legs, 9, -9 - legs, ink, 2); }
-    circle(g, 0, -25 - legs, 5, ink, false, 2);
-    g.restore();
-  }
-  drawCombo(g) {
-    const c = this.combo;
-    if (!c.tricks.length) return;
-    const names = c.tricks.slice(-4).map((k) => k.name).join(" + ");
-    text(g, (c.tricks.length > 4 ? "... + " : "") + names, 480, 500, 16, C.ink, "center");
-    const mult = Math.min(this.variety(c), 8);
-    text(g, fmt(c.sum) + " x " + mult, 480, 524, 20, c.roll >= 0 ? C.amber : C.cyan, "center");
-  }
-  drawTitle(g) {
-    const s = this.slot(), park = this.park();
-    text(g, "HIGH BAR", 480, 120, 54, C.ink, "center");
-    text(g, "Skate the bowl. Swing the bars. String the tricks.", 480, 172, 18, C.muted, "center");
-    text(g, park.name + "  ·  " + park.text, 480, 236, 18, C.cyan, "center");
-    text(g, "SLOT " + (this.save.slot + 1) + "  ·  " + MODES[this.mode] + (this.mode === 1 ? " " + this.lineSeconds() + "s" : "") + "  ·  " + MEDALS[s.medals[this.parkId]], 480, 266, 16, C.muted, "center");
-    this.drawGoals(g, 310);
-    text(g, this.mode === 2 ? "PRACTICE — NO CLOCK OR CAREER RECORDS"
-      : (this.mode === 1 ? "LINE RUN SESSION BEST " + fmt(s.lineBest[this.parkId][s.line])
-        : "STYLE BEST " + fmt(s.styleBest[this.parkId])) + "  ·  LINES " + s.lines[this.parkId].length + "/3", 480, 465, 16, C.cyan, "center");
-    text(g, (s.guided ? "TAP TO RIDE" : "TAP TO LEARN AND RIDE") + "  ·  HOLD: SETUP", 480, 500, 18, C.amber, "center");
-  }
-  drawGoals(g, y0) {
-    const done = this.slot().goals[this.parkId];
-    this.park().goals.forEach((goal, i) => {
-      const ok = done.includes(i);
-      text(g, (ok ? "■ " : "□ ") + goal.text, 300, y0 + i * 26, 16, ok ? C.cyan : C.ink);
-    });
-  }
-  drawSetup(g) {
-    text(g, "PARK AND LINE", 480, 66, 34, C.ink, "center");
-    this.setupItems().forEach((it, i) => {
-      const on = i === this.cursor;
-      text(g, (on ? "> " : "  ") + it.label, 230, 122 + i * 38, 20, on ? C.amber : C.ink);
-    });
-    const open = PARKS.filter((_, i) => unlocked(this.slot(), i)).length;
-    text(g, this.challenge().text, 480, 448, 16, C.cyan, "center");
-    text(g, open + "/" + PARKS.length + " PARKS · " + UNLOCK + " GOALS OPEN THE NEXT · PRIVATE SLOTS 1–3", 480, 474, 14, C.muted, "center");
-    text(g, "TAP: NEXT  ·  HOLD: CHOOSE", 480, 500, 18, C.amber, "center");
-  }
-  drawOver(g) {
-    text(g, this.mode === 2 ? "PRACTICE OVER" : this.mode === 1 ? "LINE RUN OVER" : "SESSION OVER", 480, 100, 34, C.ink, "center");
-    text(g, "SCORE " + fmt(this.score), 480, 150, 28, C.amber, "center");
-    text(g, "BEST LINE " + fmt(this.bestCombo) + (this.mode === 2 ? "  ·  NO CAREER RECORD" : "  ·  " + MEDALS[this.slot().medals[this.parkId]]) + "  ·  " + this.stats.bails + " BAILS", 480, 186, 16, C.muted, "center");
-    if (this.mode === 1) text(g, this.lineMet ? "CHALLENGE BANKED" : "NEXT TRY: " + this.challenge().name, 480, 294, 16, C.amber, "center");
-    this.newGoals.slice(0, 3).forEach((s, i) => text(g, "NEW: " + s, 480, 222 + i * 22, 15, C.cyan, "center"));
-    if (this.mode === 2) {
-      text(g, "TRY A CLEAN AIR, THEN LINK IT WITH A MANUAL.", 480, 356, 18, C.cyan, "center");
-      text(g, "Your parks, goals, medals and bests stay as they were.", 480, 396, 16, C.muted, "center");
-    } else this.drawGoals(g, 322);
-    if (this.overT >= LOCKOUT) text(g, "TAP: RIDE AGAIN  ·  HOLD: SETUP", 480, 500, 18, C.amber, "center");
-  }
-  drawGuide(g) {
-    const page = GUIDE[this.guide];
-    text(g, "HIGH BAR / " + (this.guide + 1) + " OF " + GUIDE.length, 480, 94, 18, C.muted, "center");
-    text(g, page[0], 480, 158, 34, C.cyan, "center");
-    page.slice(1).forEach((s, i) => text(g, s, 480, 248 + i * 42, 20, C.ink, "center"));
-    text(g, "BUTTON TAP: NEXT PAGE · HOLD: RIDE / RETURN", 480, 480, 17, C.amber, "center");
-  }
-  drawCoach(g) {
-    const p = this.p;
-    const verb = p.mode === "bail" ? "BACK UP — YOUR BANKED SCORE IS SAFE" : this.manual ? "MANUAL: TAP TO BALANCE · BUTTON TO OLLIE"
-      : p.mode === "bar" ? "HOLD: SWING · RELEASE: FLY · " + (p.regrip ? "REGRIP USED" : p.held > 0.15 ? "CASE TAP: REGRIP" : "REGRIP SOON")
-      : p.mode === "air" && this.pickBar() >= 0 ? "RINGED BAR IN REACH: HOLD TO GRAB · RELEASE: STRAIGHTEN"
-      : p.mode === "air" ? "HOLD: FLIP · RELEASE: STRAIGHTEN · " + (this.air?.style ? "SHOVE-IT IN FLIGHT" : this.canStyle() ? "CASE TAP: SHOVE-IT" : "LAND BEFORE STYLING")
-      : this.pickBar() >= 0 ? "RINGED BAR IN REACH: HOLD TO GRAB" : "HOLD: PUMP · RELEASE: OLLIE · CASE TAP: MANUAL";
-    g.fillStyle = C.bg; g.globalAlpha = 0.88; g.fillRect(16, 14, 928, this.mode === 1 ? 108 : 64); g.globalAlpha = 1;
-    text(g, verb, 480, 38, 17, C.ink, "center");
-    const risk = this.manual ? Math.abs(this.manual.balance) : Math.abs(wrapAngle(p.rot - Math.atan(this.slope(p.x))));
-    text(g, this.manual ? "BALANCE " + Math.round(this.manual.balance * 100) + "% — KEEP BETWEEN -100 AND 100"
-      : p.mode === "air" ? (risk < 0.22 ? "CLEAN LANDING" : risk < (this.air?.style ? LAND_TOL * 0.7 : LAND_TOL) ? "LANDING SAFE" : "RELEASE TO FIND THE GROUND")
-      : "DIFFERENT TRICKS GROW THE MULTIPLIER · LAND AND ROLL TO BANK", 480, 64, 15, risk > LAND_TOL ? C.amber : C.cyan, "center");
-    if (this.mode === 1) {
-      text(g, (this.lineMet ? "BANKED: " : "LINE: ") + this.challenge().name + " · " + this.lineSeconds() + "s", 480, 88, 15, C.amber, "center");
-      text(g, this.lineMet ? "TARGET BANKED · SESSION SCORE CAN STILL IMPROVE" : this.lineProgress(), 480, 110, 15, C.cyan, "center");
-    }
-  }
 }

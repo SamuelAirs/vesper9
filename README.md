@@ -1,5 +1,6 @@
 # VESPER—9
 
+> High Bar design refresh (2026-10-03): [parks, practice and mastery](docs/HIGH-BAR.md).
 > Finished-node refresh (2026-10-03): [what changed](docs/REFRESH-REPORT.md),
 > [candidate/source status](docs/NODE-CONSOLE-CANDIDATE.md), and
 > [Pi acceptance/rollback](docs/PI-ACCEPTANCE.md). Developed on Windows; not deployed.

@@ -1,5 +1,9 @@
 # VESPER-9 0.2.0 — the second pass
 
+> High Bar follow-up: `codex/highbar-refresh` builds on the preserved `0354a35`
+> console-polish candidate. See [High Bar](HIGH-BAR.md) for the art, practice,
+> mastery and bank-save changes. This candidate is also not deployed.
+
 > Latest Windows refresh (2026-10-03): [what changed and what remains](REFRESH-REPORT.md).
 > `codex/console-polish` adds deeper High Bar/Ricochet play, reader/utility fixes,
 > and acknowledged save recovery with conflict protection. It is not deployed.

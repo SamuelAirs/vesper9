@@ -1,7 +1,9 @@
 # Next steps for the finished node
 
-The current candidate is developed on Windows in `codex/console-polish`, based
-on `codex/node-console` at `b818558`. It is not deployed. Read
+The current candidate is developed on Windows in `codex/highbar-refresh`, based
+on the preserved `codex/console-polish` at `0354a35` (and `codex/node-console`
+at `b818558`). The dedicated [High Bar refresh](HIGH-BAR.md) adds park art,
+practice tools, line mastery and bank-time progression saves. It is not deployed. Read
 [the candidate](NODE-CONSOLE-CANDIDATE.md), [validation](VALIDATION.md),
 [the worklog](WORKLOG.md), and [the trial/rollback plan](PI-ACCEPTANCE.md).
 Earlier release notes describe earlier hardware and must not drive a flash.

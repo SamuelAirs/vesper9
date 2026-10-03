@@ -235,7 +235,7 @@ export const CARTRIDGES = [
     "scoreMetric": "style-v2",
     "name": "HIGH BAR",
     "subtitle": "Skate the bowl. Swing the bars. String tricks.",
-    "description": "Swing bars and skate bowls. Chain varied tricks, manuals and clean landings; case taps regrip a bar, shove-it in the air or steady a manual. Four parks, permanent skill medals, short line challenges and untimed practice. Three existing save slots remain available in setup.",
+    "description": "Skate four distinct night parks and swing between their bars. Link flips, manuals and clean landings; master twelve named lines with bronze, silver and gold targets. Learn each route in untimed practice, then bank a better line. Generic case taps add style; three private save slots retain your career.",
     "controls": "HOLD / RELEASE: RIDE · CASE TAP: STYLE · HOLD ON TITLE: SETUP",
     "category": "PLAY / TRICKS",
     "glyph": 3,

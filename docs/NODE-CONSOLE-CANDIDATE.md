@@ -1,5 +1,10 @@
 # Finished-node development candidate — 2026-10-02
 
+> High Bar follow-up: the current Windows branch is `codex/highbar-refresh`,
+> based on the preserved console-polish commit `0354a35`. [High Bar](HIGH-BAR.md)
+> describes the dedicated park/visual/practice/mastery pass; the source and Pi
+> snapshots below remain historical evidence, not a claim of deployment.
+
 This is a Windows-developed candidate for Sam's Raspberry Pi 5. It has **not been deployed**. The last read-only Pi check (2026-10-03 04:54:04 UTC) found the recovered `f3bfaccaf19046d13738fddd96140b20127d0e98` build running; the later polish pass made no Pi connection. Windows/browser results below are software evidence, not physical acceptance or Pi performance measurements.
 
 ## Product decisions

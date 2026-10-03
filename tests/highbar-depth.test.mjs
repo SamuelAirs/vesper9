@@ -88,7 +88,7 @@ test("first-use teaching also follows park/setup selection, and controls follow 
   const { app, ctx } = mount();
   app.update(F); app.menuPress(0.7); app.update(F);
   assert.equal(app.phase, "setup");
-  assert.equal(ctx.calls.controls.at(-1), "BUTTON TAP: NEXT · HOLD: CHOOSE");
+  assert.equal(ctx.calls.controls.at(-1), "BUTTON: NEXT · CASE: PREVIOUS · HOLD: CHOOSE");
   app.menuPress(0.7); app.update(F);
   assert.equal(app.phase, "guide", "setup RIDE preserves the first-use lesson");
   assert.match(ctx.calls.controls.at(-1), /NEXT PAGE/);

@@ -385,3 +385,74 @@ GitHub refreshed 2026-10-03 11:10 UTC: main remains 5db9ae8; handoff #22 remains
 The source hash under final validation is `f6eb5417cbefc5bc31139630fe9327e30b1d68d5c39d1e458f5c50348ba1b109`. The final release commit, archive and recovery-bundle hashes are recorded outside source in `polish/delivery-manifest.json` to avoid a self-referential commit stamp. Next action remains review of the concrete `PI-ACCEPTANCE.md` staging, consistent private save copy, switch and rollback plan; deployment/restart requires Sam's agreement under the original instruction. Physical comfort, side confusion, acoustics, actual lamps, Pi resources, local Vosk vocabulary and Linux shutdown are still unverified by this Windows pass.
 
 Final sustained run completed: **1200.64 seconds**, all **35/35 registered apps** visited, **78 samples**, planned WebSocket reconnect recovered, background timer completed, no host/page errors, microphone off throughout and capture off at finish. Recorded source hash matches the final working source. This is Windows simulated service/browser evidence; Python RSS was not measured by this runner and no Pi benchmark is inferred. Archive manifest/CRC, extracted source identity and a fresh bare-repository recovery-bundle fetch are verified by `polish/verify-delivery.py`; exact final identities are in `polish/delivery-manifest.json`.
+
+
+## 2026-10-03 — full High Bar design refresh
+
+Sam explicitly requested a full High Bar polish covering mechanics, visuals,
+challenges and parks. Continued authorized Windows development on a new
+`codex/highbar-refresh` branch from preserved `0354a35`. The original Windows
+main checkout and its investigation notes remain untouched. No Pi access,
+deployment, service restart, firmware operation, GitHub push or private-data
+publication occurred. Three GPT-6.1 Sol agents owned distinct mechanics,
+rendering/browser and independent review tasks; root reviewed/integrated.
+
+Separated authored content/tuning and rendering from physics/input/save code.
+Four parks now have distinct canal, freight, uplink and lunar settings, bounded
+procedural scenery, readable articulated rider, course maps and catch marks.
+All twelve named lines have authored route briefs. Revised title/setup/result
+cards fit 1024×600, with scrolling for practice options and explicit record
+labels. Six illustrated guide pages describe the physical node, not a required
+keyboard. Generic case taps navigate backward and retry results.
+
+Practice gains flat-ground learning starts clear of an immediate catch,
+RAM-only safe-bank checkpoints, menu reset and half-speed learning. Returning
+from pause/guide gives 0.6 seconds to release the controls. A held button during
+bail recovery now becomes a usable crouch. Camera easing uses elapsed time and
+bounded movement lookahead. Actual clean/safe/sketchy/bail feedback distinguishes
+landing judgment from a current-angle cue. Ground lamp speed ignores stale air
+velocity; line-medal upgrades celebrate with the bounded board accent.
+
+Additive, bounded three-slot save fields hold per-line combo/time PBs and
+bronze/silver/gold mastery. Gold needs two clean landings in the same linked
+combo, extra variety and no sketchy landing. Practice cannot earn records or
+medals. Target time trials only count the selected LINE RUN from normal drop-in.
+A reproduced defect lost legitimately banked goals/lines when leaving or
+restarting before the session ended; earned progress now checkpoints at bank.
+Immutable snapshots pass through AppGuard and the acknowledged host save queue,
+so later speculative input cannot mutate a queued earlier write. Completed
+session counts/scores still finalize only at finish; old scores and goals remain.
+
+The existing geometry, scoring and movement equations are preserved. All twelve
+actual-control target recordings still complete in all three modes. Exact
+recordings alone proved poor evidence of human timing tolerance, so independent
+review also ran delayed feedback pilots and measured conditional catch windows.
+Bowl/Yard show useful feedback-driven play; Tower ascent and Night Pipe gold
+still need owner difficulty acceptance. Actual linked routes prove all three
+new mastery tiers, including all Bowl golds and Yard Ladder gold.
+
+Verification: 275 Python tests (273 pass, two expected skips); 1,533 JavaScript
+passes, including 98 High Bar regressions. The initial broad gesture assertions
+were updated narrowly for the intentional resume grace; all gameplay/save
+comparisons remain strict. Service/standalone smoke covers all 35 apps; host
+36/36 and existing game journeys 21/21 pass. New High Bar browser journeys and
+all twelve route-card screenshots were reviewed. Final artifact checks and
+source/commit hashes are recorded in the external delivery manifest under
+`C:/Users/ayers/vesper9-investigation/highbar-refresh/`.
+
+Next: use the existing save-preserving Pi trial/rollback plan when Sam agrees
+to switch builds. Physical acceptance specifically includes generic back-tap
+manuals, held recovery, pause settling, four lamps/board accents, immediate
+challenge persistence, and whether Tower/Night Pipe routes feel learnable.
+
+Final visual integration: review caught route-card text crowding, mismatched
+whip bar labels, practice screens showing a misleading challenge clock, and
+computed landing/style advice that was not reaching the renderer. Corrected
+all four; advice expires and a fresh manual takes priority over old landing
+feedback. Simultaneous trick popups now stack instead of sharing a baseline.
+The dedicated browser journey passed 37/37 with 38 screenshots,
+including all twelve complete briefs. Nine additional focused browser checks
+exercise the final coaching correction through actual simulated controls.
+CPU-throttled Windows draw p95 was 1.1–1.2 ms across 600 samples per park; this is
+Canvas submission evidence, not a Pi benchmark. Complete 1,533 JS and 35-app
+service/standalone smoke were rerun after the final display correction.

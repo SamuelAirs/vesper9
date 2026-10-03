@@ -47,8 +47,10 @@ function plain(app, ignore = []) {
 const HELD = ["held", "pressing", "pressT", "heldTime", "btn", "latched", "ignoreUp", "down_", "consume", "downAt", "pending", "buffer"];
 // What each app documents as surviving the gesture, and why. `only`: the app saves a fixed list of fields
 // (GestureGuard) and these are the ones it promises. `ignore`: extra keys that cancel() or pause() set on
-// purpose. `resume`: keys the app resets when the menu closes. `skipResume`: resume() rebuilds the screen.
+// purpose. `resume`: exact documented changes when the menu closes. `skipResume`: resume() rebuilds the screen.
 const PER_APP = {
+  // High Bar freezes play briefly after resume; every gameplay/save field must still match.
+  highbar: { resume: a => a.phase === "play" ? { resumeT: 0.6 } : {} },
   orbit: { only: ["phase", "points", "lives", "target", "angle", "dir", "drift", "miss", "feedback"] },
   drift: { only: ["phase", "points", "y", "vy", "gates", "hull", "grace", "lastCenter"] },
   // A fish on the line gets 1.5 s of grace after any menu, and a menu choice that was held is cancelled.
@@ -158,7 +160,7 @@ for (const id of GAMES) {
         assert.deepEqual(picture(), spec.skipResume ? picture() : before, id + " differs after pause()");
         r.resume();
         if (!spec.skipResume && !(spec.listenResume && app.mode === "listen"))
-          assert.deepEqual(picture(), before, id + " differs after resume()");
+          assert.deepEqual(picture(), { ...before, ...spec.resume?.(app) }, id + " differs after resume()");
         // The game still runs afterwards.
         for (let f = 0; f < 120; f++) app.update(DT);
       });

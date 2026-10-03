@@ -2,6 +2,56 @@
 
 > Current finished-node candidate (2026-10-02): see [candidate status and product decisions](NODE-CONSOLE-CANDIDATE.md). Developed and verified on Windows; Pi deployment and physical acceptance remain pending. Older implementation/firmware/sensor notes below describe their historical snapshots.
 
+## High Bar design refresh — 2026-10-03
+
+Native Windows `DESKTOP-FD66EV2`, branch `codex/highbar-refresh`, based on the
+preserved `0354a35` console-polish candidate. Three GPT-6.1 Sol agents handled
+mechanics, rendering/browser journeys and independent career/input review.
+Root integrated content, reviewed screenshots and verified the release.
+No Pi connection, deployment, console restart or firmware change occurred.
+
+| Check | Result |
+| --- | --- |
+| Python regressions | 275 run, 273 pass, 2 expected skips (missing Vosk model and POSIX shutdown on Windows) |
+| Complete JavaScript suite | 1,533 pass, zero failures |
+| High Bar focused suite | 98 pass: 73 existing plus 25 new mechanics/career regressions |
+| Actual control routes | Twelve targets bank in SESSION, selected LINE RUN and normal-speed PRACTICE, 36 combinations |
+| Actual gold witnesses | A linked Bowl route earns all three Bowl golds; Yard Ladder also has a gold route; no injected score/trick/gap flags |
+| Browser integration | 35-app service/standalone smoke, 36 host checks and 21 existing Ricochet/High Bar journey checks pass |
+| New High Bar browser journey | 37 checks pass: six guide pages, actual first-line Bronze/PB/time, all twelve complete route briefs, four parks, generic taps, practice, reload and 1024×600 layout |
+
+The new journey includes 600 Canvas draw submissions per park with Chrome CPU
+throttled 4× on Windows: p95 1.1/1.2/1.2/1.1 ms for Bowl/Yard/Tower/Pipe. This
+measures CPU submission work, not GPU completion, power use or Pi frame time.
+A final display-only correction connected the already-computed landing/manual/
+regrip advice to the coach and stacked simultaneous trick popups. Nine focused browser checks cover real actions,
+expiry and manual-after-landing priority; the complete JS suite and 35-app
+service/standalone smoke were rerun against that final source. The earlier
+37-check journey and its screenshots remain separately identified under
+`browser-final/`; final coaching checks are under `browser-feedback/`.
+
+The first broad JS pass caught the expected new `resumeT=0.6` grace period in
+the generic gesture snapshot comparison. The revised assertion allows exactly
+that documented after-resume difference while preserving exact pre-cancel,
+pause, gameplay and save comparisons. A controls-label assertion was also
+updated to include case-previous; the complete JS suite then passed. Python's
+successful run was retained; it was not repeated for these JS/copy corrections.
+
+Evidence is under `C:/Users/ayers/vesper9-investigation/highbar-refresh/`.
+`check.log` retains the successful Python run and initial JS expectation
+failures; `javascript-release.log` is the final complete JS result. The frozen
+source identity and artifact recovery checks are in the external delivery
+manifest, avoiding a self-referential commit stamp in source.
+
+The route jitter audit deliberately distinguishes precise recordings from
+adaptive play: fixed scripts are sensitive to changed early timing, while a
+100 ms state-feedback pilot with causal edge delays up to 50 ms successfully
+banks and opens the next park in 11/12 button-only Bowl runs. That pilot has
+perfect software state perception. Tower/Night Pipe gold, comfortable physical
+timing, actual lamps, Pi rendering/thermals and sound-triggered case input
+remain owner acceptance. New art is bounded procedural Canvas; Windows Chrome
+CPU-throttled draw samples are not Pi performance measurements.
+
 ## Extended console polish — 2026-10-03
 
 Native Windows `DESKTOP-FD66EV2`, branch `codex/console-polish`, parent candidate

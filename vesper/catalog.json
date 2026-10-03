@@ -21,8 +21,7 @@
         "perihelion",
         "orbit",
         "runner",
-        "pulsar",
-        "tideline"
+        "pulsar"
       ]
     },
     {
@@ -342,9 +341,7 @@
       "category": "PLAY / ANGLING",
       "glyph": 2,
       "factory": "Tideline",
-      "voice": [
-        "fishing"
-      ],
+      "voice": [],
       "capabilities": [
         "button",
         "lights",

@@ -55,12 +55,14 @@ export function simulate({ runs = 3, maxMin = 240, active = 150, cycle = 600, ch
         if (E.revealOf(s)) mark("relocation shown", m);
         if (E.readyOf(s)) mark("relocation ready", m);
         if (E.pendingOf(s) >= 100) mark("100 bearings", m);
+        if (s.own[11] > 0) mark("silent array", m);
         if (ready(s) && (isActive || checking)) {
           res.push({ run: r + 1, minutes: Number(((t - runStart) / 60).toFixed(1)), gain: app.pending(), runTotal: s.rt, layer });
           if (r < runs - 1) {
             app.relocate();
             app.phase_ = "play";
             for (let k = 0; k < 3; k++) for (const n of TREE_ORDER) while (app.buyNode(n)) { /* spend every bearing */ }
+            while (app.chartNext()) { /* then constellations with what is left */ }
           }
           done = true;
         }

@@ -78,7 +78,7 @@ The keyboard and mouse are additional ways to operate the same navigation. `Spac
 | `menuGesture()` | `{ armed, elapsedMs, thresholdMs, progress }`: whether a third press of the menu gesture is being counted now. |
 | `hint(text)` | App-specific status/readout text above the control deck. |
 | `controls(text)` | Update the persistent control deck when a cartridge changes mode. |
-| `tone(hz, seconds, waveform)` | Short synthesized tone. |
+| `tone(hz, seconds, waveform, gain?)` | Short synthesized tone. `gain` (0..1, default 1) scales it under the master volume, for quiet layered voices. |
 | `synth.startTone(hz)` / `stopTone()` | Morse or held-input sidetone. |
 | `leds([r,g,b,r,g,b,r,g,b])` | Desired light values, 0–255, left to right. Host coalesces changes. |
 | `pattern(steps)` | Node-timed finite light sequence. Each step has `ms` and nine `values`. |

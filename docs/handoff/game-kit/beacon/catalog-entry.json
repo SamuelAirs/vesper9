@@ -1,0 +1,14 @@
+{
+  "id": "beacon",
+  "name": "BEACON",
+  "subtitle": "Catch the light on the middle lamp.",
+  "description": "A light sweeps across the three lamps. Press while it is on the middle one; every catch makes it faster. Three misses end the run.",
+  "controls": "PRESS ON THE MIDDLE LAMP",
+  "category": "PLAY / TIMING",
+  "glyph": 2,
+  "factory": "Beacon",
+  "voice": ["beacon"],
+  "capabilities": ["button", "lights", "audio", "progress"],
+  "record": { "score": "Score", "catches": "Caught" },
+  "sector": "LAMPS"
+}

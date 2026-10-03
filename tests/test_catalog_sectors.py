@@ -76,13 +76,14 @@ class Layout(unittest.TestCase):
 
     def test_slots_held_for_cartridges_on_their_way_in_are_only_the_known_ones(self):
         # The source catalog may name a cartridge whose own pull request has not landed: Meridian and
-        # Relay on LAMPS, The Stacks on TOOLS. Anything else unknown is a typo.
-        pending = {'meridian', 'relay', 'library'}
+        # Relay on LAMPS, The Stacks and its Encyclopedia on TOOLS. Anything else unknown is a typo.
+        pending = {'meridian', 'relay', 'library', 'encyclopedia'}
         raw = json.loads((ROOT / 'vesper/catalog.json').read_text())['sectors']
         raw_ids = [i for s in raw for i in s['apps']]
         self.assertEqual({i for i in raw_ids if i not in IDS} - pending, set())
         self.assertEqual(next(s for s in raw if s['name'] == 'LAMPS')['apps'], ['meridian', 'relay', 'reaction'])
-        self.assertIn('library', next(s for s in raw if s['name'] == 'TOOLS')['apps'])
+        tools = next(s for s in raw if s['name'] == 'TOOLS')['apps']
+        self.assertEqual(tools[tools.index('library'):], ['library', 'encyclopedia'])
 
     def test_chronometer_is_retired_in_favour_of_the_timer_tool_in_cadence(self):
         on_dashboard = {i for s in CATALOG['sectors'] for i in s['apps']}

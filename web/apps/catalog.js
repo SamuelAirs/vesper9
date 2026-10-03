@@ -232,10 +232,10 @@ export const CARTRIDGES = [
   },
   {
     "id": "highbar",
-    "scoreMetric": "flow-v3",
+    "scoreMetric": "flow-v4",
     "name": "HIGH BAR",
     "subtitle": "A little spider. A very big sky.",
-    "description": "Ride a skateboarding spider through four vertical parks. Hold to build speed, release to launch, and press near a post to catch it. Pump your swing and link higher bars with flips. Master twelve lines or learn in untimed practice. Generic case taps add style; three private save slots preserve your career and earlier records.",
+    "description": "Ride a skateboarding spider through four vertical parks. Build speed, swing high, and connect upper posts with flips and case-tap style. Sixteen challenges include four sky routes built around sustained aerial chains, with bronze, silver and gold mastery. Untimed practice is available; three private save slots preserve your career and earlier records.",
     "controls": "HOLD / RELEASE: RIDE · CASE TAP: STYLE · HOLD ON TITLE: SETUP",
     "category": "PLAY / TRICKS",
     "glyph": 3,
@@ -251,7 +251,7 @@ export const CARTRIDGES = [
       "progress",
       "knock"
     ],
-    "icon": "<path d=\"M8 40Q8 30 18 30H30Q40 30 40 40\"/><path d=\"M14 8V30M34 8V30\"/><path d=\"M10 10H38\"/><circle cx=\"24\" cy=\"17\" r=\"3\"/><path d=\"M24 10V14\"/>",
+    "icon": "<circle cx=\"24\" cy=\"20\" r=\"7\"/><circle cx=\"24\" cy=\"11\" r=\"5\"/><path d=\"M18 16L11 12L7 17M17 20L8 20L5 25M18 24L10 28L8 32M21 26L16 33L16 36M30 16L37 12L41 17M31 20L40 20L43 25M30 24L38 28L40 32M27 26L32 33L32 36M7 35L11 38H37L41 35\"/><circle cx=\"14\" cy=\"43\" r=\"2\"/><circle cx=\"34\" cy=\"43\" r=\"2\"/>",
     "record": {
       "score": "Score",
       "combo": "Best combo",

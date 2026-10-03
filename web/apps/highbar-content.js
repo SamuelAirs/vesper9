@@ -28,6 +28,40 @@ export const HOLD_PICK = 0.5; // a press this long on a menu screen chooses
 export const WHIP_GAIN = 1.12;
 export const WHIP_CAP = 760;
 
+// Read-only landing forecast. It follows stepAir's current bounded time step,
+// including wall rebounds, changing slopes and the special vert return. The
+// delayed version asks what another short tuck would cost before releasing.
+// It never catches a post or supplies an input on the player's behalf.
+export function projectLanding(rider, air, geo, groundY, slope, delay = 0, dt = 1 / 60) {
+  dt = Number.isFinite(dt) ? Math.max(1 / 240, Math.min(1 / 30, dt)) : 1 / 60;
+  const p = { ...rider };
+  const angle = a => ((a + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
+  const limit = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  for (let step = 1; step <= Math.ceil(6 / dt); step++) {
+    const time = step * dt;
+    if (p.vert) { p.vy += G * dt; p.y += p.vy * dt; }
+    else {
+      p.x += p.vx * dt; p.y += p.vy * dt + 0.5 * G * dt * dt; p.vy += G * dt;
+      if (p.x < geo.lipL) { p.x = geo.lipL; p.vx = Math.abs(p.vx) * 0.4; }
+      if (p.x > geo.lipR) { p.x = geo.lipR; p.vx = -Math.abs(p.vx) * 0.4; }
+    }
+    const target = Math.atan(slope(p.vert ? p.x + (p.vert < 0 ? 3 : -3) : p.x));
+    if (rider.tuck && time <= delay) p.rotV += ((p.tuckDir || -1) * TUCK - p.rotV) * Math.min(1, 10 * dt);
+    else {
+      const want = limit(angle(target - p.rot) * 5, -SETTLE, SETTLE);
+      p.rotV += (want - p.rotV) * Math.min(1, 7 * dt);
+    }
+    p.rot += p.rotV * dt;
+    const contact = p.vert ? p.vy > 0 && p.y >= geo.lipY : p.y >= groundY(p.x);
+    if (!contact) continue;
+    if (p.vert) p.x = p.vert < 0 ? geo.lipL + 1 : geo.lipR - 1;
+    const off = Math.abs(angle(p.rot - Math.atan(slope(p.x)))), tol = air?.style ? LAND_TOL * 0.7 : LAND_TOL;
+    const kind = off > tol ? "bail" : off >= tol * 0.75 ? "sketchy" : off < 0.22 && (air?.t || 0) + time >= 0.35 ? "clean" : "safe";
+    return { time, off, kind };
+  }
+  return null;
+}
+
 // Shared by the real release and its dotted aiming preview. This calculation
 // is pure: it neither changes the rider nor advances the swing.
 export function barLaunchVelocity(p, kind) {
@@ -55,11 +89,11 @@ export const STYLE_TIME = 0.28;
 export const MEDALS = ["—", "BRONZE", "SILVER", "GOLD"];
 export const GUIDE = [
   ["ROLL AND FLY", "Hold on the ground to kick and pump for speed.", "Let go to ollie. Hold in clear air to tuck and flip.", "Release early enough to straighten before landing."],
-  ["SWING THE BARS", "The ring marks the bar a press will catch.", "Keep holding to build swing height; release to launch.", "Catch another bar or land upright to keep your line."],
+  ["SWING THE BARS", "The ring marks the bar a fresh press will catch.", "Hold to build height. Green / CLIMB: release upward.", "Amber: wait for the next rise. Cyan: cross the park."],
   ["CASE TAP: STYLE", "On the ground: manual. Tap again to balance.", "In the air: shove-it. On a bar: one regrip boost.", "Button-only still works. Tap direction is optional."],
-  ["BANK YOUR LINE", "Land, then roll for 1.2 seconds to bank the combo.", "Ollie or manual before it banks to keep linking.", "Different tricks grow the multiplier. Repeats do not."],
-  ["PRACTICE TO MASTERY", "SESSION: two minutes. Three goals open the next park.", "LINE RUN: bank your target; earn clean-line medals.", "PRACTICE: warmups, checkpoints or half-speed learning."],
-  ["THE FOUR LAMPS", "I: speed / swing. II: safe landing or manual balance.", "III: variety in your combo. IV: when to tap for style.", "Board LED flashes only for a bank or new challenge."],
+  ["BANK YOUR LINE", "Land, then roll for 1.2 seconds to bank the combo.", "Ollie or manual before it banks to keep linking.", "Mix tricks. Each move scores five times per line."],
+  ["PRACTICE TO MASTERY", "SESSION: two minutes. Three goals open the next park.", "LINE RUN ends when you bank the target. Link for gold.", "Menu / FLAT SCHOOL teaches by riding, without records."],
+  ["THE FOUR LAMPS", "I: speed / release. II: release safety / manual balance.", "III: variety in your combo. IV: when to tap for style.", "Board LED flashes only for a bank or new challenge."],
 ];
 export const LINES = [
   [
@@ -72,6 +106,9 @@ export const LINES = [
     { id: "link", skill: "COMBO FLOW", difficulty: 2,
       approach: ["Land an air, then tap the case before banking.", "Tap again when the manual drifts from centre.", "Button-release into another air, then bank."],
       name: "ROLLING LINK", text: "Link two airs with a manual, then bank", manual: true, airs: 2 },
+    { id: "sky", skill: "ASCENT + FLIP", difficulty: 3, seconds: 60,
+      approach: ["Connect B4, B7 and B9 in that order without landing.", "Fit a flip into the same line; other posts are allowed.", "Land and bank. Link another clean air for gold."],
+      name: "CANAL SKYLINE", text: "Climb B4 → B7 → B9 without landing; bank a flip", gap: "skyline", flip: 1 },
   ],
   [
     { id: "ladder", skill: "UPWARD TRANSFERS", difficulty: 2,
@@ -83,6 +120,9 @@ export const LINES = [
     { id: "whips", skill: "SWING TIMING", difficulty: 3,
       approach: ["Catch either amber whip: B4 or B6.", "Tap the case once to regrip; release rising.", "Catch the other whip before touching down."],
       name: "WHIP LINE", text: "Bank WHIP TO WHIP and a regrip", gap: "whips", regrip: true },
+    { id: "sky", skill: "HIGH CROSSING", difficulty: 3, seconds: 75,
+      approach: ["Climb from B8 to the far amber post B15.", "Turn back through B12, then B11 without landing.", "Bank five trick types; the return is part of the route."],
+      name: "FREIGHT SWITCH", text: "Fly B8 → B15 → B12 → B11; bank five trick types", gap: "freight", variety: 5 },
   ],
   [
     { id: "climb", skill: "VERTICAL FLOW", difficulty: 2,
@@ -94,6 +134,9 @@ export const LINES = [
     { id: "cross", skill: "PRECISION TRANSFER", difficulty: 3,
       approach: ["Climb to the two amber bars: B9 and B10.", "Transfer across without touching ground.", "Straighten early on the descent; land clean."],
       name: "CROSSOVER LINE", text: "Bank CROSSOVER with a clean landing", gap: "cross", clean: true, seconds: 75 },
+    { id: "sky", skill: "SUSTAINED CLIMB", difficulty: 3, seconds: 75,
+      approach: ["Pass TOP RUNG, then climb B12 → B14 → B15 → B17.", "Keep the route airborne; use any linking posts.", "Bank six transfers in the same line."],
+      name: "CROWN CLIMB", text: "Climb B12 → B14 → B15 → B17; bank six transfers", gap: "crown", transfers: 6 },
   ],
   [
     { id: "moon", skill: "LONG AIR", difficulty: 3,
@@ -105,6 +148,9 @@ export const LINES = [
     { id: "master", skill: "COMPLETE LINE", difficulty: 3,
       approach: ["Use the deep transitions for a triple flip.", "Link five different trick names in one combo.", "A safe bank matters more than one extra trick."],
       name: "PIPE MASTER", text: "Bank five different tricks and a triple flip", variety: 5, flip: 3 },
+    { id: "sky", skill: "SUMMIT + RETURN", difficulty: 3, seconds: 75,
+      approach: ["Leave SUMMIT B4 for B5, B8 and the moon post B10.", "Keep those four catches in one airborne chain.", "Bring the whole line down for a clean bank."],
+      name: "LUNAR RETURN", text: "Fly B4 → B5 → B8 → B10; bank a clean landing", gap: "lunar", clean: true },
   ],
 ];
 
@@ -122,7 +168,8 @@ export const PARKS = [
     name: "THE BOWL", text: "A flowing bowl with open sky ladders.", w: 1500, h: 1490, floor: 1420, r: 250, bumps: [],
     bars: [[430, 1250], [750, 1210], [1070, 1250],
       [560, 1010], [940, 1010], [750, 780], [520, 550], [980, 550], [750, 320]],
-    gaps: [{ id: "bowlx", name: "BAR HOP", t: "bars", a: 0, b: 2, pts: 500 }],
+    gaps: [{ id: "bowlx", name: "BAR HOP", t: "bars", a: 0, b: 2, pts: 500 },
+      { id: "skyline", name: "CANAL SKYLINE", t: "sequence", bars: [3, 6, 8], pts: 1200 }],
     goals: [
       { t: "score", n: 3000, text: "Score 3,000 in a session" },
       { t: "flip", n: 1, text: "Land a flip" },
@@ -145,6 +192,7 @@ export const PARKS = [
       { id: "ladder", name: "THE LADDER", t: "bars", a: 1, b: 2, pts: 800 },
       { id: "spine", name: "OVER THE SPINE", t: "span", x1: 1030, x2: 1170, pts: 600 },
       { id: "whips", name: "WHIP TO WHIP", t: "bars", a: 3, b: 5, pts: 1000 },
+      { id: "freight", name: "FREIGHT SWITCH", t: "sequence", bars: [7, 14, 11, 10], pts: 1600 },
     ],
     goals: [
       { t: "score", n: 8000, text: "Score 8,000 in a session" },
@@ -167,6 +215,7 @@ export const PARKS = [
     gaps: [
       { id: "top", name: "TOP RUNG", t: "reach", a: 11, pts: 2000 },
       { id: "cross", name: "CROSSOVER", t: "bars", a: 8, b: 9, pts: 900 },
+      { id: "crown", name: "CROWN CLIMB", t: "sequence", bars: [11, 13, 14, 16], pts: 2000 },
     ],
     goals: [
       { t: "score", n: 15000, text: "Score 15,000 in a session" },
@@ -188,6 +237,7 @@ export const PARKS = [
     gaps: [
       { id: "moon", name: "OVER THE MOON", t: "span", x1: 470, x2: 1230, pts: 1500 },
       { id: "summit", name: "SUMMIT", t: "reach", a: 3, pts: 700 },
+      { id: "lunar", name: "LUNAR RETURN", t: "sequence", bars: [3, 4, 7, 9], pts: 1800 },
     ],
     goals: [
       { t: "score", n: 25000, text: "Score 25,000 in a session" },

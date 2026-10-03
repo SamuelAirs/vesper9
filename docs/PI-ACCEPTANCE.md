@@ -1,8 +1,8 @@
 # Candidate acceptance and rollback
 
-## Next High Bar trial: airflow / spider follow-up
+## Next High Bar trial: spider / sky-route mastery follow-up
 
-`codex/highbar-airflow` is a Windows candidate responding to Sam's physical
+`codex/highbar-mastery` is a Windows candidate responding to Sam's physical
 playtest. It has not been deployed. Its next switch must preserve the currently
 running `60adf7a` trial, including progress earned since its installation.
 Stage a new release directory and copy that trial's latest private data after
@@ -14,7 +14,7 @@ this update needs no firmware or model change.
 Rollback for this follow-up means restoring the captured **60adf7a override and
 its old trial data**, then verifying its served source identity, one browser,
 node and microphone state. Do not use the first trial's `deploy.py rollback`
-for that purpose: it intentionally returns to `f3bfacc`. Keep the new schema-3
+for that purpose: it intentionally returns to `f3bfacc`. Keep the new schema-4
 save separate; do not ask the older build to rewrite it. The candidate's
 external delivery manifest records its source/ZIP/bundle hashes. Review the
 concrete switch and rollback paths with Sam before restarting the console.
@@ -24,7 +24,11 @@ quickly build speed; swings should build height and connect into prolonged
 flight; catching should feel as familiar as before. Check that the screen is
 quieter, the spider's poses are readable, and release/landing timing remains
 comfortable. Old careers and unlocked parks must remain, with previous-rules
-PBs distinguished from new flow records. These are physical checks still to do.
+PBs distinguished from new flow-v4 records. Try one sky route using the selected
+post markers, then link a second clean landing for gold. A matching bank should
+end LINE RUN immediately, show the medal actually earned on that attempt, and
+let a case tap advance or a button tap retry. Optional practice guidance should
+stay out of ordinary play. These are physical checks still to do.
 
 ## First trial deployment record and procedure
 

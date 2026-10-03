@@ -37,15 +37,17 @@ test("all four FLAT SCHOOL starts are grounded and teach the ground action witho
   }
 });
 
-test("a real linked combo earns all three Bowl gold medals on the flow-v3 score class", () => {
+test("a real linked combo earns all three Bowl gold medals on the flow-v4 score class", () => {
   const { app, ctx } = ride(1); app.slot().line = 2; app.start(); replay(app); app.guard.settle();
   assert.ok(app.score > 0); assert.ok(app.stats.banks >= 1);
   assert.ok(app.lastBank.variety >= 4); assert.ok(app.lastBank.clean >= 2);
-  assert.deepEqual(app.slot().lineMedals[0], [3, 3, 3]); assert.equal(app.masteryCount(), 9);
-  assert.ok(app.slot().lineComboBest[0].every(score => score > 0));
+  assert.deepEqual(app.slot().lineMedals[0], [3, 3, 3, 0]); assert.equal(app.masteryCount(), 9);
+  assert.ok(app.slot().lineComboBest[0].slice(0, 3).every(score => score > 0));
   assert.deepEqual(app.slot().lineTimeBest[0].slice(0, 2), [0, 0]);
   assert.ok(app.slot().lineTimeBest[0][2] > 0 && app.slot().lineTimeBest[0][2] <= GOLD_ROUTE.frames / 60);
-  assert.equal(app.slot().runs, 0); assert.deepEqual(app.slot().lineBest[0], [0, 0, 0]);
+  assert.equal(app.phase, "over"); assert.equal(app.slot().runs, 1);
+  assert.deepEqual(app.slot().lineBest[0], [0, 0, app.score, 0]);
+  assert.equal(app.attemptResult.medal, 3); assert.equal(app.attemptResult.medalImproved, true);
   assert.equal(ctx.calls.score.length, 0); assert.ok(ctx.calls.saved.length > 0);
   app.finish();
   assert.equal(app.slot().lineBest[0][2], app.score); assert.equal(app.slot().runs, 1);
@@ -82,7 +84,7 @@ test("half-speed practice uses half simulation time while keeping AppGuard and a
 test("camera easing has the same elapsed-time response across render rates and looks ahead in either direction", () => {
   const cameras = [30, 60, 120].map(hz => {
     const { app } = ride(2); Object.assign(app.p, { mode: "ground", x: 950, y: app.groundY(950), s: 400 });
-    app.camX = 0; app.camY = -300;
+    app.camX = 80; app.camY = -300; // already inside the rider framing guard
     for (let frame = 0; frame < hz; frame++) app.placeCamera(false, 1 / hz);
     return app;
   });
@@ -93,7 +95,9 @@ test("camera easing has the same elapsed-time response across render rates and l
   const app = cameras[0]; app.p.s = 500; app.placeCamera(true); const right = app.camX;
   app.p.s = -500; app.placeCamera(true); assert.ok(right > app.camX);
   Object.assign(app.p, { mode: "air", vx: 10000, vy: -10000 }); app.placeCamera(true);
-  assert.ok(app.camX <= PARKS[0].w - 960); assert.ok(app.camY >= Math.min(0, PARKS[0].h - 540) - 900);
+  assert.ok(app.camX >= -90 && app.camX <= PARKS[0].w - 960 + 90);
+  assert.ok(app.p.x - app.camX >= 90 && app.p.x - app.camX <= 870);
+  assert.ok(app.camY >= Math.min(0, PARKS[0].h - 540) - 900);
 });
 
 test("landing feedback reports the actual clean, safe, sketchy or bail judgement on normal and shove landings", () => {

@@ -64,7 +64,7 @@ test("schema 1 migrates every private slot and active choice without changing hi
   })) };
   const original = structuredClone(raw), next = migrateSave(raw);
   assert.deepEqual(raw, original, "migration does not mutate its input");
-  assert.equal(next.slot, 2); assert.equal(next.schema, 3);
+  assert.equal(next.slot, 2); assert.equal(next.schema, 4);
   for (let i = 0; i < 3; i++) {
     for (const key of ["runs", "park", "best", "goals", "last"]) assert.deepEqual(next.slots[i][key], original.slots[i][key]);
     assert.equal(next.slots[i].legacyRecords.styleV2.bestCombo, original.slots[i].bestCombo);
@@ -251,7 +251,7 @@ test("flow scores are separate from both earlier bests and LINE RUN only records
   assert.equal(app.slot().best[0], 50000);
   assert.equal(app.slot().styleBest[0], 0);
   assert.equal(app.slot().flowBest[0], 40);
-  assert.deepEqual(ctx.calls.score[0], [40, "flow-v3"]);
+  assert.deepEqual(ctx.calls.score[0], [40, "flow-v4"]);
   app.mode = 1; app.start(); assert.equal(app.clock, 45);
   flat(app); app.trick("OLLIE", 40); app.bank(); app.finish();
   assert.equal(app.slot().lineBest[0][0], 0);

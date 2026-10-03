@@ -6,9 +6,9 @@
 //   in the air with no bar in reach: hold to tuck and flip, release to untuck and settle.
 // Landing upright banks the combo after a short roll; landing crooked is a bail and loses it.
 // A session is two minutes in one park. Each park has five goals; three open the next park.
-// Saves keep all three existing slots (schema 3). Case taps style the line: manual, shove-it, regrip.
+// Saves keep all three existing slots (schema 4). Case taps style the line: manual, shove-it, regrip.
 // Repeated tricks earn less and do not grow the multiplier. Practice teaches the same physics.
-// flow-v3 starts fresh score/time PBs and keeps bounded historical score archives.
+// flow-v4 starts fresh score/time PBs and keeps bounded historical score archives.
 // The lamps show what the button will do: the flip's angle in the
 // air (green: safe to land), the swing on a bar, the combo's roll window on the ground.
 import { C } from "../engine/draw.js";
@@ -19,6 +19,7 @@ import { LampBus, LOCKOUT, announce } from "./game-kit.js";
 
 import { G, STEP, LIP_ANGLE, MAX_SPEED, FRICTION, PUMP, PUSH_MIN, OLLIE, REACH, CATCH_LAG, REGRAB, TUCK, SETTLE, LAND_TOL, ROLL, BAIL_T, SESSION, OVERTIME, HOLD_PICK, SLOTS, MAX_TRICKS, MAX_PARTS, REPEAT, FLIPS, FLIP_PTS, MODES, MANUAL_LIMIT, TAP_COOLDOWN, STYLE_TIME, MEDALS, GUIDE, LINES, PARKS, UNLOCK, PUSH, MIN_R, WHIP_CAP, SKATE_DRIVE, SWING_DRIVE, SWING_CAP, SWING_OMEGA, barLaunchVelocity } from "./highbar-content.js";
 import { HighBarView } from "./highbar-view.js";
+import { projectLanding } from "./highbar-content.js";
 
 // The park's ground as heights every STEP px, plus its lips (where the walls turn vert).
 function buildPark(park) {
@@ -46,10 +47,10 @@ function skyline(park, seed) {
   return out;
 }
 const fmt = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-const freshSlot = () => ({ scoreVersion: "flow-v3", legacyRecords: { styleV2: null }, flowBest: PARKS.map(() => 0), runs: 0, park: 0, goals: PARKS.map(() => []), best: PARKS.map(() => 0), bestCombo: 0, last: null,
+const freshSlot = () => ({ scoreVersion: "flow-v4", legacyRecords: { styleV2: null, flowV3: null }, flowBest: PARKS.map(() => 0), runs: 0, park: 0, goals: PARKS.map(() => []), best: PARKS.map(() => 0), bestCombo: 0, last: null,
   guided: false, mode: 0, line: 0, lines: PARKS.map(() => []), medals: PARKS.map(() => 0),
-  styleBest: PARKS.map(() => 0), lineBest: PARKS.map(() => [0, 0, 0]), clean: 0,
-  lineComboBest: PARKS.map(() => [0, 0, 0]), lineTimeBest: PARKS.map(() => [0, 0, 0]), lineMedals: PARKS.map(() => [0, 0, 0]) });
+  styleBest: PARKS.map(() => 0), lineBest: LINES.map(lines => lines.map(() => 0)), clean: 0,
+  lineComboBest: LINES.map(lines => lines.map(() => 0)), lineTimeBest: LINES.map(lines => lines.map(() => 0)), lineMedals: LINES.map(lines => lines.map(() => 0)) });
 
 // Preserve schema-1 slots and active selection. New skill records never overwrite old score records.
 export function migrateSave(raw) {
@@ -63,7 +64,7 @@ export function migrateSave(raw) {
     slot.bestCombo = num(o.bestCombo, 0, 1e9);
     slot.guided = o.guided === true;
     slot.mode = num(o.mode, 0, MODES.length - 1);
-    slot.line = num(o.line, 0, 2);
+    slot.line = num(o.line, 0, LINES[0].length - 1);
     slot.clean = num(o.clean, 0, 1e7);
     for (let p = 0; p < PARKS.length; p++) {
       const g = Array.isArray(o.goals) && Array.isArray(o.goals[p]) ? o.goals[p] : [];
@@ -71,21 +72,21 @@ export function migrateSave(raw) {
       slot.best[p] = Array.isArray(o.best) ? num(o.best[p], 0, 1e9) : 0;
       slot.styleBest[p] = num(o.styleBest?.[p], 0, 1e9);
       slot.medals[p] = num(o.medals?.[p], 0, 3);
-      slot.lines[p] = [...new Set((Array.isArray(o.lines?.[p]) ? o.lines[p] : []).filter((i) => Number.isInteger(i) && i >= 0 && i < 3))].sort();
-      slot.lineBest[p] = [0, 1, 2].map((i) => num(o.lineBest?.[p]?.[i], 0, 1e9));
-      slot.lineComboBest[p] = [0, 1, 2].map(i => num(o.lineComboBest?.[p]?.[i], 0, 1e9));
-      slot.lineMedals[p] = [0, 1, 2].map(i => num(o.lineMedals?.[p]?.[i], 0, 3));
-      slot.lineTimeBest[p] = [0, 1, 2].map(i => Number.isFinite(o.lineTimeBest?.[p]?.[i])
+      slot.lines[p] = [...new Set((Array.isArray(o.lines?.[p]) ? o.lines[p] : []).filter((i) => Number.isInteger(i) && i >= 0 && i < LINES[p].length))].sort();
+      slot.lineBest[p] = LINES[p].map((_, i) => num(o.lineBest?.[p]?.[i], 0, 1e9));
+      slot.lineComboBest[p] = LINES[p].map((_, i) => num(o.lineComboBest?.[p]?.[i], 0, 1e9));
+      slot.lineMedals[p] = LINES[p].map((_, i) => num(o.lineMedals?.[p]?.[i], 0, 3));
+      slot.lineTimeBest[p] = LINES[p].map((_, i) => Number.isFinite(o.lineTimeBest?.[p]?.[i])
         ? Math.round(clamp(o.lineTimeBest[p][i], 0, SESSION + OVERTIME) * 100) / 100 : 0);
     }
     slot.park = num(o.park, 0, PARKS.length - 1);
     if (!unlocked(slot, slot.park)) slot.park = 0;
     if (o.last && typeof o.last === "object") slot.last = { score: num(o.last.score, 0, 1e9), combo: num(o.last.combo, 0, 1e9), park: String(o.last.park || "").slice(0, 24) };
-    const current = o.scoreVersion === "flow-v3";
+    const current = o.scoreVersion === "flow-v4", flowV3 = o.scoreVersion === "flow-v3";
     slot.flowBest = PARKS.map((_, p) => current ? num(o.flowBest?.[p], 0, 1e9) : 0);
     // A single bounded archive survives repeat loads. Unlocks and skill medals
     // remain career achievements; changed physics starts fresh score/time PBs.
-    const old = current ? o.legacyRecords?.styleV2 : o;
+    const old = current || flowV3 ? o.legacyRecords?.styleV2 : o;
     if (old && typeof old === "object") slot.legacyRecords.styleV2 = {
       bestCombo: num(old.bestCombo, 0, 1e9),
       styleBest: PARKS.map((_, p) => num(old.styleBest?.[p], 0, 1e9)),
@@ -94,16 +95,25 @@ export function migrateSave(raw) {
       lineTimeBest: PARKS.map((_, p) => [0, 1, 2].map(i => Number.isFinite(old.lineTimeBest?.[p]?.[i])
         ? Math.round(clamp(old.lineTimeBest[p][i], 0, SESSION + OVERTIME) * 100) / 100 : 0)),
     };
+    const previousFlow = current ? o.legacyRecords?.flowV3 : flowV3 ? o : null;
+    if (previousFlow && typeof previousFlow === "object") slot.legacyRecords.flowV3 = {
+      bestCombo: num(previousFlow.bestCombo, 0, 1e9),
+      flowBest: PARKS.map((_, p) => num(previousFlow.flowBest?.[p], 0, 1e9)),
+      lineBest: PARKS.map((_, p) => [0, 1, 2].map(i => num(previousFlow.lineBest?.[p]?.[i], 0, 1e9))),
+      lineComboBest: PARKS.map((_, p) => [0, 1, 2].map(i => num(previousFlow.lineComboBest?.[p]?.[i], 0, 1e9))),
+      lineTimeBest: PARKS.map((_, p) => [0, 1, 2].map(i => Number.isFinite(previousFlow.lineTimeBest?.[p]?.[i])
+        ? Math.round(clamp(previousFlow.lineTimeBest[p][i], 0, SESSION + OVERTIME) * 100) / 100 : 0)),
+    };
     if (!current) {
       slot.bestCombo = 0;
-      slot.lineBest = PARKS.map(() => [0, 0, 0]);
-      slot.lineComboBest = PARKS.map(() => [0, 0, 0]);
-      slot.lineTimeBest = PARKS.map(() => [0, 0, 0]);
+      slot.lineBest = LINES.map(lines => lines.map(() => 0));
+      slot.lineComboBest = LINES.map(lines => lines.map(() => 0));
+      slot.lineTimeBest = LINES.map(lines => lines.map(() => 0));
     }
     slots.push(slot);
   }
   const slot = num(src.slot, 0, SLOTS - 1);
-  return finishSave({ schema: 3, scoreVersion: "flow-v3", slot, slots });
+  return finishSave({ schema: 4, scoreVersion: "flow-v4", slot, slots });
 }
 function unlocked(slot, p) { return p === 0 || slot.goals[p - 1].length >= UNLOCK; }
 // The host reads runs, milestone and last at the top level: they follow the current slot.
@@ -171,14 +181,14 @@ export class HighBar extends HighBarView {
     this.bestCombo = 0; this.newGoals = [];
     this.manual = null; this.tapAt = -Infinity; this.styleNotice = "";
     this.stats = { airs: 0, clean: 0, bails: 0, banks: 0, variety: 0, lines: 0 };
-    this.lineMet = false;
+    this.lineMet = false; this.attemptResult = null; this.lesson = null; this.flightCache = null; this.simulationStep = 1 / 60; this.routeSteps = {};
     this.parts = [];
     this.popups = [];
     this.trail = [];
     this.camX = 0; this.camY = 0;
     this.placeCamera(true);
   }
-  freshCombo() { return { tricks: [], sum: 0, roll: -1, giants: 0, maxFlip: 0, gaps: [],
+  freshCombo() { return { tricks: [], repeats: {}, sum: 0, roll: -1, giants: 0, maxFlip: 0, gaps: [],
     airs: 0, clean: false, manual: false, regrip: false, shove: false, transfers: 0,
     cleanLandings: 0, landings: 0, sketchy: 0, started: this.runTime || 0 }; }
 
@@ -227,8 +237,13 @@ export class HighBar extends HighBarView {
   dispose() { this.guard.settle(); this.lamps.sleep(); this.boardOff(); }
   menuActions() {
     const guide = { label: "GAME GUIDE", run: () => { this.guideReturn = this.phase; this.phase = "guide"; this.guide = 0; this.c.resume?.(); } };
+    const school = { label: this.phase === "play" ? "RESTART IN FLAT SCHOOL" : "FLAT SCHOOL", run: () => {
+      this.mode = 2; this.practiceStart = this.practiceSpawns().findIndex(spawn => spawn.id === "training");
+      this.start(); this.c.resume?.();
+    } };
     if (this.phase !== "play") return [
-      ...(this.phase === "over" ? [{ label: this.mode === 1 ? "RETRY THIS LINE" : this.mode === 2 ? "RETRY PRACTICE" : "RIDE AGAIN", run: () => { this.start(); this.c.resume?.(); } }] : []), guide];
+      ...(this.phase === "over" ? [{ label: this.mode === 1 ? "RETRY THIS LINE" : this.mode === 2 ? "RETRY PRACTICE" : "RIDE AGAIN", run: () => { this.start(); this.c.resume?.(); } },
+        ...(this.mode === 1 && this.attemptResult ? [{ label: "NEXT LINE", run: () => { this.nextLine(); this.c.resume?.(); } }] : [])] : []), school, guide];
     return [{ label: this.mode === 2 ? "LEAVE PRACTICE" : "END SESSION", run: () => { this.finish(); this.c.resume?.(); } },
       { label: "RESTART SESSION", run: () => { this.start(); this.c.resume?.(); } },
       ...(this.mode === 2 ? [
@@ -236,7 +251,7 @@ export class HighBar extends HighBarView {
         ...(this.practiceCheckpoint?.park === this.parkId ? [{ label: "RESET TO LAST SAFE BANK", run: () => { this.resetPractice(true); this.c.resume?.(); } }] : []),
         { label: "PRACTICE PACE / " + (this.practiceSlow ? "HALF SPEED" : "NORMAL"), run: () => { this.practiceSlow = !this.practiceSlow; this.c.resume?.(); } },
         { label: "CHANGE PRACTICE START", run: () => { this.phase = "setup"; this.cursor = this.setupItems().findIndex(i => i.id === "start"); this.c.resume?.(); } },
-      ] : []), guide];
+      ] : []), school, guide];
   }
   // A forgiving optional style action; never a button edge or a menu choice.
   knock(event = {}) {
@@ -246,7 +261,12 @@ export class HighBar extends HighBarView {
       this.cursor = (this.cursor + step + this.setupItems().length) % this.setupItems().length;
       this.erase = 0; this.c.tone?.(440, 0.03, "sine"); return;
     }
-    if (this.phase === "over") { if (!this.pressed && this.overT >= LOCKOUT) this.start(); return; }
+    if (this.phase === "over") {
+      if (!this.pressed && this.overT >= LOCKOUT) {
+        if (this.mode === 1 && this.attemptResult) this.nextLine(); else this.start();
+      }
+      return;
+    }
     if (this.phase !== "play" || this.resumeT > 0 || this.p.mode === "bail" || this.t - this.tapAt < TAP_COOLDOWN) return;
     this.tapAt = this.t;
     const p = this.p;
@@ -346,7 +366,7 @@ export class HighBar extends HighBarView {
       announce(this, "SLOT " + (this.save.slot + 1) + " ERASED", 2);
       this.c.tone?.(200, 0.2, "sawtooth");
     } else if (id === "mode") { this.mode = (this.mode + 1) % MODES.length; this.slot().mode = this.mode; this.persist(); }
-    else if (id === "line") { this.slot().line = (this.slot().line + 1) % 3; this.persist(); }
+    else if (id === "line") { this.slot().line = (this.slot().line + 1) % LINES[this.parkId].length; this.persist(); }
     else if (id === "start") { this.practiceStart = (this.practiceStart + 1) % this.practiceSpawns().length; }
     else if (id === "pace") this.practiceSlow = !this.practiceSlow;
     else if (id === "guide") { this.guideReturn = "setup"; this.phase = "guide"; this.guide = 0; }
@@ -372,10 +392,47 @@ export class HighBar extends HighBarView {
     this.resetRun();
     this.clock = this.mode === 1 ? this.lineSeconds() : SESSION;
     this.phase = "play";
-    if (this.mode === 2) this.placePractice(this.practiceSpawns()[this.practiceStart % this.practiceSpawns().length]);
+    if (this.mode === 2) {
+      const spawn = this.practiceSpawns()[this.practiceStart % this.practiceSpawns().length];
+      this.placePractice(spawn);
+      if (spawn.id === "training") this.lesson = { stage: 0 };
+    }
     announce(this, this.mode === 1 ? this.challenge().name : this.mode === 2 ? "PRACTICE — NO CLOCK OR RECORDS" : this.park().name, 2.2);
     this.setHint("Skate: hold to build speed, release to ollie. Flight: press near a bar to catch. Swing: hold for height, release to launch.");
     this.c.tone?.(660, 0.08, "triangle");
+  }
+  nextLine() {
+    if (this.phase !== "over" || this.mode !== 1 || !this.attemptResult) return;
+    this.slot().line = (this.slot().line + 1) % LINES[this.parkId].length;
+    this.persist(); this.start();
+  }
+  lessonCue() {
+    if (!this.lesson || this.mode !== 2) return "";
+    const stage = this.lesson.stage;
+    if (stage === 2 && this.p.mode === "ground" && !this.combo.tricks.length) return "HOLD, THEN RELEASE / TRY A CLEAN OLLIE";
+    return ["HOLD TO BUILD SPEED", "RELEASE TO OLLIE", "LET GO / LAND CLEAN / ROLL TO BANK",
+      "PRESS A LIT POST RING TO CATCH", "RELEASE RISING / LAND + ROLL TO BANK", "READY / TRY A FLIP IN YOUR NEXT LINE"][stage];
+  }
+
+  releaseAdvice() {
+    const p = this.p;
+    if (p.mode !== "bar") return null;
+    const velocity = barLaunchVelocity(p, this.park().bars[p.bar][2]);
+    return { ...velocity, direction: Math.sign(velocity.vx) || 1,
+      phase: p.held < 0.35 ? "build" : velocity.vy < -180 ? "rise" : velocity.vy <= 100 ? "travel" : "fall",
+      lift: clamp(-velocity.vy / SWING_CAP, 0, 1) };
+  }
+  flightAdvice() {
+    const p = this.p;
+    if (p.mode !== "air" || !this.air) return null;
+    const dt = this.simulationStep;
+    const key = [this.parkId, dt, p.x, p.y, p.vx, p.vy, p.rot, p.rotV, p.vert, p.tuck, p.tuckDir, this.air.t, !!this.air.style].join("|");
+    if (this.flightCache?.key === key) return this.flightCache.value;
+    const now = projectLanding(p, this.air, this.geo, x => this.groundY(x), x => this.slope(x), 0, dt);
+    const later = now && p.tuck ? projectLanding(p, this.air, this.geo, x => this.groundY(x), x => this.slope(x), 0.2, dt) : now;
+    const value = now ? { ...now, urgent: !!p.tuck && (now.time <= 0.45 || later?.kind === "bail" || later?.kind === "sketchy") } : null;
+    this.flightCache = { key, value };
+    return value;
   }
   practiceSpawns() {
     return [{ id: "drop", name: "DROP-IN" },
@@ -443,6 +500,7 @@ export class HighBar extends HighBarView {
     this.air = null;
     this.leaveGround();
     this.air.ollie = true;
+    if (this.lesson?.stage === 1) this.lesson.stage = 2;
     this.c.tone?.(330, 0.04, "triangle");
   }
   grab(i) {
@@ -462,7 +520,9 @@ export class HighBar extends HighBarView {
       else this.trick("REGRAB", 120);
     }
     this.gapReach(i);
+    this.gapSequence(i);
     this.air = null;
+    if (this.lesson?.stage === 3) this.lesson.stage = 4;
     if (this.combo.roll >= 0) this.combo.roll = -1;
     Object.assign(p, { mode: "bar", bar: i, r, phi, om: (along >= 0 ? 1 : -1) * Math.min(speed / r, SWING_CAP / r, SWING_OMEGA), held: 0, loops: 0, phiAcc: 0, tuck: false, crouch: false, regrip: false, vert: 0 });
     p.x = bx + r * Math.sin(phi); p.y = by + r * Math.cos(phi);
@@ -483,12 +543,21 @@ export class HighBar extends HighBarView {
   // ---- tricks and combos ---------------------------------------------------
   trick(name, pts) {
     const c = this.combo;
-    if (c.tricks.length >= MAX_TRICKS) return;
-    const seen = c.tricks.filter((k) => k.name === name).length;
+    if (name === "GIANT") c.giants = Math.min(999, c.giants + 1);
+    const repeats = c.repeats || (c.repeats = {});
+    const seen = repeats[name] ?? c.tricks.filter((k) => k.name === name).length;
+    // Five diminishing awards per name, then that move is exhausted for this
+    // line. Orbit camping cannot fill the log or crowd out a later new trick.
+    if (seen >= REPEAT.length) return;
+    if (c.tricks.length >= MAX_TRICKS) {
+      const duplicate = c.tricks.findIndex((k, i) => c.tricks.findIndex(q => q.name === k.name) !== i);
+      if (duplicate < 0) return;
+      c.tricks.splice(duplicate, 1);
+    }
+    repeats[name] = seen + 1;
     const v = Math.round(pts * REPEAT[Math.min(seen, REPEAT.length - 1)] / 10) * 10;
     c.tricks.push({ name, pts: v });
     c.sum += v;
-    if (name === "GIANT") c.giants++;
     this.popups.push({ text: name + " " + v, t: 0, x: this.p.x, y: this.p.y - 40 });
     if (this.popups.length > 6) this.popups.shift();
   }
@@ -496,6 +565,25 @@ export class HighBar extends HighBarView {
     for (const g of this.park().gaps) if (g.t === "bars" && ((g.a === a && g.b === b) || (g.a === b && g.b === a))) this.gap(g);
   }
   gapReach(i) { for (const g of this.park().gaps) if (g.t === "reach" && g.a === i) this.gap(g); }
+  gapSequence(i) {
+    for (const g of this.park().gaps) if (g.t === "sequence" && !this.combo.gaps.includes(g.id)) {
+      const step = this.routeSteps[g.id] || 0;
+      if (g.bars[step] !== i) continue;
+      this.routeSteps[g.id] = step + 1;
+      if (step + 1 === g.bars.length) this.gap(g);
+    }
+  }
+  routeProgress() {
+    const g = this.park().gaps.find(g => g.id === this.challenge().gap && g.t === "sequence");
+    if (!g) return null;
+    const complete = this.combo.gaps.includes(g.id);
+    return { step: complete ? g.bars.length : this.routeSteps[g.id] || 0,
+      total: g.bars.length, complete, bars: g.bars, name: g.name };
+  }
+  routeTarget() {
+    const route = this.routeProgress();
+    return route && !route.complete ? route.bars[route.step] : -1;
+  }
   gap(g) {
     if (this.combo.gaps.includes(g.id)) return;
     this.combo.gaps.push(g.id);
@@ -523,6 +611,7 @@ export class HighBar extends HighBarView {
   }
   land() {
     const p = this.p, m = this.slope(p.x), ang = Math.atan(m);
+    this.routeSteps = {}; // unfinished routes require one continuous air/bar chain
     const off = Math.abs(wrapAngle(p.rot - ang));
     const cos = 1 / Math.sqrt(1 + m * m), sin = m * cos;
     // Landing keeps most of the speed, more of it the better the line matches the ground (transitions are forgiving).
@@ -552,6 +641,7 @@ export class HighBar extends HighBarView {
     this.manual = null; this.stats.bails++;
     this.landing = { kind: "bail", off, t: 2.3, reason };
     this.air = null; this.pending = null;
+    this.routeSteps = {};
     Object.assign(p, { mode: "bail", bailT: BAIL_T, tuck: false, crouch: false, vert: 0, s: 0, bar: -1 });
     p.y = this.groundY(p.x);
     this.burst(p.x, p.y, C.red, 8);
@@ -562,6 +652,7 @@ export class HighBar extends HighBarView {
   comboValue() { const c = this.combo; return c.sum * Math.min(this.variety(c), 8); }
   bank() {
     const c = this.combo, value = this.comboValue(), mult = Math.min(this.variety(c), 8);
+    const selected = this.slot().line, previous = this.lineRecord();
     this.score += value;
     this.bestCombo = Math.max(this.bestCombo, value);
     this.stats.banks++; this.stats.variety = Math.max(this.stats.variety, mult);
@@ -570,6 +661,8 @@ export class HighBar extends HighBarView {
       newBest: false, newMedal: false, time: Math.max(0, this.runTime - (c.started || 0)) };
     if (this.mode === 2 && this.p.mode === "ground" && !this.manual) {
       this.practiceCheckpoint = { park: this.parkId, x: this.p.x, s: this.p.s, rot: this.p.rot };
+      if (this.lesson?.stage === 2 && c.cleanLandings > 0) this.lesson.stage = 3;
+      else if (this.lesson?.stage === 4 && c.tricks.some(k => k.name === "SWING")) this.lesson.stage = 5;
     }
     announce(this, (mult > 1 ? fmt(c.sum) + " x " + mult + " = " : "+") + fmt(value), 1.6);
     if (mult >= 5) {
@@ -589,6 +682,15 @@ export class HighBar extends HighBarView {
       if (before !== after) this.persist();
     }
     this.combo = this.freshCombo();
+    this.routeSteps = {};
+    if (this.mode === 1 && matched.includes(selected)) {
+      const record = this.lineRecord();
+      this.attemptResult = Object.freeze({ line: selected, name: this.challenge().name, value,
+        medal: this.lineMedal(this.challenge(), c), previousMedal: previous.medal,
+        medalImproved: record.medal > previous.medal, bestImproved: record.best > previous.best,
+        time: Math.round(this.runTime * 100) / 100, timeImproved: !previous.time || record.time < previous.time });
+      this.finish();
+    }
   }
   // Goals are met by banked combos, and the score goals by the session's score so far.
   checkGoals(c) {
@@ -614,6 +716,7 @@ export class HighBar extends HighBarView {
     return { best: s.lineComboBest[park][line], medal: s.lineMedals[park][line], time: s.lineTimeBest[park][line] };
   }
   masteryCount() { return this.slot().lineMedals.reduce((n, park) => n + park.reduce((a, m) => a + m, 0), 0); }
+  masteryTotal() { return LINES.reduce((n, lines) => n + lines.length * 3, 0); }
   masteryRequirements(line = this.challenge()) {
     return { silverClean: 1, silverVariety: Math.max(3, line.variety || 0),
       goldClean: 2, goldVariety: Math.max(4, (line.variety || 0) + 1) };
@@ -644,6 +747,30 @@ export class HighBar extends HighBarView {
     if (line.shove) parts.push(c.shove ? "SHOVE-IT OK" : "NEED SHOVE-IT");
     if (line.transfers) parts.push("TRANSFERS " + Math.min(c.transfers, line.transfers) + "/" + line.transfers);
     return this.meetsLine(line, c) ? "READY — LAND AND ROLL TO BANK" : parts.join(" · ");
+  }
+  challengeCue(c = this.combo) {
+    const line = this.challenge();
+    if (!this.meetsLine(line, c)) {
+      const route = this.routeProgress();
+      if (route && !route.complete) return route.step + "/" + route.total + " / NEXT B" + (route.bars[route.step] + 1) + " / STAY AIRBORNE";
+      if (line.gap && !c.gaps.includes(line.gap)) return "NEXT / " + this.park().gaps.find(g => g.id === line.gap).name;
+      if (line.swing && !c.tricks.some(k => k.name === "SWING")) return "NEXT / CATCH + RELEASE A SWING";
+      if (line.flip && c.maxFlip < line.flip) return "NEXT / " + (line.flip === 1 ? "LAND OR CATCH A FLIP" : "LAND OR CATCH " + line.flip + " FLIPS");
+      if (line.manual && !c.manual) return "NEXT / LINK WITH A MANUAL";
+      if (line.airs && c.airs < line.airs) return "NEXT / AIRS " + c.airs + "/" + line.airs;
+      if (line.transfers && c.transfers < line.transfers) return "NEXT / TRANSFERS " + c.transfers + "/" + line.transfers;
+      if (line.regrip && !c.regrip) return "NEXT / TAP ON A BAR TO REGRIP";
+      if (line.shove && !c.shove) return "NEXT / TAP IN CLEAR AIR TO SHOVE-IT";
+      if (line.variety && this.variety(c) < line.variety) return "NEXT / TRICK TYPES " + this.variety(c) + "/" + line.variety;
+      if (line.clean && !c.clean) return "NEXT / RELEASE EARLY FOR A CLEAN LANDING";
+    }
+    const medal = this.lineMedal(line, c), desired = Math.min(3, this.lineRecord().medal + 1), req = this.masteryRequirements(line);
+    if (medal >= desired) return MEDALS[medal] + " READY / LAND + ROLL TO BANK";
+    if (desired === 3 && c.sketchy) return "BANK THIS LINE / RETRY FOR CLEAN GOLD";
+    const clean = desired === 3 ? req.goldClean : req.silverClean, types = desired === 3 ? req.goldVariety : req.silverVariety;
+    if ((c.cleanLandings || 0) < clean) return MEDALS[medal] + " READY / LINK " + (clean - (c.cleanLandings || 0)) + " CLEAN FOR " + MEDALS[desired];
+    if (this.variety(c) < types) return MEDALS[medal] + " READY / " + (types - this.variety(c)) + " NEW TYPES FOR " + MEDALS[desired];
+    return MEDALS[medal] + " READY / LAND + ROLL TO BANK";
   }
   meetsLine(line, c) {
     return (!line.flip || c.maxFlip >= line.flip) && (!line.swing || c.tricks.some((k) => k.name === "SWING"))
@@ -708,6 +835,7 @@ export class HighBar extends HighBarView {
   }
   stepPlay(dt) {
     const p = this.p;
+    this.simulationStep = clamp(dt, 1 / 240, 1 / 30);
     this.runTime += dt;
     if (this.pending) { this.pending.t -= dt; if (this.pending.t <= 0) { const b = this.pending.bar; this.pending = null; if (this.pressed && !this.grab(b)) this.heldAway(); } }
     p.lastBarT += dt;
@@ -726,6 +854,8 @@ export class HighBar extends HighBarView {
       else if (m.t >= MANUAL_LIMIT) { this.endManual(); this.combo.roll = ROLL; }
     }
     if (p.mode === "ground" && !this.manual && this.combo.roll >= 0) { this.combo.roll -= dt; if (this.combo.roll <= 0) this.bank(); }
+    if (this.phase !== "play") return;
+    if (this.lesson?.stage === 0 && p.mode === "ground" && p.crouch && Math.abs(p.s) >= 400) this.lesson.stage = 1;
     if (this.mode === 2) { this.placeCamera(false, dt); return; }
     this.clock -= dt;
     if (this.clock <= 0) {
@@ -833,8 +963,9 @@ export class HighBar extends HighBarView {
     if (this.phase !== "play") return;
     const p = this.p;
     // Last trick still has to land. Ending in flight cannot turn an unsafe line into a free bank.
-    if (this.combo.tricks.length && p.mode === "ground" && !this.manual) this.bank();
+    if (this.combo.tricks.length && p.mode === "ground" && !this.manual && this.mode !== 1) this.bank();
     else this.combo = this.freshCombo();
+    if (this.phase !== "play") return; // a matching bank can finish a line attempt
     this.manual = null;
     this.phase = "over"; this.overT = 0; this.pressed = false; this.pending = null;
     const s = this.slot(), park = this.park();
@@ -851,7 +982,7 @@ export class HighBar extends HighBarView {
     s.park = this.parkId;
     this.checkGoals(this.freshCombo());
     finishSave(this.save);
-    if (this.mode === 0) this.c.score?.(this.score, "flow-v3");
+    if (this.mode === 0) this.c.score?.(this.score, "flow-v4");
     this.persist();
     this.setHint("Tap to ride again. Hold for park and save slot.");
     this.c.tone?.(520, 0.2, "triangle");
@@ -870,10 +1001,13 @@ export class HighBar extends HighBarView {
     let lookY = p.y + clamp(p.vy * 0.15, -85, 65);
     if (p.mode === "ground" || p.mode === "bail") lookY = p.y;
     else if (p.mode === "air" && p.vy < 0) lookY = Math.min(lookY, p.y - Math.min(130, p.vy * p.vy / (2 * G)));
-    const tx = clamp(p.x + ahead - 480, 0, Math.max(0, park.w - 960));
+    const margin = 90, tx = clamp(p.x + ahead - 480, -margin, Math.max(0, park.w - 960) + margin);
     const ty = clamp(lookY - 300, Math.min(0, park.h - 540) - 900, Math.max(0, park.h - 540));
     const k = snap ? 1 : 1 - Math.exp(Math.log(0.88) * 60 * dt);
     this.camX += (tx - this.camX) * k; this.camY += (ty - this.camY) * k;
+    // A fast wall rebound may outrun easing. Reserve room for the rotated
+    // eight-legged silhouette, even at the actual park's extreme edge.
+    this.camX = clamp(this.camX, p.x - (960 - margin), p.x - margin);
   }
 
   // ---- lamps ----------------------------------------------------------------
@@ -886,11 +1020,11 @@ export class HighBar extends HighBarView {
     if (this.phase === "guide") return spot(this.guide / (GUIDE.length - 1), LAMP.cyan, 0.45, n);
     if (n === 4) {
       const out = Array(12).fill(0), lamp = (i, rgb, level) => out.splice(i * 3, 3, ...dim(rgb, level));
-      const target = Math.atan(this.slope(p.x)), off = Math.abs(wrapAngle(p.rot - target));
-      lamp(0, p.mode === "bar" ? LAMP.cyan : LAMP.green,
-        p.mode === "bar" ? 0.2 + 0.65 * Math.abs(Math.sin(p.phi)) : Math.min(0.85,
+      const launch = this.releaseAdvice(), landing = this.flightAdvice();
+      lamp(0, launch ? launch.phase === "rise" ? LAMP.green : launch.phase === "travel" ? LAMP.cyan : LAMP.amber : LAMP.green,
+        launch ? 0.25 + 0.6 * launch.lift : Math.min(0.85,
           (p.mode === "ground" ? Math.abs(p.s) : Math.hypot(p.vx, p.vy)) / MAX_SPEED));
-      const risk = this.manual ? Math.abs(this.manual.balance) : p.mode === "air" ? off / (this.air?.style ? LAND_TOL * 0.7 : LAND_TOL) : 0;
+      const risk = this.manual ? Math.abs(this.manual.balance) : landing ? Math.max(landing.urgent ? 0.9 : 0, landing.off / (this.air?.style ? LAND_TOL * 0.7 : LAND_TOL)) : p.mode === "air" ? 1 : 0;
       lamp(1, risk > 0.8 ? LAMP.red : risk > 0.4 ? LAMP.amber : LAMP.green, 0.25 + Math.min(0.65, risk * 0.5));
       lamp(2, LAMP.violet, 0.1 + Math.min(0.75, this.variety() * 0.13));
       const ready = p.mode === "ground" || (p.mode === "bar" && !p.regrip && p.held > 0.15)
@@ -901,13 +1035,13 @@ export class HighBar extends HighBarView {
     }
     if (this.manual) return spot(0.5 + this.manual.balance * 0.5, Math.abs(this.manual.balance) > 0.8 ? LAMP.red : LAMP.amber, 0.7, n);
     if (p.mode === "bar") {
-      const whip = this.park().bars[p.bar][2] === "whip";
-      return spot(0.5 + 0.5 * Math.sin(p.phi), whip ? LAMP.amber : LAMP.cyan, 0.8, n);
+      const launch = this.releaseAdvice();
+      return spot(0.5 + 0.5 * Math.sin(p.phi), launch.phase === "rise" ? LAMP.green : launch.phase === "travel" ? LAMP.cyan : LAMP.amber, 0.8, n);
     }
     if (p.mode === "air") {
       // The flip's angle to the ground below: centred and green is a safe landing.
       const target = Math.atan(this.slope(p.x)), off = wrapAngle(p.rot - target);
-      const ok = Math.abs(off) <= LAND_TOL * 0.85;
+      const landing = this.flightAdvice(), ok = landing && !landing.urgent && (landing.kind === "clean" || landing.kind === "safe");
       return spot(clamp(0.5 + off / TAU, 0, 1), ok ? LAMP.green : (p.tuck ? LAMP.violet : LAMP.red), 0.8, n);
     }
     if (this.combo.roll >= 0) return meter(this.combo.roll / ROLL, LAMP.amber, LAMP.off, n);

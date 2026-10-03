@@ -1,10 +1,11 @@
 # Finished-node development candidate — 2026-10-02
 
-> High Bar follow-up: the current Windows branch is `codex/highbar-airflow`,
-> based on trial `60adf7a` and deployment record `766f8a7`. [High Bar](HIGH-BAR.md)
-> describes the spider, acceleration, vertical routes and quiet screen requested
-> after Sam's playtest. It uses `flow-v3` records and preserves earlier careers
-> and PBs. This follow-up has not replaced the Pi trial below; the remaining
+> High Bar follow-up: the current Windows branch is `codex/highbar-mastery`,
+> based on airflow candidate `aab8aa0` and the preserved Pi trial `60adf7a`.
+> [High Bar](HIGH-BAR.md) describes the spider, acceleration, quiet screen and
+> sixteen challenges, including four sustained aerial sky routes. It uses
+> `flow-v4` records and preserves earlier careers and bounded historical PBs.
+> This follow-up has not replaced the Pi trial below; the remaining
 > investigation snapshots are historical evidence.
 
 **Deployment update, 2026-10-03 14:44 UTC:** Sam authorized the trial. The Pi now

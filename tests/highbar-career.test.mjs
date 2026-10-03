@@ -50,9 +50,9 @@ test("schema-1 migration preserves every private slot and active career without 
     for (const field of ["runs", "park", "best", "goals", "last"]) assert.deepEqual(migrated.slots[i][field], legacy.slots[i][field]);
     assert.equal(migrated.slots[i].legacyRecords.styleV2.bestCombo, legacy.slots[i].bestCombo);
     assert.equal(migrated.slots[i].bestCombo, 0);
-    assert.deepEqual(migrated.slots[i].lineComboBest, PARKS.map(() => [0, 0, 0]));
-    assert.deepEqual(migrated.slots[i].lineTimeBest, PARKS.map(() => [0, 0, 0]));
-    assert.deepEqual(migrated.slots[i].lineMedals, PARKS.map(() => [0, 0, 0]));
+    assert.deepEqual(migrated.slots[i].lineComboBest, PARKS.map(() => [0, 0, 0, 0]));
+    assert.deepEqual(migrated.slots[i].lineTimeBest, PARKS.map(() => [0, 0, 0, 0]));
+    assert.deepEqual(migrated.slots[i].lineMedals, PARKS.map(() => [0, 0, 0, 0]));
   }
   migrated.slots[0].goals[0].push(4); migrated.slots[0].lineMedals[0][0] = 3;
   assert.deepEqual(legacy, original); assert.equal(migrated.slots[1].lineMedals[0][0], 0);
@@ -252,5 +252,5 @@ test("the recorded Rolling Link route earns all Bowl gold tiers through actual c
   for (let line = 0; line < 3; line++) assert.equal(app.lineRecord(0, line).medal, 3);
   assert.equal(app.lineRecord(0, 0).time, 0); assert.equal(app.lineRecord(0, 1).time, 0);
   assert.ok(app.lineRecord(0, 2).time > 0 && app.lineRecord(0, 2).time <= GOLD_ROUTE.frames / 60);
-  assert.deepEqual(mount(rig.durable()).app.slot().lineMedals[0], [3, 3, 3]);
+  assert.deepEqual(mount(rig.durable()).app.slot().lineMedals[0], [3, 3, 3, 0]);
 });

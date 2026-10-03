@@ -603,7 +603,7 @@ class Console:
                     raise ValueError("Reaction score requires a timing source")
             elif metric != "default" and metric not in {
                 "glyphs": ("scan600", "scan850", "scan1200", "scan1600"),
-                "highbar": ("style-v2", "flow-v3"),
+                "highbar": ("style-v2", "flow-v3", "flow-v4"),
                 "wayfinder": ("region-0", "region-1", "region-2"),
                 "twinbeat": ("assist", "sides"),
             }.get(app, ()):

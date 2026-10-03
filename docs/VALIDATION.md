@@ -1,10 +1,82 @@
 # VESPER-9 0.2.0 validation
 
 > Release `60adf7a` was installed as a save-preserving Pi trial on 2026-10-03;
-> physical acceptance is in progress. The subsequent `codex/highbar-airflow`
+> physical acceptance is in progress. The subsequent `codex/highbar-mastery`
 > revision is developed on Windows and has not replaced that trial. See
 > [candidate status](NODE-CONSOLE-CANDIDATE.md). Validation sections below identify
 > their own source snapshots; older firmware/sensor notes are historical.
+
+## High Bar sky-route mastery follow-up — 2026-10-03
+
+Native Windows `DESKTOP-FD66EV2`, `codex/highbar-mastery`, based on clean
+airflow candidate `aab8aa0`. At Sam's request, GPT-6 Astra at high effort owned
+the principal gameplay work; two GPT-6.1 Sol agents handled renderer/browser
+work and independent regression review. Sam clarified that depth and expressive
+play take priority over learning helpers. Optional practice cues remain secondary.
+No Pi access, deployment, firmware change or GitHub publication occurred.
+
+| Check | Fresh result |
+| --- | --- |
+| Complete JavaScript suite | 1,588 pass; zero failures, cancellations or skips |
+| High Bar focused suite | 153 pass, including 17 independent mastery regressions |
+| Python runtime / storage / score contracts | 30 pass; default, style-v2, flow-v3 and flow-v4 remain separate |
+| Actual challenge recordings | All sixteen targets bank from normal drop-in in all three modes (48 combinations) |
+| New sky gold recordings | All four routes link multiple clean landings and bank gold in all three modes (12 combinations), without bails or sketchy landings |
+| Browser host / game journeys / save recovery | 36 / 21 / 10 checks pass |
+| Service / generated standalone smoke | All 35 apps pass |
+| Full High Bar airflow browser journey | 64 pass: sixteen briefs, four real-time control pilots that catch/gain height/land/bank, quiet HUD, practice isolation and reload |
+| Complete mastery browser journey | 55 pass: all sixteen briefs/four selected sky maps, optional practice isolation, deterministic finite target/sky runs, earned result/retry/next, case navigation, two-epoch migration and reload |
+| Save capacity | Actual schema-4 migration with three full careers and both historical archives: 7,799 bytes with native Python service formatting, below 8,192 |
+
+The four selected sky targets bank at 17.38 / 19.17 / 18.12 / 20.23 simulated
+seconds. Their gold variants bank at 20.68 / 24.32 / 21.55 / 23.73 seconds,
+linking at least two clean landings before the same combo banks. Continuous
+air/bar chains last 15.48 / 13.42 / 16.22 / 17.97 seconds. Those recordings use
+only frame-scheduled button/tap edges from ordinary drop-in; they demonstrate
+reachability, not human reaction comfort or Pi frame rate.
+
+Independent tests also cover interrupted/wrong-order partial routes, preserving
+a completed route through a linked landing, losing it on a bail, finite selected
+results and durable medals/PBs, manual-end forfeiture, thirty landing forecast
+comparisons against untouched future physics, repeat exhaustion with later novel
+tricks, and the actual rendered spider's horizontal bounds on all four routes.
+Three real InputRouter gesture paces rewind a speculative completed line and its
+deferred writes. An initial full-suite failure found that the disposable forecast
+cache was excluded from snapshots; it now rewinds too. The comparator was retained,
+and all 1,588 tests were rerun successfully after that correction.
+
+The fixed play overlays still occupy at most 13.84% of the game canvas. Root
+reviewed the title, actual skating/caught-spider frames, the selected Yard/Tower
+sky maps and the settled earned-line result. Full route maps stay in setup.
+Initial Chrome profiles sampled 240 update/draw calls in each park at 4x CPU
+throttling. Those samples were ground-dominant, with summed update/draw p95 of
+2.8 / 2.2 / 1.1 / 1.1 ms. A separate actual CANAL SKYLINE input fixture sampled
+600 calls at the same throttle: 93 ground, 267 airborne and 240 swinging updates.
+Its update p95 was 0.60 ms and draw p95 1.30 ms (maxima 2.30 and 2.50 ms).
+These are Windows JavaScript/Canvas submission timings, excluding GPU presentation;
+they do not predict Raspberry Pi FPS. The final browser report retains the
+same-renderer measurement files and their provenance rather than remeasuring
+while other browser suites load the host.
+
+The finite result and sky-route browser witnesses use recorded edges at 60 Hz
+through the real host event/InputRouter path, without injecting rider positions,
+scores or completion flags. They are deterministic browser fixtures. Menu,
+guide, practice and case transitions use real browser/loopback service inputs;
+the separate airflow pilot rides all four parks in real time. Initial harness
+errors assumed synchronous keyboard/service echoes and an extra passive bank
+after a pilot already banked; the corrected checks await actual state changes
+and allow the Tower's long airborne chain to land after the pilot ends.
+
+The migration preserves exact original three-wide historical PB matrices and
+the current four-wide records without aliasing or re-archiving on reload. It
+retains careers and achievements while starting new score/time records for new
+sky bonuses and repeat rules. The maximum serialized fixture has 393 bytes of
+headroom; another saved feature must recheck this bound. No personal save was used.
+
+Evidence lives in `C:/Users/ayers/vesper9-investigation/mastery/`: principal and
+independent reviews, actual-input fixtures, final logs, browser captures and the
+verified delivery manifest. The last verified Pi remains `60adf7a`; its status
+was not refreshed during this Windows-only revision.
 
 ## High Bar spider / airflow follow-up — 2026-10-03
 

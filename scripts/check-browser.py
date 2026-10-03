@@ -15,7 +15,7 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
-CHECKS = ['browser-smoke', 'extension-smoke', 'host-browser', 'voice-host', 'twinbeat-browser', 'save-browser', 'utility-polish', 'game-polish-browser', 'highbar-airflow-browser', 'soak']
+CHECKS = ['browser-smoke', 'extension-smoke', 'host-browser', 'voice-host', 'twinbeat-browser', 'save-browser', 'utility-polish', 'game-polish-browser', 'highbar-airflow-browser', 'highbar-mastery-browser', 'soak']
 
 
 def main():
@@ -40,8 +40,8 @@ def main():
             process = subprocess.Popen(command, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT,
                                        start_new_session=os.name != 'nt')
             try:
-                # High Bar visits twelve route cards and profiles four real-time courses.
-                budget = 360 if name in ('highbar-refresh-browser', 'highbar-airflow-browser') else 180
+                # High Bar visits sixteen route cards and profiles four real-time courses.
+                budget = 360 if name in ('highbar-refresh-browser', 'highbar-airflow-browser', 'highbar-mastery-browser') else 180
                 code = process.wait(timeout=max(budget, args.soak_seconds + 60))
             except subprocess.TimeoutExpired:
                 if os.name == 'nt':

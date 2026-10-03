@@ -1,9 +1,9 @@
 # VESPER-9 0.2.0 — the second pass
 
 > Current Pi trial: release `60adf7a`, installed on 2026-10-03 with a separate
-> save copy. The owner's feedback now directs `codex/highbar-airflow` on Windows:
-> less visual clutter, easier acceleration, connected vertical aerial routes
-> and a skateboarding spider. Existing catch behavior is retained.
+> save copy. The owner's feedback now directs `codex/highbar-mastery` on Windows:
+> less visual clutter, easier acceleration, a skateboarding spider and sixteen
+> challenges including four sustained upper routes. Existing catch behavior is retained.
 > That follow-up has not replaced the Pi trial. See [High Bar](HIGH-BAR.md).
 
 > Latest Windows refresh (2026-10-03): [what changed and what remains](REFRESH-REPORT.md).

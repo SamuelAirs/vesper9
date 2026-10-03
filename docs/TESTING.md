@@ -46,6 +46,17 @@ to an existing archive to include the latter. It links/copies that archive into
 private test data and never edits the source archive. `--only game-polish-browser`
 checks Ricochet practice and High Bar teaching/menu flows.
 
+`--only highbar-airflow-browser` visits every High Bar route brief and rides
+all four parks with a control pilot. `--only highbar-mastery-browser` checks
+the new ordered upper routes, finite attempt results/retry/next, both historical
+score archives, optional practice isolation and screen/lamp consistency. It
+also records 240 update/draw samples per park with Chrome CPU throttling at 4x;
+those measure Windows JavaScript/Canvas submission, not Pi or GPU frame time.
+The old `--only highbar-refresh-browser` command delegates to the airflow check.
+Deterministic ordinary-drop-in target/gold recordings live in
+`tests/helpers/highbar-flow-routes.mjs`; the seven High Bar `.test.mjs` files
+cover route physics and source-owned gesture cancellation separately.
+
 The short soak is a smoke check, not full-catalog sustained coverage. For the
 release rotation through every registered app, use:
 

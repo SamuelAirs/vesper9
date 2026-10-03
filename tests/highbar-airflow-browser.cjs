@@ -96,7 +96,8 @@ const check = (name, ok, detail) => { results.push({ name, ok: !!ok, detail }); 
   for (let park = 0; park < 4; park++) {
     if (park) { await setup(); await choose('park'); }
     await focus('line');
-    for (let route = 0; route < 3; route++) {
+    const lineCount = await page.evaluate(async () => (await import('/apps/highbar-content.js')).LINES[vesper.app.parkId].length);
+    for (let route = 0; route < lineCount; route++) {
       await shot('route-' + park + '-' + route);
       const brief = await page.evaluate(() => { const canvas = document.createElement('canvas'), g = canvas.getContext('2d'), calls = [];
         g.fillText = (s, x, y) => { if (x === 608 && y >= 230) calls.push(String(s)); }; vesper.app.draw(g);
@@ -163,8 +164,11 @@ const check = (name, ok, detail) => { results.push({ name, ok: !!ok, detail }); 
     if (recorded) await recorded;
     routes.push({ park, videoStartSeconds, ...pilot }); check('park ' + park + ' actual controls catch and gain height', pilot.bars.length > 0 && pilot.maxHeight > 500, pilot);
     await shot('park-' + park + '-flow'); await layout('park ' + park + ' flow');
-    await page.waitForFunction(banks => vesper.app.stats.banks > banks, pilot.stats.banks, { timeout: 18000 });
-    await shot('park-' + park + '-happy-bank'); check('park ' + park + ' live flight lands and banks', true);
+    // Some routes bank during the pilot; the Tower can stay airborne for its
+    // entire duration. Only wait for the released final flight if none banked.
+    if (!pilot.stats.banks) await page.waitForFunction(() => vesper.app.stats.banks > 0, null, { timeout: 18000 });
+    const landed = await page.evaluate(() => ({ ...vesper.app.stats }));
+    check('park ' + park + ' live flight lands and banks', landed.banks > 0, landed);
     await page.setViewportSize({ width: 960, height: 540 }); await shot('park-' + park + '-960');
     const dims = await page.evaluate(() => ({ width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight }));
     check('park ' + park + ' fits 960x540 without overflow', dims.width <= 960 && dims.height <= 540, dims); await page.setViewportSize({ width: 1024, height: 600 });

@@ -65,7 +65,7 @@ for (const route of ROUTES) test(`ordinary park ${route.park + 1} drop-in sustai
   assert.equal(banked, true, "the qualifying chain must land and bank, not an earlier unrelated combo");
   assert.equal(app.stats.bails, 0); assert.ok(app.score > 0); assert.equal(app.p.mode, "ground");
   assert.equal(ctx.calls.score.length, 0); app.finish(); app.guard.settle();
-  assert.ok(ctx.calls.score.some(([value, metric]) => value === app.score && metric === "flow-v3"));
+  assert.ok(ctx.calls.score.some(([value, metric]) => value === app.score && metric === "flow-v4"));
   assert.deepEqual(app.slot().styleBest, beforeSave.slots[0].styleBest, "changed physics must not rewrite style-v2 records");
   assert.equal(app.slot().flowBest[route.park], app.score);
 });
@@ -143,13 +143,14 @@ test("flow migration preserves all three legacy careers and archives score/time 
     lineTimeBest: PARKS.map(() => [127.99, 127.98, 127.97]), lineMedals: PARKS.map(() => [3, 3, 3]),
     last: { score: 1e9, combo: 1e9, park: "界".repeat(24) } })) };
   const original = structuredClone(old), save = migrateSave(old);
-  assert.equal(save.slot, 2); assert.equal(save.schema, 3); assert.equal(save.scoreVersion, "flow-v3");
+  assert.equal(save.slot, 2); assert.equal(save.schema, 4); assert.equal(save.scoreVersion, "flow-v4");
   for (let i = 0; i < 3; i++) {
     const slot = save.slots[i];
-    for (const key of ["runs", "clean", "park", "goals", "lines", "medals", "best", "styleBest", "lineMedals", "last"]) assert.deepEqual(slot[key], old.slots[i][key]);
+    for (const key of ["runs", "clean", "park", "goals", "lines", "medals", "best", "styleBest", "last"]) assert.deepEqual(slot[key], old.slots[i][key]);
+    assert.deepEqual(slot.lineMedals, old.slots[i].lineMedals.map(row => [...row, 0]));
     for (const key of ["bestCombo", "styleBest", "lineBest", "lineComboBest", "lineTimeBest"]) assert.deepEqual(slot.legacyRecords.styleV2[key], old.slots[i][key]);
     assert.deepEqual(slot.flowBest, [0, 0, 0, 0]); assert.equal(slot.bestCombo, 0);
-    assert.deepEqual(slot.lineBest, PARKS.map(() => [0, 0, 0])); assert.deepEqual(slot.lineTimeBest, PARKS.map(() => [0, 0, 0]));
+    assert.deepEqual(slot.lineBest, PARKS.map(() => [0, 0, 0, 0])); assert.deepEqual(slot.lineTimeBest, PARKS.map(() => [0, 0, 0, 0]));
     slot.flowBest.fill(1e9); slot.bestCombo = 1e9;
     slot.best.fill(1e9); slot.styleBest.fill(1e9);
     slot.legacyRecords.styleV2.bestCombo = 1e9; slot.legacyRecords.styleV2.styleBest.fill(1e9);

@@ -3,7 +3,8 @@
 The refresh contains a broad node-focused pass, two new games and further
 playability/reliability work. Release `60adf7a`, including the dedicated High Bar
 polish, was installed as a save-preserving Pi trial on 2026-10-03. The owner's
-first play feedback now directs a separate Windows High Bar airflow revision.
+first play feedback now directs a separate Windows High Bar mastery revision,
+building on the airflow candidate with sixteen challenges and four upper routes.
 That revision has not replaced the trial. The source table below describes the
 earlier investigation; current paths and rollback are in
 [Pi acceptance](PI-ACCEPTANCE.md).

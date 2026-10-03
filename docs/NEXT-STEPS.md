@@ -1,9 +1,9 @@
 # Next steps for the finished node
 
-The current follow-up is developed on Windows in `codex/highbar-airflow`, based
-on the preserved High Bar trial `60adf7a` and deployment record `766f8a7`.
+The current follow-up is developed on Windows in `codex/highbar-mastery`, based
+on airflow candidate `aab8aa0` and the preserved High Bar trial `60adf7a`.
 It responds to Sam's play feedback with a skateboarding spider, stronger
-acceleration, connected upper routes and less visual clutter. It preserves the
+acceleration, sixteen challenges with four upper sky routes and less visual clutter. It preserves the
 existing catch rules. Release `60adf7a` remains the last verified Pi trial;
 the follow-up has not been deployed. Read
 [the candidate](NODE-CONSOLE-CANDIDATE.md), [validation](VALIDATION.md),
@@ -12,7 +12,7 @@ Earlier release notes describe earlier hardware and must not drive a flash.
 
 ## 1. Recoverable trial deployed; physical acceptance next
 
-For the next trial, stage the verified airflow package as a separate release.
+For the next trial, stage the verified mastery package as a separate release.
 After closing the single controlling tab and stopping the service, copy the
 latest current trial data (including Sam's recent progress), using SQLite backup
 and an independent integrity check. Do not copy the older original database.
@@ -21,9 +21,9 @@ Review the exact new paths, source hash and switch/rollback commands with Sam
 before changing the running console. After an authorized switch, verify served
 assets, actual release identity, private data path, node connection, microphone
 off and one browser. This change needs no firmware update. Older releases must
-not open the new schema-3 working save.
+not open the new schema-4 working save.
 
-Sam authorized the switch on 2026-10-03. The release manifest, source identity,
+Sam authorized the first trial switch on 2026-10-03. The release manifest, source identity,
 served JS, private save copy and node identity were verified. Original `live/`
 at `f3bfacc`, production saves and the service unit remain intact. The new
 release uses a reversible drop-in and separate trial data. Encyclopedia is ready

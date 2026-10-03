@@ -579,3 +579,95 @@ trial's rollback helper returns to `f3bfacc`, so it is not the direct rollback
 for this follow-up. Updated acceptance docs distinguish both paths. Primary
 owner checks: held speed response, swing release comfort, sustained vertical
 flow, quiet display/spider readability, generic taps and recognizable careers.
+
+## High Bar sky-route mastery — 2026-10-03
+
+Created `codex/highbar-mastery` from clean Windows airflow candidate `aab8aa0`
+on `DESKTOP-FD66EV2`. Sam made High Bar the sole development priority and
+explicitly requested GPT-6 Astra at high effort for the hard gameplay work;
+that model was used, with two GPT-6.1 Sol agents for renderer/browser work and
+independent review. His later correction made depth and expressive play the
+priority over learning helpers. The main addition became four distinct authored
+sky routes through the tall parks. Optional Flat School cues remain secondary.
+
+There are now sixteen lines and 48 mastery ranks. CANAL SKYLINE requires the
+Bowl's B4/B7/B9 climb and a flip; FREIGHT SWITCH crosses and returns through
+Yard B8/B15/B12/B11 with five trick types; CROWN CLIMB reaches Tower
+B12/B14/B15/B17 with six transfers; LUNAR RETURN links Pipe B4/B5/B8/B10 and a
+clean landing. Catches must be ordered in one continuous air/bar chain, with
+other linking posts allowed. Landing clears incomplete progress. A completed
+sequence remains in the unbanked combo for gold links; a bail loses it. Original
+line indexes, unlock rules, geometry, catch timing and accepted airflow physics
+remain unchanged.
+
+A selected matching bank now ends LINE RUN immediately. Its frozen result
+retains the actual combo, medal, elapsed time and PB improvements; retry/next
+actions are explicit and generic case taps advance after result lockout. Ending
+manually cannot skip the banking roll. Tests retain gold's two-clean-landing
+requirement; a prior fixture's premature manual was removed so it links gold
+before its first matching bank. A repeated-GIANT hold could previously fill
+the whole trick log and prevent a later SWING. Each name now scores five
+diminishing awards per combo, and the bounded log preserves distinct names.
+
+The camera reserves room for the full rotated spider at actual wall rebounds.
+Its silk meets the rotated hands and eyes/kicks follow actual ground travel.
+Low-motion mode suppresses optional blinking, waving and trails. The dashboard
+icon matches the spider. Screen and lamps share read-only launch velocity and
+landing advice; the bounded forecast follows walls, slopes, vert returns and
+half-speed practice without supplying controls. A single compact context notice
+prioritizes real landings and the selected next sky post.
+
+Schema 4 / flow-v4 separates new sky bonuses and repeat rules from prior score
+and time PBs. Exact old three-wide matrices survive in bounded styleV2/flowV3
+archives; current arrays are four wide. Three careers, active selection,
+achievements, medals, runs, clean count and last result remain. Direct style-v2
+migration invents no flow-v3 history. The actual maximal migrated save is
+7,799 bytes with the native Python service serializer (393 bytes of headroom).
+No private save was opened or migrated. New persisted features must revisit
+this budget rather than adding unbounded history.
+
+Verification: 1,588 JavaScript tests pass, including 153 High Bar checks and
+17 independent mastery regressions; 30 Python runtime/storage/score checks pass.
+All sixteen target recordings bank through actual controls in all three modes
+(48 combinations); all four new gold recordings also pass in all three modes
+(12 combinations). Gold banks at 20.68/24.32/21.55/23.73 simulated seconds with
+multiple clean landings and no bails. Normal targets sustain continuous air/bar
+chains for 13.42–17.97 seconds. Separate fixtures cover interrupted sequences,
+forecast agreement, repeat capacity, immutable/durable results and save bounds.
+An initial full-suite failure caught the forecast cache missing from AppGuard
+rewind; it now rewinds with ordinary state, the comparator remains unchanged,
+and the complete suite passes. Host/game/save browser checks pass 36/21/10.
+
+This is Windows software evidence, not Pi performance or physical acceptance.
+No Pi SSH, restart, deployment, firmware write, GitHub push or merge occurred.
+The last verified device trial remains `60adf7a`. The next proposed trial must
+copy its latest progress into a new private data directory and retain its exact
+override/data for rollback; older builds must not open schema-4 working saves.
+The full candidate and recovery evidence are under
+`C:/Users/ayers/vesper9-investigation/mastery/`.
+
+Final browser evidence: all 64 airflow checks and 55 mastery checks pass;
+service/generated standalone smoke covers all 35 apps. The airflow pilot uses
+real-time browser/loopback-service controls in all four parks. Mastery's line
+and sky witnesses use deterministic 60 Hz edges through the actual host event
+and InputRouter path; menus, practice, retry/next and case navigation also use
+ordinary browser controls. Fixtures never inject rider poses or reward flags.
+The final report includes 46 screenshots and retains explicit profile provenance.
+The 15-second prior airflow clip is older renderer evidence; no current clip is
+claimed. Root visually reviewed the spider, route maps and earned results.
+
+The new active sky profile measures 600 update/draw samples with Chrome CPU
+throttled at 4x: 267 airborne, 240 swinging and 93 ground. Update/draw p95 are
+0.60/1.30 ms; maxima 2.30/2.50 ms. Four earlier same-renderer ground-dominant
+park profiles remain separately identified. These are Windows submission times,
+not GPU presentation or Pi measurements. Fixed play overlays remain at 13.84%
+maximum coverage. Initial harness failures were asynchronous input-echo races
+and an assumed extra bank after the pilot had already banked; the final checks
+wait for actual transitions and for a long Tower chain's final landing as needed.
+
+Catalog and standalone were rebuilt. The delivery process packages with
+`scripts/package-release.py`, verifies ZIP CRC/every manifest hash and extracted
+source identity, then verifies a full Git bundle by fetching into a fresh bare
+repository. The external delivery manifest records exact source, archive and
+bundle identities. Packaging omits personal saves, models, recordings, secrets
+and local test data. Rollout remains the next reviewable step with Sam.

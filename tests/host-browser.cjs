@@ -258,7 +258,7 @@ let browser;
   const records = await page.evaluate(() => {
     const scores = vesper.state.scores;
     try {
-      vesper.state.scores = { highbar: 999999, 'highbar:style-v2': 99999, 'highbar:flow-v3': 321, 'wayfinder:region-0': 123, 'wayfinder:region-2': 9999 };
+      vesper.state.scores = { highbar: 999999, 'highbar:style-v2': 99999, 'highbar:flow-v3': 9999, 'highbar:flow-v4': 321, 'wayfinder:region-0': 123, 'wayfinder:region-2': 9999 };
       vesper.page = 0; vesper.buildHome();
       return { style: vesper.primaryBest('highbar'), scout: vesper.primaryBest('wayfinder'),
         label: document.querySelector('[data-app="wayfinder"] .card-stat').textContent };

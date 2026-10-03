@@ -73,6 +73,8 @@ const NOTE_STALE = 8; // seconds a passing note may wait behind story notes befo
 
 // ---- the cartridge -----------------------------------------------------------
 export class Outpost {
+  // The console keeps up to four saves of Outpost (its save slots); slotSummary names each one.
+  static saveSlots = true;
   constructor(ctx) {
     this.c = ctx;
     const loaded = migrate(ctx.progress?.());
@@ -180,6 +182,9 @@ export class Outpost {
       this.away = summary;
       this.phase_ = "away";
     } else this.phase_ = loaded.fresh || (this.s.lt === 0 && this.s.taps === 0) ? "intro" : this.news ? "news" : "play";
+    // a new save in a slot after the first says the others are safe, once its first card is gone
+    const slot = this.book("slot");
+    this.slotNote = slot?.fresh && slot.index > 1 && this.phase_ === "intro" ? "SLOT " + slot.index + ": A NEW OUTPOST. THE OTHER SLOTS ARE KEPT." : null;
     this.updateHud(true);
     this.setHint();
     this.c.leds(this.lampValues());
@@ -771,7 +776,11 @@ export class Outpost {
     this.downAt = this.clk;
     this.consume = false;
     this.downAge = this.ring ? this.clk - this.ring.hiAt : 0;
-    if (this.phase_ === "intro") { this.phase_ = "play"; this.consume = true; this.setHint(); return; }
+    if (this.phase_ === "intro") {
+      this.phase_ = "play"; this.consume = true;
+      if (this.slotNote) { this.queueNote(this.slotNote, 5); this.slotNote = null; }
+      this.setHint(); return;
+    }
     if (this.phase_ === "away") { this.phase_ = this.news ? "news" : "play"; this.away = null; this.consume = true; this.setHint(); return; }
     if (this.phase_ === "news") { this.phase_ = "play"; this.news = false; this.consume = true; this.setHint(); return; }
     if (this.phase_ === "card") {
@@ -1224,8 +1233,11 @@ export class Outpost {
     const s = this.s;
     const level = Math.floor(20 * Math.log10(1 + s.lt));
     if (level > this.lastLevel) { this.lastLevel = level; this.c.score?.(level); }
-    // the label names this save in the console's save picker; a host without one ignores it
-    try { this.c.saveProgress?.({ ...serialize(s, Date.now()), runs: s.runs }, { label: slotLabel(s) })?.catch?.(() => {}); } catch { /* the host reports save failures */ }
+    try { this.c.saveProgress?.({ ...serialize(s, Date.now()), runs: s.runs })?.catch?.(() => {}); } catch { /* the host reports save failures */ }
+  }
+  // The console's save picker: one line for a saved value of any slot (at most 24 characters).
+  slotSummary(value) {
+    return slotLabel(migrate(value).s);
   }
   // Production the sim did not see: wall time minus game time since the last sync.
   syncWall(now) {

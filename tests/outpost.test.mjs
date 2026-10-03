@@ -1646,26 +1646,29 @@ test("the long game: a player who stays for each site's sounding hears the whole
 });
 
 // ======================= save slots (the console's slot layer, PR #16) =======================
-// A console that keeps up to three saves per game, as the slot layer is proposed: each launch reads
-// and writes only the slot it was opened in, a label rides beside the save, and the logbook is shared.
-const console3 = () => {
-  const slots = { 1: undefined, 2: undefined, 3: undefined }, labels = {}, book = { feats: [] };
-  const launch = (n) => {
-    const ctx = appContext(), fresh = slots[n] === undefined;
-    ctx.progress = () => slots[n] || {};
-    ctx.saveProgress = (value, meta) => { slots[n] = structuredClone(value); labels[n] = meta?.label; ctx.calls.saved.push(value); return Promise.resolve({ ok: true }); };
-    ctx.slot = () => ({ n, count: Object.values(slots).filter(Boolean).length, fresh });
+// A console with four save slots per game, as the platform thread's slot layer works: each launch
+// reads and writes only the slot it was opened in, ctx.slot() says which, and the logbook is shared.
+const console4 = () => {
+  const slots = { 1: undefined, 2: undefined, 3: undefined, 4: undefined }, book = { feats: [] };
+  const launch = (index) => {
+    const ctx = appContext(), fresh = slots[index] === undefined;
+    ctx.progress = () => slots[index] || {};
+    ctx.saveProgress = (value) => { slots[index] = structuredClone(value); ctx.calls.saved.push(value); return Promise.resolve({ ok: true }); };
+    ctx.slot = () => ({ index, count: 4, fresh });
     ctx.feat = (id, name) => { if (book.feats.some((f) => f[0] === id)) return false; book.feats.push([id, name]); return true; };
     return { ctx, app: new Outpost(ctx) };
   };
-  return { slots, labels, book, launch };
+  return { slots, book, launch };
 };
 
 test("save slots: each launch keeps to its own save, a new one starts at the first card, the first is found as it was", () => {
-  const box = console3();
-  // slot 1: an outpost at the crater rim with its fitting, five hours in
+  assert.equal(Outpost.saveSlots, true, "Outpost asks the console for save slots");
+  const box = console4();
+  // slot 1: an outpost at the crater rim with its fitting, five hours in (no slot note on a first save)
   let { app } = box.launch(1);
+  assert.equal(app.phase_, "intro");
   app.down(); app.up({ durationMs: 50 });
+  assert.ok(!notesOf(app).includes("SLOT"), notesOf(app));
   const k = E.SITES.findIndex((x) => x.n === "CRATER RIM"), s = app.s;
   s.site = k; s.sv[0] = 1; s.sv[1] = 1; s.sv[k] = 1; s.ft = [k]; s.runs = 3; s.L = 40; s.b = 40;
   s.own = [30, 25, 15, 8, 2, ...Array(E.NP - 5).fill(0)]; s.maxTier = 4; s.rt = 2e6; s.lt = 5e6; s.sig = 12345; s.taps = 321; s.st.tp = 5 * 3600;
@@ -1674,8 +1677,8 @@ test("save slots: each launch keeps to its own save, a new one starts at the fir
   const first = structuredClone(box.slots[1]);
   assert.equal(first.site, k);
   assert.deepEqual(first.ft, [k]);
-  assert.equal(box.labels[1], "CRATER RIM · 5.0 H");
-  // slot 2: a new outpost at the first-launch card, with nothing of slot 1's
+  assert.equal(app.slotSummary(first), "CRATER RIM · 5.0 H");
+  // slot 2: a new outpost at the first-launch card, with nothing of slot 1's, that says the others are kept
   ({ app } = box.launch(2));
   assert.equal(app.phase_, "intro");
   assert.equal(app.s.site, 0);
@@ -1684,10 +1687,11 @@ test("save slots: each launch keeps to its own save, a new one starts at the fir
   assert.equal(app.s.sig, 0);
   assert.equal(E.siteFx(app.s), E.SITES[0].fx, "no fitting carried over from the other save");
   app.down(); app.up({ durationMs: 50 });
+  assert.ok(notesOf(app).includes("SLOT 2: A NEW OUTPOST. THE OTHER SLOTS ARE KEPT."), notesOf(app));
   for (let i = 0; i < 10; i++) { tap(app); advance(app, 0.4); }
   app.dispose();
   assert.ok(box.slots[2].taps >= 10);
-  assert.equal(box.labels[2], "LANDING SITE · 1 MIN");
+  assert.equal(app.slotSummary(box.slots[2]), "LANDING SITE · 1 MIN");
   assert.deepEqual(box.slots[1], first, "playing the new save left the first untouched");
   // back to slot 1 ten minutes later: the same outpost, credited for the time its save was closed
   wall += 10 * 60000;
@@ -1699,10 +1703,20 @@ test("save slots: each launch keeps to its own save, a new one starts at the fir
   assert.equal(app.s.runs, 3);
   assert.ok(app.s.sig > first.sig, "the station worked while its save was closed");
   assert.equal(E.siteFx(app.s).flare, E.SITES[k].fx.flare * E.FIT[k].fx[0].flare, "its FLARE MAST is back in the rules");
+  // a save left at its first card in slot 3 says nothing until that card is gone, and a reload of a
+  // slot that is no longer fresh says nothing at all
+  ({ app } = box.launch(3));
+  assert.ok(!notesOf(app).includes("SLOT"));
+  app.down(); app.up({ durationMs: 50 });
+  assert.ok(notesOf(app).includes("SLOT 3:"));
+  app.dispose();
+  ({ app } = box.launch(2));
+  app.down(); app.up({ durationMs: 50 });
+  assert.ok(!notesOf(app).includes("SLOT"), notesOf(app));
 });
 
 test("save slots: a feat the console already keeps, met again in a new save, is asked for once and marked", () => {
-  const box = console3();
+  const box = console4();
   let { app, ctx } = box.launch(1);
   app.down(); app.up({ durationMs: 50 });
   app.s.runs = 1;
@@ -1721,7 +1735,7 @@ test("save slots: a feat the console already keeps, met again in a new save, is 
   assert.ok(app.s.fe & 1, "the new save marks it reported");
 });
 
-test("a save's label for the console's save picker: the site and the time played, at most 24 characters", () => {
+test("a save's line in the console's save picker: the site and the time played, at most 24 characters", () => {
   const s = E.freshState();
   assert.equal(E.slotLabel(s), "LANDING SITE · 1 MIN");
   s.st.tp = 59 * 60;
@@ -1739,8 +1753,11 @@ test("a save's label for the console's save picker: the site and the time played
     const label = E.slotLabel(s);
     assert.ok(label.length >= 12 && label.length <= 24, JSON.stringify(label));
   }
-  // a host that keeps one save per game gets the same save as before, and the label only beside it
-  const { ctx, app } = begin();
-  app.save(true);
-  assert.equal(lastSave(ctx).label, undefined, "the label is never written into the save");
+  // the picker may hand over any saved value: old schemas, odd or empty ones
+  const { app } = begin();
+  for (const value of [undefined, null, {}, [], "x", 7, { v: 1, signal: 50 }, fixture("outpost-save-v4-mid.json"), { v: 99, site: 3, st: { tp: 7200 } }]) {
+    const line = app.slotSummary(value);
+    assert.ok(typeof line === "string" && line.length >= 12 && line.length <= 24, JSON.stringify(line));
+  }
+  assert.equal(app.slotSummary({ v: 6, site: 3, st: { tp: 7200 } }), "SALT FLATS · 2.0 H");
 });

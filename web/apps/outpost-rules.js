@@ -617,8 +617,8 @@ export function applyKit(s) {
 }
 
 // ---- saving -------------------------------------------------------------------
-// The save's name in a console that keeps several saves per game (passed beside the save, never in
-// it): where the outpost stands and how long it has been played, at most 24 characters.
+// A save's line in the console's save picker (Outpost's slotSummary): where the outpost stands and
+// how long it has been played, at most 24 characters.
 export function slotLabel(s) {
   const sec = num(Number(s.st?.tp)), min = Math.floor(sec / 60);
   const time = min < 60 ? Math.max(1, min) + " MIN" : sec < 36000 ? (sec / 3600).toFixed(1) + " H" : Math.min(999, Math.round(sec / 3600)) + " H";

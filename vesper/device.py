@@ -2,7 +2,9 @@
 import array
 import asyncio
 import collections
+import concurrent.futures
 import contextlib
+import glob
 import json
 import logging
 import math
@@ -27,7 +29,27 @@ KNOCK_THRESHOLDS = {"off": 0, "low": 8000, "medium": 4000, "high": 3000}
 # KNOCK_GUARD_BEFORE_US before any button edge, or up to KNOCK_GUARD_AFTER_US after one.
 KNOCK_GUARD_BEFORE_US = 60_000
 KNOCK_GUARD_AFTER_US = 200_000
+# A two-microphone node (board 2) streams both channels; speech and sound analysis get one. "sum" is
+# the average of the two, which keeps a voice in front of the box and halves each microphone's own
+# noise; "left" and "right" are for comparing them.
+MIC_MIXES = ("sum", "left", "right")
+
+
+def fold_lamps(values):
+    """Twelve values (four lamps) as nine (left, middle, right): the middle takes the brighter of the
+    two middle lamps, channel by channel."""
+    values = list(values)
+    return values[0:3] + [max(a, b) for a, b in zip(values[3:6], values[6:9])] + values[9:12]
+
+
+def spread_lamps(values):
+    """Nine values (left, middle, right) as twelve: both middle lamps show the middle."""
+    values = list(values)
+    return values[0:6] + values[3:6] + values[6:9]
+
+
 WRITE_FAILURES_LIMIT = 3   # consecutive failed writes before the link is torn down and reopened
+READ_STALL_S = 1.5         # a serial read that has not returned by then (it waits at most 0.1 s) means a dead link
 REPEAT_LOG_EVERY = 30      # a link that stays down is logged on the first failure, then every 30th
 
 
@@ -61,6 +83,11 @@ class SimulatedDevice:
         self.connected = True
         self.mic = False
         self.leds = [0] * 9
+        self.lamps = 4              # the simulator stands in for the second node: four lamps, a board LED
+        self.mics = 2
+        self.lamp_values = [0] * 12  # every physical lamp; `leds` stays the three logical ones
+        self.board_led = [0, 0, 0]
+        self.has_board_led = True
         self.cue_task = None
         self.pattern_task = None
         self.crc_errors = 0
@@ -88,8 +115,10 @@ class SimulatedDevice:
     async def command(self, kind, payload=b""):
         if kind == Kind.LEDS:
             self.cancel_pattern()
-            self.leds = list(payload)
-            await self.emit({"type": "leds", "values": self.leds})
+            await self.show(payload)
+        elif kind == Kind.BOARD_LED:
+            self.board_led = list(payload)
+            await self.emit({"type": "board_led", "values": self.board_led})
         elif kind == Kind.MIC:
             self.mic = bool(payload[0])
             self.status["mic"] = self.mic
@@ -114,16 +143,22 @@ class SimulatedDevice:
         elif kind == Kind.PATTERN:
             self.cancel_pattern()
             repeat, count = payload[:2]
-            steps = [struct.unpack_from("<H9B", payload, 2 + i * 11) for i in range(count)]
+            size = (len(payload) - 2) // count  # 11: nine values a step; 14: twelve
+            steps = [struct.unpack_from(f"<H{size - 2}B", payload, 2 + i * size) for i in range(count)]
             async def play():
                 for _ in range(repeat):
                     for step in steps:
-                        self.leds = list(step[1:])
-                        await self.emit({"type": "leds", "values": self.leds})
+                        await self.show(step[1:])
                         await asyncio.sleep(step[0] / 1000)
-                self.leds = [0] * 9
-                await self.emit({"type": "leds", "values": self.leds})
+                await self.show(bytes(9))
             self.pattern_task = asyncio.create_task(play())
+
+    async def show(self, values):
+        """Nine values (three logical lamps) or twelve (four lamps), as the node takes them."""
+        values = list(values)
+        self.lamp_values = values if len(values) == 12 else spread_lamps(values)
+        self.leds = fold_lamps(self.lamp_values)
+        await self.emit({"type": "leds", "values": self.leds, "lamps": self.lamp_values})
 
     def cancel_pattern(self):
         if self.pattern_task:
@@ -165,6 +200,8 @@ class SerialDevice:
     def __init__(self, port, baud, emit):
         # Several comma-separated candidates may be given (the node's COM bridge
         # and its native USB port); the first one present is used on each attempt.
+        # A candidate may be a pattern (…/usb-Espressif_USB_JTAG_serial_debug_unit_*), so a
+        # different node on the same cable is found without editing the service.
         self.ports = [candidate.strip() for candidate in port.split(",") if candidate.strip()] or [port]
         self.port = self.ports[0]
         self.baud = baud
@@ -190,8 +227,38 @@ class SerialDevice:
         self.knock_threshold = 0    # what the console wants; the node is told on connect and whenever its STATUS differs
         self.button_edges = collections.deque(maxlen=16)  # (node at_us, pressed) of recent button edges
         self.knock_guarded = 0      # knocks dropped as the button's own sound
+        # The link's reads and writes get threads of their own, fresh for each connection: a stalled
+        # node then cannot tie up the shared pool that speech, sound analysis and health sampling use,
+        # and a read stuck on a dead port cannot hold up the next connection.
+        self.reader = self.writer = None
+        self.link_broken = False    # set when repeated write failures closed the port
         self.knock_clip = None      # (at_us, clip) of the last KNOCK_CLIP, for the KNOCK that follows it
         self.attempt_failures = 0   # consecutive connection attempts that never heard the node
+        self.mic_mix = "sum"        # which microphone(s) of a two-microphone node feed speech and analysis
+        self.lamp_values = [0] * 9  # every physical lamp's values, as the node last reported or was told
+        self.board_led = [0, 0, 0]
+
+    @property
+    def has_board_led(self):
+        """Firmware 0.2.0 and later drives the development board's own LED."""
+        return isinstance(self.status, dict) and "board_led" in self.status
+
+    @property
+    def lamps(self):
+        """Physical lamps on the connected node: 3, or 4 on the second board."""
+        return int((self.status or {}).get("lamps", 3) or 3)
+
+    @property
+    def mics(self):
+        return int((self.status or {}).get("mics", 1) or 1)
+
+    def candidates(self):
+        """The port candidates with patterns expanded, in the order given."""
+        found = []
+        for candidate in self.ports:
+            matches = sorted(glob.glob(candidate)) if any(ch in candidate for ch in "*?[") else [candidate]
+            found.extend(match for match in matches if match not in found)
+        return found
 
     @property
     def crc_errors(self):
@@ -202,11 +269,12 @@ class SerialDevice:
         instead of leaving a link that can read but not write."""
         link = self.serial
         try:
-            await asyncio.to_thread(link.write, frame)
+            await asyncio.get_running_loop().run_in_executor(self.writer, link.write, frame)
         except Exception as exc:
             self.write_failures += 1
-            if self.write_failures >= WRITE_FAILURES_LIMIT and link is self.serial:
+            if self.write_failures >= WRITE_FAILURES_LIMIT and link is self.serial and not self.link_broken:
                 log.warning("Node link: %d writes failed in a row (%s); reconnecting", self.write_failures, exc)
+                self.link_broken = True  # the read loop sees this at once and reconnects
                 with contextlib.suppress(Exception):
                     link.close()
             raise
@@ -226,6 +294,15 @@ class SerialDevice:
         async with self.write_lock:
             if not self.serial or not self.connected:
                 raise ConnectionError("Node is disconnected")
+            if kind == Kind.MIC and payload == b"\x01" and self.mics == 2:
+                payload = b"\x02"  # both microphones; packet() mixes them down
+            if kind == Kind.LEDS and len(payload) == 12 and self.lamps == 3:
+                payload = bytes(fold_lamps(payload))  # a four-lamp picture on a three-lamp node
+            if kind == Kind.PATTERN and self.lamps == 3 and len(payload) == 2 + payload[1] * 14:
+                payload = payload[:2] + b"".join(
+                    payload[2 + i * 14:4 + i * 14] + bytes(fold_lamps(payload[4 + i * 14:16 + i * 14])) for i in range(payload[1]))
+            if kind == Kind.BOARD_LED and not self.has_board_led:
+                return  # older firmware: nothing to light, and nothing to complain about
             sequence = self.sequence
             self.sequence = (sequence + 1) & 65535
             future = asyncio.get_running_loop().create_future()
@@ -240,8 +317,13 @@ class SerialDevice:
         finally:
             self.pending.pop(sequence, None)
         if kind == Kind.LEDS:
-            self.leds = list(payload)
-            await self.emit({"type": "leds", "values": self.leds})
+            values = list(payload)
+            self.lamp_values = values if len(values) == 3 * self.lamps else spread_lamps(values) if self.lamps == 4 else values
+            self.leds = fold_lamps(self.lamp_values) if len(self.lamp_values) == 12 else self.lamp_values
+            await self.emit({"type": "leds", "values": self.leds, "lamps": self.lamp_values})
+        elif kind == Kind.BOARD_LED:
+            self.board_led = list(payload)
+            await self.emit({"type": "board_led", "values": self.board_led})
 
     async def run(self):
         import serial
@@ -251,7 +333,8 @@ class SerialDevice:
                 # protocol packet, then explicitly renegotiate a muted session.
                 # Each attempt that never hears the node moves on to the next
                 # candidate port, so a present but silent first port cannot block a working one.
-                present = [candidate for candidate in self.ports if os.path.exists(candidate)] or self.ports
+                candidates = self.candidates()
+                present = [candidate for candidate in candidates if os.path.exists(candidate)] or candidates or self.ports
                 self.port = present[self.attempt_failures % len(present)]
                 self.name = self.port
                 link = serial.Serial()
@@ -260,6 +343,12 @@ class SerialDevice:
                 link.dtr = False
                 link.rts = False
                 link.open()
+                for pool in (self.reader, self.writer):
+                    if pool:
+                        pool.shutdown(wait=False)
+                self.reader = concurrent.futures.ThreadPoolExecutor(1, thread_name_prefix="node-read")
+                self.writer = concurrent.futures.ThreadPoolExecutor(1, thread_name_prefix="node-write")
+                self.link_broken = False
                 self.serial = link
                 self.decoder = Decoder()
                 self.last_seen = time.monotonic()
@@ -271,9 +360,17 @@ class SerialDevice:
                         def read_available():
                             # A large fixed read would delay a lone button event
                             # until the serial timeout. Wake on the first byte.
+                            if not link.is_open:
+                                raise ConnectionError("Port closed")
                             first = link.read(1)
-                            return first + link.read(min(link.in_waiting, 8192))
-                        data = await asyncio.to_thread(read_available)
+                            return first + link.read(min(link.in_waiting or 0, 8192))
+                        if self.link_broken:
+                            raise ConnectionError("Writes failed")
+                        try:
+                            data = await asyncio.wait_for(
+                                asyncio.get_running_loop().run_in_executor(self.reader, read_available), READ_STALL_S)
+                        except asyncio.TimeoutError:
+                            raise ConnectionError("Serial read stalled") from None
                         for packet in self.decoder.feed(data):
                             self.last_seen = time.monotonic()
                             if not self.connected:
@@ -382,6 +479,23 @@ class SerialDevice:
                 self.audio_expected = (index + (len(p) - 4) // 2) & 0xFFFFFFFF
                 self.audio_bytes += len(p) - 4
                 await self.emit({"type": "audio", "pcm": p[4:]})
+            elif kind == Kind.AUDIO2 and len(p) >= 8 and len(p) % 4 == 0:
+                # Two microphones, left/right pairs. Consumers get one channel, as from a one-microphone node.
+                index = struct.unpack_from("<I", p)[0]
+                frames = (len(p) - 4) // 4
+                if self.audio_expected is not None and index != self.audio_expected:
+                    gap = (index - self.audio_expected) & 0xFFFFFFFF
+                    self.audio_missing += gap if gap < 160000 else 0
+                self.audio_expected = (index + frames) & 0xFFFFFFFF
+                self.audio_bytes += frames * 2
+                pairs = array.array("h", p[4:])
+                if self.mic_mix == "left":
+                    mono = pairs[0::2]
+                elif self.mic_mix == "right":
+                    mono = pairs[1::2]
+                else:
+                    mono = array.array("h", [(pairs[i] + pairs[i + 1]) // 2 for i in range(0, len(pairs), 2)])
+                await self.emit({"type": "audio", "pcm": mono.tobytes()})
             elif kind == Kind.KNOCK_CLIP and len(p) >= 14 and (len(p) - 10) % 4 == 0 and p[9] == 2:
                 # Sent just before its KNOCK, from a two-microphone node: kept until that KNOCK arrives.
                 at, pre = struct.unpack_from("<QB", p)
@@ -418,7 +532,13 @@ class SerialDevice:
                 self.mic = bool(state.get("mic", False))
                 self.pressed = bool(state.get("button", False))
                 if "leds" in state:
-                    self.leds = state["leds"]
+                    values = state["leds"]
+                    # Four lamps: `leds` stays the three logical lamps (left, middle, right) for
+                    # everything written for three; `lamp_values` has all of them.
+                    self.lamp_values = values
+                    self.leds = fold_lamps(values) if len(values) == 12 else values
+                if isinstance(state.get("board_led"), list):
+                    self.board_led = state["board_led"]
                 # A node that lost the setting (it resets it after 3 s without the host, and at boot) is
                 # told again. Firmware without knock detection has no "knock" field and is left alone.
                 knock = state.get("knock")
@@ -443,5 +563,6 @@ class SerialDevice:
                 await self.raw_send(Kind.MIC, b"\x00")
                 await self.raw_send(Kind.CANCEL)
                 await self.raw_send(Kind.LEDS, bytes(9))
+                await self.raw_send(Kind.BOARD_LED, bytes(3))
             except Exception:
                 pass

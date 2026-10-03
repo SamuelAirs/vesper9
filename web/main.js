@@ -260,10 +260,11 @@ export class Vesper {
       });
   }
   // K on the keyboard: a knock on the case, for the simulator and for trying a game without the node.
-  softwareKnock() {
+  // K knocks with no side; J, I and L knock on the left, the back and the right of the case.
+  softwareKnock(side) {
     if (this.state.controller === false) return;
-    if (this.state.simulated) this.bridge.command("knock", {}, true).catch(() => {});
-    else this.event({ type: "knock", at_us: performance.now() * 1000, peak: 20000, source: "keyboard" });
+    if (this.state.simulated) this.bridge.command("knock", side ? { side } : {}, true).catch(() => {});
+    else this.event({ type: "knock", at_us: performance.now() * 1000, peak: 20000, source: "keyboard", ...(side ? { side, sideVotes: 5 } : {}) });
   }
   bind() {
     const bindButton = (element) => {
@@ -289,9 +290,10 @@ export class Vesper {
         e.preventDefault();
         if (!e.repeat) this.softwareButton(true);
       }
-      if (e.code === "KeyK" && !e.repeat) {
+      const knockKeys = { KeyK: null, KeyJ: "left", KeyI: "back", KeyL: "right" };
+      if (e.code in knockKeys && !e.repeat) {
         e.preventDefault();
-        this.softwareKnock();
+        this.softwareKnock(knockKeys[e.code]);
       }
       if (e.code === "Escape") {
         e.preventDefault();
@@ -400,10 +402,12 @@ export class Vesper {
         " — " +
         String(nav.items.length).padStart(2, "0");
   }
-  advance() {
+  // One row on (a tap, or a knock on the right of the case) or back (step -1: a knock on the left).
+  advance(step = 1) {
     this.hostLamps.touch(performance.now());
     if (!this.nav.items.length) return;
-    this.nav.index = (this.nav.index + 1) % this.nav.items.length;
+    const n = this.nav.items.length;
+    this.nav.index = (((this.nav.index + step) % n) + n) % n;
     this.updateFocus();
     this.nav.items[this.nav.index].element.scrollIntoView({
       block: "nearest",

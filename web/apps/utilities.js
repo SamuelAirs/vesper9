@@ -456,6 +456,10 @@ const LAMP_SCALE = { full: 1, medium: 0.5, low: 0.2, off: 0 };
 // esp_err_t values the sensor driver is likely to report (esp_err.h).
 const ESP_ERRORS = { 0: 'NONE', '-1': 'FAIL', 0x101: 'NO MEMORY', 0x102: 'INVALID ARGUMENT', 0x103: 'INVALID STATE', 0x104: 'INVALID SIZE', 0x105: 'NOT FOUND', 0x106: 'NOT SUPPORTED', 0x107: 'TIMEOUT', 0x108: 'INVALID RESPONSE', 0x109: 'BAD CRC' };
 // The node's sensor diagnostics (firmware 0.1.2 status: addr, ok, fail, err) as two display strings.
+// The node's wiring, as Sam's tables give it: the current node (four lamps, two microphones, board LED)
+// and the first (three lamps). Neither has a temperature/humidity sensor any more.
+const PINS_FOUR = '<p>Button GPIO 12/46 · mic L 4/5/6 · mic R 47/45/21 · board LED 48.<br>LED R/G/B: 1 7/15/16 · 2 17/18/8 · 3 9/10/11 · 4 13/14/3.</p>';
+const PINS_THREE = '<p>Button GPIO 12/46 · mic 4/5/6.<br>LED R/G/B: LEFT 15/7/16 · MIDDLE 18/17/8 · RIGHT 11/9/10.</p>';
 export function sensorBus(sensor) {
   if (!sensor || typeof sensor !== 'object') return { bus: '—', error: '—' };
   const { addr, ok, fail, err } = sensor;
@@ -492,10 +496,9 @@ export class Diagnostics {
   render() {
     const s = this.c.state(),
       d = s.device || {},
-      sensor = s.sensor,
       level = this.level(),
       node = this.node,
-      bus = sensorBus(node?.sensor);
+      four = this.c.lampCount?.() === 4;
     const waiting = s.simulated ? 'SIMULATOR' : d.connected ? 'AWAITING STATUS' : '—';
     const rows = [
       ["NODE", d.connected ? "CONNECTED" : "DISCONNECTED"],
@@ -504,9 +507,7 @@ export class Diagnostics {
       ["FIRMWARE", node?.fw ? String(node.fw) : waiting],
       ["BUTTON", d.button ? "DOWN" : "UP"],
       ["NODE IDENTITY", (d.name || "—") + " · CONN " + (d.generation || 0)],
-      ["SENSOR BUS", node ? bus.bus : waiting],
-      ["SENSOR LAST ERROR", node ? bus.error : waiting],
-      ["SENSOR", sensor ? `${formatSensorTemp(sensor.temperature, this.c.settings().tempUnit, 1, this.c.settings())}${tempOffset(this.c.settings()) ? ' (CASE OFFSET ' + formatOffset(tempOffset(this.c.settings()), this.c.settings().tempUnit) + ')' : ''} / ${sensor.humidity.toFixed(1)}%` : "NO READING"],
+      ["LAMPS", four ? "4" + (this.c.hasBoardLed?.() ? " + BOARD LED" : "") : "3"],
       ["LAMP LEVEL", level.toUpperCase()],
       ["FRAME / p95", (this.c.stats?.().p95Ms || 0).toFixed(1) + " ms"],
       ["SPEECH DROPS", s.mic?.droppedChunks || 0],
@@ -521,7 +522,7 @@ export class Diagnostics {
       : level === 'low' ? '<p class="recording-tag">LAMP LEVEL IS LOW (CALIBRATION): CHANNEL CHECKS ARE DIM.</p>' : '';
     const html = panel(
       "Node instruments",
-      `<div class="diag-list">${rows.map(([k, v]) => `<div class="diag-item"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("")}</div>${notice}<p>Button GPIO 12/46 · mic 4/5/6 · sensor SDA 13 / SCL 14.<br>LED R/G/B: LEFT 15/7/16 · MIDDLE 18/17/8 · RIGHT 11/9/10.</p>`,
+      `<div class="diag-list">${rows.map(([k, v]) => `<div class="diag-item"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("")}</div>${notice}${four ? PINS_FOUR : PINS_THREE}`,
     );
     if (html !== this.html) { this.html = html; this.c.content(html); }
     this.c.actions([
@@ -724,8 +725,6 @@ export class Settings {
         run: () =>
           this.setting("holdMs", s.holdMs >= 1000 ? 450 : s.holdMs + 100),
       },
-      { id: 'temp-unit', label: 'TEMPERATURE / ' + (s.tempUnit === 'F' ? 'FAHRENHEIT' : 'CELSIUS'),
-        run: () => this.setting('tempUnit', s.tempUnit === 'F' ? 'C' : 'F') },
       { id: 'lamp-level', label: 'LAMP LEVEL / ' + String(s.lampLevel || 'medium').toUpperCase(),
         run: () => this.setting('lampLevel', ({ full: 'medium', medium: 'low', low: 'off', off: 'full' })[s.lampLevel] || 'full') },
       { id: 'lamp-ambient', label: 'AMBIENT GLOW / ' + (s.lampAmbient === false ? 'OFF' : 'ON'),

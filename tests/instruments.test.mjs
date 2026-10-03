@@ -207,7 +207,7 @@ test("sensorFreshness changes at most once a minute", () => {
   assert.equal(sensorFreshness({ device: {} }, 1), "NO RECENT READING");
 });
 
-test("Node Scope shows link, firmware, sensor diagnostics and the lamp level", () => {
+test("Node Scope shows link, firmware, the lamps and the lamp level, and no sensor rows", () => {
   const ctx = appContext({ settings: { lampLevel: "low" }, state: { simulated: false, device: { connected: true, name: "VESPER-9", generation: 2 } } });
   const app = new Diagnostics(ctx);
   assert.match(ctx.calls.content.at(-1), /AWAITING STATUS/);
@@ -215,16 +215,20 @@ test("Node Scope shows link, firmware, sensor diagnostics and the lamp level", (
   const html = ctx.calls.content.at(-1);
   assert.match(html, /<span>LINK<\/span><b>USB<\/b>/);
   assert.match(html, /<span>FIRMWARE<\/span><b>0\.1\.2<\/b>/);
-  assert.match(html, /0x44 · 120 OK · 3 FAIL/);
-  assert.match(html, /TIMEOUT \(0x107\)/);
+  assert.doesNotMatch(html, /SENSOR/, "the node has no temperature/humidity sensor");
+  assert.match(html, /<span>LAMPS<\/span><b>3<\/b>/);
   assert.match(html, /<span>LAMP LEVEL<\/span><b>LOW<\/b>/);
   assert.match(html, /CHANNEL CHECKS ARE DIM/);
   assert.match(html, /LEFT 15\/7\/16/, "pin map follows docs/HARDWARE.md");
-  app.event({ type: "node_status", link: "uart", fw: "0.1.2", sensor: { addr: 0, ok: 0, fail: 9, err: -1 } });
+  app.event({ type: "node_status", link: "uart", fw: "0.1.2" });
   assert.match(ctx.calls.content.at(-1), /<b>UART<\/b>/);
-  assert.match(ctx.calls.content.at(-1), /NOT FOUND · 9 FAIL/);
   app.event({ type: "node_reset" });
   assert.match(ctx.calls.content.at(-1), /AWAITING STATUS/);
+  const four = appContext({ state: { device: { connected: true } } });
+  four.lampCount = () => 4; four.hasBoardLed = () => true;
+  new Diagnostics(four);
+  assert.match(four.calls.content.at(-1), /<span>LAMPS<\/span><b>4 \+ BOARD LED<\/b>/);
+  assert.match(four.calls.content.at(-1), /mic R 47\/45\/21/, "the current node's wiring");
   assert.deepEqual(sensorBus(undefined), { bus: "—", error: "—" });
   assert.equal(sensorBus({ addr: 68, ok: 1, fail: 0, err: 0 }).error, "NONE");
 });

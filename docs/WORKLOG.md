@@ -82,3 +82,11 @@ The long integrated run was started while final review continued. The final held
 - They draw three lamps; on the four-lamp node the fourth stays dark until each game is given a use for it.
 - Crawlspace's choice scan shortened from 1.7 s to 1.2 s per option (a turn averaged about 3.2 s). The 1.5 s pause after an action stays: it is what keeps a player who mashes alive for the first 30 seconds.
 - Checks: the four games' 58 tests, the menu-gesture test with all four (every pace), full JS suite (one failure, the Perihelion bot on seed 3003, also failing without these games), catalog check, all four launched in the standalone simulator at 1024 × 600 with no page errors.
+
+## 2026-10-03 — After Hours: teach themselves, four lamps (desktop, not verified on the device)
+
+- After Sam's first playtest (Crawlspace, Supper Club and Night Grid were hard to understand), all four share one press scheme from `web/apps/after-hours-kit.js`: a tap moves to the next choice, a hold of 0.5 s then release does it. The lamp scanning cursor is gone. The choice happens on the release, so the menu gesture never makes one (the host consumes that release; AppGuard rewinds the taps).
+- Each game opens with HOW TO PLAY pages on first launch (`guided` in its save, schema unchanged; older saves see it once) and keeps HOW TO PLAY in the system menu. Play screens label each card and pan with its lamp.
+- Fourth lamp, on a four-lamp node only (`ctx.lampCount()`): Crawlspace your health (blinks when the next blow could finish you), Night Grid the battery, Supper Club the table closest to leaving, Pocket Links where the shot will stop (green in the cup, amber warmer when closer, red in water). The board LED is not used.
+- Supper Club: the kitchen slows while the button is down, and releasing on a pan that is still cooking does nothing (it used to waste the food). Night Grid: during the crew pick, the districts and lamps show the best routing each job allows. Pocket Links: the preview ring says IN! or WATER.
+- Checks: the four games' tests (65, rewritten for the new controls, including the Supper Club bot finishing four services on four seeds), menu-gesture test (176), full JS suite 942/943 (only the known Perihelion seed-3003 failure), catalog check, simulator screenshots at 1024 × 600 with no page errors.

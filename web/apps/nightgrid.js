@@ -1,15 +1,18 @@
 // NIGHT GRID: a ten-shift neighborhood restoration puzzle for the one-button VESPER-9.
 // Fictional resource units, not a simulation of electrical operating procedures.
+// Controls (after-hours-kit.js): TAP moves to the next card, HOLD and RELEASE picks it.
+// Lamps 1-3 are the three districts (green full power, amber covered by stored water, red short) for
+// the card you are on; lamp 4, when the node has one, is the battery.
 import { C, text, line, circle } from "../engine/draw.js";
 import { clamp } from "../engine/math.js";
 import { LAMP, lamps, dim } from "../engine/lightshow.js";
 import { AppGuard } from "../engine/input.js";
 import { LampBus, LOCKOUT } from "./game-kit.js";
+import { HOLD, lampCount, withFourth, holdFraction, drawGuide, drawPressHelp } from "./after-hours-kit.js";
 
 export const NIGHTGRID_SHIFTS = 10;
-export const NIGHTGRID_SCAN = 2.4;
-const READY = 0.7;
-const REVIEW_READY = 0.65;
+// A new stage ignores presses this long, so the press that ended the last stage cannot carry over.
+const READY = 0.4;
 const REPORT_READY = 1.5;
 const NAMES = ["PORCHES", "MAIN STREET", "WATER TOWER"];
 const SHORT = ["PORCHES", "MAIN ST", "TOWER"];
@@ -34,10 +37,6 @@ const EVENTS = [
 const bounded = (v, max = 1000000000) => Number.isFinite(v) ? clamp(Math.floor(v), 0, max) : 0;
 const cloneGrid = (grid) => ({ ...grid, cap: grid.cap.slice(), links: grid.links.slice(), efficiency: grid.efficiency.slice(), goodwill: grid.goodwill.slice(), outages: grid.outages.slice() });
 const total = (a) => a.reduce((sum, n) => sum + n, 0);
-const calibrated = (c) => {
-  const value = c.settings?.()?.latencyMs;
-  return Number.isFinite(value) ? clamp(value, -150, 300) / 1000 : 0;
-};
 const sign = (n) => n > 0 ? "+" + n : String(n);
 
 export function migrateSave(raw) {
@@ -45,6 +44,7 @@ export function migrateSave(raw) {
   const l = r.last && typeof r.last === "object" ? r.last : {};
   return {
     schema: 1,
+    guided: r.guided === true,
     runs: bounded(r.runs),
     milestone: bounded(r.milestone, NIGHTGRID_SHIFTS),
     victories: bounded(r.victories),
@@ -55,6 +55,26 @@ export function migrateSave(raw) {
       result: ["NEIGHBORHOOD HERO", "LIGHTS RESTORED", "ROUGH NIGHT"].includes(l.result) ? l.result : "",
     },
   };
+}
+
+export const GUIDE = [
+  { head: "KEEP THE LIGHTS ON", lines: ["Three districts need power every shift: the porches, Main Street and the water tower.",
+    "Ten shifts until dawn. Keep the neighbors happy (goodwill) to win.", "Each lamp is one district, and shows how it will do with the card you are on."],
+    lamps: [{ rgb: LAMP.green, label: "PORCHES", sub: "green: full power" }, { rgb: LAMP.amber, label: "MAIN STREET", sub: "amber: water covers it" },
+      { rgb: LAMP.red, label: "WATER TOWER", sub: "red: short of power" }, { rgb: LAMP.cyan, label: "BATTERY", sub: "brighter is fuller" }] },
+  { head: "EACH SHIFT, TWO PICKS", lines: ["First a CREW JOB: repair a feeder, an upgrade, or fetch kits. Kits pay for work.",
+    "Then ROUTING: which district gets power first, and how much battery to spend.", "TAP moves between the three cards. HOLD, then RELEASE, picks one.",
+    "The board and the lamps preview exactly what each card will do."] },
+  { head: "WINNING THE NIGHT", lines: ["A district left short loses goodwill. Full service wins it back.",
+    "Lit shops donate repair kits. Stored water covers a short tower.", "At dawn you need 12 goodwill in total, and no district at zero.",
+    "Take your time: nothing happens until you pick. HOW TO PLAY is in the system menu."] },
+];
+
+// The best a crew job can lead to tonight: the routing that keeps the most districts whole.
+export function outlook(plan) {
+  if (!plan.applied) return null;
+  return [0, 1, 2].map((policy) => dispatch(plan.state, plan.event, policy))
+    .sort((a, b) => b.safe - a.safe || total(a.harm) - total(b.harm) || b.points - a.points)[0];
 }
 
 export function newGrid() {
@@ -199,11 +219,11 @@ export class NightGrid {
     this.lamps = new LampBus(ctx);
     this.sv = migrateSave(ctx.progress?.());
     this.t = 0; this.phase = "title"; this.stage = "crew"; this.grid = newGrid();
-    this.shift = 0; this.forecasts = []; this.eventNow = null; this.choices = []; this.previews = [];
-    this.scanAt = 0; this.scanOffset = 0; this.review = -1; this.reviewAt = 0; this.stageAt = 0;
-    this.pressMode = ""; this.held = false; this.startedAt = 0; this.overAt = 0;
+    this.shift = 0; this.forecasts = []; this.eventNow = null; this.choices = []; this.previews = []; this.outlooks = [];
+    this.cursor = 0; this.stageAt = 0; this.guide = -1;
+    this.held = false; this.pressAt = 0; this.startedAt = 0; this.overAt = 0;
     this.lastDispatch = null; this.lastWork = ""; this.result = ""; this.finalScore = 0;
-    this.c.hint("Ten shifts. Plan work, then route power. Press to begin.");
+    this.c.hint("Ten shifts. Pick a crew job, then route power. Tap moves between cards; hold and release picks. Press to begin.");
     this.guard = new AppGuard(this, ctx);
   }
 
@@ -218,29 +238,42 @@ export class NightGrid {
     this.eventNow = { ...this.forecasts[this.shift], need: this.forecasts[this.shift].need.slice() };
     this.choices = crewChoices(this.grid, this.forecasts, this.shift);
     this.previews = this.choices.map((choice) => applyCrew(this.grid, this.eventNow, choice));
+    this.outlooks = this.previews.map(outlook);
     this.setStage("crew");
   }
 
   setStage(stage) {
-    this.stage = stage; this.stageAt = this.t; this.scanAt = this.t; this.scanOffset = 0;
-    this.review = -1; this.reviewAt = 0; this.pressMode = ""; this.held = false;
+    this.stage = stage; this.stageAt = this.t; this.cursor = 0;
     this.c.hint(stage === "crew"
-      ? "Lit shops earn repair kits. Stored water cushions tower shortages. Scan repeats without a deadline."
+      ? "Step 1: pick a crew job. Tap moves between cards; hold and release picks. The lamps show each district's best case."
       : stage === "route"
-        ? "Three routing policies. Lamps preview service: green safe, amber buffered, red shortage."
+        ? "Step 2: pick how power is shared. Lamps: green full, amber covered by water, red short."
         : "Read the shift report. Press when ready for the next shift.");
   }
 
-  scanIndex(secondsAgo = 0) {
-    return (this.scanOffset + Math.floor(Math.max(0, this.t - this.scanAt - secondsAgo) / NIGHTGRID_SCAN)) % 3;
-  }
-
-  activeIndex() { return this.review >= 0 ? this.review : this.scanIndex(); }
+  activeIndex() { return this.cursor; }
 
   down() {
     this.guard.mark();
-    this.held = true;
-    if (this.phase === "title") { this.start(); return; }
+    if (this.held) return;
+    this.held = true; this.pressAt = this.t;
+  }
+
+  up(e = {}) {
+    this.guard.release();
+    if (!this.held) return;
+    this.held = false;
+    const seconds = Number.isFinite(e.durationMs) ? e.durationMs / 1000 : this.t - this.pressAt;
+    this.press(seconds >= HOLD);
+  }
+
+  // One finished press: a tap (long = false) or a hold that was released.
+  press(long) {
+    if (this.guide >= 0) {
+      if (!long && this.guide < GUIDE.length - 1) { this.guide++; return; }
+      this.closeGuide(); return;
+    }
+    if (this.phase === "title") { if (this.sv.guided) this.start(); else this.guide = 0; return; }
     if (this.phase === "over") { if (this.t - this.overAt >= LOCKOUT) this.start(); return; }
     if (this.stage === "report") {
       if (this.t - this.stageAt < REPORT_READY) return;
@@ -249,25 +282,19 @@ export class NightGrid {
       return;
     }
     if (this.t - this.stageAt < READY) return;
-    if (this.review < 0) {
-      this.review = this.scanIndex(calibrated(this.c)); this.reviewAt = this.t;
-      this.pressMode = "inspect";
-      this.c.tone(240, 0.04, "triangle");
-      return;
-    }
-    if (this.t - this.reviewAt >= REVIEW_READY) this.pressMode = "confirm";
+    if (!long) { this.cursor = (this.cursor + 1) % 3; this.c.tone(300 + this.cursor * 50, 0.03, "triangle"); return; }
+    this.commit(this.cursor);
   }
 
-  up(e = {}) {
-    this.guard.release();
-    this.held = false;
-    const mode = this.pressMode; this.pressMode = "";
-    if (this.phase !== "play" || this.stage === "report" || mode !== "confirm") return;
-    if (e.durationMs >= 600) {
-      this.scanOffset = this.review; this.scanAt = this.t; this.review = -1;
-      return;
-    }
-    this.commit(this.review);
+  openGuide() { this.guide = 0; this.held = false; }
+  closeGuide() {
+    this.guide = -1;
+    if (!this.sv.guided) { this.sv.guided = true; this.c.saveProgress(JSON.parse(JSON.stringify(this.sv)))?.catch?.(this.c.error); }
+    if (this.phase === "title") this.start();
+  }
+
+  menuActions() {
+    return [{ label: "HOW TO PLAY", run: () => this.openGuide() }, { label: "NEW NIGHT", run: () => { this.guide = -1; this.start(); } }];
   }
 
   commit(index) {
@@ -289,7 +316,7 @@ export class NightGrid {
 
   end() {
     if (this.phase !== "play") return;
-    this.phase = "over"; this.overAt = this.t; this.pressMode = ""; this.held = false;
+    this.phase = "over"; this.overAt = this.t; this.held = false;
     const service = Math.round(100 * this.grid.served / Math.max(1, this.grid.requested));
     const won = this.grid.goodwill.every((n) => n > 0) && total(this.grid.goodwill) >= 12;
     this.result = won ? service >= 95 ? "NEIGHBORHOOD HERO" : "LIGHTS RESTORED" : "ROUGH NIGHT";
@@ -304,13 +331,30 @@ export class NightGrid {
     this.c.hint("Ten shifts complete. Press to restore a new neighborhood.");
   }
 
-  shownDispatch() { return this.stage === "route" ? this.previews[this.activeIndex()] : this.lastDispatch; }
+  // What the lamps and the district boxes show: the routing on the card you are on, a crew job's
+  // best routing, or the shift just finished.
+  shownDispatch() {
+    if (this.stage === "route") return this.previews[this.activeIndex()];
+    if (this.stage === "crew") return this.outlooks[this.activeIndex()];
+    return this.lastDispatch;
+  }
+
+  // Lamp 4: the battery, brighter the fuller (after the card you are on), a faint red when empty.
+  batteryLamp(n) {
+    if (n < 4 || this.phase !== "play") return null;
+    const grid = this.shownDispatch()?.state || this.grid;
+    return grid.battery ? dim(LAMP.cyan, 0.15 + 0.75 * grid.battery / grid.batteryMax) : dim(LAMP.red, 0.15);
+  }
 
   lampPicture() {
-    if (this.phase === "title") return lamps(dim(LAMP.green, 0.3), dim(LAMP.amber, 0.32), dim(LAMP.cyan, 0.3));
+    const n = lampCount(this.c);
+    if (this.guide >= 0) return withFourth(lamps(...GUIDE[0].lamps.slice(0, 3).map((k) => dim(k.rgb, 0.55))), dim(LAMP.cyan, 0.55), n);
+    if (this.phase === "title") return withFourth(lamps(dim(LAMP.green, 0.3), dim(LAMP.amber, 0.32), dim(LAMP.cyan, 0.3)), dim(LAMP.cyan, 0.2), n);
+    if (this.phase === "over") return withFourth(lamps(...this.grid.goodwill.map((v) => dim(v > 0 ? LAMP.green : LAMP.red, 0.15 + 0.07 * v))), null, n);
     const shown = this.shownDispatch();
-    if (!shown) return lamps(dim(LAMP.green, 0.3), dim(LAMP.green, 0.3), dim(LAMP.green, 0.3));
-    return lamps(...shown.harm.map((harm, i) => dim(harm ? LAMP.red : shown.missing[i] ? LAMP.amber : LAMP.green, harm ? 0.7 : 0.45)));
+    const three = shown ? lamps(...shown.harm.map((harm, i) => dim(harm ? LAMP.red : shown.missing[i] ? LAMP.amber : LAMP.green, harm ? 0.7 : 0.45)))
+      : lamps(dim(LAMP.red, 0.3), dim(LAMP.red, 0.3), dim(LAMP.red, 0.3));
+    return withFourth(three, this.batteryLamp(n), n);
   }
 
   update(dt) {
@@ -323,6 +367,7 @@ export class NightGrid {
   }
 
   draw(g) {
+    if (this.guide >= 0) { drawGuide(g, "NIGHT GRID", GUIDE, this.guide, lampCount(this.c)); return; }
     g.fillStyle = C.bg; g.fillRect(0, 0, 960, 540);
     if (this.phase === "title") { this.drawTitle(g); return; }
     if (this.phase === "over") { this.drawOver(g); return; }
@@ -338,14 +383,15 @@ export class NightGrid {
     const index = this.activeIndex();
     const planned = this.stage === "crew" ? this.previews[index] : null;
     const board = planned?.applied ? planned.state : this.grid;
-    const shown = this.stage === "route" ? this.previews[index] : this.stage === "report" ? this.lastDispatch : null;
+    const shown = this.shownDispatch();
+    const four = lampCount(this.c) === 4;
     const event = planned?.applied ? planned.event : this.eventNow;
     const need = needsFor(board, event);
     const next = this.forecasts[this.shift + 1];
     const forecastNeed = next ? needsFor(board, next) : null;
     box(g, 388, 67, 184, 54, C.cyan);
     text(g, (this.stage === "crew" ? "GRID AFTER " : "GRID ") + event.supply, 480, 84, this.stage === "crew" ? 20 : 23, C.cyan, "center");
-    text(g, "BATTERY " + board.battery + "/" + board.batteryMax, 480, 107, 14, C.muted, "center");
+    text(g, "BATTERY " + board.battery + "/" + board.batteryMax + (four ? "  (LAMP 4)" : ""), 480, 107, 14, C.muted, "center");
     text(g, this.stage === "crew" ? "WORK PREVIEW" : "LIVE SUPPLIES", 48, 77, 16, this.stage === "crew" ? C.amber : C.muted);
     text(g, (this.stage === "crew" ? "KITS AFTER " : "KITS ") + board.kits + "/5", 48, 103, 20, C.amber);
     text(g, next ? "NEXT GRID " + next.supply : "DAWN IS NEXT", 868, 84, 18, C.muted, "right");
@@ -370,13 +416,14 @@ export class NightGrid {
     for (let i = 0; i < 3; i++) {
       const x = 24 + i * 312, status = shown ? shown.harm[i] ? C.red : shown.missing[i] ? C.amber : C.ink : C.ink;
       box(g, x, 194, 288, 127, status === C.ink ? C.line : status);
-      text(g, NAMES[i], x + 144, 212, 18, status, "center");
+      text(g, "LAMP " + (i + 1) + "  " + NAMES[i], x + 144, 212, 18, status, "center");
       building(g, i, x + 39, 262, status, !shown || shown.harm[i] === 0);
       text(g, shown ? shown.supplied[i] + " / " + need[i] : "NEED " + need[i], x + 172, 251, 27, status, "center");
-      text(g, shown ? shown.harm[i] ? "SHORT " + shown.harm[i] : shown.missing[i] ? "WATER BUFFER" : "FULL SERVICE" : "FEEDER " + board.cap[i] + (board.efficiency[i] ? " / SMART" : ""), x + 175, 275, 15, shown ? status : C.muted, "center");
+      const verdict = shown ? shown.harm[i] ? "SHORT " + shown.harm[i] : shown.missing[i] ? "WATER COVERS IT" : "FULL POWER" : "NOT ENOUGH KITS";
+      text(g, shown && this.stage === "crew" ? "AT BEST: " + verdict : verdict, x + 175, 275, 15, shown ? status : C.red, "center");
       text(g, "NEXT " + (forecastNeed ? forecastNeed[i] : "-") + "  GOODWILL " + (shown ? shown.state.goodwill[i] : board.goodwill[i]) + "/8", x + 144, 300, 17, C.muted, "center");
     }
-    text(g, this.stage === "crew" ? "WORK PREVIEW" : this.stage === "route" ? "EXACT DISPATCH PREVIEW" : "SHIFT COMPLETE", 24, 338, 15, C.cyan);
+    text(g, this.stage === "crew" ? "STEP 1 OF 2: PICK TONIGHT'S CREW JOB" : this.stage === "route" ? "STEP 2 OF 2: PICK HOW POWER IS SHARED" : "SHIFT COMPLETE", 24, 338, 15, C.cyan);
     text(g, "SHOP STREAK " + (board.shopStreak % 2) + "/2  |  WATER " + board.water + "/3", 936, 338, 17, C.muted, "right");
   }
 
@@ -399,14 +446,11 @@ export class NightGrid {
         text(g, "SAFE " + preview.safe + "/3   BATT " + sign(preview.charged - preview.batteryUsed), x + 144, 410, 18, C.ink, "center");
         text(g, "GOODWILL " + preview.goodwillDelta.map(sign).join(" / "), x + 144, 439, 17, preview.safe === 3 ? C.muted : C.red, "center");
       }
-      if (active && this.review < 0) {
-        const progress = ((this.t - this.scanAt) % NIGHTGRID_SCAN) / NIGHTGRID_SCAN;
-        g.fillStyle = C.amber; g.fillRect(x + 1, 462, 286 * (1 - progress), 3);
-      }
+      if (active) { g.fillStyle = C.amber; g.fillRect(x + 1, 462, 286 * holdFraction(this), 3); }
     }
     const detail = this.stage === "crew" ? this.choices[selected].detail : POLICIES[selected].detail + "  +" + this.previews[selected].points + " pts";
     text(g, detail, 480, 487, 18, C.ink, "center");
-    text(g, this.review >= 0 ? "REVIEW LOCKED   TAP TO COMMIT  /  HOLD + RELEASE TO RETHINK" : "SLOW SCAN REPEATS   PRESS TO INSPECT   NO TIME LIMIT", 480, 520, 16, this.review >= 0 ? C.amber : C.muted, "center");
+    drawPressHelp(g, this, 520, this.stage === "crew" ? "DO THIS JOB" : "ROUTE POWER");
   }
 
   drawReport(g) {
@@ -433,8 +477,8 @@ export class NightGrid {
     }
     text(g, "REPAIR FEEDERS. SHARE POWER. SAVE THE BATTERY.", 480, 392, 21, C.ink, "center");
     text(g, "10 shifts. Finish with 12 goodwill; nobody at zero.", 480, 425, 19, C.muted, "center");
-    text(g, "Slow scan > press to inspect > tap to commit", 480, 461, 18, C.cyan, "center");
-    text(g, "PRESS TO TAKE THE NIGHT SHIFT", 480, 510, 22, C.amber, "center");
+    text(g, "TAP: NEXT CARD    HOLD + RELEASE: PICK IT", 480, 461, 18, C.cyan, "center");
+    text(g, this.sv.guided ? "PRESS TO TAKE THE NIGHT SHIFT" : "PRESS TO LEARN HOW TO PLAY", 480, 510, 22, C.amber, "center");
   }
 
   drawOver(g) {
@@ -452,8 +496,8 @@ export class NightGrid {
     text(g, "BEST " + this.c.best() + "   /   PRESS FOR A NEW NIGHT", 480, 512, 20, C.amber, "center");
   }
 
-  cancel() { this.guard.rewind(); this.lamps.clear(); this.held = false; this.pressMode = ""; this.c.synth?.stopTone?.(); }
-  pause() { this.guard.settle(); this.lamps.sleep(); this.held = false; this.pressMode = ""; this.c.synth?.stopTone?.(); }
+  cancel() { this.guard.rewind(); this.lamps.clear(); this.held = false; this.c.synth?.stopTone?.(); }
+  pause() { this.guard.settle(); this.lamps.sleep(); this.held = false; this.c.synth?.stopTone?.(); }
   resume() { this.lamps.wake(); }
   dispose() { this.guard.settle(); this.lamps.sleep(); this.c.synth?.stopTone?.(); }
 }

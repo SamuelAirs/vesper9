@@ -1,14 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { NightGrid, migrateSave, newGrid, makeForecasts, dispatch, crewChoices, applyCrew, NIGHTGRID_SCAN } from "../web/apps/nightgrid.js";
+import { NightGrid, migrateSave, newGrid, makeForecasts, dispatch, crewChoices, applyCrew, outlook, GUIDE } from "../web/apps/nightgrid.js";
+import { HOLD } from "../web/apps/after-hours-kit.js";
 import { appContext, fakeCanvas, run } from "./helpers/app-context.mjs";
 
+// A tap moves to the next card; a hold that is released picks it.
 const press = (app, durationMs = 60) => { app.down({ source: "keyboard" }); app.up({ source: "keyboard", durationMs }); };
+const hold = (app) => press(app, HOLD * 1000 + 150);
+const guided = (options = {}) => appContext({ progress: { schema: 1, guided: true }, ...options });
 const choose = (app, index) => {
-  run(app, 0.8);
-  app.scanAt = app.t; app.scanOffset = index;
-  press(app); assert.equal(app.review, index);
-  run(app, 0.7); press(app);
+  run(app, 0.5);
+  while (app.cursor !== index) press(app);
+  hold(app);
 };
 
 test("save migration rejects junk, caps numbers, and never copies arbitrary last fields", () => {
@@ -89,26 +92,51 @@ test("crew plans persist, cost resources, and do not mutate preview inputs", () 
   assert.equal(applyCrew(poor, event, crewChoices(poor, [event], 0)[0]).applied, false);
 });
 
-test("inspection freezes indefinitely, hold rethinks, and committed result equals its preview", () => {
-  const ctx = appContext(); const app = new NightGrid(ctx); press(app);
-  run(app, 0.8); press(app); const selected = app.review;
-  run(app, 50); assert.equal(app.review, selected); assert.equal(app.shift, 0);
-  press(app, 900); assert.equal(app.review, -1); assert.equal(app.stage, "crew");
-  choose(app, 0); assert.equal(app.stage, "route");
+test("nothing happens until you pick; taps only move; the picked result equals its preview", () => {
+  const ctx = guided(); const app = new NightGrid(ctx); press(app);
+  run(app, 50); assert.equal(app.stage, "crew"); assert.equal(app.cursor, 0); assert.equal(app.shift, 0);
+  press(app); assert.equal(app.cursor, 1); press(app); press(app); assert.equal(app.cursor, 0, "the cursor wraps");
+  assert.equal(app.stage, "crew");
+  choose(app, 0); assert.equal(app.stage, "route"); assert.equal(app.cursor, 0, "a new stage starts on the first card");
   const predicted = JSON.stringify(app.previews[2].state);
   choose(app, 2); assert.equal(app.stage, "report");
   assert.equal(JSON.stringify(app.grid), predicted);
 });
 
-test("scanner applies bounded latency and selection does not drift after freezing", () => {
-  const ctx = appContext({ settings: { latencyMs: 100 } }); const app = new NightGrid(ctx); press(app);
-  run(app, NIGHTGRID_SCAN + 0.05); assert.equal(app.scanIndex(), 1);
-  press(app); assert.equal(app.review, 0);
-  run(app, 10); assert.equal(app.activeIndex(), 0);
+test("the lamps show the districts for the card you are on", () => {
+  const ctx = guided(); ctx.lampCount = () => 4;
+  const app = new NightGrid(ctx); press(app); run(app, 0.5);
+  for (let card = 0; card < 3; card++) {
+    run(app, 0.1);
+    const best = outlook(app.previews[card]), frame = ctx.calls.leds.at(-1);
+    assert.equal(frame.length, 12);
+    if (best) best.harm.forEach((harm, i) => assert.ok(harm ? frame[i * 3] > 100 && frame[i * 3 + 1] < 40 : frame[i * 3 + 1] > 40, "card " + card + " district " + i));
+    press(app);
+  }
+  choose(app, 0); run(app, 0.1);
+  const route = app.previews[0], frame = ctx.calls.leds.at(-1);
+  route.harm.forEach((harm, i) => assert.equal(harm > 0, frame[i * 3] > 100 && frame[i * 3 + 1] < 40));
+  assert.ok(frame[10] > 0 && frame[11] > 0, "lamp 4 is the battery, cyan while it holds charge");
+  const full = frame[11];
+  app.grid.battery = 0; app.previews = app.previews.map((p) => ({ ...p, state: { ...p.state, battery: 0 } })); run(app, 0.1);
+  assert.ok(ctx.calls.leds.at(-1)[11] < full && ctx.calls.leds.at(-1)[9] > 0, "an empty battery glows faint red");
+});
+
+test("first launch teaches the game, once; HOW TO PLAY reopens from the menu", () => {
+  const ctx = appContext(); const app = new NightGrid(ctx);
+  press(app); assert.equal(app.guide, 0);
+  for (let page = 1; page < GUIDE.length; page++) { press(app); assert.equal(app.guide, page); }
+  press(app); assert.equal(app.phase, "play"); assert.equal(app.guide, -1);
+  run(app, 3); assert.equal(ctx.calls.saved.at(-1).guided, true);
+  const again = new NightGrid(appContext({ progress: ctx.calls.saved.at(-1) })); press(again);
+  assert.equal(again.phase, "play");
+  again.menuActions()[0].run(); assert.equal(again.guide, 0); hold(again);
+  assert.equal(again.guide, -1); assert.equal(again.stage, "crew"); assert.equal(again.shift, 0);
+  assert.equal(migrateSave({ runs: 3 }).guided, false);
 });
 
 test("ten shifts finish once, save once, and a result cannot be immediately skipped", () => {
-  const ctx = appContext(); const app = new NightGrid(ctx); press(app);
+  const ctx = guided(); const app = new NightGrid(ctx); press(app);
   for (let round = 0; round < 10; round++) {
     choose(app, app.choices[1].available ? 1 : 2);
     assert.equal(app.stage, "route");
@@ -116,7 +144,7 @@ test("ten shifts finish once, save once, and a result cannot be immediately skip
     choose(app, best); assert.equal(app.stage, "report");
     run(app, 1.6); press(app);
   }
-  assert.equal(app.phase, "over"); assert.ok(app.t - app.startedAt >= 30);
+  assert.equal(app.phase, "over"); assert.equal(app.shift, 9);
   press(app); assert.equal(app.phase, "over");
   run(app, 2);
   assert.equal(ctx.calls.score.length, 1); assert.equal(ctx.calls.saved.length, 1);
@@ -126,13 +154,13 @@ test("ten shifts finish once, save once, and a result cannot be immediately skip
 
 test("the menu gesture rewinds selected/committed work and RNG on all three paces", () => {
   for (const gesturePace of ["quick", "standard", "relaxed"]) {
-    const ctx = appContext({ settings: { gesturePace } }); const app = new NightGrid(ctx);
-    press(app); run(app, 1); app.review = 0; app.reviewAt = app.t - 1;
-    const before = JSON.stringify({ grid: app.grid, stage: app.stage, shift: app.shift, review: app.review });
+    const ctx = guided({ settings: { gesturePace } }); const app = new NightGrid(ctx);
+    press(app); run(app, 1); press(app);
+    const before = JSON.stringify({ grid: app.grid, stage: app.stage, shift: app.shift, cursor: app.cursor });
     app.down(); run(app, 0.06); app.up({ durationMs: 60 }); run(app, 0.08);
     app.down(); run(app, 0.06); app.up({ durationMs: 60 }); run(app, 0.08);
     app.down(); run(app, 1.6); app.cancel();
-    assert.equal(JSON.stringify({ grid: app.grid, stage: app.stage, shift: app.shift, review: app.review }), before, gesturePace);
+    assert.equal(JSON.stringify({ grid: app.grid, stage: app.stage, shift: app.shift, cursor: app.cursor }), before, gesturePace);
     assert.equal(ctx.calls.score.length, 0); assert.equal(ctx.calls.saved.length, 0);
   }
 });
@@ -141,11 +169,11 @@ test("a minute of rapid input has no novice early loss, draws safely and respect
   const ctx = appContext(); const app = new NightGrid(ctx), g = fakeCanvas();
   let firstOver = Infinity;
   run(app, 60, (i) => {
-    if (i % 5 === 0) press(app);
+    if (i % 5 === 0) (i % 15 === 0 ? hold : press)(app);
     if (i % 10 === 0) app.draw(g);
     if (app.phase === "over") firstOver = Math.min(firstOver, app.t);
   });
-  assert.ok(firstOver >= 30);
+  assert.ok(firstOver >= 20, "ten shifts take real time: " + firstOver);
   for (const picture of ctx.calls.leds) assert.ok(picture.length === 9 && picture.every((v) => Number.isInteger(v) && v >= 0 && v <= 255));
   app.pause(); const count = ctx.calls.leds.length; run(app, 1); assert.equal(ctx.calls.leds.length, count);
   app.resume(); run(app, 0.1); assert.ok(ctx.calls.leds.length > count);

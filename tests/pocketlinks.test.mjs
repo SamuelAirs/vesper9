@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { PocketLinks, migrateSave, makeCourse, shotBall, stepBall, powerAt, surfaceAt, COURSE_W, COURSE_H, BALL_R, HOLD_THRESHOLD, CHARGE_SECONDS, AIM_SPEED, MAX_STROKES } from "../web/apps/pocketlinks.js";
-import { appContext, fakeCanvas, run } from "./helpers/app-context.mjs";
+import { PocketLinks, GUIDE, migrateSave, makeCourse, shotBall, stepBall, powerAt, surfaceAt, COURSE_W, COURSE_H, BALL_R, HOLD_THRESHOLD, CHARGE_SECONDS, AIM_SPEED, MAX_STROKES } from "../web/apps/pocketlinks.js";
+import { HOLD } from "../web/apps/after-hours-kit.js";
+import { appContext as baseContext, fakeCanvas, run } from "./helpers/app-context.mjs";
+
+// Players who have seen HOW TO PLAY; the guide itself has its own test.
+const appContext = (options = {}) => baseContext({ progress: { schema: 1, guided: true }, ...options });
 
 const press = (app, seconds = 0.07) => { app.down({ source: "keyboard" }); run(app, seconds); app.up({ source: "keyboard", durationMs: seconds * 1000 }); };
 const flat = () => ({ tee: { x: 70, y: 160 }, cup: { x: 620, y: 50 }, walls: [], patches: [] });
@@ -176,4 +180,37 @@ test("two minutes of seeded variable play draw safely; lamps are finite, quiet o
   for (const values of ctx.calls.leds) assert.ok(values.length === 9 && values.every((v) => Number.isInteger(v) && v >= 0 && v <= 255));
   app.pause(); const writes = ctx.calls.leds.length; run(app, 1); assert.equal(ctx.calls.leds.length, writes);
   app.resume(); app.dispose(); assert.deepEqual(ctx.calls.leds.at(-1), Array(9).fill(0));
+});
+
+test("first launch shows HOW TO PLAY once; the menu reopens it without losing the hole", () => {
+  const ctx = baseContext(), app = new PocketLinks(ctx);
+  press(app); assert.equal(app.guide, 0); assert.equal(app.phase, "title");
+  press(app); assert.equal(app.guide, -1); assert.equal(app.phase, "play", GUIDE.length + " page guide, then the first tee");
+  run(app, 3); assert.equal(ctx.calls.saved.at(-1).guided, true);
+  const again = new PocketLinks(baseContext({ progress: ctx.calls.saved.at(-1) }));
+  press(again); assert.equal(again.phase, "play");
+  run(again, 0.5); press(again, 1.5); run(again, 0.2);
+  const strokes = again.strokes, ball = { ...again.ball };
+  again.menuActions()[0].run(); run(again, 4);
+  assert.deepEqual({ x: again.ball.x, y: again.ball.y }, { x: ball.x, y: ball.y }, "the ball waits while the guide is open");
+  press(again, HOLD + 0.1); assert.equal(again.guide, -1); assert.equal(again.strokes, strokes);
+  assert.equal(migrateSave({ runs: 1 }).guided, false);
+});
+
+test("lamp 4 says where the shot will stop: green in the cup, red in the water", () => {
+  const ctx = appContext(); ctx.lampCount = () => 4;
+  const app = new PocketLinks(ctx); press(app); run(app, 0.3);
+  assert.equal(ctx.calls.leds.at(-1).length, 12);
+  app.previewEnd = { x: app.course.cup.x, y: app.course.cup.y, status: "holed" }; app.previewAt = app.t;
+  app.update(1 / 60); let f = ctx.calls.leds.at(-1);
+  assert.ok(f[10] > 150 && f[9] < 80, "holed: green");
+  app.previewEnd = { x: 10, y: 10, status: "water" }; app.previewAt = app.t;
+  app.update(1 / 60); f = ctx.calls.leds.at(-1);
+  assert.ok(f[9] > 150 && f[10] < 40, "water: red");
+  app.previewEnd = { x: app.course.cup.x - 20, y: app.course.cup.y, status: "stopped" }; app.previewAt = app.t;
+  app.update(1 / 60); const near = ctx.calls.leds.at(-1)[9];
+  app.previewEnd = { x: app.course.tee.x, y: app.course.tee.y, status: "stopped" }; app.previewAt = app.t;
+  app.update(1 / 60); const far = ctx.calls.leds.at(-1)[9];
+  assert.ok(near > far, "warmer the closer it stops to the cup");
+  app.dispose(); assert.ok(ctx.calls.leds.at(-1).every((v) => v === 0));
 });

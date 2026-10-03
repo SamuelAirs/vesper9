@@ -1,9 +1,12 @@
 // POCKET LINKS — real little courses, one large button. All geometry is in course pixels.
+// Lamps 1-3 follow the aiming arrow, then fill with power; lamp 4, when the node has one, says where
+// the shot will stop: green in the cup, amber warmer the closer it ends to the cup, red in the water.
 import { C, text, line, circle } from "../engine/draw.js";
 import { clamp } from "../engine/math.js";
 import { LAMP, lamps, fill, dim, meter, spot } from "../engine/lightshow.js";
 import { AppGuard } from "../engine/input.js";
 import { LampBus, LOCKOUT } from "./game-kit.js";
+import { HOLD, lampCount, withFourth, drawGuide } from "./after-hours-kit.js";
 
 export const COURSE_W = 680;
 export const COURSE_H = 328;
@@ -28,6 +31,7 @@ export function migrateSave(raw) {
   const l = r.last && typeof r.last === "object" ? r.last : {};
   return {
     schema: 1,
+    guided: r.guided === true,
     runs: num(r.runs, 0, 1000000),
     milestone: num(r.milestone, 0, 9),
     bestStrokes: num(r.bestStrokes, 0, 108),
@@ -172,6 +176,14 @@ export function powerAt(seconds) {
   return wave <= 1 ? wave : 2 - wave;
 }
 
+export const GUIDE = [
+  { head: "TEE OFF", lines: ["TAP switches club: the PUTTER rolls and banks, the WEDGE hops over walls and water.",
+    "HOLD to stop the turning arrow. Keep holding: the power rises, then falls.",
+    "RELEASE to shoot. The dotted line and ring show exactly where the ball will stop.", "Nine holes. Water costs a stroke. Fewest strokes wins."],
+    lamps: [{ rgb: LAMP.green, label: "ARROW, THEN", sub: "a spot follows the aim" }, { rgb: LAMP.green, label: "POWER", sub: "fills as you hold" },
+      { rgb: LAMP.red, label: "POWER", sub: "red: the shot finds water" }, { rgb: LAMP.amber, label: "WHERE IT STOPS", sub: "green: in the cup" }] },
+];
+
 const signed = (n) => n > 0 ? "+" + n : n === 0 ? "E" : String(n);
 const golfWord = (strokes, par, picked) => picked ? "PICKED UP" : strokes === 1 ? "HOLE IN ONE!" : strokes <= par - 2 ? "EAGLE!" : strokes === par - 1 ? "BIRDIE" : strokes === par ? "PAR" : strokes === par + 1 ? "BOGEY" : "+" + (strokes - par) + " ON THE HOLE";
 
@@ -190,6 +202,7 @@ export class PocketLinks {
     this.overAt = 0; this.holeAt = 0; this.waterAt = 0; this.runSeed = 0;
     this.message = ""; this.messageT = 0; this.lastShot = { x: this.ball.x, y: this.ball.y };
     this.shotTrace = []; this.traceAt = 0; this.bounceAt = -1; this.finished = false; this.titleT = 0;
+    this.guide = -1; this.shotEnd = null;
     this.c.hint("TAP changes club. HOLD to lock aim; RELEASE to choose power. No rush.");
     this.guard = new AppGuard(this, ctx);
   }
@@ -221,6 +234,8 @@ export class PocketLinks {
   }
   down() {
     this.guard.mark();
+    if (this.guide >= 0) { this.held = true; this.downAt = this.t; return; }
+    if (this.phase === "title" && !this.sv.guided) { this.guide = 0; this.consume = true; return; }
     if (this.phase === "title") { this.start(); this.consume = true; return; }
     if (this.phase === "over") { if (this.t - this.overAt >= LOCKOUT) { this.start(); this.consume = true; } return; }
     if (this.stage === "card") {
@@ -239,6 +254,13 @@ export class PocketLinks {
   up(e = {}) {
     this.guard.release();
     if (this.consume) { this.consume = false; this.held = false; return; }
+    if (this.guide >= 0) {
+      if (!this.held) return;
+      this.held = false;
+      const seconds = Number.isFinite(e.durationMs) ? e.durationMs / 1000 : this.t - this.downAt;
+      if (seconds < HOLD && this.guide < GUIDE.length - 1) this.guide++; else this.closeGuide();
+      return;
+    }
     if (!this.held || this.phase !== "play") return;
     const duration = this.t - this.downAt;
     this.held = false;
@@ -257,11 +279,21 @@ export class PocketLinks {
     const judged = Math.max(0, duration - this.latency());
     this.shoot(powerAt(judged), this.lockedAim);
   }
+  openGuide() { this.guide = 0; this.held = false; this.consume = false; if (this.stage === "charge") this.ready(); }
+  closeGuide() {
+    this.guide = -1;
+    if (!this.sv.guided) { this.sv.guided = true; this.c.saveProgress(JSON.parse(JSON.stringify(this.sv)))?.catch?.(this.c.error); }
+    if (this.phase === "title") this.start();
+  }
+  menuActions() {
+    return [{ label: "HOW TO PLAY", run: () => this.openGuide() }, { label: "NEW ROUND", run: () => { this.guide = -1; this.start(); } }];
+  }
   shoot(power, angle) {
     if (this.stage !== "charge" && this.stage !== "aim") return;
     this.power = power; this.lockedAim = angle; this.stage = "charge"; this.makePreview();
     this.lastShot = { x: this.ball.x, y: this.ball.y };
     this.ball = shotBall(this.ball.x, this.ball.y, angle, power, this.club);
+    this.shotEnd = this.previewEnd;
     this.strokes++; this.stage = "rolling"; this.held = false; this.preview = []; this.previewEnd = null;
     this.shotTrace = [{ x: this.ball.x, y: this.ball.y }]; this.traceAt = this.t;
     this.c.tone(this.club ? 470 : 330, 0.07, "triangle");
@@ -282,7 +314,7 @@ export class PocketLinks {
     this.card.push({ strokes: this.strokes, par: this.course.par, picked });
     this.total += this.strokes; this.parTotal += this.course.par; this.held = false;
     this.message = golfWord(this.strokes, this.course.par, picked); this.messageT = 0;
-    this.lamps.flash(0.8, () => fill(picked ? LAMP.amber : LAMP.green));
+    this.lamps.flash(0.8, () => fill(picked ? LAMP.amber : LAMP.green, 1, lampCount(this.c)));
     this.c.tone(picked ? 200 : this.strokes < this.course.par ? 740 : 560, 0.2, "triangle");
     if (this.hole === 8) { this.end(); return; }
     this.stage = "card"; this.holeAt = this.t;
@@ -321,7 +353,7 @@ export class PocketLinks {
   update(dt) {
     this.guard.tick(dt);
     this.t += dt; this.messageT = Math.max(0, this.messageT - dt);
-    if (this.phase === "play") {
+    if (this.phase === "play" && this.guide < 0) {
       if (this.stage === "charge") this.power = powerAt(this.t - this.downAt);
       if ((this.stage === "aim" || this.stage === "charge") && this.t - this.previewAt >= 0.10) this.makePreview();
       if (this.stage === "rolling") {
@@ -331,7 +363,7 @@ export class PocketLinks {
         if (status === "holed") this.finishHole(false);
         else if (status === "water") {
           this.stage = "water"; this.waterAt = this.t; this.held = false;
-          this.lamps.flash(0.4, () => fill(LAMP.blue)); this.c.tone(120, 0.18, "sine");
+          this.lamps.flash(0.4, () => fill(LAMP.blue, 1, lampCount(this.c))); this.c.tone(120, 0.18, "sine");
           this.c.hint(this.mulligans ? "Water! TAP takes relief (+1 stroke). HOLD 0.6s and release to use a mulligan." : "Water! PRESS to take relief at the last safe spot (+1 stroke).");
         } else if (status === "stopped") {
           if (this.strokes >= MAX_STROKES) this.finishHole(true); else this.ready();
@@ -340,7 +372,8 @@ export class PocketLinks {
     }
     this.c.hud([["HOLE", Math.min(9, this.hole + 1) + "/9"], ["STROKES", this.strokes], ["ROUND", signed(this.total - this.parTotal)], ["MULLIGANS", this.mulligans]]);
     let lights;
-    if (this.phase === "title") lights = lamps(dim(LAMP.green, 0.35), dim(LAMP.cyan, 0.3 + 0.2 * Math.sin(this.t * 1.7)), dim(LAMP.amber, 0.35));
+    if (this.guide >= 0) lights = lamps(dim(LAMP.green, 0.5), dim(LAMP.green, 0.5), dim(LAMP.red, 0.5));
+    else if (this.phase === "title") lights = lamps(dim(LAMP.green, 0.35), dim(LAMP.cyan, 0.3 + 0.2 * Math.sin(this.t * 1.7)), dim(LAMP.amber, 0.35));
     else if (this.phase === "over" || this.stage === "card") lights = fill(LAMP.green, 0.35 + 0.2 * Math.sin(this.t * 2));
     else if (this.stage === "water") lights = lamps(dim(LAMP.blue, 0.65), this.mulligans ? dim(LAMP.amber, 0.45) : null, this.held && this.t - this.downAt >= 0.6 ? LAMP.green : null);
     else if (this.stage === "charge") lights = meter(this.power, this.previewEnd?.status === "water" ? LAMP.red : this.club ? LAMP.cyan : LAMP.green, [3, 12, 5]);
@@ -349,7 +382,20 @@ export class PocketLinks {
       const direction = (Math.sin(this.aimAt()) + 1) / 2;
       lights = spot(direction, this.club ? LAMP.cyan : LAMP.green, 1.2);
     }
-    this.lamps.frame(dt, lights);
+    this.lamps.frame(dt, withFourth(lights, this.verdictLamp(), lampCount(this.c)));
+  }
+  // Lamp 4: where the shot on show (or in the air) will stop.
+  verdictLamp() {
+    if (this.guide >= 0) return dim(LAMP.amber, 0.5);
+    if (this.phase === "title") return dim(LAMP.amber, 0.25);
+    if (this.phase === "over" || this.stage === "card") return dim(LAMP.green, 0.35 + 0.2 * Math.sin(this.t * 2));
+    if (this.stage === "water") return dim(LAMP.red, 0.7);
+    const end = this.stage === "rolling" ? this.shotEnd : this.previewEnd;
+    if (!end) return null;
+    if (end.status === "holed") return dim(LAMP.green, 0.95);
+    if (end.status === "water") return dim(LAMP.red, 0.8);
+    const near = 1 - clamp(Math.hypot(end.x - this.course.cup.x, end.y - this.course.cup.y) / 320, 0, 1);
+    return dim(LAMP.amber, 0.06 + 0.6 * near * near);
   }
   cancel() {
     const rewound = this.guard.rewind();
@@ -401,7 +447,11 @@ export class PocketLinks {
     if (this.stage === "aim" || this.stage === "charge") {
       const previewColor = this.previewEnd?.status === "water" ? C.red : this.club ? C.cyan : "#b8ca8d";
       for (let i = 1; i < this.preview.length; i++) { const p = this.preview[i]; circle(g, X + p.x, Y + p.y, p.air ? 2.2 : 1.6, previewColor, true); }
-      if (this.previewEnd) { const p = this.previewEnd; circle(g, X + p.x, Y + p.y, p.status === "holed" ? 15 : 7, previewColor, false, 1.4); }
+      if (this.previewEnd) {
+        const p = this.previewEnd;
+        circle(g, X + p.x, Y + p.y, p.status === "holed" ? 15 : 7, p.status === "holed" ? C.amber : previewColor, false, p.status === "holed" ? 2.5 : 1.4);
+        if (p.status !== "stopped") text(g, p.status === "holed" ? "IN!" : "WATER", X + p.x, Y + p.y - 24, 14, p.status === "holed" ? C.amber : C.red, "center");
+      }
       if (this.landing && this.club) circle(g, X + this.landing.x, Y + this.landing.y, 11, C.cyan, false, 1.5);
       const a = this.stage === "charge" ? this.lockedAim : this.aimAt(), bx = X + this.ball.x, by = Y + this.ball.y;
       const ax = bx + Math.cos(a) * 40, ay = by + Math.sin(a) * 40;
@@ -451,6 +501,7 @@ export class PocketLinks {
     text(g, "ROUND " + signed(this.total - this.parTotal), sx + 10, 420, 16, C.muted);
   }
   draw(g) {
+    if (this.guide >= 0) { drawGuide(g, "POCKET LINKS", GUIDE, this.guide, lampCount(this.c)); return; }
     g.save(); g.globalAlpha = 1; g.fillStyle = C.bg; g.fillRect(0, 0, 960, 540);
     if (this.phase === "title") { this.drawTitle(g); g.restore(); return; }
     if (this.phase === "over") { this.drawResult(g); g.restore(); return; }
@@ -497,7 +548,7 @@ export class PocketLinks {
     text(g, "TAP", 48, 354, 18, C.cyan); text(g, "change putter / wedge", 134, 354, 18, C.ink);
     text(g, "HOLD", 48, 389, 18, C.cyan); text(g, "freeze the aiming arrow", 134, 389, 18, C.ink);
     text(g, "RELEASE", 48, 424, 18, C.cyan); text(g, "choose shot power", 134, 424, 18, C.ink);
-    text(g, "PRESS TO TEE OFF", 480, 490, 25, C.amber, "center");
+    text(g, this.sv.guided ? "PRESS TO TEE OFF" : "PRESS TO LEARN HOW TO PLAY", 480, 490, 25, C.amber, "center");
     if (this.sv.bestStrokes) text(g, "BEST NINE: " + this.sv.bestStrokes + " STROKES", 902, 410, 16, C.muted, "right");
   }
   drawResult(g) {

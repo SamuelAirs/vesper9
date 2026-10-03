@@ -1,30 +1,35 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Supper, migrateSave, SCAN_SECONDS, RECIPES, UPGRADES } from "../web/apps/supper.js";
-import { appContext, fakeCanvas, run } from "./helpers/app-context.mjs";
+import { Supper, migrateSave, RECIPES, UPGRADES, GUIDE } from "../web/apps/supper.js";
+import { HOLD } from "../web/apps/after-hours-kit.js";
+import { appContext as baseContext, fakeCanvas, run } from "./helpers/app-context.mjs";
 
+// Players who have seen HOW TO PLAY; the guide itself has its own test.
+const appContext = (options = {}) => baseContext({ progress: { schema: 1, guided: true }, ...options });
+// A tap moves to the next pan; a hold that is released uses it.
 const tap = (app) => { app.down({ source: "keyboard" }); app.up({ source: "keyboard", durationMs: 60 }); };
-const onPan = (app, i) => { app.scanT = i * SCAN_SECONDS + 0.6; app.actionCooldown = 0; app.pans[i].cooldown = 0; tap(app); };
+const hold = (app) => { app.down({ source: "keyboard" }); app.up({ source: "keyboard", durationMs: HOLD * 1000 + 150 }); };
+const onPan = (app, i) => { app.actionCooldown = 0; app.pans[i].cooldown = 0; while (app.cursor !== i) tap(app); hold(app); };
 const ready = (app, i) => { const p = app.pans[i]; if (p.state === "empty") app.beginPan(i); p.age = p.cook + 0.6; p.state = "ready"; };
 
-test("opening offers a complete meal inside ten seconds, while premature plating wastes scarce stock", () => {
+test("opening offers a complete meal inside ten seconds; using a cooking pan wastes nothing", () => {
   const ctx = appContext(), app = new Supper(ctx);
   tap(app);
   assert.equal(app.phase, "play");
   assert.equal(app.pans[0].state, "cook");
   const initialStock = app.stock[0];
   onPan(app, 0);
-  assert.equal(app.waste, 1);
-  assert.equal(app.pans[0].state, "empty");
-  onPan(app, 0);
-  assert.equal(app.stock[0], initialStock - 1);
-  assert.equal(app.meals, 0);
+  assert.equal(app.waste, 0);
+  assert.equal(app.pans[0].state, "cook", "a release on a cooking pan only says to wait");
   ready(app, 0); onPan(app, 0);
   assert.equal(app.meals, 1);
   assert.ok(app.score >= RECIPES[0].value);
+  onPan(app, 0);
+  assert.equal(app.stock[0], initialStock - 1);
+  assert.equal(app.pans[0].state, "cook");
 
   const fresh = new Supper(appContext()); tap(fresh);
-  run(fresh, 4.25); tap(fresh);
+  run(fresh, 4.25); hold(fresh);
   assert.equal(fresh.meals, 1);
 });
 
@@ -61,25 +66,40 @@ test("plated food expires, overfull trays block overproduction, and burnt pans n
   assert.equal(app.waste, 2);
 });
 
-test("a plain hold spends breath to slow time and never accidentally cooks or plates", () => {
+test("a hold slows the kitchen while it lasts; its release uses the pan you are on", () => {
   const app = new Supper(appContext()); tap(app);
-  app.scanT = SCAN_SECONDS + 0.5;
+  tap(app); assert.equal(app.cursor, 1);
   const stock = app.stock.slice(), age = app.pans[0].age, breath = app.breath;
-  app.down({ source: "keyboard" }); run(app, 2); app.up({ source: "keyboard", durationMs: 2000 });
-  assert.deepEqual(app.stock, stock);
-  assert.equal(app.pans[1].state, "empty");
-  assert.ok(app.pans[0].age - age < 0.8);
+  app.down({ source: "keyboard" }); run(app, 2);
+  assert.deepEqual(app.stock, stock, "nothing happens while the button is down");
+  assert.ok(app.pans[0].age - age < 0.8, "rice cooked slowly during the hold");
   assert.ok(app.breath < breath - 1.5);
+  app.up({ source: "keyboard", durationMs: 2000 });
+  assert.equal(app.pans[1].state, "cook"); assert.equal(app.stock[1], stock[1] - 1);
   assert.equal(app.held, false);
 });
 
-test("scan selection is latched on press, calibrated, and unaffected by release crossing a boundary", () => {
-  const app = new Supper(appContext({ settings: { latencyMs: 150 } })); tap(app);
-  app.scanT = SCAN_SECONDS + 0.1;
+test("taps only move between pans and never touch the food", () => {
+  const app = new Supper(appContext()); tap(app);
   ready(app, 0);
-  app.down({ source: "keyboard" }); run(app, 0.08); app.up({ source: "keyboard", durationMs: 80 });
-  assert.equal(app.meals, 1, "150ms correction selects rice rather than newly focused greens");
-  assert.equal(app.pans[1].state, "empty");
+  const before = JSON.stringify({ pans: app.pans, stock: app.stock, trays: app.trays });
+  for (let i = 0; i < 7; i++) tap(app);
+  assert.equal(app.cursor, 1);
+  assert.equal(JSON.stringify({ pans: app.pans, stock: app.stock, trays: app.trays }), before);
+  assert.equal(app.meals, 0);
+});
+
+test("first launch teaches the game once; HOW TO PLAY reopens from the menu", () => {
+  const ctx = baseContext(), app = new Supper(ctx);
+  tap(app); assert.equal(app.guide, 0); assert.equal(app.phase, "title");
+  for (let page = 1; page < GUIDE.length; page++) { tap(app); assert.equal(app.guide, page); }
+  tap(app); assert.equal(app.guide, -1); assert.equal(app.phase, "play");
+  run(app, 3); assert.equal(ctx.calls.saved.at(-1).guided, true);
+  const world = app.worldT;
+  app.menuActions()[0].run(); run(app, 5);
+  assert.equal(app.worldT, world, "the kitchen waits while the guide is open");
+  hold(app); assert.equal(app.guide, -1); assert.equal(app.phase, "play");
+  assert.equal(migrateSave({ runs: 2 }).guided, false);
 });
 
 test("upgrades change the actual resource and scheduling rules", () => {
@@ -135,34 +155,47 @@ test("tap-tap-hold menu gesture restores food, scores, RNG, and lamp lifetime", 
   }
 });
 
-test("new players survive at least thirty seconds; spam consumes food without winning", () => {
+test("new players survive at least thirty seconds; tapping alone uses no food", () => {
   for (const mode of ["idle", "spam"]) {
     const app = new Supper(appContext()); tap(app);
+    const stock = app.stock.slice();
     run(app, 31, (i) => { if (mode === "spam" && i % 6 === 0) tap(app); });
     assert.equal(app.phase, "play");
     assert.equal(app.hearts, 6);
-    if (mode === "spam") { assert.equal(app.meals, 0); assert.ok(app.waste >= 8); }
+    if (mode === "spam") { assert.equal(app.meals, 0); assert.deepEqual(app.stock, stock); }
   }
 });
 
+// A player who reads the tickets: moves to the pan that needs using with taps, then holds and releases.
+// The hold is real time on the clock, as on the console (the kitchen runs slowly meanwhile).
 function kitchenBot(app) {
+  if (app.held) {
+    if (app.t - app.pressAt >= HOLD + 0.05) app.up({ source: "keyboard", durationMs: Math.round((app.t - app.pressAt) * 1000) });
+    return;
+  }
+  const use = (i) => { if (app.cursor !== i) tap(app); else app.down({ source: "keyboard" }); };
   if (app.phase === "upgrade") {
     if (app.t - app.phaseAt < 1) return;
     const priority = ["drawer", "host", "iron", "prep", "flame", "batch"];
     const wanted = app.offers.slice().sort((a, b) => priority.indexOf(UPGRADES[a].id) - priority.indexOf(UPGRADES[b].id))[0];
-    if (app.offers[app.focusAt()] === wanted) tap(app);
+    use(app.offers.indexOf(wanted));
     return;
   }
   if (app.phase !== "play" || app.actionCooldown > 0) return;
-  const i = app.focusAt(), p = app.pans[i];
-  if (p.cooldown > 0) return;
-  if (p.state === "burnt" || p.state === "ready" && app.trays[i].length < app.trayMax()) { tap(app); return; }
-  if (p.state !== "empty" || !app.stock[i]) return;
   const need = [0, 0, 0];
   const orders = app.queue.map((order) => order.recipe);
   if (app.nextOrder < app.schedule.length && app.schedule[app.nextOrder].at - app.waveClock < 14) orders.push(app.schedule[app.nextOrder].recipe);
   for (const recipe of orders) RECIPES[recipe].need.forEach((n, j) => { need[j] += n; });
-  if (need[i] > app.trays[i].length) tap(app);
+  const wants = (i) => {
+    const p = app.pans[i];
+    if (p.cooldown > 0) return false;
+    if (p.state === "burnt" || p.state === "ready" && app.trays[i].length < app.trayMax()) return true;
+    return p.state === "empty" && app.stock[i] > 0 && need[i] > app.trays[i].length;
+  };
+  // Ready food first (it burns), then a pan that needs starting.
+  const order = [0, 1, 2].sort((a, b) => (app.pans[b].state === "ready") - (app.pans[a].state === "ready"));
+  const target = order.find(wants);
+  if (target !== undefined) use(target);
 }
 
 test("a ticket-reading player can finish all four services, across seeded order and upgrade variations", () => {
@@ -177,6 +210,22 @@ test("a ticket-reading player can finish all four services, across seeded order 
     assert.ok(app.meals >= 20, "ticket reader serves most of the house");
     assert.ok(app.serviceT >= 180 && app.serviceT < 350, "several-minute service length");
   }
+});
+
+test("four lamps: the pans on lamps 1-3, the table closest to leaving on lamp 4", () => {
+  const ctx = appContext(); ctx.lampCount = () => 4;
+  const app = new Supper(ctx); tap(app); run(app, 0.2);
+  let frame = ctx.calls.leds.at(-1);
+  assert.equal(frame.length, 12);
+  assert.ok(frame[0] > 100 && frame[1] > 30 && frame[2] < 40, "rice is cooking: amber, and brightest because you are on it");
+  assert.ok(frame[10] > frame[9], "a patient table is green");
+  app.queue[0].patience = app.queue[0].maxPatience * 0.1;
+  let reds = 0;
+  run(app, 1, () => { const f = ctx.calls.leds.at(-1); if (f[9] > 100 && f[10] < 60) reds++; });
+  assert.ok(reds > 0, "a table about to leave blinks red");
+  app.queue = []; run(app, 0.1); frame = ctx.calls.leds.at(-1);
+  assert.deepEqual(frame.slice(9), [0, 0, 0], "no tables, lamp 4 dark");
+  app.dispose(); assert.ok(ctx.calls.leds.at(-1).every((v) => v === 0));
 });
 
 test("a minute of varied inputs draws safely and emits only finite 9-channel lamps", () => {

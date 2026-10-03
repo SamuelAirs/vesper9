@@ -1,11 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Crawlspace, migrateSave, SCAN_SECONDS, ACTION_LOCK } from "../web/apps/crawlspace.js";
+import { Crawlspace, migrateSave, ACTION_LOCK, GUIDE } from "../web/apps/crawlspace.js";
+import { HOLD } from "../web/apps/after-hours-kit.js";
 import { appContext, fakeCanvas, run } from "./helpers/app-context.mjs";
 
-const press = (a) => { a.down({ source: "keyboard" }); a.up({ source: "keyboard", durationMs: 60 }); };
-const ready = (options = {}) => { const c = appContext(options), a = new Crawlspace(c); press(a); run(a, ACTION_LOCK + 0.1); return { a, c }; };
-const choose = (a, index) => { a.lock = 0; a.scanT = index * SCAN_SECONDS + 0.4; press(a); };
+// A tap moves to the next card; a hold that is released does the card.
+const tap = (a) => { a.down({ source: "keyboard" }); a.up({ source: "keyboard", durationMs: 60 }); };
+const hold = (a) => { a.down({ source: "keyboard" }); a.up({ source: "keyboard", durationMs: HOLD * 1000 + 150 }); };
+// From the title: the first press opens HOW TO PLAY (first run only); a hold skips the rest of it.
+const ready = (options = {}) => {
+  const c = appContext(options), a = new Crawlspace(c);
+  tap(a); if (a.guide >= 0) hold(a);
+  run(a, ACTION_LOCK + 0.1); return { a, c };
+};
+const choose = (a, index) => { a.lock = 0; while (a.cursor !== index) tap(a); hold(a); };
 
 test("opening is safe; swing preview matches the actual damage", () => {
   const { a } = ready();
@@ -92,22 +100,43 @@ test("damage pressure grows with enemy turns, never with thinking time", () => {
 test("presses during action resolution cannot advance a second turn", () => {
   const { a } = ready(); choose(a, 0);
   const hp = a.enemy.hp, turn = a.enemy.turn;
-  for (let i = 0; i < 10; i++) press(a);
+  for (let i = 0; i < 10; i++) hold(a);
   assert.equal(a.enemy.hp, hp); assert.equal(a.enemy.turn, turn);
 });
 
-test("scan selection applies the calibrated latency at an action boundary", () => {
-  const { a } = ready({ settings: { latencyMs: 200 } });
-  a.scanT = SCAN_SECONDS + 0.08;
-  assert.equal(a.selected(), 1); press(a);
-  assert.equal(a.enemy.swings, 1); assert.equal(a.enemy.braced, false);
+test("a tap only moves to the next card; a released hold does that card", () => {
+  const { a } = ready();
+  assert.equal(a.cursor, 0);
+  tap(a); assert.equal(a.cursor, 1); assert.equal(a.enemy.turn, 0);
+  tap(a); tap(a); assert.equal(a.cursor, 0, "the cursor wraps");
+  tap(a);
+  // A hold that is still down does nothing yet; its release braces.
+  a.down(); run(a, HOLD + 0.1); assert.equal(a.enemy.turn, 0);
+  a.up({ durationMs: (HOLD + 0.1) * 1000 });
+  assert.equal(a.enemy.braced, true); assert.equal(a.enemy.swings, 0); assert.equal(a.enemy.turn, 1);
+  assert.equal(a.cursor, 1, "the cursor stays on the card just used");
+});
+
+test("first launch teaches the game; the guide is remembered and reopens from the menu", () => {
+  const c = appContext(), a = new Crawlspace(c);
+  tap(a); assert.equal(a.guide, 0); assert.equal(a.phase, "title");
+  for (let page = 1; page < GUIDE.length; page++) { tap(a); assert.equal(a.guide, page); }
+  tap(a); assert.equal(a.guide, -1); assert.equal(a.phase, "play");
+  run(a, 3); assert.equal(c.calls.saved.at(-1).guided, true);
+  const again = new Crawlspace(appContext({ progress: c.calls.saved.at(-1) }));
+  tap(again); assert.equal(again.phase, "play", "no guide the second time");
+  const turn = again.enemy.turn;
+  again.menuActions().find((x) => x.label === "HOW TO PLAY").run();
+  assert.equal(again.guide, 0); hold(again);
+  assert.equal(again.guide, -1); assert.equal(again.phase, "play"); assert.equal(again.enemy.turn, turn, "closing the guide takes no action");
+  assert.equal(migrateSave({ schema: 1, runs: 4 }).guided, false, "older saves see the guide once");
 });
 
 test("win records exactly once and result lockout protects it", () => {
   const { a, c } = ready();
   a.run.floor = 3; a.run.room = 3; a.enterCombat("invoice"); a.enemy.hp = 1;
   choose(a, 0); assert.equal(a.phase, "over"); assert.equal(a.won, true);
-  press(a); assert.equal(a.phase, "over");
+  hold(a); assert.equal(a.phase, "over");
   a.end(true); run(a, 3);
   assert.equal(c.calls.score.length, 1);
   const save = c.calls.saved.at(-1);
@@ -152,8 +181,8 @@ test("junk, giant records, and inherited catalog names migrate safely", () => {
 test("gesture rewind restores combat, RNG, and any pending save at every pace", () => {
   for (const pace of ["standard", "quick", "relaxed"]) {
     const { a, c } = ready({ settings: { gesturePace: pace } });
-    a.enemy.hp = 1;
-    const picture = () => JSON.stringify({ phase: a.phase, view: a.view, run: a.run, enemy: a.enemy, offers: a.offers, sv: a.sv, rng: c.rng.state, t: a.t, scan: a.scanT });
+    run(a, 3); a.enemy.hp = 1;
+    const picture = () => JSON.stringify({ phase: a.phase, view: a.view, run: a.run, enemy: a.enemy, offers: a.offers, sv: a.sv, rng: c.rng.state, t: a.t, cursor: a.cursor });
     const before = picture(), saves = c.calls.saved.length;
     for (let i = 0; i < 2; i++) { a.down(); run(a, 0.067); a.up(); run(a, 0.05); }
     a.down(); run(a, 1.12); a.cancel(); a.pause();
@@ -162,10 +191,11 @@ test("gesture rewind restores combat, RNG, and any pending save at every pace", 
   }
 });
 
-test("even immediate repeated swings survive the opening thirty seconds", () => {
+test("thirty seconds of mashing the button only moves between cards", () => {
   for (let seed = 1; seed <= 12; seed++) {
-    const a = new Crawlspace(appContext({ seed: Math.imul(seed, 0x9e3779b9) >>> 0 })); press(a);
-    for (let i = 0; i < 30 * 60; i++) { if (i % 3 === 0) press(a); a.update(1 / 60); assert.equal(a.phase, "play", "seed " + seed + " ended at " + i / 60); }
+    const { a } = ready({ seed: Math.imul(seed, 0x9e3779b9) >>> 0 });
+    for (let i = 0; i < 30 * 60; i++) { if (i % 3 === 0) tap(a); a.update(1 / 60); }
+    assert.equal(a.phase, "play"); assert.equal(a.enemy.turn, 0); assert.equal(a.run.hp, 40);
   }
 });
 
@@ -196,8 +226,8 @@ test("reading intents clears full seeded runs; blindly swinging does not", () =>
   }
 });
 
-test("deeper replay starts fresh and scales the enemy, not the scan speed", () => {
-  const { a } = ready(); a.end(true); run(a, 1); a.scanT = SCAN_SECONDS + 0.3; press(a);
+test("deeper replay starts fresh and scales the enemy", () => {
+  const { a } = ready(); a.end(true); run(a, 1); tap(a); hold(a);
   assert.equal(a.phase, "play"); assert.equal(a.run.heat, 1); assert.deepEqual(a.run.relics, []);
   assert.equal(a.enemy.maxHp, 23); assert.equal(a.run.hp, 40);
 });
@@ -205,16 +235,31 @@ test("deeper replay starts fresh and scales the enemy, not the scan speed", () =
 test("the system menu can revisit the unlocked heat after a fresh launch", () => {
   const app = new Crawlspace(appContext({ progress: { schema: 1, unlockedHeat: 3 } }));
   const actions = app.menuActions();
-  assert.equal(actions.length, 2); assert.equal(actions[1].label, "HEAT 3 HOUSE");
-  actions[1].run();
+  assert.equal(actions.length, 3); assert.equal(actions[2].label, "HEAT 3 HOUSE");
+  actions[2].run();
   assert.equal(app.phase, "play"); assert.equal(app.run.heat, 3); assert.equal(app.enemy.maxHp, 33);
-  assert.equal(new Crawlspace(appContext()).menuActions().length, 1);
+  assert.equal(new Crawlspace(appContext()).menuActions().length, 2);
 });
 
 test("a minute of mixed input renders all states and keeps valid lamp bytes", () => {
   const { a, c } = ready({ seed: 0xfeedface }), g = fakeCanvas();
-  run(a, 60, (i) => { if (i % 89 === 0) press(a); if (i % 7 === 0) a.draw(g); });
+  run(a, 60, (i) => { if (i % 89 === 0) (i % 2 ? hold : tap)(a); if (i % 7 === 0) a.draw(g); });
   for (const values of c.calls.leds) assert.ok(values.length === 9 && values.every((v) => Number.isInteger(v) && v >= 0 && v <= 255));
   a.pause(); const count = c.calls.leds.length; run(a, 1); assert.equal(c.calls.leds.length, count); a.resume();
   a.dispose(); assert.deepEqual(c.calls.leds.at(-1), Array(9).fill(0));
+});
+
+test("four lamps: the cards on lamps 1-3, health on lamp 4", () => {
+  const c = appContext({ progress: { schema: 1, guided: true } });
+  c.lampCount = () => 4;
+  const a = new Crawlspace(c); tap(a); run(a, 0.5);
+  let frame = c.calls.leds.at(-1);
+  assert.equal(frame.length, 12);
+  assert.ok(frame[0] > 150 && frame[3] < 40 && frame[6] < 40, "the swing card's lamp is the bright one");
+  assert.ok(frame[10] > frame[9], "full health is green on lamp 4");
+  tap(a); run(a, 0.1); frame = c.calls.leds.at(-1);
+  assert.ok(frame[4] > 100 && frame[0] < 40, "the brace card's lamp lights after a tap");
+  a.run.hp = 6; run(a, 0.1); frame = c.calls.leds.at(-1);
+  assert.ok(frame[9] > frame[10], "low health turns lamp 4 red");
+  a.dispose(); assert.ok(c.calls.leds.at(-1).every((v) => v === 0), "every lamp, the fourth too, goes dark");
 });

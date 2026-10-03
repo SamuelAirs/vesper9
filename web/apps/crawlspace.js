@@ -1,13 +1,16 @@
 // CRAWLSPACE — a deliberate, one-button homeowner roguelike. No enemy acts on a clock.
 // All run state is plain data for AppGuard. Saves are bounded checkpoints, not live objects.
+// Controls (after-hours-kit.js): TAP moves to the next card, HOLD and RELEASE does it.
+// Lamps 1-3 are the three cards (the chosen one bright); lamp 4, when the node has one, is your health.
 import { C, text, line, circle } from "../engine/draw.js";
 import { clamp } from "../engine/math.js";
-import { LAMP, lamps, dim, fill } from "../engine/lightshow.js";
+import { LAMP, lamps, dim, fill, ramp, blink } from "../engine/lightshow.js";
 import { AppGuard } from "../engine/input.js";
 import { LampBus, LOCKOUT } from "./game-kit.js";
+import { HOLD, lampCount, withFourth, holdFraction, drawGuide, drawPressHelp } from "./after-hours-kit.js";
 
-export const SCAN_SECONDS = 1.2;
-export const ACTION_LOCK = 1.5;
+// After an action lands, presses are ignored this long so one press is one action.
+export const ACTION_LOCK = 0.35;
 const MAX_HEAT = 9;
 const FLOOR_NAMES = ["UNDER THE KITCHEN", "THE PIPEWORK", "FOUNDATIONS"];
 const INK = [C.amber, C.cyan, C.ink];
@@ -51,15 +54,23 @@ const ENEMIES = {
     moves: [{ label: "LATE FEE", hit: 9 }, { label: "FINE PRINT", hit: 0, shield: 8 }, { label: "COMPOUND INTEREST", hit: 13 }, { label: "DUE TOMORROW", hit: 0, open: true }] },
 };
 const BOSSES = ["sump", "owner", "invoice"];
+export const GUIDE = [
+  { head: "ONE BUTTON, THREE CARDS", lines: ["Your three choices are the cards along the bottom, one per lamp.",
+    "TAP to move to the next card. Its lamp lights up.", "HOLD the button, then RELEASE, to do that card.", "Nothing here moves on a clock. Take as long as you like."],
+    lamps: [{ rgb: LAMP.amber, label: "LEFT CARD", sub: "swing in a fight" }, { rgb: LAMP.cyan, label: "MIDDLE CARD", sub: "brace in a fight" },
+      { rgb: LAMP.green, label: "RIGHT CARD", sub: "drill in a fight" }, { rgb: LAMP.red, label: "YOUR HEALTH", sub: "green full, red low" }] },
+  { head: "FIGHTING PESTS", lines: ["The pest shows what it will do after your next action.",
+    "SWING hits it; armor soaks some. BRACE blocks and charges a cell.", "DRILL spends 2 cells and ignores armor. Short of cells, it RECHARGES.",
+    "Brace before a big hit. Swing when it shows an OPENING."] },
+  { head: "THE HOUSE", lines: ["Win a fight and pick one of three finds. You carry three relics.",
+    "Between fights, choose a room: another fight or a safe room.", "Three levels, four rooms each; a boss waits in every fourth room.",
+    "Your crawl is saved. HOW TO PLAY and NEW HOUSE are in the system menu."] },
+];
 const n = (value, low = 0, high = 1e7) => Number.isFinite(value) ? Math.floor(clamp(value, low, high)) : low;
 const copy = (value) => JSON.parse(JSON.stringify(value));
 const owns = (object, key) => typeof key === "string" && Object.prototype.hasOwnProperty.call(object, key);
 const has = (r, id) => r.relics.includes(id);
 const capacity = (r) => 4 + (has(r, "cable") ? 2 : 0);
-const latency = (ctx) => {
-  const v = Number(ctx.settings?.()?.latencyMs);
-  return Number.isFinite(v) ? clamp(v, -150, 300) / 1000 : 0;
-};
 
 function cleanRun(r) {
   if (!r || typeof r !== "object" || !Number.isFinite(r.hp) || !Number.isFinite(r.floor)) return null;
@@ -73,7 +84,7 @@ function cleanRun(r) {
 
 export function migrateSave(raw) {
   const r = raw && typeof raw === "object" ? raw : {}, last = r.last && typeof r.last === "object" ? r.last : {};
-  const sv = { schema: 1, runs: n(r.runs, 0, 1e9), milestone: n(r.milestone, 0, 30), wins: n(r.wins, 0, 1e9),
+  const sv = { schema: 1, guided: r.guided === true, runs: n(r.runs, 0, 1e9), milestone: n(r.milestone, 0, 30), wins: n(r.wins, 0, 1e9),
     unlockedHeat: n(r.unlockedHeat, 0, MAX_HEAT), last: { score: n(last.score), floor: n(last.floor, 0, 3), pests: n(last.pests, 0, 99),
       relics: n(last.relics, 0, 3), heat: n(last.heat, 0, MAX_HEAT), cleared: last.cleared === true || last.cleared === "YES" ? "YES" : "NO" }, active: null };
   const a = r.active;
@@ -100,15 +111,15 @@ export class Crawlspace {
     this.c = ctx;
     this.lamps = new LampBus(ctx);
     this.sv = migrateSave(ctx.progress?.());
-    this.t = 0; this.phase = "title"; this.view = "combat"; this.scanT = 0; this.lock = 0;
+    this.t = 0; this.phase = "title"; this.view = "combat"; this.cursor = 0; this.lock = 0; this.guide = -1;
     this.overAt = 0; this.won = false; this.run = null; this.enemy = null; this.offers = []; this.routeFoe = "mouse"; this.pendingLoot = null;
-    this.log = ["One button. Three choices. A very ordinary house.", "Wait for the lamp you want. Press once."];
-    this.pulseHit = 0; this.pulsePlayer = 0; this.lastAction = -1; this.held = false;
-    this.c.hint(this.sv.active ? "Press to continue your saved crawl. The system menu also offers NEW HOUSE." : "Press to begin. Wait for an action's lamp, then press once. Enemies wait for you.");
+    this.log = ["One button. Three choices. A very ordinary house.", "Tap to move between cards. Hold and release to do one."];
+    this.pulseHit = 0; this.pulsePlayer = 0; this.lastAction = -1; this.held = false; this.pressAt = 0;
+    this.c.hint(this.sv.active ? "Press to continue your saved crawl. The system menu also offers NEW HOUSE and HOW TO PLAY." : "Press to begin. Tap moves between cards; hold and release does one. Enemies wait for you.");
     this.guard = new AppGuard(this, ctx);
   }
   start(heat = 0, resume = false) {
-    this.phase = "play"; this.scanT = 0; this.lock = ACTION_LOCK; this.won = false; this.lastAction = -1;
+    this.phase = "play"; this.cursor = 0; this.lock = ACTION_LOCK; this.won = false; this.lastAction = -1;
     if (resume && this.sv.active) {
       const a = copy(this.sv.active);
       this.run = a.run; this.view = a.view; this.enemy = a.enemy; this.offers = a.offers; this.routeFoe = a.routeFoe; this.pendingLoot = a.pendingLoot;
@@ -121,25 +132,44 @@ export class Crawlspace {
     this.run = { hp: 40, maxHp: 40, cells: 2, scrap: 0, power: 5, heat: n(heat, 0, MAX_HEAT), floor: 1, room: 0,
       kills: 0, turns: 0, age: 0, relics: [], warrantyUsed: false };
     this.enterCombat("dust");
-    this.log = ["A DUST BUNNY HAS CLAIMED THE CRAWLSPACE.", "It is sizing you up. Try a swing or a drill."];
+    this.log = ["A DUST BUNNY HAS CLAIMED THE CRAWLSPACE.", "It is sizing you up. Hold and release on SWING to hit it."];
     this.checkpoint();
   }
   setHint() {
-    const hints = { combat: "Left: SWING. Middle: BRACE. Right: DRILL / RECHARGE. Press the lit choice. Waiting is safe.",
-      route: "Choose a room with the lamps. Costs are paid only when you choose. There is no time limit.",
+    const hints = { combat: "SWING / BRACE / DRILL: tap moves to the next card, hold and release does it. Waiting is safe.",
+      route: "Choose a room: tap moves, hold and release goes there. Costs are paid only when you choose.",
       loot: "Carry three relics. Choose a find, or take supplies without changing your build.",
-      replace: "Your three tool slots are full. Each lamp chooses the old relic to leave behind." };
+      replace: "Your three tool slots are full. Choose the old relic to leave behind." };
+    this.cursor = 0;
     this.c.hint(hints[this.view]);
   }
-  selected(ago = 0) { return Math.floor(Math.max(0, this.scanT - ago) / SCAN_SECONDS) % 3; }
+  selected() { return this.cursor; }
   down() {
     this.guard.mark();
     if (this.held) return;
-    this.held = true;
-    if (this.phase === "title") { this.start(0, !!this.sv.active); return; }
+    this.held = true; this.pressAt = this.t;
+  }
+  up(e = {}) {
+    this.guard.release();
+    if (!this.held) return;
+    this.held = false;
+    const seconds = Number.isFinite(e.durationMs) ? e.durationMs / 1000 : this.t - this.pressAt;
+    this.press(seconds >= HOLD);
+  }
+  // One finished press: a tap (long = false) or a hold that was released.
+  press(long) {
+    if (this.guide >= 0) {
+      if (!long && this.guide < GUIDE.length - 1) { this.guide++; return; }
+      this.closeGuide(); return;
+    }
+    if (this.phase === "title") {
+      if (!this.sv.guided) { this.guide = 0; return; }
+      this.start(0, !!this.sv.active); return;
+    }
+    if (this.phase === "over" && this.t - this.overAt < LOCKOUT) return;
+    if (!long) { this.cursor = (this.cursor + 1) % 3; this.c.tone(520 + this.cursor * 60, 0.025, "triangle"); return; }
     if (this.phase === "over") {
-      if (this.t - this.overAt < LOCKOUT) return;
-      const k = this.selected(latency(this.c));
+      const k = this.cursor;
       if (k === 0) this.start(0);
       else if (k === 1 && this.won) this.start(Math.min(MAX_HEAT, this.run.heat + 1));
       else if (k === 1) this.start(this.run.heat);
@@ -147,10 +177,14 @@ export class Crawlspace {
       return;
     }
     if (this.lock > 0) return;
-    const index = this.selected(latency(this.c));
-    this.choose(index);
+    this.choose(this.cursor);
   }
-  up() { this.guard.release(); this.held = false; }
+  openGuide() { this.guide = 0; this.held = false; }
+  closeGuide() {
+    this.guide = -1;
+    if (!this.sv.guided) { this.sv.guided = true; if (this.phase !== "play") this.c.saveProgress(copy(this.sv))?.catch?.(this.c.error); }
+    if (this.phase === "title") this.start(0, !!this.sv.active);
+  }
   choose(index) {
     if (this.phase !== "play" || this.lock > 0) return;
     this.lastAction = index;
@@ -159,7 +193,6 @@ export class Crawlspace {
     else if (this.view === "replace") this.swapLoot(index);
     else this.takeLoot(this.offers[index]);
     this.lock = ACTION_LOCK;
-    this.scanT = 0;
   }
   randomFoe() {
     const pool = this.run.floor === 1 ? ["mouse", "can", "cable"] : this.run.floor === 2 ? ["can", "cable", "mold"] : ["tenant", "mold", "can"];
@@ -170,7 +203,7 @@ export class Crawlspace {
     const hp = def.hp + (def.boss ? 0 : (r.floor - 1) * 4) + r.heat * (def.boss ? 10 : 5);
     this.enemy = { id, hp, maxHp: hp, turn: 0, shield: 0, weak: 0, swings: 0, braced: false, thermosUsed: false, tapeHeals: 0 };
     if (has(r, "cable")) r.cells = Math.min(capacity(r), r.cells + 1);
-    this.view = "combat"; this.offers = []; this.scanT = 0;
+    this.view = "combat"; this.offers = [];
     this.log = [def.name, def.quip]; this.setHint();
   }
   intent() {
@@ -245,7 +278,7 @@ export class Crawlspace {
     while (this.offers.length < 2 && pool.length) { const at = this.c.rng.int(0, pool.length - 1); this.offers.push(pool.splice(at, 1)[0]); }
     this.offers.push("ration");
     this.log = [def.name + " DEALT WITH.", "+" + (3 + r.floor + (def.boss ? 2 : 0)) + " SCRAP. CHOOSE ONE USEFUL BIT OF JUNK."];
-    this.scanT = 0; this.setHint(); this.checkpoint();
+    this.setHint(); this.checkpoint();
   }
   takeLoot(id) {
     const r = this.run;
@@ -256,7 +289,7 @@ export class Crawlspace {
       if (r.relics.length === 3) {
         this.pendingLoot = id; this.offers = [...r.relics]; this.view = "replace";
         this.log = ["MAKE ROOM FOR " + RELICS[id].name + ".", RELICS[id].a + " " + RELICS[id].b];
-        this.scanT = 0; this.setHint(); this.checkpoint(); return;
+        this.setHint(); this.checkpoint(); return;
       }
       r.relics.push(id); if (id === "cable") r.cells = Math.min(capacity(r), r.cells + 2);
     }
@@ -284,7 +317,7 @@ export class Crawlspace {
     else {
       this.view = "route"; this.routeFoe = this.randomFoe();
       this.offers = ["nest", this.c.rng.next() < 0.55 ? "repair" : "bench", this.c.rng.next() < 0.5 ? "salvage" : (this.c.rng.next() < 0.5 ? "supply" : "rewire")];
-      this.scanT = 0; this.setHint();
+      this.setHint();
     }
     this.checkpoint();
   }
@@ -315,36 +348,51 @@ export class Crawlspace {
   end(won) {
     if (this.phase === "over") return;
     const r = this.run;
-    this.phase = "over"; this.won = won; this.overAt = this.t; this.scanT = 0; this.sv.active = null;
+    this.phase = "over"; this.won = won; this.overAt = this.t; this.cursor = 0; this.sv.active = null;
     const score = Math.round(((r.floor - 1) * 350 + r.room * 70 + r.kills * 85 + r.relics.length * 30 + (won ? 1200 + r.hp * 8 : 0)) * (1 + r.heat * 0.35));
     this.sv.runs++; if (won) this.sv.wins++;
     this.sv.milestone = Math.max(this.sv.milestone, won ? (r.heat + 1) * 3 : (r.heat * 3 + r.floor - 1));
     if (won) this.sv.unlockedHeat = Math.min(MAX_HEAT, Math.max(this.sv.unlockedHeat, r.heat + 1));
     this.sv.last = { score, floor: r.floor, pests: r.kills, relics: r.relics.length, heat: r.heat, cleared: won ? "YES" : "NO" };
     this.c.score(score); this.c.saveProgress(copy(this.sv))?.catch?.(this.c.error);
-    this.c.hint(won ? "House secured. Choose a fresh crawl or a tougher house. Each lamp is a choice." : "You made it back upstairs. Choose a fresh crawl, retry this depth, or return to the title.");
+    this.c.hint(won ? "House secured. Tap to move between cards; hold and release to choose a fresh crawl or a tougher house." : "You made it back upstairs. Tap to move; hold and release to start fresh, retry this depth, or go back to the title.");
   }
   cancel() { this.guard.rewind(); this.lamps.clear(); this.held = false; }
   pause() { this.guard.settle(); this.lamps.sleep(); }
   resume() { this.lamps.wake(); }
   dispose() { this.guard.settle(); this.lamps.sleep(); if (this.phase === "play") this.checkpoint(); }
   menuActions() {
-    const actions = [{ label: "NEW HOUSE", run: () => this.start(0) }];
-    if (this.sv.unlockedHeat > 0) actions.push({ label: "HEAT " + this.sv.unlockedHeat + " HOUSE", run: () => this.start(this.sv.unlockedHeat) });
+    const actions = [{ label: "HOW TO PLAY", run: () => this.openGuide() }, { label: "NEW HOUSE", run: () => { this.guide = -1; this.start(0); } }];
+    if (this.sv.unlockedHeat > 0) actions.push({ label: "HEAT " + this.sv.unlockedHeat + " HOUSE", run: () => { this.guide = -1; this.start(this.sv.unlockedHeat); } });
     return actions;
   }
   update(dt) {
     this.guard.tick(dt);
     this.t += dt; this.pulseHit = Math.max(0, this.pulseHit - dt); this.pulsePlayer = Math.max(0, this.pulsePlayer - dt);
-    if (this.phase === "play") { this.run.age += dt; this.lock = Math.max(0, this.lock - dt); if (!this.lock && !this.held) this.scanT += dt; }
-    if (this.phase === "over" && this.t - this.overAt >= LOCKOUT && !this.held) this.scanT += dt;
+    if (this.phase === "play" && this.guide < 0) { this.run.age += dt; this.lock = Math.max(0, this.lock - dt); }
     const r = this.run;
     this.c.hud(r ? [["HEALTH", r.hp + "/" + r.maxHp], ["CELLS", r.cells + "/" + capacity(r)], ["SCRAP", r.scrap], ["LEVEL", r.floor + (r.heat ? " / HEAT " + r.heat : " / 3")]] : [["CLEARED", this.sv.wins], ["CRAWLS", this.sv.runs], ["BEST", this.c.best()]]);
-    const index = this.selected();
-    let rest;
-    if (this.phase === "title") rest = lamps(...RGB.map((c, i) => dim(c, 0.08 + 0.28 * Math.max(0, Math.sin(this.t * 1.5 - i * 1.4)))));
-    else rest = lamps(...RGB.map((c, i) => dim(c, i === index ? 0.95 : 0.06)));
-    this.lamps.frame(dt, rest);
+    this.lamps.frame(dt, this.lampPicture());
+  }
+  // Lamp 4's colour: health from red (empty) to green (full), blinking when the next blow could finish you.
+  healthLamp() {
+    const r = this.run;
+    if (!r || this.phase !== "play") return null;
+    const colour = ramp(r.hp / r.maxHp, [LAMP.red, LAMP.amber, LAMP.green]);
+    const danger = this.view === "combat" && Math.max(0, this.intent().hit - (this.enemy.weak ? 3 : 0)) >= r.hp;
+    return dim(colour, danger ? 0.25 + 0.7 * blink(this.t, 2.5) : 0.75);
+  }
+  lampPicture() {
+    const n = lampCount(this.c);
+    if (this.guide >= 0) {
+      const keys = GUIDE[0].lamps;
+      return withFourth(lamps(...keys.slice(0, 3).map((k) => dim(k.rgb, 0.6))), dim(LAMP.green, 0.6), n);
+    }
+    if (this.phase === "title") return withFourth(lamps(...RGB.map((c, i) => dim(c, 0.08 + 0.28 * Math.max(0, Math.sin(this.t * 1.5 - i * 1.4))))), dim(LAMP.green, 0.12), n);
+    // The card you are on is bright; a hold that is ready to release turns it white.
+    const ready = holdFraction(this) >= 1;
+    const three = lamps(...RGB.map((c, i) => dim(i === this.cursor && ready ? LAMP.white : c, i === this.cursor ? 0.95 : 0.08)));
+    return withFourth(three, this.healthLamp(), n);
   }
   cards() {
     if (this.phase === "over") return [{ title: "NEW HOUSE", a: "Fresh tools. Fresh route.", b: "Normal difficulty." },
@@ -369,6 +417,7 @@ export class Crawlspace {
     ];
   }
   draw(g) {
+    if (this.guide >= 0) { drawGuide(g, "CRAWLSPACE", GUIDE, this.guide, lampCount(this.c)); return; }
     g.fillStyle = C.bg; g.fillRect(0, 0, 960, 540);
     g.save();
     // A cheap structural backdrop: floor joists, brick seams and pipework.
@@ -398,14 +447,14 @@ export class Crawlspace {
     text(g, "The house makes a noise.", 593, 222, 22, C.ink, "center");
     text(g, "You have a hammer, a drill and a mortgage.", 593, 256, 19, C.muted, "center");
     if (this.sv.unlockedHeat > 0) text(g, "HEAT " + this.sv.unlockedHeat + " AVAILABLE IN THE SYSTEM MENU", 593, 305, 17, C.cyan, "center");
-    text(g, "PRESS THE LIT CHOICE", 480, 367, 25, C.ink, "center");
+    text(g, "TAP: NEXT CARD    HOLD + RELEASE: DO IT", 480, 367, 23, C.ink, "center");
     text(g, "SWING  /  BRACE  /  DRILL", 480, 409, 21, C.cyan, "center");
-    text(g, "The lamps scan slowly. Enemies wait as long as you need.", 480, 445, 18, C.muted, "center");
-    text(g, this.sv.active ? "PRESS TO CONTINUE YOUR SAVED CRAWL" : "PRESS TO GO DOWNSTAIRS", 480, 500, 21, C.amber, "center");
+    text(g, "Each card has a lamp. Enemies wait as long as you need.", 480, 445, 18, C.muted, "center");
+    text(g, this.sv.active ? "PRESS TO CONTINUE YOUR SAVED CRAWL" : this.sv.guided ? "PRESS TO GO DOWNSTAIRS" : "PRESS TO LEARN HOW TO PLAY", 480, 500, 21, C.amber, "center");
   }
   drawCombat(g) {
     const r = this.run, e = this.enemy, def = ENEMIES[e.id], intent = this.intent();
-    text(g, "YOU + QUESTIONABLE TOOLS", 28, 78, 17, C.muted);
+    text(g, lampCount(this.c) === 4 ? "YOUR HEALTH  (LAMP 4)" : "YOUR HEALTH", 28, 78, 17, C.muted);
     text(g, r.hp + " / 40", 28, 122, 35, this.pulsePlayer > 0 ? C.red : C.ink);
     this.bar(g, 28, 151, 245, r.hp / r.maxHp, C.ink);
     text(g, "CELLS", 28, 183, 16, C.muted);
@@ -456,13 +505,13 @@ export class Crawlspace {
       g.fillStyle = active ? C.dark : C.bg; g.fillRect(x, 363, 294, 143);
       g.strokeStyle = active ? INK[i] : C.line; g.lineWidth = active ? 3 : 1; g.strokeRect(x, 363, 294, 143);
       circle(g, x + 21, 385, 6, active ? INK[i] : C.line, active);
-      text(g, (i + 1) + "  " + ["LEFT", "MIDDLE", "RIGHT"][i], x + 38, 385, 15, active ? INK[i] : C.muted);
+      text(g, "LAMP " + (i + 1) + (active ? "  < YOU ARE HERE" : ""), x + 38, 385, 15, active ? INK[i] : C.muted);
       text(g, card.title, x + 15, 417, card.title.length > 17 ? 18 : 21, card.disabled ? C.red : INK[i]);
       text(g, card.a, x + 15, 451, 17, card.disabled ? C.red : C.ink);
       text(g, card.b, x + 15, 477, 17, C.muted);
-      if (active) { g.fillStyle = INK[i]; const f = (this.scanT % SCAN_SECONDS) / SCAN_SECONDS; g.fillRect(x, 504, 294 * (1 - f), 3); }
+      if (active) { g.fillStyle = INK[i]; g.fillRect(x, 503, 294 * holdFraction(this), 4); }
     }
-    text(g, this.phase === "play" && this.lock > 0 ? "LET THE ACTION LAND..." : "WAIT FOR YOUR CHOICE'S LAMP. PRESS ONCE. NO NEED TO RUSH.", 480, 526, 14, C.muted, "center");
+    drawPressHelp(g, this, 526, this.phase === "play" && this.view === "combat" ? "ACT" : "CHOOSE");
   }
   bar(g, x, y, width, value, color) {
     g.fillStyle = C.dark; g.fillRect(x, y, width, 9); g.fillStyle = color; g.fillRect(x, y, width * clamp(value, 0, 1), 9);

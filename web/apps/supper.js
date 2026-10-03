@@ -1,13 +1,16 @@
 // SUPPER CLUB — a dinner-service resource game for one button and three real pans/lamps.
-// Tap the scanning pan to start or plate; a plain hold slows the kitchen without taking an action.
+// Controls (after-hours-kit.js): TAP moves to the next pan; HOLD and RELEASE uses it (cook, plate or
+// clean). While the button is down the kitchen slows right down, so a hold is also time to think.
+// Lamps 1-3 are the pans; lamp 4, when the node has one, is the table that will leave soonest.
 import { C, text, line, circle } from "../engine/draw.js";
 import { clamp } from "../engine/math.js";
-import { LAMP, lamps, dim } from "../engine/lightshow.js";
+import { LAMP, lamps, dim, ramp, blink } from "../engine/lightshow.js";
 import { AppGuard } from "../engine/input.js";
 import { LampBus, LOCKOUT } from "./game-kit.js";
+import { HOLD, lampCount, withFourth, holdFraction, drawGuide, drawPressHelp } from "./after-hours-kit.js";
 
-export const SCAN_SECONDS = 1.4;
-export const HOLD_SECONDS = 0.38;
+// How fast the kitchen runs while the button is down (and slow-time is left).
+export const SLOW = 0.18;
 export const PAN_NAMES = ["RICE", "GREENS", "EGGS"];
 const COOK = [6.4, 4.8, 5.6];
 const READY = [7.8, 6.6, 7.2];
@@ -36,22 +39,32 @@ export const UPGRADES = [
   { id: "prep", name: "MISE EN PLACE", lines: ["+3 stock in every pan.", "Planning lasts 12s.", "More room to recover."], icon: 5 },
 ];
 
+export const GUIDE = [
+  { head: "THREE PANS, THREE LAMPS", lines: ["Each lamp is a pan: rice, greens and eggs. The pan you are on glows brightest.",
+    "TAP moves to the next pan. HOLD, then RELEASE, uses the pan you are on.", "Using an empty pan starts it cooking. Using a green pan plates the food.",
+    "Amber means still cooking: wait. Red means burnt: use it to clean it out."],
+    lamps: [{ rgb: LAMP.cyan, label: "RICE", sub: "cyan: empty" }, { rgb: LAMP.amber, label: "GREENS", sub: "amber: cooking" },
+      { rgb: LAMP.green, label: "EGGS", sub: "green: plate it now" }, { rgb: LAMP.red, label: "NEXT TABLE", sub: "red: about to leave" }] },
+  { head: "THE TICKETS", lines: ["Tables order along the top; each meal needs food from certain pans.",
+    "Plated food waits on the pan's tray. A ticket goes out by itself once its food is plated.",
+    "Cook only what the tickets need: plated food goes cold, and stock runs out.", "A table that waits too long leaves, and the kitchen loses goodwill."] },
+  { head: "TAKE A BREATH", lines: ["While the button is down, the kitchen slows right down.",
+    "So hold to think, then release on the pan you want. Releasing on a cooking pan does nothing.",
+    "The slow-time meter drains as you hold and refills when you serve.", "Four services, with an upgrade between them. HOW TO PLAY is in the system menu."] },
+];
+
 const bounded = (v, max = MAX_SAVE) => typeof v === "number" && Number.isFinite(v) ? clamp(Math.floor(v), 0, max) : 0;
 export function migrateSave(raw) {
   const r = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
   const last = r.last && typeof r.last === "object" && !Array.isArray(r.last) ? r.last : {};
   return {
-    schema: 1, runs: bounded(r.runs), milestone: bounded(r.milestone, 4), wins: bounded(r.wins),
+    schema: 1, guided: r.guided === true, runs: bounded(r.runs), milestone: bounded(r.milestone, 4), wins: bounded(r.wins),
     bestMeals: bounded(r.bestMeals, 26),
     last: { score: bounded(last.score), meals: bounded(last.meals, 26), waves: bounded(last.waves, 4),
       waste: bounded(last.waste, 500), stars: bounded(last.stars, 3), won: last.won === true },
   };
 }
 
-const latency = (ctx) => {
-  const v = Number(ctx.settings?.()?.latencyMs);
-  return Number.isFinite(v) ? clamp(v, -150, 300) / 1000 : 0;
-};
 const freshPan = () => ({ state: "empty", age: 0, count: 0, cook: 0, ready: 0, cycle: 0, cooldown: 0 });
 
 export class Supper {
@@ -63,7 +76,8 @@ export class Supper {
     this.phase = "title";
     this.phaseAt = 0;
     this.overAt = 0;
-    this.scanT = 0;
+    this.cursor = 0;
+    this.guide = -1;
     this.wave = 0;
     this.worldT = 0;
     this.serviceT = 0;
@@ -91,15 +105,14 @@ export class Supper {
     this.lastSpeed = 1;
     this.held = false;
     this.heldT = 0;
-    this.heldPick = null;
-    this.consumed = false;
+    this.pressAt = 0;
     this.actionCooldown = 0;
     this.note = "THREE PANS. ONE BUTTON. EVERYONE WANTS DINNER.";
     this.noteT = 0;
     this.lastToneAt = -10;
     this.hudT = 0;
     this.plateFlash = [0, 0, 0];
-    this.c.hint("Tap the highlighted pan: cook when empty, plate when green. Hold to take a planning breath.");
+    this.c.hint("Tap moves to the next pan. Hold and release uses it: cook when empty, plate when green. Holding slows the kitchen.");
     this.guard = new AppGuard(this, ctx);
   }
 
@@ -107,10 +120,7 @@ export class Supper {
   breathMax() { return this.has("prep") ? 12 : 8; }
   trayLife() { return this.has("drawer") ? 40 : 19; }
   trayMax() { return this.has("drawer") ? 4 : 2; }
-  focusAt(secondsAgo = 0) {
-    const period = this.phase === "upgrade" ? 3.1 : SCAN_SECONDS;
-    return Math.floor(Math.max(0, this.scanT - secondsAgo + 0.000001) / period) % 3;
-  }
+  focusAt() { return this.cursor; }
   say(message, duration = 4) { this.note = message; this.noteT = duration; }
   beep(hz, wave = "triangle") {
     if (this.t - this.lastToneAt < 0.12) return;
@@ -123,7 +133,7 @@ export class Supper {
     this.score = 0; this.meals = 0; this.hearts = 6; this.waste = 0;
     this.burns = 0; this.missed = 0; this.freshMeals = 0; this.streak = 0;
     this.serviceT = 0; this.completedWaves = 0; this.won = false; this.stars = 0;
-    this.held = false; this.heldT = 0; this.heldPick = null; this.actionCooldown = 0;
+    this.held = false; this.heldT = 0; this.actionCooldown = 0;
     this.startWave(0);
   }
 
@@ -142,7 +152,7 @@ export class Supper {
   }
 
   startWave(wave) {
-    this.wave = wave; this.waveClock = 0; this.scanT = 0; this.worldT = 0;
+    this.wave = wave; this.waveClock = 0; this.cursor = 0; this.worldT = 0;
     this.phase = "play"; this.phaseAt = this.t;
     this.pans = [freshPan(), freshPan(), freshPan()]; this.trays = [[], [], []];
     this.schedule = this.makeSchedule(wave); this.nextOrder = 0; this.queue = [];
@@ -153,11 +163,11 @@ export class Supper {
     this.spawnOrders();
     if (wave === 0) {
       this.beginPan(0); this.pans[0].age = 3.2;
-      this.say("RICE is already cooking. AMBER = wait. GREEN = plate.", 8);
+      this.say("RICE is already cooking. When its lamp turns GREEN, hold and release to plate it.", 8);
     } else if (wave === 1) this.say("POTLUCK: combine pans. Plated food completes tickets automatically.", 7);
     else if (wave === 2) this.say("FRIDAY RUSH: watch the forecast. Two-to-share needs 2 rice.", 7);
     else this.say("LAST CALL: eight tables, then we close. Make it count.", 6);
-    this.c.hint("TAP focused pan: EMPTY cooks / GREEN plates / RED cleans. HOLD slows the kitchen; release does nothing.");
+    this.c.hint("TAP: next pan. HOLD + RELEASE: use it (EMPTY cooks, GREEN plates, RED cleans). The kitchen slows while you hold.");
   }
 
   spawnOrders() {
@@ -182,44 +192,57 @@ export class Supper {
 
   down() {
     this.guard.mark();
-    this.consumed = false;
-    if (this.phase === "title") { this.start(); this.consumed = true; return; }
-    if (this.phase === "over") {
-      if (this.t - this.overAt >= LOCKOUT) this.start();
-      this.consumed = true; return;
-    }
-    if (this.phase === "upgrade" && this.t - this.phaseAt < 0.8) { this.consumed = true; return; }
-    this.held = true; this.heldT = 0;
-    const lag = latency(this.c), index = this.focusAt(lag);
-    const p = this.pans[index];
-    this.heldPick = { index, cycle: p.cycle, age: p.age - lag * this.lastSpeed, phase: this.phase };
+    if (this.held) return;
+    this.held = true; this.heldT = 0; this.pressAt = this.t;
   }
 
   up(e = {}) {
     this.guard.release();
+    if (!this.held) return;
     const seconds = Number.isFinite(e.durationMs) ? e.durationMs / 1000 : this.heldT;
-    const pick = this.heldPick;
-    const tap = seconds < HOLD_SECONDS && this.heldT < HOLD_SECONDS;
-    this.held = false; this.heldT = 0; this.heldPick = null;
-    if (this.consumed || !pick || !tap || pick.phase !== this.phase) { this.consumed = false; return; }
-    if (this.phase === "upgrade") { this.chooseUpgrade(pick.index); return; }
-    if (this.phase === "play" && this.actionCooldown <= 0) this.act(pick);
+    this.held = false; this.heldT = 0;
+    this.press(seconds >= HOLD);
   }
 
-  act(pick) {
-    const index = pick.index, p = this.pans[index];
-    if (p.cycle !== pick.cycle || p.cooldown > 0) return;
+  // One finished press: a tap (long = false) or a hold that was released.
+  press(long) {
+    if (this.guide >= 0) {
+      if (!long && this.guide < GUIDE.length - 1) { this.guide++; return; }
+      this.closeGuide(); return;
+    }
+    if (this.phase === "title") { if (this.sv.guided) this.start(); else this.guide = 0; return; }
+    if (this.phase === "over") { if (this.t - this.overAt >= LOCKOUT) this.start(); return; }
+    if (this.phase === "upgrade" && this.t - this.phaseAt < 0.8) return;
+    if (!long) { this.cursor = (this.cursor + 1) % 3; this.beep(330 + this.cursor * 70); return; }
+    if (this.phase === "upgrade") { this.chooseUpgrade(this.cursor); return; }
+    if (this.phase === "play" && this.actionCooldown <= 0) this.act(this.cursor);
+  }
+
+  openGuide() { this.guide = 0; this.held = false; this.heldT = 0; }
+  closeGuide() {
+    this.guide = -1;
+    if (!this.sv.guided) { this.sv.guided = true; this.c.saveProgress(JSON.parse(JSON.stringify(this.sv)))?.catch?.(this.c.error); }
+    if (this.phase === "title") this.start();
+  }
+
+  menuActions() {
+    return [{ label: "HOW TO PLAY", run: () => this.openGuide() }, { label: "NEW SERVICE", run: () => { this.guide = -1; this.start(); } }];
+  }
+
+  act(index) {
+    const p = this.pans[index];
+    if (p.cooldown > 0) return;
     this.actionCooldown = 0.35;
     if (p.state === "empty") {
       if (this.trays[index].length >= this.trayMax()) { this.say("Tray full. Let a ticket use " + PAN_NAMES[index].toLowerCase() + " before cooking more."); return; }
       if (this.beginPan(index)) { this.beep(240 + index * 65); this.say(PAN_NAMES[index] + " cooking. Watch the other pans.", 2.2); }
       return;
     }
-    // Timing uses the press edge, not the later release. A quarter-second grace is intentionally generous.
-    if (pick.age >= p.cook - 0.25 && pick.age <= p.cook + p.ready + 0.25) {
+    // A quarter-second grace either side of the ready window is intentionally generous.
+    if (p.age >= p.cook - 0.25 && p.age <= p.cook + p.ready + 0.25) {
       const count = Math.min(p.count, this.trayMax() - this.trays[index].length);
       if (!count) { this.say("No tray space. Wait for a matching meal to go out.", 3); return; }
-      const quality = clamp(1 - Math.max(0, pick.age - p.cook) / p.ready * 0.45, 0.55, 1);
+      const quality = clamp(1 - Math.max(0, p.age - p.cook) / p.ready * 0.45, 0.55, 1);
       for (let n = 0; n < count; n++) this.trays[index].push({ age: 0, quality });
       p.count -= count;
       if (!p.count) { p.state = "empty"; p.age = 0; p.cooldown = 0.5; }
@@ -229,13 +252,14 @@ export class Supper {
       this.completeMeals();
       return;
     }
-    if (pick.age < p.cook - 0.25) {
-      this.waste += p.count; this.streak = 0;
-      this.say("Too soon! " + PAN_NAMES[index] + " wasted. AMBER means wait; GREEN means plate.", 4.5);
-    } else {
-      this.waste += p.count; this.burns++; this.streak = 0;
-      this.say("Burnt " + PAN_NAMES[index].toLowerCase() + " cleared. Start a fresh pan when it is empty.", 3.5);
+    // Releasing on a pan that is still cooking does nothing, so a hold to think is always safe.
+    if (p.age < p.cook - 0.25) {
+      this.say(PAN_NAMES[index] + " is still cooking. Wait for its lamp to turn GREEN.", 3);
+      this.beep(200);
+      return;
     }
+    this.waste += p.count; this.burns++; this.streak = 0;
+    this.say("Burnt " + PAN_NAMES[index].toLowerCase() + " cleared. Start a fresh pan when it is empty.", 3.5);
     p.count = 0; p.state = "empty"; p.age = 0; p.cooldown = 1.2;
     this.beep(105, "sawtooth");
   }
@@ -272,14 +296,14 @@ export class Supper {
     this.trays.forEach((tray) => { this.waste += tray.length; });
     this.pans = [freshPan(), freshPan(), freshPan()]; this.trays = [[], [], []];
     if (this.wave === 3) { this.end(true); return; }
-    this.phase = "upgrade"; this.phaseAt = this.t; this.scanT = 0;
-    this.held = false; this.heldPick = null; this.heldT = 0;
+    this.phase = "upgrade"; this.phaseAt = this.t; this.cursor = 0;
+    this.held = false; this.heldT = 0;
     const available = UPGRADES.map((u, i) => i).filter((i) => !this.has(UPGRADES[i].id));
     for (let i = available.length - 1; i > 0; i--) {
       const j = this.c.rng.int(0, i), item = available[i]; available[i] = available[j]; available[j] = item;
     }
     this.offers = available.slice(0, 3);
-    this.c.hint("Choose one kitchen improvement. TAP its highlighted card. HOLD freezes the scan to read; release does nothing.");
+    this.c.hint("Choose one kitchen improvement. TAP moves between cards; HOLD and RELEASE picks one.");
     this.say("A breath between services. Choose what this kitchen becomes.", 5);
   }
 
@@ -293,7 +317,7 @@ export class Supper {
   end(won) {
     if (this.phase === "over") return;
     this.phase = "over"; this.overAt = this.t; this.won = won;
-    this.held = false; this.heldPick = null; this.heldT = 0;
+    this.held = false; this.heldT = 0;
     this.stars = won ? (this.meals >= 24 && this.waste <= 9 ? 3 : this.meals >= 20 ? 2 : 1) : 0;
     if (won) this.score += 300 + this.hearts * 100 + this.stars * 200;
     this.sv.runs = Math.min(MAX_SAVE, this.sv.runs + 1);
@@ -314,11 +338,10 @@ export class Supper {
     this.actionCooldown = Math.max(0, this.actionCooldown - dt);
     this.plateFlash = this.plateFlash.map((v) => Math.max(0, v - dt));
     if (this.held) this.heldT += dt;
-    if (this.phase === "play") {
-      this.scanT += dt;
-      const planning = this.held && this.heldT >= HOLD_SECONDS && this.breath > 0;
+    if (this.phase === "play" && this.guide < 0) {
+      const planning = this.held && this.breath > 0;
       if (planning) this.breath = Math.max(0, this.breath - dt);
-      const speed = planning ? 0.18 : 1;
+      const speed = planning ? SLOW : 1;
       this.lastSpeed = speed;
       const step = dt * speed;
       this.worldT += step; this.waveClock += step; this.serviceT += dt;
@@ -348,9 +371,7 @@ export class Supper {
       this.completeMeals();
       if (this.hearts <= 0 && this.serviceT >= 30) this.end(false);
       else if (!this.queue.length && this.nextOrder === this.schedule.length) this.finishWave();
-    } else if (this.phase === "upgrade") {
-      if (!this.held) this.scanT += dt;
-    } else this.scanT += dt;
+    }
 
     this.hudT -= dt;
     if (this.hudT <= 0) {
@@ -360,7 +381,21 @@ export class Supper {
     this.lamps.frame(dt, this.lampState());
   }
 
+  // Lamp 4: the table that will leave soonest, green with time to spare, red and blinking near the end.
+  tableLamp() {
+    if (this.phase !== "play" || !this.queue.length) return null;
+    const urgency = Math.min(...this.queue.map((o) => o.patience / o.maxPatience));
+    const colour = ramp(urgency, [LAMP.red, LAMP.amber, LAMP.green]);
+    return dim(colour, urgency < 0.25 ? 0.2 + 0.7 * blink(this.t, 3) : 0.6);
+  }
+
   lampState() {
+    const n = lampCount(this.c);
+    if (this.guide >= 0) return withFourth(lamps(...GUIDE[0].lamps.slice(0, 3).map((k) => dim(k.rgb, 0.55))), dim(LAMP.green, 0.4), n);
+    return withFourth(this.panLamps(), this.tableLamp(), n);
+  }
+
+  panLamps() {
     if (this.phase === "title") return lamps(dim(LAMP.amber, 0.22), dim(LAMP.green, 0.25 + Math.sin(this.t * 2) * 0.08), dim(LAMP.cyan, 0.22));
     if (this.phase === "over") return lamps(...[0, 1, 2].map((i) => dim(this.won ? LAMP.green : LAMP.amber, this.won && i < this.stars ? 0.8 : 0.15)));
     const focus = this.focusAt();
@@ -375,8 +410,9 @@ export class Supper {
   }
 
   draw(g) {
-    g.fillStyle = C.bg; g.fillRect(0, 0, 960, 540);
     g.globalAlpha = 1;
+    if (this.guide >= 0) { drawGuide(g, "SUPPER CLUB", GUIDE, this.guide, lampCount(this.c)); return; }
+    g.fillStyle = C.bg; g.fillRect(0, 0, 960, 540);
     if (this.phase === "title") { this.drawTitle(g); return; }
     if (this.phase === "upgrade") { this.drawUpgrade(g); return; }
     if (this.phase === "over") { this.drawResult(g); return; }
@@ -415,18 +451,18 @@ export class Supper {
       this.foodIcon(g, i, cols[i], 243, 43);
       text(g, PAN_NAMES[i], cols[i], 309, 22, INK[i], "center");
     }
-    text(g, "TAP the bright pan: EMPTY starts / GREEN plates.", 480, 358, 20, C.ink, "center");
-    text(g, "AMBER means wait. RED means clean. Stock is limited.", 480, 390, 18, C.muted, "center");
-    text(g, "HOLD to slow the kitchen and think. Release safely.", 480, 420, 18, C.cyan, "center");
+    text(g, "TAP: next pan.  HOLD + RELEASE: use it.", 480, 358, 20, C.ink, "center");
+    text(g, "EMPTY starts cooking. GREEN plates. AMBER: wait. RED: clean.", 480, 390, 18, C.muted, "center");
+    text(g, "The kitchen slows while you hold, so you can think.", 480, 420, 18, C.cyan, "center");
     line(g, 180, 450, 780, 450, C.line);
-    text(g, "PRESS TO OPEN  ·  FOUR SERVICES / ABOUT FOUR MINUTES", 480, 485, 19, C.amber, "center");
+    text(g, (this.sv.guided ? "PRESS TO OPEN" : "PRESS TO LEARN HOW TO PLAY") + "  ·  FOUR SERVICES / ABOUT FOUR MINUTES", 480, 485, 19, C.amber, "center");
     text(g, "Best service " + this.c.best() + "  /  " + this.sv.wins + " happy closings", 480, 518, 14, C.muted, "center");
   }
 
   drawService(g) {
     this.drawHeader(g, (this.wave + 1) + "/4  " + WAVE_NAMES[this.wave], this.meals + " MEALS  /  " + this.score);
     text(g, this.noteT > 0 ? this.note : "Green pans can wait a little. Plan the next complete meal.", 480, 79, 16, this.noteT > 0 ? C.amber : C.muted, "center");
-    text(g, "THE TICKETS", 28, 112, 13, C.muted);
+    text(g, lampCount(this.c) === 4 ? "THE TICKETS  (LAMP 4: THE TABLE CLOSEST TO LEAVING)" : "THE TICKETS", 28, 112, 13, C.muted);
     text(g, "GOODWILL " + "●".repeat(Math.max(0, this.hearts)) + "○".repeat(Math.max(0, 6 - this.hearts)), 932, 112, 15, this.hearts < 3 ? C.red : C.ink, "right");
     for (let k = 0; k < 4; k++) {
       const x = 28 + k * 230, order = this.queue[k];
@@ -446,14 +482,16 @@ export class Supper {
       g.fillStyle = urgency < 0.25 ? C.red : C.amber; g.fillRect(x + 10, 231, 194 * clamp(urgency, 0, 1), 5);
       if (urgency < 0.25) text(g, Math.ceil(order.patience) + "s", x + 201, 151, 14, C.red, "right");
     }
-    const focus = this.held && this.heldT < HOLD_SECONDS && this.heldPick ? this.heldPick.index : this.focusAt();
+    const focus = this.focusAt();
     for (let i = 0; i < 3; i++) this.drawPan(g, i, 28 + i * 308, focus === i);
-    const planning = this.held && this.heldT >= HOLD_SECONDS && this.breath > 0;
-    text(g, planning ? "PLANNING" : "HOLD TO PLAN", 28, 510, 16, planning ? C.cyan : C.muted);
-    g.fillStyle = C.line; g.fillRect(185, 506, 95, 8);
-    g.fillStyle = C.cyan; g.fillRect(185, 506, 95 * this.breath / this.breathMax(), 8);
+    const planning = this.held && this.breath > 0;
+    text(g, planning ? "SLOWED" : "SLOW-TIME", 28, 510, 16, planning ? C.cyan : C.muted);
+    g.fillStyle = C.line; g.fillRect(130, 506, 80, 8);
+    g.fillStyle = C.cyan; g.fillRect(130, 506, 80 * this.breath / this.breathMax(), 8);
+    const p = this.pans[focus], verb = p.state === "empty" ? "COOK " + PAN_NAMES[focus] : p.state === "ready" ? "PLATE " + PAN_NAMES[focus] : p.state === "burnt" ? "CLEAN THE PAN" : "WAIT, STILL COOKING";
+    drawPressHelp(g, this, 510, verb, "HOLD + RELEASE: " + verb);
     const next = this.schedule[this.nextOrder];
-    text(g, next ? "NEXT: " + RECIPES[next.recipe].name.toUpperCase() + " / " + Math.max(0, Math.ceil(next.at - this.waveClock)) + "s" : "ALL ORDERS ARE IN. BRING IT HOME.", 930, 510, 16, C.muted, "right");
+    text(g, next ? "NEXT: " + RECIPES[next.recipe].name.toUpperCase() + " / " + Math.max(0, Math.ceil(next.at - this.waveClock)) + "s" : "LAST ORDERS ARE IN.", 930, 510, 14, C.muted, "right");
   }
 
   drawPan(g, index, x, focused) {
@@ -461,7 +499,7 @@ export class Supper {
     const col = p.state === "ready" ? C.ink : p.state === "burnt" ? C.red : p.state === "cook" ? C.amber : C.cyan;
     g.fillStyle = focused ? "#213326" : C.dark; g.fillRect(x, 270, 288, 216);
     g.strokeStyle = focused ? C.ink : C.line; g.lineWidth = focused ? 2 : 1; g.strokeRect(x, 270, 288, 216);
-    text(g, (focused ? "▸ " : "  ") + PAN_NAMES[index], x + 14, 292, 18, focused ? C.ink : C.muted);
+    text(g, (focused ? "▸ " : "  ") + "LAMP " + (index + 1) + "  " + PAN_NAMES[index], x + 14, 292, 18, focused ? C.ink : C.muted);
     text(g, "STOCK " + this.stock[index], x + 272, 292, 16, this.stock[index] ? C.muted : C.red, "right");
     circle(g, cx, 348, 38, col, false, 3);
     circle(g, cx, 348, 31, C.line, false, 1);
@@ -475,10 +513,10 @@ export class Supper {
       line(g, cx + 7, 308, cx + 10 + offset, 298, C.muted);
     }
     let message, progress;
-    if (p.state === "empty") { message = p.cooldown > 0 ? "RINSING…" : "TAP TO COOK"; progress = 0; }
+    if (p.state === "empty") { message = p.cooldown > 0 ? "RINSING…" : "EMPTY / USE TO COOK"; progress = 0; }
     else if (p.state === "cook") { message = "COOKING / " + Math.ceil(p.cook - p.age) + "s"; progress = p.age / p.cook; }
-    else if (p.state === "ready") { message = "READY / TAP TO PLATE"; progress = 1 - (p.age - p.cook) / p.ready; }
-    else { message = "BURNT / TAP TO CLEAN"; progress = 1; }
+    else if (p.state === "ready") { message = "READY / USE TO PLATE"; progress = 1 - (p.age - p.cook) / p.ready; }
+    else { message = "BURNT / USE TO CLEAN"; progress = 1; }
     text(g, message, cx, 403, 17, col, "center");
     g.fillStyle = C.line; g.fillRect(x + 18, 422, 252, 6);
     g.fillStyle = col; g.fillRect(x + 18, 422, 252 * clamp(progress, 0, 1), 6);
@@ -492,10 +530,7 @@ export class Supper {
         g.fillRect(trayX - 11, 475, 22 * (1 - item.age / this.trayLife()), 2);
       }
     }
-    if (focused) {
-      const phase = (this.scanT % SCAN_SECONDS) / SCAN_SECONDS;
-      g.fillStyle = C.ink; g.fillRect(x, 267, 288 * (1 - phase), 3);
-    }
+    if (focused) { g.fillStyle = C.amber; g.fillRect(x, 267, 288 * holdFraction(this), 3); }
   }
 
   drawUpgrade(g) {
@@ -514,7 +549,7 @@ export class Supper {
       text(g, u.name, x + 144, 309, 20, i === focus ? C.ink : C.muted, "center");
       u.lines.forEach((part, j) => text(g, part, x + 144, 352 + j * 25, 17, C.muted, "center"));
     }
-    text(g, "TAP the bright card to choose. HOLD pauses the scan to read.", 480, 474, 17, C.cyan, "center");
+    drawPressHelp(g, this, 474, "CHOOSE");
     text(g, this.mods.length ? "YOUR KITCHEN: " + this.mods.map((id) => UPGRADES.find((u) => u.id === id).name).join(" + ") : "Different tools change what is worth cooking ahead.", 480, 514, 13, C.muted, "center");
   }
 
@@ -536,10 +571,10 @@ export class Supper {
   cancel() {
     this.guard.rewind();
     this.lamps.clear();
-    this.held = false; this.heldT = 0; this.heldPick = null; this.consumed = false;
+    this.held = false; this.heldT = 0;
     this.c.synth?.stopTone?.();
   }
-  pause() { this.guard.settle(); this.lamps.sleep(); this.held = false; this.heldT = 0; this.heldPick = null; this.c.synth?.stopTone?.(); }
+  pause() { this.guard.settle(); this.lamps.sleep(); this.held = false; this.heldT = 0; this.c.synth?.stopTone?.(); }
   resume() { this.lamps.wake(); }
   dispose() { this.guard.settle(); this.lamps.sleep(); this.c.synth?.stopTone?.(); }
 }

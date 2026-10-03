@@ -247,3 +247,33 @@ back in the PLAY sector, run `python3 scripts/build-catalog.py`, and revert the 
 
 Knock input itself stays (firmware, service, Calibration, Node Scope, `app.knock(event)`); no game uses
 it now.
+
+## Two-microphone node: tap direction and the low-tone fix (2026-10-03, cloud session)
+
+**Beep test** (Pi, new node, finished case, full volume, threshold 4000, `scripts/tone-sweep.py`): only the
+two deep tones registered, 98 Hz 0.1 s square (5 in 3 plays) and 110 Hz 0.12 s triangle (5 in 3), peaks
+30000 to full scale, `hf` 82 to 118, inside real taps' range. Every tone from 147 Hz up, 70 Hz 0.05 s and all
+silent slots gave none. The speaker shakes the case. Fix: the synth records when it plays a tone under
+140 Hz (and holds one), and the console drops knocks until 250 ms after it ends (`web/engine/audio.js`,
+`web/main.js`).
+
+**Tap direction.** The Pi's first labelled session (31 left, 35 right, 33 top, all detected; features only,
+`tests/fixtures/tap-direction-2026-10-02.json`): level difference, cross-correlation lag and onset
+difference between the microphones. Each tap left out in turn is placed 90/98 by the 5 nearest others, but a
+calibration from the first half of each spot places the second half only 27/50 (and 37/48 the other way):
+tapping drifts within one sitting. Left (onset +2 to +4) and top (-1 to -4) separate cleanly; right taps
+scatter in onset and overlap top in level. So:
+
+- The node sends the raw tap, not features: **KNOCK_CLIP** (type 10, just before its KNOCK, 16 + 160
+  frames from both microphones). The Pi thread owns that firmware (PR #19). All measuring and deciding is in
+  the service (`vesper/tapdir.py`) and can change without a reflash.
+- The side comes from this node's own calibration (Calibration > TAP DIRECTION: ten taps on each side, lit
+  on that side's lamp), by the 5 nearest labelled taps; fewer than 3 agreeing means no side (unsure). Each
+  calibration is checked tap by tap when saved and shows the result.
+- Knock events gain `tap` (the measurements), `sideVotes` and `side`. Games and the menu get them through
+  `knock(event)` unchanged; a game must still work without a side.
+
+Test on the device once the KNOCK_CLIP firmware is on the node: Calibration > TAP DIRECTION > CALIBRATE, ten
+light taps where each lamp shows, then tap each side a few times and read LAST TAP. Then recalibrate in a
+second sitting and compare: the check line and how often LAST TAP is right tell whether three sides are
+dependable or only left against the rest.

@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { InputRouter } from "../web/engine/input.js";
-import { Diagnostics, Settings, knockReadout } from "../web/apps/utilities.js";
+import { Diagnostics, Settings, TAP_TARGET, knockReadout, tapCheck, tapLabel } from "../web/apps/utilities.js";
 import { appContext } from "./helpers/app-context.mjs";
 
 function rig(mode = "raw") {
@@ -84,4 +84,43 @@ test("Calibration cycles knock sensitivity off, low, medium, high", () => {
     action.run();
     assert.deepEqual(ctx.calls.command.at(-1), ["settings", { key: "knock", value: to }]);
   }
+});
+
+test("tap direction: label each side on its lamp, save, then show where taps land", () => {
+  const ctx = appContext({ settings: { gesturePace: "standard", lampLevel: "medium" },
+    state: { tapDirection: { calibrated: false, label: null, pending: { left: 0, right: 0, top: 0 }, saved: {} } } });
+  const app = new Settings(ctx);
+  const act = (id) => ctx.currentActions.find((a) => a.id === id);
+  assert.equal(act("tap-direction").label, "TAP DIRECTION / NOT CALIBRATED");
+  act("tap-direction").run();
+  assert.match(ctx.calls.content.at(-1), /NOT CALIBRATED/);
+  act("tap-start").run();
+  assert.deepEqual(ctx.calls.command.at(-1), ["tap_direction", { op: "start", side: "left" }]);
+  assert.deepEqual(ctx.calls.leds.at(-1).slice(0, 3), [70, 70, 70], "the left lamp shows where to tap");
+  const status = (label, pending) => app.event({ type: "tap_direction", calibrated: false, label, pending, saved: {} });
+  status("left", { left: 3, right: 0, top: 0 });
+  assert.match(ctx.calls.content.at(-1), /TAP THE LEFT SIDE OF THE CASE/);
+  assert.match(ctx.calls.content.at(-1), new RegExp(`3 / ${TAP_TARGET}`));
+  status("left", { left: TAP_TARGET, right: 0, top: 0 });
+  assert.deepEqual(ctx.calls.command.at(-1), ["tap_direction", { op: "label", side: "right" }]);
+  assert.deepEqual(ctx.calls.leds.at(-1).slice(6), [70, 70, 70]);
+  act("tap-skip").run();
+  assert.deepEqual(ctx.calls.command.at(-1), ["tap_direction", { op: "label", side: "top" }]);
+  status("top", { left: TAP_TARGET, right: 4, top: TAP_TARGET });
+  assert.deepEqual(ctx.calls.command.at(-1), ["tap_direction", { op: "save" }]);
+  const check = { left: { right: 10, wrong: 0, unsure: 0, total: 10 }, top: { right: 8, wrong: 1, unsure: 1, total: 10 } };
+  app.event({ type: "tap_direction", calibrated: true, label: null, pending: { left: 0, right: 0, top: 0 }, saved: { left: 10, top: 10 }, check });
+  assert.match(ctx.calls.content.at(-1), /CALIBRATED · 10 LEFT · 10 TOP/);
+  assert.match(ctx.calls.content.at(-1), /18 \/ 20 PLACED · LEFT 10\/10 · TOP 8\/10/);
+  app.event({ type: "knock", peak: 9000, tap: { level_db: 0 }, side: "top", sideVotes: 4 });
+  assert.match(ctx.calls.content.at(-1), /LAST TAP · TOP · 4 OF 5 AGREE/);
+  app.dispose();
+});
+
+test("tap direction readouts", () => {
+  assert.equal(tapLabel(null), "NO TAP YET");
+  assert.equal(tapLabel({ peak: 1 }), "NO SIDE · THIS NODE SENDS NO TWO-MICROPHONE CLIP");
+  assert.equal(tapLabel({ tap: {} }), "NO SIDE · NOT CALIBRATED");
+  assert.equal(tapLabel({ tap: {}, sideVotes: 2 }), "UNSURE · NEIGHBOURS DISAGREE");
+  assert.equal(tapCheck(null), "");
 });

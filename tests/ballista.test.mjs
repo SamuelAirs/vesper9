@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   Ballista, migrateSave, dailyGoal, loadout, zoneAt, sweepAngle, powerAt, timeToGround,
   ZONES, UPGRADES, PODS, FEATS, MODULES, SLOTS, SLOT3_MODS, M, RISE, MIN_HOLD, SKIP_WIN, EARLY_WIN, LATE_WIN,
-  contractText, contractProgress, chainMult, salvageFor, upCost, MARK_SPEED,
+  contractText, contractProgress, chainMult, salvageFor, upCost, MARK_SPEED, slotLabel,
 } from "../web/apps/ballista.js";
 import { Random } from "../web/engine/math.js";
 import { appContext, fakeCanvas, run } from "./helpers/app-context.mjs";
@@ -551,6 +551,26 @@ test("a good player meets each kind of daily goal on the daily loadout", () => {
   assert.ok(most.lifts >= 3, "lifts " + most.lifts);
   assert.ok(most.scrap >= 11, "scrap " + most.scrap);
 });
+test("save slots: Ballista opts in, and each slot's row names its mark, best and farthest zone", () => {
+  assert.equal(Ballista.saveSlots, true);
+  assert.equal(slotLabel(migrateSave(null)), "NO RUNS YET");
+  assert.equal(slotLabel(migrateSave({ schema: 1, runs: 7, last: { score: 1840 } })), "FIRST RANGE · REBUILT");
+  assert.equal(slotLabel(migrateSave({ schema: 3, runs: 9, best: 640, far: 3 })), "BEST 640 m · IV");
+  assert.equal(slotLabel(migrateSave({ schema: 3, runs: 90, best: 1840, far: 4, mark: 2 })), "MK III · BEST 1840 m · V");
+  assert.equal(slotLabel(migrateSave({ schema: 3, runs: 90, best: 1840, far: 6, mark: 2 })), "MK III · BEST 1840 m", "the zone goes when too long");
+  for (const sv of [{ schema: 3, runs: 300, best: 99999, far: 6, mark: 7 }, { schema: 1, runs: 7 }]) assert.ok(slotLabel(migrateSave(sv)).length <= 24, slotLabel(migrateSave(sv)));
+  // a run saves with its label; slotSummary reads any stored shape
+  const ctx = appContext({ seed: 11 }), labels = [];
+  const save = ctx.saveProgress;
+  ctx.saveProgress = (value, opts) => { labels.push(opts?.label); return save(value); };
+  const app = new Ballista(ctx);
+  playRun(app, { skill: 0.8, jitter: new Random(2) });
+  run(app, 3);
+  assert.match(labels.at(-1), /^BEST \d+ m · I+V?$|^BEST \d+ m · [IV]+$/);
+  assert.equal(app.slotSummary(ctx.calls.saved.at(-1)), labels.at(-1));
+  assert.equal(app.slotSummary(undefined), "NO RUNS YET");
+});
+
 // ---- saves -------------------------------------------------------------------------------------
 
 // What the first Ballista (an artillery game) left behind: kit.js recordRun's record.

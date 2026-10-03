@@ -62,3 +62,11 @@ The review scored Ballista 6.5: "luck outweighs skill", a press near touchdown s
 - The board LED, when there is one, is an accent for chains: dark until a chain of two, then the zone's colour whitening as the chain grows, and a red flash when a sinkhole takes the pod. It is sent only when it changes, and it goes dark on pause or exit.
 - Gameplay is unchanged.
 - Tests: 38 in tests/ballista.test.mjs, including the four-lamp frames, the landing lamp, the three-lamp skip cue being unchanged, and the board LED. Not checked on the new node.
+
+## Round 6: save slots (2026-10-03)
+
+- Merged PR #16's latest branch (save slots and the system menu fix). Ballista opts in with `static saveSlots = true`.
+- Each of the four slots has its own workshop, modules, marks, contracts and daily-run record. The console best and the logbook stay shared.
+- Slot 1 is the existing save.
+- Each save is written with a label for the SAVE SLOT menu, for example "MK III · BEST 1840 m · V". The zone is dropped if the label would be longer than 24 characters. A slot with no runs reads "NO RUNS YET", and a first-Ballista save reads "FIRST RANGE · REBUILT". `slotSummary(value)` gives the same label for any stored save.
+- Tests: 39 in tests/ballista.test.mjs. Not checked on the device.

@@ -317,7 +317,19 @@ function sky(g, z) {
 const WORKSHOP = ["LAUNCH", "BARREL", "THRUSTERS", "HULL", "FINS", "MAGNET", "OVERHAUL", "MODULES", "POD", "CONTRACTS", "DAILY", "LOG"];
 const MODULES_AT = 10; // system levels bought before the modules line appears
 
+// One line for this save's row in the console's SAVE SLOT menu (at most 24 characters): its mark,
+// best distance and farthest zone, the zone dropped when the line is too long.
+export function slotLabel(sv) {
+  if (!sv.best) return sv.legacy ? "FIRST RANGE · REBUILT" : "NO RUNS YET";
+  const mark = sv.mark ? "MK " + roman(sv.mark + 1) + " · " : "", head = mark + "BEST " + sv.best + " m";
+  const full = head + " · " + ZONES[sv.far].roman;
+  return (full.length <= 24 ? full : head).slice(0, 24);
+}
+
 export class Ballista {
+  // Up to four saves, chosen in the system menu (engine/slots.js): each has its own workshop,
+  // modules, marks and contracts. The console's best and logbook are shared.
+  static saveSlots = true;
   constructor(ctx) {
     this.c = ctx;
     this.guard = new AppGuard(this, ctx); // takes back a menu gesture that reached the game (docs/ENGINE.md)
@@ -1142,8 +1154,10 @@ export class Ballista {
     return dateKey(new Date(y, m - 1, d - 1));
   }
   persist() {
-    this.c.saveProgress?.(JSON.parse(JSON.stringify(this.sv)))?.catch?.(this.c.error);
+    this.c.saveProgress?.(JSON.parse(JSON.stringify(this.sv)), { label: slotLabel(this.sv) })?.catch?.(this.c.error);
   }
+  // The slot row's line for any stored save, when the console has no saved label for it.
+  slotSummary(value) { return slotLabel(migrateSave(value)); }
   // What to aim for next: the cheapest upgrade, the next pod, and the feat nearest its goal.
   nextGoal() {
     const sv = this.sv, lines = [];

@@ -51,7 +51,7 @@ export const CARTRIDGES = [
     "id": "drift",
     "name": "UNDERTOW",
     "subtitle": "Follow the silent current.",
-    "description": "Pilot a small craft through an impossible ocean. Hold to rise, release to sink, and thread the openings between ancient columns. The hull survives a bump or two. The lamps show your depth and where the next opening is.",
+    "description": "Pilot a small craft down through an impossible ocean. Hold to rise, release to sink, and thread the openings between ancient columns through six zones of currents, dark water and breathing vents. Gather pearls for new craft at the dock (hold on the title screen), try the daily dive, earn feats. The lamps show your depth and where the next opening is.",
     "controls": "HOLD TO RISE · RELEASE TO SINK",
     "category": "PLAY / FLIGHT",
     "glyph": 2,
@@ -64,7 +64,12 @@ export const CARTRIDGES = [
       "lights",
       "audio",
       "progress"
-    ]
+    ],
+    "record": {
+      "passages": "Passages",
+      "pearls": "Pearls",
+      "zone": "Deepest zone"
+    }
   },
   {
     "id": "echo",
@@ -237,32 +242,6 @@ export const CARTRIDGES = [
       "chamber": "Chamber reached",
       "cells": "Cells broken",
       "chain": "Best chain (x)"
-    }
-  },
-  {
-    "id": "helix",
-    "name": "HELIX",
-    "subtitle": "Grow without crossing yourself.",
-    "description": "A signal thread that only turns one way. Tap to turn, gather fragments, and do not touch your own trail. The walls are soft for the first twenty seconds.",
-    "controls": "TAP TO TURN",
-    "category": "PLAY / TRAIL",
-    "glyph": 2,
-    "factory": "Helix",
-    "voice": [
-      "snake"
-    ],
-    "capabilities": [
-      "button",
-      "lights",
-      "audio",
-      "progress"
-    ],
-    "icon": "<path d=\"M6 40V8h30v26H16V18h12v6\"/><circle cx=\"22\" cy=\"24\" r=\"2\" fill=\"currentColor\"/><path d=\"M40 40l3-3M40 37l3 3\"/>",
-    "record": {
-      "score": "Score",
-      "fragments": "Fragments",
-      "longest": "Longest thread",
-      "milestone": "Milestone"
     }
   },
   {

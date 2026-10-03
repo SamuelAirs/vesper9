@@ -120,7 +120,7 @@ test("gesture: edges are immediate, a tap changes the game on the very next step
   for (const r of [m, twin]) { r.down(); r.up(); r.update(DT); } // the title screen starts a run on release
   m.down(); m.update(DT); twin.update(DT);
   assert.ok(m.held && m.r.v > twin.r.v, "the dive did not start on the next frame");
-  const u = new Undertow(makeCtx(25)); u.down(); u.update(DT);
+  const u = new Undertow(makeCtx(25)); u.down(); u.up(); u.down(); u.update(DT);
   assert.ok(u.vy < 0);
 });
 
@@ -137,10 +137,11 @@ test("gesture: on the result screen the result is kept, and recorded once when t
 test("a finished run is recorded once, after the gesture window, and never twice", () => {
   for (const [name, kill] of killers) {
     const c = makeCtx(27), g = kill(c);
-    step(g, 0.5);
-    // Glyph Archive holds its writes with AppGuard (engine/input.js), which saves as soon as no gesture
-    // can still include the last press; the others wait out GestureGuard's SETTLE.
+    // Undertow and Glyph Archive hold their records with AppGuard (engine/input.js), whose window closes as
+    // soon as no gesture can still be under way; the others wait out GestureGuard's SETTLE.
+    step(g, name === "Undertow" ? 0.1 : 0.5);
     if (name !== "Glyph Archive") assert.equal(c.log.saves.length, 0, name + " recorded inside the gesture window");
+    step(g, 0.5);
     step(g, 2.4);
     assert.equal(c.log.saves.length, 1, name + " did not record the finished run");
     assert.equal(c.log.scores.length, 1);

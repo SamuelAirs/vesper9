@@ -16,7 +16,6 @@ import { Pulsar } from "./pulsar.js";
 import { Perihelion } from "./perihelion.js";
 import { Descent } from "./descent.js";
 import { Ricochet } from "./ricochet.js";
-import { Helix } from "./helix.js";
 import { Ballista } from "./ballista.js";
 import { Tideline } from "./tideline.js";
 import { Outpost } from "./outpost.js";
@@ -30,7 +29,7 @@ import { Meridian } from "./meridian.js";
 import { CARTRIDGES } from "./catalog.js";
 const FACTORIES = { OrbitLock, Moonrunner, Undertow, EchoVault, LightTrial, GlyphVault,
   MorseSchool, Timers, Transcription, Environment, Diagnostics, Settings,
-  Pulsar, Perihelion, Descent, Ricochet, Helix, Ballista,
+  Pulsar, Perihelion, Descent, Ricochet, Ballista,
   Tideline, Outpost,
   Lantern, Cadence, Ephemeris, Resonance, Oracle, Telemetry,
   Meridian };

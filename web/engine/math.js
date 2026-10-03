@@ -66,7 +66,10 @@ export const formatTemp = (celsius, unit, digits = 1) =>
 // setting (`tempOffset`, degrees Celsius, steps of 0.5) applied here, to a sensor reading only
 // when it is displayed or derived from: stored history and the service stay raw. Other
 // temperatures (the Pi's CPU) must keep using formatTemp, which never applies it.
-export const OFFSET_MIN = -10, OFFSET_MAX = 5, OFFSET_STEP = 0.5;
+// One export per line: scripts/build-demo.py exports only the first name of a declaration.
+export const OFFSET_MIN = -10;
+export const OFFSET_MAX = 5;
+export const OFFSET_STEP = 0.5;
 export const clampOffset = (v) =>
   Number.isFinite(v) ? Math.max(OFFSET_MIN, Math.min(OFFSET_MAX, Math.round(v / OFFSET_STEP) * OFFSET_STEP)) + 0 : 0;
 // The offset in force: from the settings object given, else from the host's own state

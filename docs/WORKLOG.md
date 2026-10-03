@@ -193,3 +193,4 @@ The long integrated run was started while final review continued. The final held
 
 - Merged the latest PR #16 (save slots, and tap, tap, hold no longer reopening the menu); only `docs/WORKLOG.md` conflicted.
 - `static saveSlots = true`: four saves, each with its own shards, upgrades, unlocks, regions and daily record. `slotSummary(value)` labels a slot's row with the furthest region and the runs ("III BINARIES · 12 RUNS", 24 characters at most, any old save shape). Slot 1 is the existing save. 859/859 JS tests on Node 22; Perihelion 45/45 on Node 20; the system menu shows SAVE SLOT / 1 OF 4 in the simulator. Not verified on the device.
+- 2026-10-03: Tideline ditched (Sam): off the dashboard and voice, code and saves kept, matching PR #8's catalog change.

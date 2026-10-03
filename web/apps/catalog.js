@@ -551,9 +551,29 @@ export const CARTRIDGES = [
       "audio",
       "progress"
     ]
+  },
+  {
+    "id": "encyclopedia",
+    "name": "ENCYCLOPEDIA",
+    "subtitle": "Offline Wikipedia, one link at a time.",
+    "description": "Simple English Wikipedia kept on the console: the article of the day, today in history, a random article or the front page. Tap turns the page; at the end, pick a link and go deeper. Hold for links, sections and the way back.",
+    "controls": "TAP: NEXT PAGE · HOLD & RELEASE: LINKS, SECTIONS, BACK",
+    "category": "INSTRUMENT / READING",
+    "glyph": 3,
+    "icon": "<circle cx=\"24\" cy=\"24\" r=\"17\"/><path d=\"M7 24h34M24 7c-6 5-6 29 0 34M24 7c6 5 6 29 0 34M10 15h28M10 33h28\"/>",
+    "factory": "Encyclopedia",
+    "voice": [
+      "encyclopedia"
+    ],
+    "capabilities": [
+      "button",
+      "lights",
+      "audio",
+      "progress"
+    ]
   }
 ];
-export const SECTORS = [{"name": "PLAY", "apps": ["perihelion", "orbit", "runner", "pulsar", "tideline"]}, {"name": "PLAY II", "apps": ["drift", "descent", "ballista", "ricochet", "helix"]}, {"name": "PLAY III", "apps": ["outpost", "reaction", "echo", "glyphs"]}, {"name": "INSTRUMENTS", "apps": ["morse", "cadence", "transcribe", "environment"]}, {"name": "INSTRUMENTS II", "apps": ["lantern", "resonance", "oracle", "library"]}];
+export const SECTORS = [{"name": "PLAY", "apps": ["perihelion", "orbit", "runner", "pulsar", "tideline"]}, {"name": "PLAY II", "apps": ["drift", "descent", "ballista", "ricochet", "helix"]}, {"name": "PLAY III", "apps": ["outpost", "reaction", "echo", "glyphs"]}, {"name": "INSTRUMENTS", "apps": ["morse", "cadence", "transcribe", "environment"]}, {"name": "INSTRUMENTS II", "apps": ["lantern", "resonance", "oracle"]}];
 export const SYSTEM_APPS = ["settings", "diagnostics", "telemetry"];
 export const DEFAULT_SETTINGS = {
   "sound": true,

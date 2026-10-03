@@ -1,8 +1,9 @@
 import { C, text, line } from "../engine/draw.js";
 import { AppGuard } from "../engine/input.js";
-import { LAMP, lamps, dim, blend, meter, spot, lightsOff } from "../engine/lightshow.js";
+import { LAMP, lamps, dim, meter, spot, lightsOff } from "../engine/lightshow.js";
 import { clamp } from "../engine/math.js";
 import { LampBus, lampMax } from "./game-kit.js";
+import { SIZES, PACES, fit, wrap, layoutChapter, pageAt, pageSeconds, drawLines, drawMenuPanel, drawRowList, drawNoticePanel } from "./reader-kit.js";
 
 // ---------------------------------------------------------------------------------------------
 // THE STACKS: a book reader for one button. Books are DRM-free EPUB or text files that the service
@@ -13,14 +14,6 @@ import { LampBus, lampMax } from "./game-kit.js";
 
 export const SAVE_VERSION = 1;
 const MAX_SAVED_BOOKS = 30;
-export const SIZES = [
-  { name: "SMALL", px: 22, lh: 31 },
-  { name: "MEDIUM", px: 26, lh: 36 },
-  { name: "LARGE", px: 30, lh: 41 },
-];
-export const PACES = [0, 160, 220, 300];   // auto-turn, words per minute; 0 is off
-const AREA = { x: 60, w: 840, top: 74, h: 400 };
-const CHAR_W = 0.602;                         // DejaVu Sans Mono advance per pixel of size
 const CHAPTERS_KEPT = 6;
 
 export function migrateSave(raw) {
@@ -40,63 +33,6 @@ export function migrateSave(raw) {
   save.books = Object.fromEntries(kept);
   return save;
 }
-
-// Lines of one chapter at one text size, cut into pages. Each line is [kind, text, para, char].
-export function layoutChapter(blocks, sizeIndex) {
-  const size = SIZES[sizeIndex] || SIZES[1];
-  const cols = Math.max(20, Math.floor(AREA.w / (size.px * CHAR_W)));
-  const pages = [];
-  let page = [], y = 0;
-  const gap = Math.round(size.lh * 0.45);
-  const put = (item, height) => {
-    if (y + height > AREA.h && page.length) { pages.push(page); page = []; y = 0; }
-    item.push(y);
-    page.push(item);
-    y += height;
-  };
-  (blocks || []).forEach((block, para) => {
-    const kind = block?.[0] || "p", body = String(block?.[1] ?? "");
-    const width = kind === "q" ? cols - 3 : cols;
-    if (kind === "h" && page.length) y += gap;
-    for (const [part, at] of wrap(body, width)) put([kind, part, para, at], size.lh);
-    y += kind === "m" ? Math.round(gap / 3) : gap;
-  });
-  if (page.length) pages.push(page);
-  if (!pages.length) pages.push([["m", "(this chapter is empty)", 0, 0, 0]]);
-  return pages;
-}
-
-// Word wrap at a fixed number of columns: [line, offset of its first character in the paragraph].
-export function wrap(body, cols) {
-  const out = [];
-  let start = 0;
-  while (start < body.length) {
-    while (body[start] === " ") start++;
-    if (start >= body.length) break;
-    let end = Math.min(body.length, start + cols);
-    if (end < body.length) {
-      const space = body.lastIndexOf(" ", end);
-      if (space > start) end = space;
-    }
-    out.push([body.slice(start, end).trimEnd(), start]);
-    start = end;
-    if (out.length > 4000) break;
-  }
-  return out;
-}
-
-// The page whose first line is at or before (para, char).
-export function pageAt(pages, para, char) {
-  let found = 0;
-  for (let i = 0; i < pages.length; i++) {
-    const first = pages[i][0];
-    if (first[2] < para || (first[2] === para && first[3] <= char)) found = i;
-    else break;
-  }
-  return found;
-}
-
-const fit = (value, n) => { const s = String(value ?? ""); return s.length > n ? s.slice(0, n - 1) + "…" : s; };
 
 const GUIDE = { id: "guide", title: "The Reader's Guide", author: "VESPER-9", format: "GUIDE", locked: null, chapters: [
   "Welcome to the Stacks", "Reading with one button", "Adding books", "About Kindle books"] };
@@ -477,11 +413,7 @@ export class Library {
   layoutReady() {
     return this.layout.key === this.book + ":" + this.pos.ch + ":" + this.save.size;
   }
-  pageSeconds(page, pace) {
-    let words = 0;
-    for (const item of page || []) words += item[1].split(" ").length;
-    return clamp((Math.max(words, 20) / pace) * 60, 4, 240);
-  }
+  pageSeconds(page, pace) { return pageSeconds(page, pace); }
   ambient() {
     const hold = this.held ? clamp(this.pressT * 1000 / this.holdMs(), 0, 1) : 0;
     let base;
@@ -536,7 +468,7 @@ export class Library {
     g.restore();
   }
   drawPage(g) {
-    const meta = this.bookMeta(), size = SIZES[this.save.size];
+    const meta = this.bookMeta();
     const chapter = this.data.chapters.get(this.book + ":" + this.pos.ch);
     const title = chapter?.title || meta?.chapters?.[this.pos.ch] || "SECTION " + (this.pos.ch + 1);
     text(g, fit(title, 50).toUpperCase(), 60, 34, 18, C.muted);
@@ -549,13 +481,7 @@ export class Library {
       return;
     }
     text(g, (this.page + 1) + " / " + pages.length, 900, 34, 18, C.muted, "right");
-    for (const [kind, body, , , y] of pages[this.page] || []) {
-      const cy = AREA.top + y + size.lh / 2;
-      if (kind === "h") text(g, body, 480, cy, size.px, C.amber, "center");
-      else if (kind === "m") text(g, body, AREA.x, cy, Math.max(18, size.px - 6), C.muted);
-      else if (kind === "q") { line(g, AREA.x + 6, cy - size.lh / 2 + 4, AREA.x + 6, cy + size.lh / 2 - 4, C.cyan, 2); text(g, body, AREA.x + size.px * CHAR_W * 3, cy, size.px, C.ink); }
-      else text(g, body, AREA.x, cy, size.px, C.ink);
-    }
+    drawLines(g, pages[this.page], this.save.size);
     line(g, 60, 486, 900, 486, C.line, 1);
     const f = this.fraction();
     g.fillStyle = C.dark;
@@ -570,22 +496,7 @@ export class Library {
       g.fillRect(60, 57, 840 * clamp(this.autoT / this.pageSeconds(pages[this.page], pace), 0, 1), 2);
     }
   }
-  drawMenu(g) {
-    const rows = this.rows();
-    g.fillStyle = "#0c1511cc";
-    g.fillRect(0, 0, 960, 540);
-    g.fillStyle = C.bg;
-    g.fillRect(250, 90, 460, 70 + rows.length * 54);
-    g.strokeStyle = C.line;
-    g.lineWidth = 2;
-    g.strokeRect(250, 90, 460, 70 + rows.length * 54);
-    text(g, "READER", 480, 122, 20, C.muted, "center");
-    rows.forEach((row, i) => {
-      const y = 170 + i * 54, on = i === this.cursor;
-      if (on) { g.fillStyle = C.ink; g.fillRect(270, y - 22, 420, 44); }
-      text(g, row.label, 480, y, 22, on ? C.bg : C.ink, "center");
-    });
-  }
+  drawMenu(g) { drawMenuPanel(g, "READER", this.rows().map((r) => r.label), this.cursor); }
   // The shelf: every book as a spine (width by length, colour by title), the chosen one lifted,
   // and a card below with what it is and how far it has been read.
   drawShelf(g) {
@@ -642,58 +553,13 @@ export class Library {
     text(g, foot, 60, 508, 16, C.muted);
   }
   drawList(g) {
-    const rows = this.rows(), d = this.data;
+    const rows = this.rows().map((row) => ({ ...row, muted: !!row.book?.locked, alert: !!row.book?.locked,
+      progress: row.book && !row.book.locked ? this.save.books[row.book.id]?.f || 0 : undefined }));
     const heading = this.phase === "store" ? "MORE CLASSICS · STANDARD EBOOKS" : this.phase === "chapters" ? fit(this.bookMeta()?.title, 44).toUpperCase() : "THE STACKS";
-    text(g, heading, 60, 34, 18, C.amber);
-    const count = this.phase === "shelf" ? (d.books.length + 1) + " VOLUMES" : this.phase === "chapters" ? this.chapterCount() + " CHAPTERS" : rows.length - 1 + " TITLES";
-    text(g, count, 900, 34, 18, C.muted, "right");
-    line(g, 60, 56, 900, 56, C.line, 1);
-    const visible = 5, top = clamp(this.cursor - 2, 0, Math.max(0, rows.length - visible));
-    for (let i = top; i < Math.min(rows.length, top + visible); i++) {
-      const row = rows[i], y = 74 + (i - top) * 80, on = i === this.cursor;
-      if (on) {
-        g.fillStyle = C.dark;
-        g.fillRect(52, y, 856, 72);
-        g.strokeStyle = C.ink;
-        g.lineWidth = 2;
-        g.strokeRect(52, y, 856, 72);
-      }
-      const locked = row.book?.locked;
-      text(g, row.label, 76, y + 24, 24, locked ? C.muted : on ? C.ink : C.ink);
-      if (row.sub) text(g, fit(row.sub, 70), 76, y + 52, 18, locked ? C.red : C.muted);
-      if (row.book && !locked) {
-        const read = this.save.books[row.book.id]?.f || 0;
-        g.fillStyle = C.line;
-        g.fillRect(820, y + 50, 72, 4);
-        g.fillStyle = C.amber;
-        g.fillRect(820, y + 50, 72 * read, 4);
-      }
-    }
-    if (rows.length > visible) {
-      const h = 400 * visible / rows.length, y = 74 + (400 - h) * (top / Math.max(1, rows.length - visible));
-      g.fillStyle = C.line;
-      g.fillRect(926, y, 4, h);
-    }
-    let foot = "";
-    if (this.phase === "shelf") foot = d.service === "offline" ? "BOOK SERVICE OFFLINE · ONLY THE GUIDE IS HERE" : d.service === "loading" ? "OPENING THE STACKS…" : "FOLDER · " + fit(d.folder, 60);
-    if (this.phase === "store") foot = "FETCHING NEEDS THE CONSOLE'S INTERNET CONNECTION";
-    if (foot) text(g, foot, 60, 500, 16, C.muted);
+    const count = this.phase === "chapters" ? this.chapterCount() + " CHAPTERS" : rows.length - 1 + " TITLES";
+    drawRowList(g, rows, this.cursor, heading, count, this.phase === "store" ? "FETCHING NEEDS THE CONSOLE'S INTERNET CONNECTION" : "");
   }
-  drawNotice(g) {
-    const n = this.notice || { title: "", lines: [] };
-    text(g, n.title, 480, 150, 30, n.end ? C.amber : C.ink, "center");
-    line(g, 260, 180, 700, 180, C.line, 1);
-    let y = 222;
-    for (const paragraph of n.lines || []) {
-      for (const [part] of wrap(String(paragraph), 58)) {
-        if (y > 470) break;
-        text(g, part, 480, y, 22, C.muted, "center");
-        y += 32;
-      }
-      y += 12;
-    }
-    if (n.wait && this.data.busy) text(g, "· · ·".slice(0, 1 + 2 * (Math.floor(this.t * 2) % 3)), 480, y + 20, 24, C.amber, "center");
-  }
+  drawNotice(g) { drawNoticePanel(g, this.notice, this.t, this.notice?.wait && this.data.busy); }
 }
 
 // Spines: a book's width follows its length, its colour and height its title, so the shelf is stable.

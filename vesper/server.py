@@ -21,6 +21,7 @@ from aiohttp import web, WSMsgType, WSCloseCode
 from . import analysis
 from .device import SerialDevice, SimulatedDevice
 from .health import HostProbe, safe
+from .encyclopedia import Encyclopedia
 from .library import Library, LockedBook, LOCKED_REASONS, SHELF
 from .protocol import Kind
 from .speech import Speech, COMMANDS
@@ -113,6 +114,7 @@ class Console:
         self.started = time.time()
         self.host = HostProbe(args.data)
         self.library = Library(Path(args.data) / "library", getattr(args, "media", "/media"), bundled=ROOT / "books")
+        self.encyclopedia = Encyclopedia(Path(args.data) / "encyclopedia")
         self.library_busy = None            # "fetch" or "import" while the library is bringing books in
         self.tasks = []
         self.task_names = []
@@ -786,6 +788,24 @@ def make_app(args):
         except (KeyError, IndexError):
             raise web.HTTPNotFound(text="No such book or chapter")
         return web.json_response(data, dumps=lambda data: json.dumps(data, ensure_ascii=False))
+    async def encyclopedia(request):
+        return web.json_response(await asyncio.to_thread(console.encyclopedia.status),
+                                 dumps=lambda data: json.dumps(data, ensure_ascii=False))
+    async def encyclopedia_article(request):
+        path = request.query.get("path", "")
+        if not path or len(path) > 512 or "\0" in path:
+            raise web.HTTPBadRequest(text="Invalid article")
+        try:
+            data = await asyncio.to_thread(console.encyclopedia.article, path)
+        except LookupError as error:
+            raise web.HTTPNotFound(text=str(error))
+        return web.json_response(data, dumps=lambda data: json.dumps(data, ensure_ascii=False))
+    async def encyclopedia_random(request):
+        try:
+            data = await asyncio.to_thread(console.encyclopedia.random)
+        except LookupError as error:
+            raise web.HTTPNotFound(text=str(error))
+        return web.json_response(data, dumps=lambda data: json.dumps(data, ensure_ascii=False))
     async def websocket(request):
         ws = web.WebSocketResponse(heartbeat=15, max_msg_size=65536, timeout=2)
         await ws.prepare(request)
@@ -849,6 +869,9 @@ def make_app(args):
     app.router.add_get("/api/export/{sid}", transcript)
     app.router.add_get("/api/library", library)
     app.router.add_get("/api/library/{book}/{chapter}", chapter)
+    app.router.add_get("/api/encyclopedia", encyclopedia)
+    app.router.add_get("/api/encyclopedia/article", encyclopedia_article)
+    app.router.add_get("/api/encyclopedia/random", encyclopedia_random)
     app.router.add_get("/ws", websocket)
     app.router.add_static("/", ROOT / "web", show_index=False)
     app.on_startup.append(console.start)

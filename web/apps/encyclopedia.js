@@ -3,7 +3,7 @@ import { AppGuard } from "../engine/input.js";
 import { LAMP, lamps, dim, meter, spot, lightsOff } from "../engine/lightshow.js";
 import { clamp } from "../engine/math.js";
 import { LampBus, lampMax } from "./game-kit.js";
-import { SIZES, PACES, fit, layoutChapter, pageAt, pageSeconds, drawLines, drawMenuPanel, drawRowList, drawNoticePanel } from "./reader-kit.js";
+import { SIZES, PACES, fit, layoutChapter, pageAt, pageSeconds, drawLines, drawMenuPanel, drawRowList, drawNoticePanel, readerKnock, boundReadingSave, readerLightContext, readerLights } from "./reader-kit.js";
 
 // ---------------------------------------------------------------------------------------------
 // ENCYCLOPEDIA: an offline Wikipedia (a Kiwix ZIM file the service reads, vesper/encyclopedia.py),
@@ -32,7 +32,11 @@ export function migrateWiki(raw) {
     .filter((r) => r && okPath(r.path) && !seen.has(r.path) && seen.add(r.path))
     .slice(0, MAX_RECENT)
     .map((r) => ({ path: r.path, title: fit(String(r.title || r.path), 80), f: Number.isFinite(r.f) ? clamp(Math.round(r.f * 100) / 100, 0, 1) : 0 }));
-  return save;
+  const trail = (Array.isArray(raw.trail) ? raw.trail : []).map(place).filter(Boolean).slice(-12);
+  const marks = (Array.isArray(raw.marks) ? raw.marks : []).map(place).filter(Boolean).slice(0, 12);
+  if (trail.length) save.trail = trail;
+  if (marks.length) save.marks = marks;
+  return boundReadingSave(save);
 }
 
 // Remote data and caches: class instances, which the gesture guard neither copies nor rewinds.
@@ -56,7 +60,7 @@ export class Encyclopedia {
     this.c = ctx;
     this.data = new Shelves();
     this.layout = new Pages();
-    this.lamps = new LampBus(ctx);
+    this.lamps = new LampBus(readerLightContext(ctx));
     this.guard = new AppGuard(this, ctx);
     this.save = migrateWiki(ctx.progress?.());
     this.phase = "home";
@@ -64,7 +68,7 @@ export class Encyclopedia {
     this.article = null;          // { path, title } being read
     this.pos = { para: 0, char: 0 };
     this.page = 0;
-    this.trail = [];              // where BACK goes: [{ path, title, para, char }]
+    this.trail = (this.save.trail || []).map((p) => ({ ...p }));
     this.notice = null;
     this.autoT = 0;
     this.held = false;
@@ -134,6 +138,9 @@ export class Encyclopedia {
       return [
         { label: "RESUME READING", run: () => this.go("read") },
         { label: "PREVIOUS PAGE", run: () => { this.go("read"); this.turn(-1); } },
+        { label: "NEXT PAGE", run: () => { this.go("read"); this.turn(1); } },
+        { label: this.marked() ? "REMOVE BOOKMARK" : "BOOKMARK THIS PAGE", run: () => this.bookmark() },
+        { label: "BOOKMARKS · " + (this.save.marks?.length || 0), run: () => this.go("marks") },
         { label: "LINKS ON THIS PAGE", run: () => this.go("links") },
         { label: "SECTIONS" + (a?.sections?.length ? " · " + a.sections.length : ""), run: () => this.go("sections") },
         ...(back ? [{ label: "BACK TO " + fit(back.title, 22).toUpperCase(), run: () => this.back() }] : []),
@@ -143,6 +150,8 @@ export class Encyclopedia {
         { label: "ENCYCLOPEDIA HOME", run: () => this.home() },
       ];
     }
+    if (this.phase === "marks") return [{ label: "BACK TO READING", run: () => this.go(this.article ? "read" : "home") },
+      ...(this.save.marks || []).map((m) => ({ label: m.title, sub: "SAVED READING PLACE", run: () => this.open(m.path, m.title, { pos: m, trail: false }) }))];
     if (this.phase === "links") {
       const links = this.linksByPage();
       return [{ label: "BACK TO THE PAGE", run: () => this.go("read") },
@@ -158,15 +167,22 @@ export class Encyclopedia {
           run: () => this.open(r.path, r.title, { trail: false }) }))];
     }
     // Home.
-    if (!this.ready()) return [{ label: "LEAVE THE ENCYCLOPEDIA", sub: "BACK TO THE DASHBOARD", run: () => this.c.home?.() }];
+    if (!this.ready()) return [
+      { label: "CHECK AGAIN", sub: "AFTER ADDING AN OFFLINE ENCYCLOPEDIA", run: () => this.loadStatus() },
+      { label: "SETUP GUIDE", sub: "WHAT THE ENCYCLOPEDIA NEEDS", run: () => {
+        this.notice = { title: "OFFLINE ENCYCLOPEDIA", lines: ["Add the offline reader and a verified Wikipedia archive during console setup.", "Simple English needs about 1.1 GB. Prepare it on a computer, then copy it to the console's encyclopedia folder.", "Return here and choose CHECK AGAIN."], back: "home" };
+        this.go("notice");
+      } },
+      { label: "LEAVE THE ENCYCLOPEDIA", sub: "BACK TO THE DASHBOARD", run: () => this.c.home?.() }];
     const rows = [];
     const last = this.save.last;
-    if (last) rows.push({ label: "CONTINUE · " + fit(last.title, 40), sub: "WHERE YOU LEFT OFF", run: () => this.open(last.path, last.title, { pos: last, trail: false }) });
+    if (last) rows.push({ label: "CONTINUE · " + fit(last.title, 40), sub: "WHERE YOU LEFT OFF", run: () => this.open(last.path, last.title, { pos: last, trail: "resume" }) });
     if (s.featured) rows.push({ label: "ARTICLE OF THE DAY", sub: fit(s.featured.title, 60), run: () => this.open(s.featured.path, s.featured.title, { trail: false }) });
     if (s.onThisDay) rows.push({ label: "ON THIS DAY", sub: fit(s.onThisDay.title, 60), run: () => this.open(s.onThisDay.path, s.onThisDay.title, { trail: false }) });
     rows.push({ label: "RANDOM ARTICLE", sub: "SOMEWHERE NEW", run: () => this.random() });
     if (s.main) rows.push({ label: "FRONT PAGE", sub: fit(s.title, 60), run: () => this.open(s.main, "Front page", { trail: false }) });
     if (this.save.recent.length) rows.push({ label: "RECENTLY READ", sub: this.save.recent.length + " ARTICLES", run: () => this.go("recent", 1) });
+    if (this.save.marks?.length) rows.push({ label: "BOOKMARKS", sub: this.save.marks.length + " READING PLACES", run: () => this.go("marks", 1) });
     rows.push({ label: "LEAVE THE ENCYCLOPEDIA", sub: "BACK TO THE DASHBOARD", run: () => this.c.home?.() });
     return rows;
   }
@@ -185,11 +201,22 @@ export class Encyclopedia {
   }
 
   // ---- actions ------------------------------------------------------------------------------
+  marked() { return (this.save.marks || []).some((m) => m.path === this.article?.path && m.para === this.pos.para && m.char === this.pos.char); }
+  bookmark() {
+    if (!this.article) return;
+    const present = this.marked();
+    this.save.marks = (this.save.marks || []).filter((m) => !(m.path === this.article.path && m.para === this.pos.para && m.char === this.pos.char));
+    if (!present) this.save.marks.unshift({ ...this.article, ...this.pos });
+    this.save.marks = this.save.marks.slice(0, 12);
+    this.dirty = true;
+    this.c.toast?.(present ? "BOOKMARK REMOVED" : "ARTICLE BOOKMARKED");
+    this.go("read");
+  }
   go(phase, cursor = 0) { this.phase = phase; this.cursor = cursor; if (phase === "read") this.autoT = 0; }
   home() { this.flush(); this.go("home"); this.loadStatus(); }
   open(path, title, { pos = null, trail = true } = {}) {
     if (!okPath(path)) return;
-    if (trail && this.article) {
+    if (trail === true && this.article) {
       this.trail.push({ path: this.article.path, title: this.article.title, ...this.pos });
       if (this.trail.length > MAX_TRAIL) this.trail.shift();
     }
@@ -248,6 +275,8 @@ export class Encyclopedia {
     if (!this.article) return;
     const { path, title } = this.article;
     this.save.last = { path, title: fit(title, 80), para: this.pos.para, char: this.pos.char };
+    if (this.trail.length) this.save.trail = this.trail.map((p) => ({ ...p }));
+    else delete this.save.trail;
     const was = this.save.recent.find((r) => r.path === path);
     const read = Math.max(was?.f || 0, f ?? this.fraction());
     this.save.recent = [{ path, title: fit(title, 80), f: Math.round(read * 100) / 100 }, ...this.save.recent.filter((r) => r.path !== path)].slice(0, MAX_RECENT);
@@ -263,9 +292,9 @@ export class Encyclopedia {
 
   // ---- input --------------------------------------------------------------------------------
   holdMs() { const v = this.c.settings?.()?.holdMs; return Number.isFinite(v) ? clamp(v, 450, 1200) : 650; }
-  down() { this.guard.mark(); this.held = true; this.pressT = 0; }
+  down(event) { this.guard.mark(event); this.held = true; this.pressT = 0; }
   up(event) {
-    this.guard.release();
+    this.guard.release(event);
     if (!this.held) return;
     this.held = false;
     const ms = Number.isFinite(event?.durationMs) ? event.durationMs : this.pressT * 1000;
@@ -273,6 +302,7 @@ export class Encyclopedia {
     if (ms >= this.holdMs()) this.choose(); else this.step();
   }
   cancel() { this.guard.rewind(); this.held = false; this.pressT = 0; }
+  knock(event) { readerKnock(this, event); }
   step() {
     if (this.phase === "read") { this.turn(1); return; }
     if (this.phase === "notice") {
@@ -300,7 +330,8 @@ export class Encyclopedia {
     this.flush();
     this.lamps.clear();
     this.lamps.sleep();
-    this.c.leds?.(lightsOff());
+    this.c.leds?.(readerLights(lightsOff(), this.c.lampCount?.()));
+    this.c.board?.([0, 0, 0]);
   }
 
   // ---- simulation ---------------------------------------------------------------------------
@@ -343,7 +374,7 @@ export class Encyclopedia {
     if (this.phase === "read" && this.article) {
       const pages = this.layoutReady() ? this.layout.pages : null;
       hud = [["PAGE", pages ? (this.page + 1) + "/" + pages.length : "…"], ["DEPTH", String(this.trail.length)], ["READ", Math.round(this.fraction() * 100) + "%"]];
-      hint = "TAP: NEXT PAGE · HOLD & RELEASE: LINKS, SECTIONS, BACK";
+      hint = "BUTTON: NEXT PAGE · CASE TAP: PREVIOUS · HOLD: READER MENU";
     } else {
       const s = this.data.status;
       hud = [["ARTICLES", s.articles ? Number(s.articles).toLocaleString("en-US") : "—"]];
@@ -403,14 +434,13 @@ export class Encyclopedia {
       const why = {
         loading: ["Opening the encyclopedia…"],
         offline: ["The encyclopedia service is not running here. It works on the console, where the Pi keeps an offline copy of Wikipedia."],
-        nolib: ["The reader library is missing on the console.", "On the Pi: .venv/bin/pip install -e '.[encyclopedia]'"],
-        missing: ["No encyclopedia file yet. On the Pi, run:", "python3 scripts/get-encyclopedia.py --data " + fit(String(s.folder || "").replace(/\/encyclopedia$/, ""), 60),
-          "It downloads Simple English Wikipedia, text only, into " + fit(s.folder, 60) + "."],
-        broken: ["The encyclopedia file could not be opened: " + fit(s.error, 80), "Run scripts/get-encyclopedia.py again."],
+        nolib: ["The offline reader is not installed yet.", "Choose SETUP GUIDE for the next step, or CHECK AGAIN after console setup."],
+        missing: ["The reader is ready, but no offline encyclopedia is on the console yet.", "Choose SETUP GUIDE to learn how to add one. Your bookmarks and reading trail stay saved."],
+        broken: ["The offline archive could not be opened.", "Replace it with a verified copy during console setup, then choose CHECK AGAIN. Your reading places are kept."],
       }[s.status] || ["Unknown state."];
       drawNoticePanel(g, { title: "ENCYCLOPEDIA", lines: why }, this.t, s.status === "loading");
       const rows = this.rows();
-      text(g, "HOLD: " + rows[0].label, 480, 500, 18, C.amber, "center");
+      text(g, "HOLD: " + rows[this.cursor].label + " · TAP: NEXT", 480, 500, 18, C.amber, "center");
       return;
     }
     text(g, fit(String(s.title || "ENCYCLOPEDIA").toUpperCase(), 40), 60, 30, 18, C.amber);
@@ -434,7 +464,7 @@ export class Encyclopedia {
   }
   drawList(g) {
     const a = this.current(), rows = this.rows();
-    const heading = this.phase === "recent" ? "RECENTLY READ" : fit(String(a?.title || "").toUpperCase(), 36) + (this.phase === "sections" ? " · SECTIONS" : " · LINKS");
+    const heading = this.phase === "marks" ? "BOOKMARKS" : this.phase === "recent" ? "RECENTLY READ" : fit(String(a?.title || "").toUpperCase(), 36) + (this.phase === "sections" ? " · SECTIONS" : " · LINKS");
     const atEnd = this.phase === "links" && this.layoutReady() && this.page + 1 >= this.layout.pages.length;
     const count = this.phase === "links" ? (atEnd ? "WHERE NEXT?" : rows.length - 1 + " LINKS") : this.phase === "sections" ? rows.length - 1 + " SECTIONS" : "";
     drawRowList(g, rows, this.cursor, heading, count, this.phase === "links" && this.trail.length ? "DEPTH " + this.trail.length + " · BACK IS IN THE HOLD MENU" : "");

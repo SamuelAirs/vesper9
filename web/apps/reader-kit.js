@@ -1,6 +1,57 @@
 import { C, text, line } from "../engine/draw.js";
 import { clamp } from "../engine/math.js";
 
+// A case tap is useful even without a direction classifier: it goes backwards.
+// Directional installations may additionally use a right tap to go forwards.
+export function readerKnock(app, event = {}) {
+  if (app.held) return;
+  const forward = app.c.settings?.()?.tapMode === "sides" && event.side === "right";
+  if (app.phase === "read") {
+    if (!forward && app.page === 0 && app.trail?.length) app.back();
+    else app.turn(forward ? 1 : -1);
+  } else if (app.phase === "notice") app.step();
+  else {
+    const n = app.rows().length;
+    app.cursor = n ? (app.cursor + (forward ? 1 : n - 1)) % n : 0;
+    if (app.phase === "shelf") app.shelfCursor = app.cursor;
+  }
+}
+
+// App progress is limited to 8 KiB by the service. Keep Unicode-heavy saved
+// trails below that boundary too, dropping oldest history before bookmarks.
+export function boundReadingSave(save) {
+  const bytes = () => new TextEncoder().encode(JSON.stringify(save)).length;
+  while (bytes() > 7900) {
+    if (save.recent?.length) save.recent.pop();
+    else if (save.trail?.length) save.trail.shift();
+    else if (save.books && Object.keys(save.books).length > 1) {
+      const oldest = Object.keys(save.books).filter((id) => id !== save.last).sort((a, b) => save.books[a].at - save.books[b].at)[0];
+      if (!oldest) break;
+      delete save.books[oldest];
+    } else if (save.marks?.length) save.marks.pop();
+    else break;
+  }
+  return save;
+}
+
+// The readers' three-point gradients also span a four-lamp node. LampBus keeps
+// its existing effect frames; interpolate only at the owned context boundary.
+export function readerLights(values, count = 3) {
+  if (count !== 4 || values.length !== 9) return values.slice();
+  return Array.from({ length: 12 }, (_, i) => {
+    const x = Math.floor(i / 3) * 2 / 3, a = Math.floor(x), b = Math.ceil(x), channel = i % 3;
+    return Math.round(values[a * 3 + channel] * (1 - x + a) + values[b * 3 + channel] * (x - a));
+  });
+}
+
+export function readerLightContext(ctx) {
+  return { ...ctx, leds(values) {
+    ctx.leds?.(readerLights(values, ctx.lampCount?.()));
+    // A quiet board accent follows the reading lights and goes dark with them.
+    ctx.board?.([0, 1, 2].map((channel) => Math.round(Math.max(...values.filter((_, i) => i % 3 === channel)) * 0.12)));
+  } };
+}
+
 // ---------------------------------------------------------------------------------------------
 // The one-button reader shared by The Stacks (library.js) and the Encyclopedia (encyclopedia.js):
 // monospace layout without measureText, pages remembered by (paragraph, character), and the

@@ -19,7 +19,7 @@ const python=process.env.PYTHON||'python3';const port=require('./free-port.cjs')
  for(let i=0;i<100;i++){try{if((await fetch(origin+'/api/state')).ok)break;}catch{}if(i===99)throw Error('Extension server did not start');await new Promise(r=>setTimeout(r,100));}
  browser=await chromium.launch({headless:true,executablePath:process.env.TEST_BROWSER_BIN||undefined,args:['--no-sandbox','--disable-gpu','--mute-audio']});
  const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
- for(const url of [origin,'file://'+path.join(copy,'VESPER-9-Simulator.html')]){
+ for(const url of [origin,require('node:url').pathToFileURL(path.join(copy,'VESPER-9-Simulator.html')).href]){
   await page.goto(url);await page.waitForFunction(()=>vesper.loaded);
   await page.evaluate(()=>{for(let p=0;p<12;p++){vesper.page=p;vesper.buildHome(0);if(document.querySelector('.app-card[data-app="garden"]'))break;}});
   assert.equal(await page.locator('.app-card[data-app="garden"]').count(),1);
@@ -32,4 +32,4 @@ const python=process.env.PYTHON||'python3';const port=require('./free-port.cjs')
   assert.deepEqual(await page.evaluate(()=>vesper.errors),[]);
  }
  assert.deepEqual(errors,[]);console.log(JSON.stringify({passed:true,cartridge:'garden',catalog:true,voiceAlias:true,buttonLaunch:true,progress:true,service:true,standalone:true}));
-})().catch(e=>{console.error(e);console.error(logs.slice(-2000));process.exitCode=1;}).finally(async()=>{if(browser)await browser.close();if(server)server.kill('SIGTERM');fs.rmSync(copy,{recursive:true,force:true});});
+})().catch(e=>{console.error(e);console.error(logs.slice(-2000));process.exitCode=1;}).finally(async()=>{if(browser)await browser.close();await require('./browser-cleanup.cjs')(server,copy);});

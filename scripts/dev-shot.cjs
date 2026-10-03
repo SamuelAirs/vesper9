@@ -156,8 +156,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     console.error(String(error.stack || error));
   } finally {
     await browser?.close().catch(() => {});
-    server.kill();
-    fs.rmSync(data, { recursive: true, force: true });
+    await require('../tests/browser-cleanup.cjs')(server, data);
   }
   process.exit(failed ? 1 : 0);
 })();

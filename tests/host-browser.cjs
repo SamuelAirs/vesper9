@@ -209,8 +209,64 @@ let browser;
   const downs = await page.evaluate(() => window.__downs);
   check("F1 lost release recovered by node_status; next press reaches the game", !pressAfter && downs === 2, `press outstanding after status=${pressAfter} downs=${downs}`);
 
+  const burst = await page.evaluate(() => {
+    vesper.home(); vesper.launch('orbit'); vesper.input.cancel(false);
+    vesper.app.begin(); Object.assign(vesper.app, { points: 5, lives: 3, angle: 0, target: Math.PI, shield: 0 });
+    const savedBefore = JSON.stringify(vesper.state.progress.orbit || {});
+    for (const [pressed, ms] of [[true, 0], [false, 50], [true, 100], [false, 150], [true, 200], [false, 2400]])
+      vesper.event({ type: 'button', pressed, source: 'simulator', generation: 1, at_us: ms * 1000 });
+    return { menu: !!vesper.menu, lives: vesper.app.lives, phase: vesper.app.phase,
+      savedSame: savedBefore === JSON.stringify(vesper.state.progress.orbit || {}) };
+  });
+  check('USB burst gesture restores Orbit and records no lost run', burst.menu && burst.lives === 3 && burst.phase === 'play' && burst.savedSame, JSON.stringify(burst));
+  const heldGesture = await page.evaluate(() => {
+    vesper.home(); vesper.launch('highbar'); vesper.input.cancel(false); vesper.app.start();
+    const app = vesper.app, [x, y] = app.park().bars[0];
+    Object.assign(app.p, { mode: 'air', x, y: y + 70, vx: 100, vy: 0 }); app.grab(0);
+    let cancels = 0, now = 0;
+    const cancel = app.cancel.bind(app), clock = vesper.input.clock;
+    app.cancel = () => { cancels++; cancel(); };
+    vesper.input.clock = () => now;
+    try {
+      for (const [pressed, ms] of [[true, 0], [false, 40], [true, 100], [false, 140], [true, 200]]) {
+        now = ms; vesper.event({ type: 'button', pressed, source: 'simulator', generation: 1, at_us: ms * 1000 });
+      }
+      now = 2400; vesper.input.update();
+      const restored = app.p.mode;
+      vesper.event({ type: 'button', pressed: false, source: 'simulator', generation: 1, at_us: now * 1000 });
+      return { menu: !!vesper.menu, cancels, restored, afterRelease: app.p.mode };
+    } finally { vesper.input.clock = clock; }
+  });
+  check('held-terminal gesture cancels once and keeps High Bar restored through release', heldGesture.menu && heldGesture.cancels === 1 && heldGesture.restored === 'bar' && heldGesture.afterRelease === 'bar', JSON.stringify(heldGesture));
+  const taps = await page.evaluate(() => {
+    vesper.home(); vesper.input.cancel(false); vesper.input.lastEdge = -Infinity; vesper.input.knockQuietUntil = -Infinity;
+    vesper.state.settings.tapMode = 'generic'; vesper.nav.index = 2;
+    const before = vesper.knocksMuted || 0;
+    vesper.synth.shakeUntil = performance.now() + 350;
+    vesper.event({ type: 'knock', side: 'right', source: 'simulator', generation: 1, at_us: 1000000 });
+    const suppressed = vesper.nav.index === 2 && vesper.knocksMuted === before + 1;
+    vesper.synth.shakeUntil = 0;
+    vesper.event({ type: 'knock', side: 'right', source: 'simulator', generation: 1, at_us: 2000000 });
+    const previous = vesper.nav.index === 1;
+    const oldPage = vesper.page;
+    document.getElementById('previous-sector-button').click();
+    return { suppressed, previous, sectorChanged: vesper.page !== oldPage, lamps: vesper.lampCount(), board: vesper.hasBoardLed() };
+  });
+  check('generic case navigation reverses and low-tone guard still suppresses self taps', taps.suppressed && taps.previous && taps.sectorChanged, JSON.stringify(taps));
+  check('Windows service simulator exposes the finished four-lamp node', taps.lamps === 4 && taps.board, JSON.stringify(taps));
+  const records = await page.evaluate(() => {
+    const scores = vesper.state.scores;
+    try {
+      vesper.state.scores = { highbar: 999999, 'highbar:style-v2': 321, 'wayfinder:region-0': 123, 'wayfinder:region-2': 9999 };
+      vesper.page = 0; vesper.buildHome();
+      return { style: vesper.primaryBest('highbar'), scout: vesper.primaryBest('wayfinder'),
+        label: document.querySelector('[data-app="wayfinder"] .card-stat').textContent };
+    } finally { vesper.state.scores = scores; vesper.cardStats(); }
+  });
+  check('new scoring rules keep legacy and region records separate and labelled', records.style === 321 && records.scout === 123 && records.label === 'SCOUT BEST 123', JSON.stringify(records));
+
   check("no uncaught page errors", pageErrors.length === 0, JSON.stringify(pageErrors));
   fs.writeFileSync(path.join(output, "host-browser.json"), JSON.stringify(results, null, 2));
   if (results.some((r) => !r.ok)) process.exitCode = 1;
 })().catch((e) => { console.error(e, logs.slice(-1500)); process.exitCode = 1; })
-  .finally(async () => { if (browser) await browser.close(); server.kill("SIGTERM"); fs.rmSync(data, { recursive: true, force: true }); });
+  .finally(async () => { if (browser) await browser.close(); await require('./browser-cleanup.cjs')(server, data); });

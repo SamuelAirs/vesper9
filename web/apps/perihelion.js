@@ -616,6 +616,21 @@ export class Perihelion {
   // On the title, result and hangar screens a press is decided when it ends: a tap chooses the
   // main action, a press of HOLD_PICK seconds or more opens or operates the hangar. Play is
   // unchanged: the press edge is the throw.
+  knock(event = {}) {
+    if (this.armed) return;
+    if (this.phase === "title" || this.phase === "over" && this.deadT > 0.7) { this.openHangar(); return; }
+    if (this.phase === "hangar") {
+      const d = this.c.settings?.().tapMode === "sides" && event.side === "right" ? 1 : -1;
+      if (this.view === "shop") this.page = (this.page + d + UPGRADES.length + 1) % (UPGRADES.length + 1);
+      else if (this.view === "guide") this.page = (this.page + d + GUIDE.length) % GUIDE.length;
+      else if (this.view === "menu") this.cur = (this.cur + d + this.rows().length) % this.rows().length;
+      return;
+    }
+    if (this.phase === "play") {
+      this.notice = this.p.a ? "TETHERED / RELEASE ON THE TANGENT" : this.pickTarget(this.p) ? "SUN IN REACH / HOLD TO CATCH" : "COASTING / NO SUN IN REACH";
+      this.noticeT = 2;
+    }
+  }
   down() {
     this.guard.mark();
     if (this.phase === "title" || this.phase === "hangar" || (this.phase === "over" && this.deadT > 0.7)) {
@@ -651,10 +666,12 @@ export class Perihelion {
     this.armed = false;
     this.up();
     this.c.leds(lightsOff(this.c.lampCount?.() >= 4 ? 4 : 3));
+    this.c.board?.(LAMP.off);
   }
   pause() {
     this.guard.settle();
     this.c.leds(lightsOff(this.c.lampCount?.() >= 4 ? 4 : 3));
+    this.c.board?.(LAMP.off);
   }
   resume() {
     this.held = false;
@@ -663,6 +680,7 @@ export class Perihelion {
     this.guard.settle();
     this.held = false;
     this.c.leds(lightsOff(this.c.lampCount?.() >= 4 ? 4 : 3));
+    this.c.board?.(LAMP.off);
   }
   start() {
     this.held = false;
@@ -882,6 +900,7 @@ export class Perihelion {
     }
     if (this.sq.length) this.playNotes();
     this.c.leds(this.lampValues());
+    this.c.board?.(this.phase === "play" && this.p.a ? dim(LAMP.amber, 0.18) : LAMP.off);
     if (this.phase !== "play") this.c.hud([["BEST", this.bestRef()]]);
   }
   playNotes() {

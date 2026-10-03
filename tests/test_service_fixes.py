@@ -487,7 +487,10 @@ class SerialCase(unittest.IsolatedAsyncioTestCase):
             yield device
         finally:
             task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
+            await asyncio.wait_for(asyncio.gather(task, return_exceptions=True), 3)
+            for pool in (device.reader, device.writer):
+                if pool:
+                    pool.shutdown(wait=True)
 
     @contextlib.asynccontextmanager
     async def console(self):
@@ -862,12 +865,19 @@ class ProcessCase(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await self.session.close()
         if self.process.poll() is None:
-            self.process.kill()
+            if os.name == 'nt':
+                # A Windows venv executable is a redirector; stop its owned child
+                # too, otherwise SQLite remains open after the wrapper exits.
+                subprocess.run(['taskkill', '/PID', str(self.process.pid), '/T', '/F'],
+                               check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                self.process.kill()
         self.process.wait()
         self.temporary.cleanup()
 
 
 class FixedProcess(ProcessCase):
+    @unittest.skipIf(os.name == 'nt', 'POSIX SIGTERM graceful shutdown; native Windows startup/loopback checked separately')
     async def test_service_restart_with_a_tab_connected_is_prompt(self):
         """WRONG: nothing closes open WebSockets on shutdown. After SIGTERM aiohttp waits for the
         idle /ws handler (about 25 s measured here, up to its 60 s shutdown_timeout) before
@@ -929,9 +939,9 @@ class FixedInstaller(unittest.TestCase):
                      contextlib.redirect_stdout(io.StringIO()):
                     installer.main()
             install("--port", "/dev/test-node", "--data", str(data))
-            self.assertIn(str(data), unit.read_text())
+            self.assertIn(str(data), installer.unit_settings(unit)["args"])
             install("--port", "/dev/test-node", "--kiosk")
-            self.assertIn(str(data), unit.read_text(), "second install dropped the data directory")
+            self.assertIn(str(data), installer.unit_settings(unit)["args"], "second install dropped the data directory")
 
 
 if __name__ == "__main__":

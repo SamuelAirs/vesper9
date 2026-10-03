@@ -379,6 +379,17 @@ export class Meridian {
   // On the title, result and observatory screens a press is decided when it ends: a tap is the main
   // action, a press of HOLD_PICK or more opens or operates the observatory. In play the press edge
   // is the strike, judged at once.
+  knock(event = {}) {
+    if (this.armed) return;
+    if (this.phase === "title" || this.phase === "over" && this.deadT > 0.7) { this.openMenu(); return; }
+    if (this.phase === "menu") {
+      const d = this.c.settings?.().tapMode === "sides" && event.side === "right" ? 1 : -1;
+      if (this.view === "guide") this.page = Math.max(0, Math.min(GUIDE.length - 1, this.page + d));
+      else if (this.view === "menu") this.cur = (this.cur + d + ROWS.length) % ROWS.length;
+      return;
+    }
+    if (this.phase === "play") this.announce("BUTTON: CATCH THE CALLED LAMP / LET RED SWINGS PASS", 2);
+  }
   down() {
     this.guard.mark();
     if (this.phase === "title" || this.phase === "menu" || (this.phase === "over" && this.deadT > 0.7)) {
@@ -684,6 +695,7 @@ export class Meridian {
     }
     this.lampOut = this.lampValues();
     this.lamps.frame(dt, this.lampOut);
+    this.c.board?.(this.phase === "play" && this.combo >= 5 ? dim(LAMP.cyan, 0.15) : LAMP.off);
     this.pushHud();
   }
   step(dt) {

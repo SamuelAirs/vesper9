@@ -19,6 +19,7 @@ from pathlib import Path
 from aiohttp import web, WSMsgType, WSCloseCode
 
 from . import analysis
+from .build import identity
 from .device import KNOCK_THRESHOLDS, SerialDevice, SimulatedDevice
 from .health import HostProbe, safe
 from .encyclopedia import Encyclopedia
@@ -113,6 +114,8 @@ class Console:
         self.analysis_generation = 0
         self.analysis_busy = False
         self.analysis_error = None
+        self.mic_transition_error = None
+        self.pending_session = None
         self.synthetic = None
         self.timers = stored_timers(self.store.get("timers", []))
         self.timers_dirty = False
@@ -123,10 +126,13 @@ class Console:
                 self.settings[key] = validate_setting(key, value)
             except Exception:
                 logging.warning("Ignoring stored setting %r", key)
+        self.tap_direction.mode = self.settings.get("tapMode", "generic")
         self.device.knock_threshold = self.knock_threshold()
         if self.device.simulated:
             self.device.status["knock"]["thr"] = self.device.knock_threshold
         self.started = time.time()
+        self.started_monotonic = time.monotonic()
+        self.build = identity(ROOT)
         self.host = HostProbe(args.data)
         self.library = Library(Path(args.data) / "library", getattr(args, "media", "/media"), bundled=ROOT / "books")
         self.encyclopedia = Encyclopedia(Path(args.data) / "encyclopedia")
@@ -148,6 +154,11 @@ class Console:
     def knock_threshold(self):
         return KNOCK_THRESHOLDS.get(self.settings.get("knock"), KNOCK_THRESHOLDS["medium"])
 
+    def tap_status(self):
+        status = self.tap_direction.status()
+        available = self.device.mics == 2
+        return {**status, "enabled": available and status["enabled"], "available": available}
+
     async def apply_knock(self):
         """Tell the node the knock sensitivity. A disconnected node is told when it reconnects."""
         try:
@@ -156,10 +167,10 @@ class Console:
             logging.warning("Knock sensitivity not sent to the node: %s", exc)
 
     def mic_error(self):
-        return self.speech.error or self.analysis_error
+        return self.speech.error or self.analysis_error or self.mic_transition_error
 
     def state(self):
-        return {"type": "state", "version": VERSION, "simulated": self.device.simulated,
+        return {"type": "state", "version": VERSION, "build": self.build, "simulated": self.device.simulated,
                 "device": {"connected": self.device.connected, "name": self.device.name, "capture": self.device.mic,
                            "crcErrors": self.device.crc_errors, "missingSamples": self.device.audio_missing,
                            "audioBytes": self.device.audio_bytes, "button": self.device.pressed, "generation": self.device.generation},
@@ -168,14 +179,14 @@ class Console:
                 # (three per lamp, left to right), and the development board's own LED if it has one.
                 "lamps": {"count": self.device.lamps, "values": self.device.lamp_values,
                           "board": self.device.board_led if self.device.has_board_led else None},
-                "mic": {"mode": self.mode, "level": self.level, "session": self.session,
+                "mic": {"mode": self.mode, "capture": self.device.mic, "level": self.level, "session": self.session,
                            "unavailable": self.speech.availability(), "recognizer": self.speech.status(), "droppedChunks": self.speech.dropped, "error": self.mic_error(),
                            "modes": list(MIC_MODES),
                            "analysis": {"rate": analysis.RATE, "bands": analysis.BANDS, "edgesHz": analysis.EDGES,
                                         "intervalMs": round(analysis.HOP * 1000 / analysis.RATE)}},
                 "sensor": self.sensor, "timers": self.public_timers(), "settings": self.settings,
                 "scores": self.store.scores(), "progress": self.store.get("progress", {}),
-                "tapDirection": self.tap_direction.status(), "serverTime": time.time()}
+                "tapDirection": self.tap_status(), "serverTime": time.time()}
 
     def public_timers(self):
         now = time.time()
@@ -185,7 +196,7 @@ class Console:
 
     async def pump(self, client, box):
         try:
-            while True:
+            while not asyncio.current_task().cancelling():
                 event = await box.queue.get()
                 await asyncio.wait_for(client.send_json(event), SEND_TIMEOUT)
         except asyncio.CancelledError:
@@ -257,10 +268,10 @@ class Console:
 
     async def event(self, event):
         kind = event["type"]
-        if kind == "knock" and "clip" in event:
+        if kind == "knock":
             event = self.tap_direction.annotate(event)
             if event.get("labelled"):
-                await self.broadcast({"type": "tap_direction", **self.tap_direction.status()})
+                await self.broadcast({"type": "tap_direction", **self.tap_status()})
         if kind == "audio":
             if self.mode != "off":
                 pcm = event["pcm"]
@@ -392,7 +403,8 @@ class Console:
             raise ValueError("Unknown microphone mode")
         async with self.mode_lock:
             # "off" while the console already says off still mutes a node that reports capture.
-            if mode == self.mode and not (mode == "off" and self.device.connected and self.device.mic):
+            if (mode == self.mode and not self.pending_session
+                    and not (mode == "off" and self.device.connected and self.device.mic)):
                 return
             if mode != "off" and not self.device.connected:
                 raise ValueError("Connect the node before enabling its microphone")
@@ -409,19 +421,22 @@ class Console:
                     if not self.device.simulated and self.device.serial:
                         self.device.serial.close()
             old_session = self.session
-            self.stop_analysis()
-            await self.speech.set_mode("off")
-            if old_session:
-                self.store.end_session(old_session)
-            self.session = None
-            self.mode = "off"
-            self.level = 0
-            if mode != "off":
-                self.analysis_error = None
             try:
+                self.stop_analysis()
+                # Finals still belong to the old session while the worker flushes.
+                await self.speech.set_mode("off")
+                self.pending_session = old_session or self.pending_session
+                self.session = None
+                self.mode = "off"
+                self.level = 0
+                if self.pending_session:
+                    self.store.end_session(self.pending_session)
+                    self.pending_session = None
                 if mute_error:
                     raise mute_error
+                self.mic_transition_error = None
                 if mode != "off":
+                    self.analysis_error = None
                     if mode in RECOGNITION_MODES:
                         await self.speech.set_mode(mode)
                     if mode == "transcribe":
@@ -439,15 +454,25 @@ class Console:
                         if self.device.simulated:
                             # No node microphone here: the signal is synthetic and says so.
                             self.synthetic = asyncio.create_task(self.synthetic_microphone(self.analysis_generation))
-            except Exception:
+            except Exception as exc:
                 self.stop_analysis()
                 with contextlib.suppress(Exception):
                     await self.device.command(Kind.MIC, b"\x00")
-                await self.speech.set_mode("off")
-                if self.session:
-                    self.store.end_session(self.session)
+                with contextlib.suppress(Exception):
+                    await self.speech.set_mode("off")
+                unfinished = self.session or old_session or self.pending_session
+                if unfinished:
+                    self.pending_session = unfinished
+                    try:
+                        self.store.end_session(unfinished)
+                    except Exception:
+                        pass  # Keep the id for an explicit retry; never sacrifice mute to storage.
+                    else:
+                        self.pending_session = None
                 self.session = None
                 self.mode = "off"
+                self.level = 0
+                self.mic_transition_error = "Microphone transition failed: " + str(exc)
                 raise
             finally:
                 await self.broadcast({"type": "mic", "mode": self.mode, "session": self.session, "capture": self.device.mic, "error": self.mic_error()})
@@ -554,7 +579,7 @@ class Console:
             if not isinstance(op, str) or (side is not None and not isinstance(side, str)):
                 raise ValueError("Unknown tap direction operation")
             status = self.tap_direction.command(op, side)
-            await self.broadcast({"type": "tap_direction", **status})
+            await self.broadcast({"type": "tap_direction", **self.tap_status()})
         elif kind == "mic":
             mode = data.get("mode")
             if not isinstance(mode, str):
@@ -597,14 +622,20 @@ class Console:
             settings = {**self.settings, key: value}
             self.store.put("settings", settings)
             self.settings = settings
+            if key == "tapMode":
+                self.tap_direction.mode = value
             await self.broadcast({"type": "settings", "settings": self.settings})
+            if key == "tapMode":
+                await self.broadcast({"type": "tap_direction", **self.tap_status()})
             if key == "knock":
                 await self.apply_knock()
         elif kind == "reset_settings":
             settings = dict(DEFAULT_SETTINGS)
             self.store.put("settings", settings)
             self.settings = settings
+            self.tap_direction.mode = settings.get("tapMode", "generic")
             await self.broadcast({"type": "settings", "settings": self.settings})
+            await self.broadcast({"type": "tap_direction", **self.tap_status()})
             await self.apply_knock()
         elif kind == "library_fetch":
             item = data.get("item")
@@ -742,6 +773,7 @@ class Console:
         await asyncio.gather(*self.tasks, *self.background, *boxes, return_exceptions=True)
         for client in list(self.clients):
             await client.close()
+        self.encyclopedia.close()
         self.store.close()
 
     # ---- system health -------------------------------------------------------------------
@@ -769,13 +801,16 @@ class Console:
             "sensor": status.get("sensor"),
             "knock": status.get("knock"),
             "knockGuarded": getattr(device, "knock_guarded", 0),
-            "tapDirection": self.tap_direction.status(),
+            "tapDirection": self.tap_status(),
+            "board": status.get("board"), "lamps": device.lamps, "mics": device.mics,
+            "boardLed": device.board_led if device.has_board_led else None,
         }
         alive = {name: not task.done() for name, task in zip(self.task_names, self.tasks)}
         service = {
             "version": VERSION,
-            "startedAt": round(self.started, 1),
-            "uptimeS": round(time.time() - self.started, 1),
+            "build": self.build,
+            "startedAt": round(time.time() - max(0, time.monotonic() - self.started_monotonic), 1),
+            "uptimeS": round(max(0, time.monotonic() - self.started_monotonic), 1),
             "rssBytes": process["rssBytes"],
             "pid": os.getpid(),
             "python": "%d.%d.%d" % sys.version_info[:3],
@@ -962,7 +997,7 @@ def main():
         args.data = str(ROOT / "data" / ("simulator" if args.simulate else "console"))
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     web.run_app(make_app(args), host="127.0.0.1", port=args.http_port, shutdown_timeout=3,
-                print=lambda _: print(f"VESPER-9 → http://localhost:{args.http_port} / {'SIMULATOR' if args.simulate else args.port}"))
+                print=lambda _: print(f"VESPER-9 -> http://localhost:{args.http_port} / {'SIMULATOR' if args.simulate else args.port}"))
 
 
 if __name__ == "__main__":

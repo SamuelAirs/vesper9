@@ -97,18 +97,15 @@ class SimulatedDevice:
         self.pressed = False
         self.generation = 1
         self.knock_threshold = 0
-        self.status = {"fw": "simulated", "link": "simulated", "mic": False, "button": False,
-                       "sensor": {"simulated": True, "ok": 0, "fail": 0, "err": None},
+        self.status = {"fw": "simulated", "board": 2, "lamps": 4, "mics": 2, "link": "simulated", "mic": False, "button": False,
+                       "board_led": [0, 0, 0],
+                       "sensor": {"simulated": True, "addr": 0, "ok": 0, "fail": 0, "err": None},
                        "knock": {"thr": 0, "n": 0, "btn": 0, "long": 0, "peak": 0}}
         self.status_at = time.monotonic()
 
     async def run(self):
         await self.emit({"type": "device", "connected": True, "simulated": True, "name": self.name})
         while True:
-            t = time.monotonic()
-            await self.emit({"type": "sensor", "temperature": round(22 + math.sin(t / 95) * .7, 2),
-                             "humidity": round(43 + math.sin(t / 120) * 2, 2), "simulated": True})
-            self.status["sensor"]["ok"] += 1
             self.status_at = time.monotonic()
             await asyncio.sleep(5)
 
@@ -133,7 +130,7 @@ class SimulatedDevice:
                 values = [0] * 9
                 values[index*3:index*3+3] = [r, g, b]
                 await self.command(Kind.LEDS, bytes(values))
-                await self.emit({"type": "cue", "trial": trial, "at_us": time.monotonic_ns() // 1000, "simulated": True, "generation": self.generation})
+                await self.emit({"type": "cue", "trial": trial, "at_us": time.perf_counter_ns() // 1000, "simulated": True, "generation": self.generation})
             self.cue_task = asyncio.create_task(fire())
         elif kind == Kind.CANCEL:
             if self.cue_task:
@@ -168,7 +165,9 @@ class SimulatedDevice:
     async def button(self, pressed):
         if self.pressed != pressed:
             self.pressed = pressed
-            await self.emit({"type": "button", "pressed": pressed, "at_us": time.monotonic_ns() // 1000, "source": "simulator", "generation": self.generation})
+            # On Python3.11 Windows monotonic_ns uses the coarse system tick;
+            # perf_counter_ns uses QPC. Every simulated input/cue shares QPC.
+            await self.emit({"type": "button", "pressed": pressed, "at_us": time.perf_counter_ns() // 1000, "source": "simulator", "generation": self.generation})
 
     async def set_knock(self, threshold):
         await self.command(Kind.KNOCK_SET, struct.pack("<H", threshold))
@@ -180,7 +179,7 @@ class SimulatedDevice:
             return
         self.status["knock"]["n"] += 1
         self.status["knock"]["peak"] = 20000
-        event = {"type": "knock", "at_us": time.monotonic_ns() // 1000, "peak": 20000, "source": "simulator",
+        event = {"type": "knock", "at_us": time.perf_counter_ns() // 1000, "peak": 20000, "source": "simulator",
                  "generation": self.generation}
         if side:
             event["clip"] = simulated_tap(side)
@@ -257,7 +256,9 @@ class SerialDevice:
         found = []
         for candidate in self.ports:
             matches = sorted(glob.glob(candidate)) if any(ch in candidate for ch in "*?[") else [candidate]
-            found.extend(match for match in matches if match not in found)
+            for match in matches:
+                if not any(os.path.normcase(os.path.normpath(match)) == os.path.normcase(os.path.normpath(p)) for p in found):
+                    found.append(match)
         return found
 
     @property
@@ -327,7 +328,9 @@ class SerialDevice:
 
     async def run(self):
         import serial
-        while True:
+        # A completed executor read can race cancellation of wait_for; honour the
+        # task's cancellation request even when that read won the race.
+        while not asyncio.current_task().cancelling():
             try:
                 # Opening either port may reset the board. Wait for a valid
                 # protocol packet, then explicitly renegotiate a muted session.
@@ -356,7 +359,7 @@ class SerialDevice:
                 self.write_failures = 0
                 heartbeat = asyncio.create_task(self.heartbeat())
                 try:
-                    while True:
+                    while not asyncio.current_task().cancelling():
                         def read_available():
                             # A large fixed read would delay a lone button event
                             # until the serial timeout. Wake on the first byte.

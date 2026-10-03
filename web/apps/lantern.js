@@ -40,7 +40,7 @@ export const LEVELS = [
 ];
 export const SCENES = [
   { id: "steady", name: "STEADY" },
-  { id: "set", name: "THREE-LAMP SET" },
+  { id: "set", name: "COLOUR SET" },
   { id: "breathe", name: "BREATHE" },
   { id: "aurora", name: "AURORA" },
   { id: "candle", name: "CANDLE" },
@@ -89,32 +89,33 @@ export function sanitize(raw) {
 // Nine lamp values for a scene `seconds` after it was started. s: { scene, colour, set,
 // level, sunrise, seed } with the indexes used above. Pure and total: any input gives nine
 // whole numbers 0..255.
-export function sceneFrame(scene, s, seconds) {
+export function sceneFrame(scene, s, seconds, count = 3) {
+  const n = count === 4 ? 4 : 3, indexes = Array.from({ length: n }, (_, i) => i);
   const t = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
   const st = { ...sanitize(s), seed: Number.isFinite(s?.seed) ? s.seed | 0 : 1 };
   const level = LEVELS[st.level].value;
   const rgb = COLOURS[st.colour].rgb;
   switch (scene) {
     case "steady":
-      return fold([rgb, rgb, rgb], level);
+      return fold(indexes.map(() => rgb), level);
     case "set":
-      return fold(SETS[st.set].rgb, level);
+      return fold(n === 4 ? [...SETS[st.set].rgb, blend(SETS[st.set].rgb[0], SETS[st.set].rgb[2], 0.5)] : SETS[st.set].rgb, level);
     case "breathe": {
       // An eight-second swell, with the floor at a fifth so it never goes fully dark.
       const p = 0.5 - 0.5 * Math.cos((t / 8) * Math.PI * 2);
-      return fold([rgb, rgb, rgb], level * (0.2 + 0.8 * smooth(p)));
+      return fold(indexes.map(() => rgb), level * (0.2 + 0.8 * smooth(p)));
     }
     case "aurora":
       // Colour drifts through green, cyan, blue and violet, a fifth of a turn apart per lamp,
       // with a slow second swell so the lamps never move in step.
-      return [0, 1, 2].flatMap((i) => {
+      return indexes.flatMap((i) => {
         const phase = (t / 70 + i * 0.2) % 1;
         const swell = 0.7 + 0.3 * Math.sin((t / 19 + i * 0.27) * Math.PI * 2);
         return dim(ramp(phase, AURORA), clamp(level * swell, 0, 1)).map(byte);
       });
     case "candle":
       // Fast shimmer plus a slow wander and an occasional gutter, independent per lamp.
-      return [0, 1, 2].flatMap((i) => {
+      return indexes.flatMap((i) => {
         const seed = st.seed * 7 + i * 101;
         const shimmer = noise(seed, t * 7), wander = noise(seed + 1, t * 1.3);
         const gutter = noise(seed + 2, t * 0.45) > 0.86 ? 0.55 : 1;
@@ -124,15 +125,15 @@ export function sceneFrame(scene, s, seconds) {
     case "tide": {
       // A pool of light rolling left to right and back every 16 seconds.
       const position = 0.5 - 0.5 * Math.cos((t / 16) * Math.PI * 2);
-      return [0, 1, 2].flatMap((i) => {
-        const near = clamp(1 - Math.abs(position * 2 - i) / 0.95, 0, 1);
+      return indexes.flatMap((i) => {
+        const near = clamp(1 - Math.abs(position * (n - 1) - i) / 0.95, 0, 1);
         return dim(rgb, level * (0.08 + 0.92 * smooth(near))).map(byte);
       });
     }
     case "ember": {
       // Amber fading to red and down to a fifth of the chosen level over half an hour.
       const p = clamp(t / EMBER_SECONDS, 0, 1);
-      return [0, 1, 2].flatMap((i) => {
+      return indexes.flatMap((i) => {
         const glow = 0.88 + 0.12 * Math.sin(t / 5 + i * 2.1);
         return dim(blend(LAMP.amber, [200, 14, 0], p), level * (1 - 0.8 * p) * glow).map(byte);
       });
@@ -142,13 +143,13 @@ export function sceneFrame(scene, s, seconds) {
       // is a real wake light even if the dimmest step was chosen; the left lamp leads.
       const total = Math.max(60, st.sunrise * 60);
       const high = Math.max(level, 0.25), low = 0.02;
-      return [0, 1, 2].flatMap((i) => {
+      return indexes.flatMap((i) => {
         const p = clamp((t / total) * 1.2 - 0.075 * i, 0, 1);
         return dim(ramp(p, [LAMP.red, LAMP.amber, WARM]), low + (high - low) * p).map(byte);
       });
     }
     default:
-      return lightsOff();
+      return lightsOff(n);
   }
 }
 
@@ -187,7 +188,7 @@ export class Lantern {
     this.sleepMin = 0;
     this.sleepStart = 0;
     this.menu = "main";
-    this.last = lightsOff();
+    this.last = lightsOff(ctx.lampCount?.() === 4 ? 4 : 3);
     this.lastHtml = "";
     this.lastFrameAt = -1e9;
     this.dead = false;
@@ -245,8 +246,8 @@ export class Lantern {
     }
     const p = this.preview;
     const values = p
-      ? sceneFrame(p.scene || this.s.scene, { ...this.s, ...p }, (now - this.previewStart) / 1000)
-      : sceneFrame(this.s.scene, this.s, (now - this.sceneStart) / 1000);
+      ? sceneFrame(p.scene || this.s.scene, { ...this.s, ...p }, (now - this.previewStart) / 1000, this.ctx.lampCount?.())
+      : sceneFrame(this.s.scene, this.s, (now - this.sceneStart) / 1000, this.ctx.lampCount?.());
     this.show(factor >= 1 ? values : values.map((v) => byte(v * factor)));
   }
 
@@ -265,8 +266,11 @@ export class Lantern {
   }
 
   show(values) {
-    this.last = values;
-    if (!this.paused) this.ctx.leds(values);
+    this.last = values.every((v) => v === 0) ? lightsOff(this.ctx.lampCount?.() === 4 ? 4 : 3) : values;
+    if (!this.paused) {
+      this.ctx.leds(this.last);
+      this.ctx.board?.(this.last.slice(0, 3).map((v) => Math.round(v * 0.15)));
+    }
     this.paint();
   }
 
@@ -274,7 +278,7 @@ export class Lantern {
   paint() {
     if (typeof document === "undefined") return;
     try {
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < (this.ctx.lampCount?.() === 4 ? 4 : 3); i++) {
         const el = document.getElementById("lantern-lamp-" + i);
         if (el) {
           el.setAttribute("fill", this.swatch(i));
@@ -315,7 +319,8 @@ export class Lantern {
     const status = this.preview ? "PREVIEW / HOLD TO KEEP" : this.lit ? "LAMPS ON" : this.asleep ? "TIMER ENDED / DARK" : "LAMPS DARK";
     const colourName = USES_COLOUR.includes(p.scene) ? COLOURS[p.colour].name
       : p.scene === "set" ? SETS[p.set].name : "SET BY SCENE";
-    const lamps = [0, 1, 2].map((i) =>
+    const count = this.ctx.lampCount?.() === 4 ? 4 : 3;
+    const lamps = Array.from({ length: count }, (_, i) => i).map((i) =>
       `<circle id="lantern-lamp-${i}" cx="${60 + i * 100}" cy="26" r="20" fill="${this.swatch(i)}" fill-opacity="${this.opacity(i)}"/>` +
       `<circle cx="${60 + i * 100}" cy="26" r="22.5" fill="none" stroke="currentColor" stroke-width="2"/>`).join("");
     const html =
@@ -324,7 +329,7 @@ export class Lantern {
       `<p>${esc(colourName)} · ${esc(LEVELS[p.level].name)}</p></div>` +
       `<div class="utility-panel"><div class="data-label">SLEEP TIMER</div><div class="big-readout">${esc(this.sleepText())}</div>` +
       `<p class="recording-tag">${esc(status)}</p></div></div>` +
-      `<div class="utility-panel"><svg viewBox="0 0 320 52" width="320" height="52" role="img" aria-label="The three lamps in their current colours" style="display:block;margin:0 auto;color:#657b5b">${lamps}</svg></div>`;
+      `<div class="utility-panel"><svg viewBox="0 0 ${count * 100 + 20} 52" width="${count * 100 + 20}" height="52" role="img" aria-label="The ${count} lamps in their current colours" style="display:block;max-width:100%;margin:0 auto;color:#657b5b">${lamps}</svg></div>`;
     if (html !== this.lastHtml) {
       this.lastHtml = html;
       this.ctx.content(html);
@@ -533,6 +538,7 @@ export class Lantern {
     } catch {}
     this.lit = false;
     this.preview = null;
-    this.ctx.leds(lightsOff());
+    this.ctx.leds(lightsOff(this.ctx.lampCount?.() === 4 ? 4 : 3));
+    this.ctx.board?.([0, 0, 0]);
   }
 }

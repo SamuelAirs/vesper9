@@ -50,9 +50,9 @@ function locateCard(id) {
 // The card's small kind label: the part of the category after the slash ("PLAY / MOMENTUM" → MOMENTUM).
 const kind = (app) => (app.category.split("/").pop() || "").trim();
 const isGame = (app) => app.category.startsWith("PLAY");
-function standing(best, runs) {
+function standing(best, runs, label = '') {
   const parts = [];
-  if (best > 0) parts.push("BEST " + Math.round(best).toLocaleString("en-US"));
+  if (best > 0) parts.push((label ? label + ' BEST ' : 'BEST ') + Math.round(best).toLocaleString("en-US"));
   if (runs > 0) parts.push(runs + (runs === 1 ? " RUN" : " RUNS"));
   return parts.length ? parts.join(" · ") : "UNCHARTED";
 }
@@ -123,7 +123,7 @@ export class Vesper {
   }
   // The one menu gesture, everywhere: tap, tap, hold (engine/input.js). Only its pace is a setting.
   escapePolicy() {
-    return { pace: this.state.settings.gesturePace || "standard" };
+    return { pace: this.state.settings.gesturePace || "standard", tapMode: this.state.settings.tapMode || "generic" };
   }
   menuHint() {
     return "MENU: TAP · TAP · HOLD";
@@ -155,8 +155,10 @@ export class Vesper {
   // highlight a gesture's taps moved is put back. `source` says who asked; `focus` is a focusMark().
   requestMenu(source = "api", { focus = null } = {}) {
     if (focus && !this.menu) this.restoreFocus(focus);
-    this.systemMenu();
+    this.cancellingGesture = source === "gesture";
+    try { this.systemMenu(); } finally { this.cancellingGesture = false; }
   }
+  knockNavigationOff() { return !!this.app?.tapStatus?.label; }
   // In the system menu (and the pages it opens) the gesture is off: a hold there chooses on release.
   gestureOff() {
     return !!this.menu;
@@ -439,6 +441,7 @@ export class Vesper {
     const pages = PAGES.length;
     const sector = PAGES[this.page] || { name: "EXPANSION" };
     const next = PAGES[(this.page + 1) % pages];
+    const previous = PAGES[(this.page + pages - 1) % pages];
     $("collection-title").textContent = collection.length + (collection.length === 1 ? " CHANNEL" : " CHANNELS");
     $("sector-label").textContent =
       "SECTOR " + String(this.page + 1).padStart(2, "0") + " / " + sector.name;
@@ -452,11 +455,13 @@ export class Vesper {
       tab.onclick = () => { this.page = Number(tab.dataset.page); this.buildHome(); };
     });
     $("sector-button").textContent = "NEXT SECTOR → " + (next?.name || "EXPANSION");
+    $("previous-sector-button").textContent = "← PREVIOUS / " + (previous?.name || "EXPANSION");
     this.cardStats();
     const nav = [...$("app-grid").querySelectorAll("button")].map(
       (element, i) => ({ element, run: () => this.launch(collection[i].id) }),
     );
     nav.push(
+      { element: $("previous-sector-button"), run: () => this.back() },
       {
         element: $("sector-button"),
         run: () => {
@@ -475,10 +480,14 @@ export class Vesper {
       const app = APPS.find((a) => a.id === card.dataset.app);
       const stat = card.querySelector(".card-stat");
       if (!app || !stat) continue;
-      const value = isGame(app) ? standing(this.state.scores?.[app.id], this.saved(app.id).runs) : "";
+      const value = isGame(app) ? standing(this.primaryBest(app.id), this.saved(app.id).runs, app.scoreLabel) : "";
       if (stat.textContent !== value) stat.textContent = value;
       card.classList.toggle("is-uncharted", value === "UNCHARTED");
     }
+  }
+  primaryBest(id) {
+    const metric = APPS.find(app => app.id === id)?.scoreMetric;
+    return this.state.scores?.[metric ? id + ':' + metric : id] || 0;
   }
   home() {
     // Come back to the card the player just left, on its own sector. An app that is not on the
@@ -493,7 +502,7 @@ export class Vesper {
     $("application").hidden = true;
     this.buildHome(left.index);
     this.nav.items[this.nav.index]?.element.scrollIntoView({ block: "nearest", behavior: "instant" });
-    this.hint("TAP TO ADVANCE · HOLD & RELEASE TO ENTER");
+    this.hint("BUTTON: NEXT · CASE TAP: PREVIOUS · HOLD & RELEASE: ENTER");
     this.bridge.command("focus", { app: "home" }, true);
     this.clickVisual(0);
     window.scrollTo(0, 0);
@@ -556,6 +565,7 @@ export class Vesper {
       // The menu gesture as the router sees it right now (a third press being counted), for apps
       // that show or sound something on a long press (the Morse sidetone).
       menuGesture: () => (alive() ? this.input.gestureState() : { armed: false, elapsedMs: 0, thresholdMs: 0, progress: 0 }),
+      cancelGesture: () => alive() && this.cancellingGesture === true,
       synth: { startTone: guarded(hz => this.synth.startTone(hz)), stopTone: guarded(() => this.synth.stopTone()), chime: guarded(() => this.synth.chime()) },
       alive: () => this.token === token,
       state: () => this.state,
@@ -563,12 +573,13 @@ export class Vesper {
       simulated: () => this.state.simulated,
       command,
       get: (path) => this.bridge.get(path),
-      best: (metric = "default") => this.state.scores[metric === "default" ? meta.id : meta.id + ":" + metric] || 0,
+      best: (metric = meta.scoreMetric || "default") => this.state.scores[metric === "default" ? meta.id : meta.id + ":" + metric] || 0,
       score: (score, metric = "default") => {
         if (!alive()) return;
         this.bridge.command("score", { app: meta.id, score, metric }, true);
         const book = this.logbook();
-        if (Log.noteScore(book, meta.id, score, metric)) this.orderMet(meta);
+        const primary = meta.scoreMetric || 'default';
+        if (metric === primary && Log.noteScore(book, meta.id, score, 'default')) this.orderMet(meta);
       },
       // The console logbook (engine/logbook.js). today(): this game's order for today, or null when
       // it is not one of today's three. daily(text): state the game's own order (a daily run).
@@ -752,7 +763,7 @@ export class Vesper {
   logbook() {
     this.book ||= Log.cleanLogbook(this.state.progress?.console);
     const games = PAGES.flatMap((p) => p.apps).filter(isGame).map((a) => a.id);
-    if (Log.ensureDay(this.book, Log.dateKey(), games, (id) => this.state.scores?.[id] || 0)) {
+    if (Log.ensureDay(this.book, Log.dateKey(), games, (id) => this.primaryBest(id))) {
       this.saveBook();
       this.todayLine();
     }
@@ -909,8 +920,11 @@ export class Vesper {
   openMenu(title, description, choices) {
     if (!this.menu) {
       const press = this.input.press;
+      const cancelledRawPress = press?.mode === 'raw';
       this.input.cancel(this.input.blocked || !!press, this.input.blockSource || press?.event.source);
-      this.rawCancel();
+      // cancel() already reached the app when a raw press was outstanding. A second cancel
+      // would consume its restored gesture snapshot and could release a restored bar/catch.
+      if (!cancelledRawPress) this.rawCancel();
       this.lifecycle("pause");
       this.lights.release().catch(() => {});
       this.menu = { prior: this.nav, focus: document.activeElement };
@@ -1188,6 +1202,11 @@ export class Vesper {
     }
   }
   event(e) {
+    // The generic policy also covers simulated and keyboard events, which bypass the service.
+    if (e.type === "knock" && this.state.settings.tapMode !== "sides") {
+      const { side, sideVotes, ...generic } = e;
+      e = generic;
+    }
     // The console's own low tones shake the case into a tap: drop knocks while one plays.
     if (e.type === "knock" && this.synth.shaking()) {
       this.knocksMuted = (this.knocksMuted || 0) + 1;

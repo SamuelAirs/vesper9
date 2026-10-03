@@ -1,5 +1,8 @@
 # VESPER—9
 
+> Current finished-node candidate (2026-10-02): see [candidate status and product decisions](docs/NODE-CONSOLE-CANDIDATE.md). Developed and verified on Windows; Pi deployment and physical acceptance remain pending. Older implementation/firmware/sensor notes below describe their historical snapshots.
+
+
 **A small signal in the dark.**
 
 Version **0.2.0** — the second implementation pass of a one-button game console for a Raspberry Pi 5 and an ESP32-S3 field node. Imagine a survey terminal built in 1979 by a civilization that took a slightly different route: phosphor green, warm amber, orbital instruments, unfamiliar glyphs, quiet synthesized tones.

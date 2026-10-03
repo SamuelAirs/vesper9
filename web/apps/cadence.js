@@ -90,15 +90,16 @@ export function tempoName(bpm) {
 // right, back), 6/8 reads as two sweeps of three with the second sweep's start softer.
 export const LAMP_PATTERN = { 2: [0, 2], 3: [0, 1, 2], 4: [0, 1, 2, 1], 6: [0, 1, 2, 0, 1, 2] };
 
-export function beatLamps(signature, beat, sinceMs) {
+export function beatLamps(signature, beat, sinceMs, count = 3) {
+  const n = count === 4 ? 4 : 3;
   const sig = SIGNATURES.includes(signature) ? signature : 4;
-  if (!Number.isFinite(sinceMs) || sinceMs < 0) return lightsOff();
+  if (!Number.isFinite(sinceMs) || sinceMs < 0) return lightsOff(n);
   const b = ((Math.round(finite(beat)) % sig) + sig) % sig;
-  const lamp = LAMP_PATTERN[sig][b];
+  const lamp = (n === 4 ? { 2: [0, 3], 3: [0, 1, 3], 4: [0, 1, 2, 3], 6: [0, 1, 2, 0, 2, 3] } : LAMP_PATTERN)[sig][b];
   const accent = b === 0, half = sig === 6 && b === 3;
   const rgb = accent ? LAMP.amber : half ? blend(LAMP.green, LAMP.amber, 0.5) : LAMP.green;
   const base = accent ? 0.3 : half ? 0.24 : 0.2, peak = accent ? 0.75 : half ? 0.55 : 0.45;
-  return only(lamp, rgb, base + (peak - base) * Math.exp(-sinceMs / 90));
+  return only(lamp, rgb, base + (peak - base) * Math.exp(-sinceMs / 90), n);
 }
 
 // Where a work/rest schedule stands `seconds` after it started.
@@ -365,7 +366,8 @@ export class Cadence {
     try { if (typeof cancelAnimationFrame === "function" && this.raf) cancelAnimationFrame(this.raf); } catch {}
     this.m.running = false; this.sw.running = false; this.iv.running = false; this.cues = [];
     this.persist();
-    this.ctx.leds(lightsOff());
+    this.ctx.leds(lightsOff(this.ctx.lampCount?.() === 4 ? 4 : 3));
+    this.ctx.board?.([0, 0, 0]);
   }
 
   persist() {
@@ -465,7 +467,7 @@ export class Cadence {
     const sig = this.sig;
     if (this.tool === "metro" || this.tool === "tap") {
       if (this.m.running && this.m.lastN >= 0) {
-        return beatLamps(sig, ((this.m.lastN - this.m.barBase) % sig + sig) % sig, now - this.m.lastDue);
+        return beatLamps(sig, ((this.m.lastN - this.m.barBase) % sig + sig) % sig, now - this.m.lastDue, this.ctx.lampCount?.());
       }
       const since = now - this.tap.flashAt;
       return since >= 0 && since < 300 ? only(1, LAMP.cyan, 0.5 * (1 - since / 300)) : lightsOff();
@@ -481,13 +483,20 @@ export class Cadence {
   }
 
   show(values) {
-    if (!Array.isArray(values) || values.length !== 9) values = lightsOff();
+    if (!Array.isArray(values) || ![9, 12].includes(values.length)) values = lightsOff();
+    if (this.ctx.lampCount?.() === 4 && values.length === 9) {
+      const a = values.slice(0, 3), b = values.slice(3, 6), c = values.slice(6, 9);
+      values = [...a, ...blend(a, b, 2 / 3), ...blend(b, c, 1 / 3), ...c];
+    }
     this.leds = values.map(byte);
     // While the system menu is open it owns the lamps; sending would take them back. Until a
     // tool has lit them they stay with the host (its focus and hold feedback shows on them).
     if (this.paused || (!this.touched && this.leds.every((v) => v === 0))) return;
     this.touched = true;
     this.ctx.leds(this.leds);
+    const downbeat = (this.tool === "metro" || this.tool === "tap") && this.m.running && this.m.lastN >= 0
+      && (this.m.lastN - this.m.barBase) % this.sig === 0 && this.clock() - this.m.lastDue < 140;
+    this.ctx.board?.(downbeat ? dim(LAMP.amber, 0.12) : [0, 0, 0]);
   }
 
   // ---- tools ----

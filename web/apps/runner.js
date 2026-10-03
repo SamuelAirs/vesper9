@@ -555,6 +555,17 @@ export class Moonrunner {
   // On the title, result and depot screens a press is decided when it ends: a tap chooses the
   // main action, a press of HOLD_PICK seconds or more opens or operates the depot. In a run the
   // button is simply held (dive) or not (fly).
+  knock(event = {}) {
+    if (this.armed) return;
+    if (this.phase === "title" || this.phase === "over" && this.overT > 0.7) { this.openDepot(); return; }
+    if (this.phase === "depot") {
+      const d = this.c.settings?.().tapMode === "sides" && event.side === "right" ? 1 : -1;
+      if (this.view === "workshop") this.wcur = (this.wcur + d + WORKSHOP.length + 1) % (WORKSHOP.length + 1);
+      else if (this.view === "menu") this.cur = (this.cur + d + DEPOT.length) % DEPOT.length;
+      return;
+    }
+    if (this.phase === "play") this.notify(this.r.air ? "FLIGHT / HOLD TO DIVE ONTO A DOWNSLOPE" : "HOLD DOWNHILL / RELEASE BEFORE THE CREST", 2);
+  }
   down() {
     this.guard.mark();
     if (this.phase === "title" || this.phase === "depot" || (this.phase === "over" && this.overT > LOCK)) {
@@ -675,6 +686,7 @@ export class Moonrunner {
     }
     for (const k in this.fx) if (this.fx[k] > 0) this.fx[k] = Math.max(0, this.fx[k] - dt);
     this.lamps.put(this.lampValues());
+    this.c.board?.(this.phase === "play" && this.fever > 0 ? dim(LAMP.cyan, 0.18 + 0.12 * pulse(this.t, 0.7)) : LAMP.off);
   }
   stepPlay(dt) {
     const r = this.r;

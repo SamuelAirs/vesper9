@@ -364,6 +364,17 @@ export class EchoVault {
   }
 
   // ------------------------------------------------------------------------------------- input
+  // Replay uses the same timer cost as the existing hold and system-menu action.
+  knock() {
+    if (this.downAt !== null) return;
+    if (this.phase === "title" || this.phase === "over" && this.t - this.overAt >= LOCKOUT) { this.phase = "card"; this.page = "code"; return; }
+    if (this.phase === "card") { this.page = this.page === "code" ? "log" : "code"; return; }
+    if (this.phase !== "play" || this.downAt !== null || this.kind !== "echo" || !["send", "listen"].includes(this.stage)) return;
+    if (this.t < (this.replayReady || 0)) return;
+    this.replayReady = this.t + 0.6;
+    this.replay();
+    announce(this, "SIGNAL REPLAY / ONE SECOND SPENT", 1.2);
+  }
   down() {
     this.guard.mark();
     if (this.phase === "over" && this.t - this.overAt < LOCKOUT) return;
@@ -457,6 +468,7 @@ export class EchoVault {
     } else if (this.phase === "play") this.step(dt);
     if (this.phase === "play" || this.phase === "intro") this.sample(dt);
     this.lamps.frame(dt, this.lampValues());
+    this.c.board?.(this.phase === "play" && this.stage === "listen" ? dim(LAMP.cyan, 0.16) : LAMP.off);
     const run = this.run;
     this.c.hud(this.phase === "play" || this.phase === "intro"
       ? [["SCORE", run.points], ["COMBO", run.combo], ["SHIELDS", this.shields ? "◇".repeat(this.shields) : "0"], ["LETTERS", `${this.poolSize()} / 26`]]

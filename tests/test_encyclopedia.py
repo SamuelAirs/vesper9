@@ -4,6 +4,8 @@ import datetime
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -70,6 +72,18 @@ def make_zim(path):
 
 
 class Parsing(unittest.TestCase):
+    def test_oversized_articles_are_rejected_before_content_is_materialized(self):
+        class TooLarge:
+            mimetype, size = "text/html", encyclopedia.MAX_ARTICLE + 1
+            @property
+            def content(self):
+                raise AssertionError("large item content was materialized")
+        entry = SimpleNamespace(is_redirect=False, get_item=lambda: TooLarge())
+        book = Encyclopedia("unused")
+        with patch.object(book, "open", return_value=SimpleNamespace(get_entry_by_path=lambda path: entry)):
+            with self.assertRaises(LookupError):
+                book.article("Huge")
+
     def test_an_article_keeps_its_text_headings_and_internal_links_only(self):
         blocks, links, sections = parse_article(ARTICLES["Sun"], "Sun")
         self.assertEqual(blocks[0], ["h", "Sun"])
@@ -100,6 +114,25 @@ class Archive(unittest.TestCase):
         self.assertEqual(Encyclopedia(self.folder).status()["status"], "missing")
         with self.assertRaises(LookupError):
             Encyclopedia(self.folder).random()
+
+    def test_close_releases_archive_while_a_failed_lookup_traceback_is_retained(self):
+        self.folder.mkdir()
+        path = self.folder / "tiny.zim"
+        make_zim(path)
+        book = Encyclopedia(self.folder)
+        self.assertEqual(book.status()["status"], "ready")
+        failure = None
+        try:
+            book.article("Nowhere")
+        except LookupError as error:
+            failure = error
+        self.assertIsNotNone(failure)
+        self.assertIsNotNone(failure.__traceback__)
+        book.close()
+        # Windows refuses this while any native archive mapping is retained.
+        # Keep the exception alive deliberately; no gc.collect or cleanup retry.
+        path.unlink()
+        self.assertFalse(path.exists())
 
     def test_status_articles_random_and_redirects(self):
         self.folder.mkdir()

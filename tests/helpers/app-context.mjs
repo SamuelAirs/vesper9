@@ -3,7 +3,7 @@
 import { Random } from "../../web/engine/math.js";
 
 export function appContext(options = {}) {
-  const calls = { leds: [], tone: [], score: [], saved: [], hud: [], hint: [], controls: [], content: [], actions: [], command: [], pattern: [], toast: [] };
+  const calls = { leds: [], board: [], tone: [], score: [], saved: [], hud: [], hint: [], controls: [], content: [], actions: [], command: [], pattern: [], toast: [] };
   let progress = options.progress || {};
   const settings = { sound: true, volume: 0.25, crt: true, reducedMotion: false, morseWpm: 10, holdMs: 650, menuClicks: 4, gesturePace: "standard", scanMs: 850, tempUnit: "F", ...(options.settings || {}) };
   const state = { simulated: true, settings, sensor: { temperature: 22, humidity: 45, at: 0 }, device: { connected: true }, mic: { mode: "off", level: 0 }, timers: [], scores: {}, progress: {}, ...(options.state || {}) };
@@ -15,6 +15,10 @@ export function appContext(options = {}) {
     retire: () => { mounted = false; },
     simulated: () => true,
     settings: () => settings,
+    lampCount: () => options.lampCount || 3,
+    hasBoardLed: () => options.boardLed === true,
+    board: (rgb) => calls.board.push(rgb.slice()),
+    cancelGesture: () => false,
     // Knock input is opt-in for app tests (settings: { knock: "medium" }); the console's default is on.
     knockInput: () => !!settings.knock && settings.knock !== "off",
     state: () => state,

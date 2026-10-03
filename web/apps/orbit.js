@@ -184,6 +184,19 @@ export class OrbitLock {
     this.c.tone(520 + 120 * i, 0.06, "sine");
     this.c.saveProgress?.(JSON.parse(JSON.stringify(this.sv)))?.catch?.(this.c.error);
   }
+  knock(event = {}) {
+    if (this.pressAt !== null) return;
+    if (this.phase !== "play") {
+      if (this.guard.locked()) return;
+      const d = this.c.settings?.().tapMode === "sides" && event.side === "right" ? 1 : -1;
+      let i = ORBIT_MODES.findIndex(m => m.id === this.mode);
+      do i = (i + d + ORBIT_MODES.length) % ORBIT_MODES.length; while (!this.unlocked(ORBIT_MODES[i].id));
+      this.mode = this.sv.mode = ORBIT_MODES[i].id;
+      this.c.saveProgress?.(JSON.parse(JSON.stringify(this.sv)))?.catch?.(this.c.error);
+      return;
+    }
+    announce(this, this.lampN() === 4 ? "BUTTON LOCKS / I APPROACH / II HULL / III SECTOR / IV " + (this.mode === "rush" ? "CLOCK" : "SHIELD") : "BUTTON LOCKS / I APPROACH / II HULL / III SECTOR", 2);
+  }
   down() {
     this.guard.mark();
     if (this.phase !== "play") {
@@ -391,6 +404,7 @@ export class OrbitLock {
     this.rings = this.rings.filter((ring) => ring.life > 0);
     if (this.noteT > 0) this.noteT -= dt;
     this.lamps.frame(dt, this.phase === "play" ? this.lampValues() : null);
+    this.c.board?.(this.phase === "play" && this.shield ? dim(LAMP.cyan, 0.16) : LAMP.off);
     this.c.hud([
       ["SECTOR", Math.floor(this.points / 5) + 1],
       ["LOCKS", this.points],

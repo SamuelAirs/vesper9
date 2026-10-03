@@ -1,5 +1,8 @@
 # Continue on the actual Pi
 
+> Current finished-node candidate (2026-10-02): see [candidate status and product decisions](NODE-CONSOLE-CANDIDATE.md). Developed and verified on Windows; Pi deployment and physical acceptance remain pending. Older implementation/firmware/sensor notes below describe their historical snapshots.
+
+
 The largest remaining uncertainty is the physical appliance. The source, simulator and automated tests have improved; actual Pi performance, four-click comfort, microphone gain/acoustics and the as-wired ESP32 remain unqualified in this environment.
 
 ## First local pass

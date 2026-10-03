@@ -127,15 +127,16 @@ class Calibration(unittest.TestCase):
         self.assertNotIn("side", event, "no calibration, no side")
         self.assertNotIn("clip", event, "the clip never goes on to the browser")
         taps.command("start", "left")
-        for side in ("back", "left", "right"):
+        for side in ("left", "right"):
             taps.command("label", side)
             for _ in range(MIN_TAPS + 2):
                 self.assertEqual(taps.annotate({"type": "knock", "clip": simulated_tap(side, rng)})["labelled"], side)
-        self.assertEqual(taps.status()["pending"], {"back": 8, "left": 8, "right": 8})
+        self.assertEqual(taps.status()["pending"], {"left": 8, "right": 8})
         status = taps.command("save")
         self.assertTrue(status["calibrated"])
-        self.assertEqual(status["saved"], {"back": 8, "left": 8, "right": 8})
-        self.assertEqual(sum(r["total"] for r in status["check"].values()), 24)
+        self.assertEqual(status["saved"], {"back": 0, "left": 8, "right": 8})
+        self.assertEqual(sum(r["total"] for r in status["check"].values()), 16)
+        taps.mode = "sides"
         event = taps.annotate({"type": "knock", "clip": simulated_tap("left", rng)})
         self.assertIn(event.get("side"), ("left", None))
         self.assertIn("sideVotes", event)
@@ -196,7 +197,7 @@ class Service(ServiceCase):
         self.assertIn("tap", knock)
         self.assertNotIn("side", knock)
         await self.collect(ws, "tap_direction", op="start")
-        for side in ("back", "left", "right"):
+        for side in ("left", "right"):
             await self.collect(ws, "tap_direction", op="label", side=side)
             for _ in range(MIN_TAPS + 2):
                 seen = await self.collect(ws, "knock", side=side)
@@ -204,6 +205,7 @@ class Service(ServiceCase):
             self.assertEqual(progress["pending"][side], MIN_TAPS + 2)
         seen = await self.collect(ws, "tap_direction", op="save")
         self.assertTrue([e for e in seen if e["type"] == "tap_direction"][-1]["calibrated"])
+        await self.collect(ws, "settings", key="tapMode", value="sides")
         sides = []
         for _ in range(6):
             seen = await self.collect(ws, "knock", side="right")

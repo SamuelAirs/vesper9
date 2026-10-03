@@ -197,7 +197,7 @@ class Folder(unittest.TestCase):
         stick = self.root / "media" / "sam" / "KINDLE" / "documents"
         stick.mkdir(parents=True)
         epub(stick / "found.epub")
-        (stick / "My Clippings.txt").write_text(CLIPPINGS)
+        (stick / "My Clippings.txt").write_text(CLIPPINGS, encoding="utf-8")
         (stick / "bought.azw3").write_bytes(b"x")
         self.assertEqual(self.lib.import_media(), 2)
         self.assertEqual(sorted(p.name for p in self.lib.folder.iterdir()), ["My Clippings.txt", "found.epub"])

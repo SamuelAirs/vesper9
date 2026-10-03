@@ -7,6 +7,16 @@ import {
 } from "../web/apps/cadence.js";
 
 const valid = (v) => v.length === 9 && v.every((n) => Number.isInteger(n) && n >= 0 && n <= 255);
+
+test("four-four puts each quarter note on its own lamp and utility frames shut down all four plus board", () => {
+  for (let beat = 0; beat < 4; beat++) {
+    const frame = beatLamps(4, beat, 0, 4); assert.equal(frame.length, 12);
+    const lit = Array.from({ length: 4 }, (_, i) => frame.slice(i * 3, i * 3 + 3).some((v) => v > 0));
+    assert.deepEqual(lit, Array.from({ length: 4 }, (_, i) => i === beat));
+  }
+  const { app, ctx, advance } = open({ lampCount: 4, boardLed: true }); choose(ctx, "METRONOME"); choose(ctx, "START"); advance(500);
+  assert.equal(ctx.calls.leds.at(-1).length, 12); app.dispose(); assert.deepEqual(ctx.calls.leds.at(-1), Array(12).fill(0)); assert.deepEqual(ctx.calls.board.at(-1), [0,0,0]);
+});
 const labels = (ctx) => ctx.currentActions.map((a) => a.label);
 const choose = (ctx, text) => {
   const item = ctx.currentActions.find((a) => a.label.includes(text));

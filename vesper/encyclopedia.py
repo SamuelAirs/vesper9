@@ -167,6 +167,11 @@ class Encyclopedia:
         self.opened = None        # (path, size, mtime) of the open archive
         self.today = {}           # date -> {path, title}
 
+    def close(self):
+        """Release libzim's archive handle, including its Windows file mapping."""
+        with self.lock:
+            self.archive, self.opened, self.today = None, None, {}
+
     def find(self):
         try:
             files = [p for p in self.folder.glob("*.zim") if p.is_file()]
@@ -234,7 +239,7 @@ class Encyclopedia:
                     break
                 entry = entry.get_redirect_entry()
             item = entry.get_item()
-            if not item.mimetype.startswith("text/html") or item.size < least:
+            if not item.mimetype.startswith("text/html") or item.size < least or item.size > MAX_ARTICLE:
                 return None
             return entry
         except Exception:
@@ -262,32 +267,49 @@ class Encyclopedia:
     def random(self):
         with self.lock:
             archive = self.open()
-            if archive is None:
-                raise LookupError("no encyclopedia")
-            for _ in range(60):
-                entry = self.readable(archive.get_random_entry(), 2500)
-                if entry is not None:
-                    return {"path": entry.path, "title": entry.title}
-            raise LookupError("no article found")
+            entry = None
+            try:
+                if archive is None:
+                    raise LookupError("no encyclopedia")
+                for _ in range(60):
+                    entry = self.readable(archive.get_random_entry(), 2500)
+                    if entry is not None:
+                        return {"path": entry.path, "title": entry.title}
+                raise LookupError("no article found")
+            finally:
+                # An HTTP error can retain this traceback until cyclic GC. Do
+                # not let its frame retain libzim's mapped archive after close.
+                archive = entry = None
 
     def article(self, path):
         with self.lock:
             archive = self.open()
-            if archive is None:
-                raise LookupError("no encyclopedia")
+            entry = item = None
             try:
-                entry = archive.get_entry_by_path(path)
-            except KeyError:
-                raise LookupError("no such article")
-            entry = self.readable(entry, 0)
-            if entry is None:
-                raise LookupError("not an article")
-            item = entry.get_item()
-            markup = bytes(item.content)[:MAX_ARTICLE].decode("utf-8", "replace")
-        blocks, links, sections = parse_article(markup, entry.path)
+                if archive is None:
+                    raise LookupError("no encyclopedia")
+                try:
+                    entry = archive.get_entry_by_path(path)
+                except KeyError:
+                    pass
+                # Raise after leaving the native KeyError handler, so its
+                # traceback does not become this user-facing error's context.
+                if entry is None:
+                    raise LookupError("no such article")
+                entry = self.readable(entry, 0)
+                if entry is None:
+                    raise LookupError("not an article")
+                item = entry.get_item()
+                if item.size > MAX_ARTICLE:
+                    raise LookupError("article is too large for the console reader")
+                markup = bytes(item.content)[:MAX_ARTICLE].decode("utf-8", "replace")
+                path, title = entry.path, entry.title
+            finally:
+                archive = entry = item = None
+        blocks, links, sections = parse_article(markup, path)
         # Lead with the title as a heading when the article's own heading was not in its body.
         if not blocks or blocks[0][0] != "h":
-            blocks.insert(0, ["h", entry.title])
+            blocks.insert(0, ["h", title])
             sections = [[t, i + 1] for t, i in sections]
             links = [[t, p, i + 1] for t, p, i in links]
-        return {"path": entry.path, "title": entry.title, "blocks": blocks, "links": links, "sections": sections}
+        return {"path": path, "title": title, "blocks": blocks, "links": links, "sections": sections}

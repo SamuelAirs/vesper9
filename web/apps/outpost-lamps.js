@@ -58,6 +58,11 @@ export function stepLamps(app, dt) {
   app.breath += dt * (0.12 + 0.6 * rateLog);
   app.dimK += ((app.idle > DIM_AFTER ? 0.12 : 1) - app.dimK) * Math.min(1, dt * 0.8);
   app.c.leds(lampFrame(app));
+  // Event accent stays separate from the fourth lamp's beat guide.
+  const a = app.accent;
+  const rgb = a && ["buy", "milestone", "phrase", "tune", "prestige"].includes(a.k)
+    ? dim(a.k === "buy" ? LAMP.green : a.k === "prestige" ? LAMP.white : LAMP.cyan, 0.2 * (1 - a.t / a.dur)) : LAMP.off;
+  app.c.board?.(rgb);
 }
 
 // Whether any owned machine is humming (a finished tune's hum, app.hum in seconds per machine).

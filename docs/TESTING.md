@@ -1,5 +1,48 @@
 # Reproduce the 0.2 checks
 
+## Current Windows development workflow
+
+Use Python 3.11+ and Node 24. The Pi is the target; development tools and broad
+tests run on Windows. Start in the development checkout, preserve production data,
+and use a private virtual environment:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\python -m pip install -e '.[encyclopedia]'
+$env:NODE = (Get-Command node).Source
+.venv\Scripts\python scripts/check.py
+```
+
+Optional browser checks need the Node Playwright module and Chrome/Chromium. An
+existing installation can be selected with `PLAYWRIGHT_PATH` and
+`TEST_BROWSER_BIN`; no browser download is needed when Chrome is already installed.
+
+```powershell
+npm install --no-save --package-lock=false playwright
+$env:TEST_BROWSER_BIN = "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
+.venv\Scripts\python scripts/check-browser.py
+```
+
+The runner builds the catalog and standalone simulator, then runs the app smoke,
+extension, host, injected voice-event and 60-second soak checks. Logs and JSON go
+to ignored `test-output/browser/`; `--only host-browser` selects one check.
+`scripts/check.py` runs native Python/JS regressions with time limits. Vosk's
+model-vocabulary check is skipped without a local model, and Windows cannot prove
+the POSIX graceful-SIGTERM check. GitHub CI defines Windows/Linux jobs; local
+results do not imply that remote CI has run.
+
+Each browser test starts its own loopback service on a free port and temporary
+database. Port 8799 is rejected as an explicit test port. Cleanup terminates only
+that test's owned process tree, including the Windows Python venv launcher, before
+removing its private temporary directory. Do not point these tests at the Pi.
+
+For a display-sized capture, set `PYTHON` to the virtual environment interpreter
+and use `node scripts/dev-shot.cjs --size 1024x600 --steps "shot:dashboard"`.
+Images prove layout/rendering, not optical/acoustic behavior, physical tap accuracy
+or Raspberry Pi frame rate. See [candidate acceptance](PI-ACCEPTANCE.md).
+
+## Historical validation commands
+
 Results live in [VALIDATION.md](VALIDATION.md) and `validation/v0.2.0/`.
 Original 0.1 development logs remain in the parent `validation/` directory.
 All supplied physical/Pi claims are explicitly unverified unless later filled

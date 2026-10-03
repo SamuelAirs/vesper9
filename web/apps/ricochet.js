@@ -157,7 +157,7 @@ export class Ricochet {
     this.sv = migrateRicochet(ctx.progress?.());
     this.reset();
     this.setupChamber(1);
-    this.setHint("Tap reverses the paddle. Meet the amber bracket.");
+    this.setHint("Button or case tap reverses the paddle. Meet the amber bracket.");
   }
 
   reset() {
@@ -318,11 +318,27 @@ export class Ricochet {
     this.sub = "live";
     this.quiet = 0;
     this.servedCharge = this.mods.serve > 0;
-    this.setHint("Tap reverses the paddle. Meet the amber bracket. A long hold freezes the game.");
+    this.setHint("Button or case tap reverses the paddle. Meet the amber bracket. A long hold freezes the game.");
   }
 
   // ---- input -------------------------------------------------------------
 
+  // Acoustic taps use arrival time for a broad turn; they never replace collision timing.
+  knock(event = {}) {
+    if (this.phase !== "play" || this.pressing || this.frozen) return;
+    if (this.sub === "pick") {
+      const side = this.ctx.settings?.().tapMode === "sides" ? event.side : "";
+      this.offer.cur = side === "left" ? 0 : side === "right" ? 1 : 1 - this.offer.cur;
+      this.offer.t = 0;
+      this.ctx.tone(this.offer.cur ? 660 : 523, 0.05, "sine");
+      return;
+    }
+    if (!["live", "serve"].includes(this.sub)) return;
+    const side = this.ctx.settings?.().tapMode === "sides" ? event.side : "";
+    this.dir = side === "left" ? -1 : side === "right" ? 1 : -this.dir;
+    this.turnT = TURN_TIME;
+    this.ctx.tone(520, 0.025, "square");
+  }
   down() {
     this.guard.mark();
     this.#rewound = false;
@@ -371,6 +387,7 @@ export class Ricochet {
     }
     this.ctx.synth?.stopTone?.();
     this.ctx.leds(lightsOff(this.lampCount()));
+    this.ctx.board?.(LAMP.off);
   }
   pause() { this.guard.settle(); this.cancel(); }
   dispose() {
@@ -380,13 +397,14 @@ export class Ricochet {
     this.pressing = false;
     this.ctx.synth?.stopTone?.();
     this.ctx.leds(lightsOff(this.lampCount()));
+    this.ctx.board?.(LAMP.off);
   }
 
   begin() {
     this.reset();
     this.phase = "play";
     this.setupChamber(1);
-    this.setHint("Tap reverses the paddle. Meet the amber bracket.");
+    this.setHint("Button or case tap reverses the paddle. Meet the amber bracket.");
   }
 
   // ---- ball physics ------------------------------------------------------
@@ -622,6 +640,7 @@ export class Ricochet {
     this.frame++;
     if (this.phase === "play") this.step(dt);
     this.lampOutput();
+    this.ctx.board?.(this.phase === "play" && this.sub === "pick" ? dim(LAMP.cyan, 0.18) : this.phase === "play" && this.turnT > 0 ? dim(LAMP.amber, 0.2) : LAMP.off);
     if (this.frame % 6 === 0) this.updateHud();
   }
 
@@ -663,7 +682,7 @@ export class Ricochet {
     } else if (this.sub === "dying") {
       this.timer -= dt;
       if (this.timer <= 0) {
-        if (this.lives > 0) { this.serveBall(); this.setHint("Tap reverses the paddle. Meet the amber bracket."); }
+        if (this.lives > 0) { this.serveBall(); this.setHint("Button or case tap reverses the paddle. Meet the amber bracket."); }
         else this.end();
       }
     } else if (this.sub === "clear") {

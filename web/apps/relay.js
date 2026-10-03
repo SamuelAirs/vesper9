@@ -333,6 +333,17 @@ export class Relay {
   // On the title, result and songbook screens a press is decided when it ends: a tap is the main
   // action, a press of HOLD_PICK or more opens or operates the songbook. In play the press edge is
   // the tap, judged at once.
+  knock(event = {}) {
+    if (this.armed) return;
+    if (this.phase === "title" || this.phase === "over" && this.deadT > 0.7) { this.openMenu(); return; }
+    if (this.phase === "menu") {
+      const d = this.c.settings?.().tapMode === "sides" && event.side === "right" ? 1 : -1;
+      if (this.view === "book") this.page = (this.page + d + Math.ceil(RHYTHMS.length / 6)) % Math.ceil(RHYTHMS.length / 6);
+      else if (this.view === "menu") this.cur = (this.cur + d + ROWS.length) % ROWS.length;
+      return;
+    }
+    if (this.phase === "play") this.announce("BUTTON: ANSWER THE RHYTHM / CASE TAPS DO NOT COUNT AS NOTES", 2);
+  }
   down() {
     this.guard.mark();
     if (this.phase === "title" || this.phase === "menu" || (this.phase === "over" && this.deadT > 0.7)) {
@@ -495,6 +506,7 @@ export class Relay {
     else if (this.phase === "over") this.deadT += dt;
     this.lampOut = this.lampValues();
     this.lamps.frame(dt, this.lampOut);
+    this.c.board?.(this.phase === "play" && this.seg()?.kind === "answer" ? dim(LAMP.cyan, 0.12) : LAMP.off);
     this.pushHud();
   }
   step(dt) {

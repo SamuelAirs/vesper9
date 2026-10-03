@@ -63,12 +63,16 @@ export class GestureTimeline {
   }
   release(at) { const last = this.marks.at(-1); if (last && last.up === null) last.up = at; }
   // The first mark of the gesture when the presses fit it, else null. Consumes the history.
-  match(now) {
+  match(now, confirmed = false) {
     const marks = this.marks; this.marks = [];
     if (marks.length < GESTURE_TAPS + 1) return null;
     const pace = paceOf(this.settings().gesturePace), slop = 0.15;
     const tap = pace.tapMs / 1000 + slop, gap = pace.gapMs / 1000 + slop;
     const taps = marks.slice(-(GESTURE_TAPS + 1)), last = taps.at(-1);
+    // Only the input router can confirm the gesture. It uses the source's clock and generation;
+    // an app's fixed-step clock may not have advanced at all when USB events arrive in a burst.
+    // Keep the three snapshots, but do not attempt to re-qualify that confirmed input in this clock.
+    if (confirmed && last.up === null) return taps[0];
     // The terminal release is consumed by the host, so the last press has no release yet. In a
     // navigation context the hold may be longer than the pace's (see gestureHoldMs), so only the
     // lower bound is checked: the host decides when to open the menu.
@@ -177,7 +181,7 @@ export class AppGuard {
   }
   // Call at the top of cancel(). Returns whether a gesture was taken back.
   rewind() {
-    const first = this.line.match(this.t);
+    const first = this.line.match(this.t, this.c.cancelGesture?.() === true);
     if (!first) return false;
     // Properties the app created since are plain data too: they go, as if the gesture had not happened.
     for (const key of Object.keys(this.app)) if (!(key in first.state.saved) && this.saves(key, this.app[key])) delete this.app[key];
@@ -317,14 +321,15 @@ export class InputRouter {
   // Returns whether anything acted on it.
   knock(event = {}) {
     const mode = this.host.inputMode();
-    const side = knockSide(event);
+    const side = this.policy().tapMode === 'sides' ? knockSide(event) : null;
     if (mode === 'raw') {
       if (this.blocked) return false;
       const { side: _, ...rest } = event;
       this.host.rawKnock(side ? { ...rest, side } : rest);
       return true;
     }
-    const now = this.clock(), at = this.stamp(event), source = event.source || 'node';
+    const now = this.clock(), at = this.stamp(event), source = event.source || 'node', generation = event.generation ?? 0;
+    if (this.host.knockNavigationOff?.()) { this.forgetKnock(); return false; }
     if (this.blocked || this.press || now - this.lastEdge < KNOCK_QUIET_MS || now < this.knockQuietUntil) {
       this.forgetKnock();
       return false;
@@ -335,16 +340,21 @@ export class InputRouter {
       return true;
     }
     const first = this.knockAt, since = first ? at - first.at : -1;
-    if (first && first.source === source && first.epoch === this.host.epoch && since >= DOUBLE_KNOCK_MIN_MS &&
+    if (first && first.source === source && first.generation === generation && first.epoch === this.host.epoch &&
+        since >= 0 && since < DOUBLE_KNOCK_MIN_MS) return false;
+    if (first && first.source === source && first.generation === generation && first.epoch === this.host.epoch && since >= DOUBLE_KNOCK_MIN_MS &&
         since <= DOUBLE_KNOCK_MS && now - first.received <= DOUBLE_KNOCK_MS + 250) {
       this.forgetKnock();
       this.knockQuietUntil = now + KNOCK_AFTER_BACK_MS;
       this.host.back?.('knock');
       return true;
     }
-    this.knockAt = { at, received: now, source, epoch: this.host.epoch };
+    // Generic taps provide the button's missing reverse step immediately. A second deliberate
+    // tap still goes back; it never selects an item or performs a destructive action.
+    this.host.advance(-1);
+    this.knockAt = { at, received: now, source, generation, epoch: this.host.epoch };
     this.host.knockVisual?.(true);
-    return false;
+    return true;
   }
   forgetKnock() {
     if (!this.knockAt) return;
@@ -352,6 +362,7 @@ export class InputRouter {
     this.host.knockVisual?.(false);
   }
   cancel(waitForRelease = this.blocked, source = this.blockSource) {
+    this.forgetKnock();
     if (this.press?.mode === 'raw') this.host.rawCancel();
     this.press = null; this.blocked = waitForRelease; this.blockSource = source;
     this.resetSequence(); this.host.pressVisual(false);

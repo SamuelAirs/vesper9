@@ -61,7 +61,7 @@ import {
 } from "./outpost-rules.js";
 import { SONGS, NS, SCALES, noteMidi, noteName, midiHz, makeMelody, MEL, scaleUp, seeded, genName, genTune } from "./outpost-songs.js";
 import { VOICE_GAIN, cue, tuneCue, tick, voiceNote, previewTune, playQueue } from "./outpost-music.js";
-import { stepLamps, lampFrame } from "./outpost-lamps.js";
+import { stepLamps, lampFrame, lampCountOf } from "./outpost-lamps.js";
 import { drawOutpost, stepScene, addRipple, addFloat } from "./outpost-scene.js";
 
 // Orders Outpost states to the console logbook when it is one of today's three (one per date).
@@ -770,6 +770,16 @@ export class Outpost {
   }
 
   // ---- input --------------------------------------------------------------------
+  // Case tapping gathers; purchases still require a button hold. Menus use case-previous.
+  knock(event = {}) {
+    if (this.down_) return;
+    this.idle = 0;
+    if (this.phase_ !== "play") { this.down(); this.up({ durationMs: 0 }); return; }
+    const d = this.c.settings?.().tapMode === "sides" && event.side === "right" ? 1 : -1;
+    if (this.panel) { this.panel.page = (this.panel.page + d + 3) % 3; tick(this, "page"); return; }
+    if (this.ring) { this.step(d); return; }
+    this.gather();
+  }
   down() {
     this.idle = 0;
     this.down_ = true;
@@ -837,14 +847,16 @@ export class Outpost {
     this.panel = null;
     this.ring = null;
     this.save(true);
-    this.c.leds(lightsOff());
+    this.c.leds(lightsOff(lampCountOf(this)));
+    this.c.board?.([0, 0, 0]);
   }
   pause() {
     this.down_ = false;
     this.panel = null;
     this.ring = null;
     this.save(true);
-    this.c.leds(lightsOff());
+    this.c.leds(lightsOff(lampCountOf(this)));
+    this.c.board?.([0, 0, 0]);
   }
   resume() {
     this.down_ = false;
@@ -855,7 +867,8 @@ export class Outpost {
     this.panel = null;
     this.ring = null;
     this.save(true);
-    this.c.leds(lightsOff());
+    this.c.leds(lightsOff(lampCountOf(this)));
+    this.c.board?.([0, 0, 0]);
   }
 
   // Groove: a tap close to the recent beat adds a step, a stumble halves it, a long gap ends it.
@@ -1164,10 +1177,10 @@ export class Outpost {
     r.idx = clamp(idx, 0, this.entries.length - 1);
     r.hiAt = this.clk;
   }
-  step() {
+  step(direction = 1) {
     const r = this.ring;
     if (!r || !this.entries.length) return;
-    r.idx = (r.idx + 1) % this.entries.length;
+    r.idx = (r.idx + direction + this.entries.length) % this.entries.length;
     r.hiAt = this.clk;
     const e = this.entries[r.idx];
     if (r.menu === "songs" && e?.kind === "song") previewTune(this, e.i === GEN_ID ? genTune(this.s.gs) : e.i === CALL_ID ? callMelody(this.s.cf, this.s.ans > 0) : MEL[e.i]);

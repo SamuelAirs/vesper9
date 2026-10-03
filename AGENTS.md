@@ -1,6 +1,10 @@
 # VESPER-9 0.2.0 project instructions
 
 This is Sam's Raspberry Pi 5 console, with an already-wired ESP32-S3 node.
+The finished-node candidate is described in `docs/NODE-CONSOLE-CANDIDATE.md`
+and `docs/PI-ACCEPTANCE.md`; start there for current decisions and deployment
+status. Build, analysis and broad tests run on Windows. Centralize brief Pi SSH
+checks; never launch agents, model inference, builds or broad suites on the Pi.
 The second implementation pass is present in this source. Start with
 `docs/RELEASE-NOTES.md`, `docs/VALIDATION.md`, `docs/NEXT-STEPS.md`, and the
 current source. If supplied, `../CLAUDE-START-PROMPT.txt` directs the on-Pi
@@ -12,6 +16,10 @@ mistake their proposed work for the current implementation status.
 Preserve the retro/alien field-instrument identity and the one-button/voice
 interface. Keyboard and mouse are useful fallbacks. No additional hardware,
 cloud speech, paid services, or unrelated home-AI integration is assumed.
+The current node has four RGB lamps, two microphones, a board LED accent and no
+temperature/humidity sensor. Generic case taps are the default, including back
+taps; optional calibrated left/right mode supplements them. Never require a side
+to complete a game. Button-next/case-previous complements hold-release selection.
 
 The system menu opens with one gesture everywhere, in every game, instrument
 and on the dashboard: tap, tap, hold (two quick taps, then a press held for
@@ -26,6 +34,9 @@ there. Every app tolerates "two taps and a hold, then cancel()": see
 
 `web/` is the JS engine and apps; `vesper/` owns local services/persistence;
 `firmware/` is ESP-IDF C. Protocol v1 is unchanged. Node firmware 0.1.2 (2026-09-30) corrects the pin map to the board as wired (see `docs/HARDWARE.md`; the map in `../CLAUDE-START-PROMPT.txt` is wrong), adds the native-USB link and microphone DC filtering.
+That 0.1.2 prebuilt is for the original board; the finished board reports 0.2.0.
+Do not flash the old prebuilt onto board 2. Source and connected firmware identity
+are separate from the bundled artifact version; inspect each explicitly.
 `vesper/catalog.json` owns app metadata/defaults/voice aliases. Generate the
 browser copy with `python3 scripts/build-catalog.py`; don't hand-edit it.
 Factories are trusted JS code in `web/apps/registry.js`.
@@ -46,8 +57,8 @@ controlling browser tab and a loopback-only service. Startup/capture errors
 must not silently enable the microphone. Dictation executes no commands.
 
 Before replacing node firmware, identify the target and preserve a verified
-full 16 MB backup with a restore command. This release retains the compatible
-0.1.0 firmware; application updates do not inherently require flashing.
+full 16 MB backup with a restore command. This candidate leaves the installed
+0.2.0 firmware intact; application updates do not inherently require flashing.
 A blocked physical check does not block independent software work.
 
 Record decisions, measurements and remaining work in `docs/WORKLOG.md`.
@@ -57,6 +68,7 @@ when its source/configuration changes. Package with
 `scripts/package-release.py`; omit local transcripts, recordings, databases,
 models, dependencies, flash backups, caches and machine secrets.
 
-Keep evidence honest. The actual Pi/node has not been tested in the remote
-development environment. Complete available work before asking for a
+Keep evidence honest. Read-only Pi status/source checks are recorded separately
+from Windows simulator evidence. The candidate still needs physical acceptance.
+Complete available work before asking for a
 specific inaccessible physical observation or required permission.

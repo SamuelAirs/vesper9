@@ -11,11 +11,11 @@ const PACES = Object.keys(GESTURE_PACES);
 
 // A router with a host like main.js: `mode` raw (a game) or menu (dashboard, instrument, menu), eight
 // highlightable items, and every call recorded. Time is in ms and only moves when the test says.
-function rig({ pace = "standard", holdMs = 650, mode = "raw" } = {}) {
+function rig({ pace = "standard", holdMs = 650, mode = "raw", tapMode = "generic" } = {}) {
   let now = 0, index = 0;
   const log = [], items = 8;
   const host = {
-    epoch: 0, mode, holdMs: () => holdMs, escapePolicy: () => ({ pace }),
+    epoch: 0, mode, holdMs: () => holdMs, escapePolicy: () => ({ pace, tapMode }),
     inputMode() { return this.mode; },
     pressVisual() {}, clickVisual(n) { log.push(["clicks", n]); },
     holdVisual(ratio, ready, armed) { log.push(["hold", +ratio.toFixed(3), ready, armed]); },
@@ -465,7 +465,7 @@ function knockRig(mode = "menu") {
 test("two knocks go back in menus, the dashboard and instruments", () => {
   const h = knockRig();
   h.wait(1000);
-  assert.equal(h.knock(), false);
+  assert.equal(h.knock(), true);
   assert.deepEqual(h.log.at(-1), ["knock", true], "the first knock says a second would go back");
   h.wait(300);
   assert.equal(h.knock(), true);
@@ -522,6 +522,7 @@ test("knock sides: left and right move the highlight, back and unknown pair up t
   assert.equal(knockSide({ side: "middle" }), null);
   assert.equal(knockSide({}), null);
   const h = knockRig();
+  h.host.escapePolicy = () => ({ pace: 'standard', tapMode: 'sides' });
   h.wait(1000);
   assert.equal(h.knock("right"), true);
   assert.equal(h.index(), 1);
@@ -542,6 +543,7 @@ test("knock sides: left and right move the highlight, back and unknown pair up t
 });
 test("in a game the knock carries its side, with top read as back", () => {
   const h = knockRig("raw");
+  h.host.escapePolicy = () => ({ pace: 'standard', tapMode: 'sides' });
   h.wait(1000); h.knock("left"); h.knock("top"); h.knock();
   assert.deepEqual(h.raw.map((e) => e.side ?? null), ["left", "back", null]);
   assert.equal(h.index(), 0, "the host never moves in a game");

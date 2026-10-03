@@ -1,14 +1,14 @@
 # Engine and expansion guide
 
-VESPER's engine is a small application host specialized for this instrument: one switch, three RGB lights, voice, environment readings, and a display. Its scope is 2D games and utilities. It provides a real shared runtime rather than a collection of unrelated scripts; it does not attempt a Unity-style editor, ROM emulation, a 3D renderer, or arbitrary third-party plugin isolation.
+VESPER's engine is a small application host specialized for this instrument: one switch, four RGB lamps, two microphones, an optional board LED accent, local voice, and a display (the original three-lamp node remains compatible). Its scope is 2D games and utilities. It provides a real shared runtime rather than a collection of unrelated scripts; it does not attempt a Unity-style editor, ROM emulation, a 3D renderer, or arbitrary third-party plugin isolation.
 
 ## Ownership and topology
 
 ```mermaid
 flowchart TD
   Button[Arcade button] --> Node[ESP32 timing and I/O]
-  Sensor[SHT3x and INMP441] --> Node
-  Node --> Lights[Three RGB lights]
+  Sensor[Two I2S microphones] --> Node
+  Node --> Lights[Four RGB lamps and board accent]
   Node <-->|Framed USB serial| Service[Pi appliance service]
   Service --> Store[SQLite state and transcripts]
   Service --> Speech[Local Vosk worker]
@@ -80,7 +80,13 @@ The keyboard and mouse are additional ways to operate the same navigation. `Spac
 
 ### Knock on the case
 
-A sharp knock on the node's case is a second input, detected on the node (firmware 0.1.3, `firmware/main/knock.h`) and sent as a `knock` event; no audio leaves the node for it. `InputRouter.knock()` passes it to the app's `knock(event)` only where a button press would go as a raw edge (a game, no menu open, no menu release outstanding); dashboards, instruments and menus ignore it, and it never takes part in tap, tap, hold. It is an instant, not a press: there is no release and no `cancel()` to expect. `event.peak` (256 … 32767, the loudest 1 ms of the knock in 16-bit sample units) can scale an effect; `event.at_us` is on the node's clock, like button edges, so the time between a knock and a button press is exact to about the microphone's 20 ms buffer. The node drops knocks within 60 ms of any button edge (the switch clicks) and the service any knock while the button is down or up to 200 ms after an edge, so a knock never closely follows a press; and a knock is judged 90 ms after it starts, so expect the event about 90 to 120 ms after the tap. Use it for something that tolerates that, not for frame-exact timing. Every app also sees the raw `knock` event through `event()`. On the keyboard, K produces a knock (in the simulator, through the service). On a calibrated two-microphone node `event.side` says where the tap landed (`back`, the main tap, or `left` / `right`), with `event.sideVotes` (3 to 5 of the 5 nearest calibration taps agreeing); it is absent when the node has one microphone, is not calibrated (Calibration > TAP DIRECTION) or is unsure, so treat it as a bonus, never the only way to play. In the simulator J, I and L knock on the left, back and right. A game should keep working without knocks: older firmware, sensitivity OFF or a noisy room all mean none arrive.
+The final node sends an instantaneous `knock` event, never a press/release. Generic is the default: every case tap works, including the ergonomic back. `settings.tapMode = "sides"` optionally enables calibrated left/right labels; unready or uncertain classification has no side. The service requires both labelled sides and four-of-five neighbor agreement. Legacy back-labelled samples remain saved but are excluded from this model. Games must work with generic events and with button input alone.
+
+In navigation, a generic case tap moves the highlight backward immediately. Two deliberate generic taps 120–650 ms apart go back; ringing under 120 ms is ignored. A button edge interrupts the pair, and source/generation/epoch boundaries cannot form a pair. Optional left/right steps backward/forward. Tap calibration consumes its own case taps without navigating. In raw games `knock(event)` receives the event; case taps never form the button's menu gesture.
+
+Acoustic detection has roughly 90–120 ms latency. Use case taps for surveys, replay, broad steering and selection, not frame-exact or same-clock reaction judgments. Low tones below 140 Hz and their 250 ms tail suppress host case actions to avoid speaker-induced false taps. Preserve that gate. Mic OFF stops streamed capture/recognition, but the final node may still send bounded stereo tap excerpts to the Pi. The service extracts features and removes raw excerpts before browser delivery; this is not stored microphone recording.
+
+K simulates a generic tap; J/L simulate left/right only in the optional side mode, and I remains a generic/back compatibility key. Simulator validation does not qualify the physical detector or side accuracy.
 
 ## App context
 
@@ -93,12 +99,14 @@ A sharp knock on the node's case is a second input, detected on the node (firmwa
 | `hud([[label,value], ...])` | Small persistent game readouts. |
 | `silentTicks(true/false)` | Silence the host's own short "advance" tick tone while taps are musical (Cadence's tap tempo and stopwatch). Reset when the app is left. |
 | `knockInput()` | Whether knock input is switched on (KNOCK SENSITIVITY in Calibration is not OFF), so a game can show or hide its knock hint. |
+| `cancelGesture()` | True only while the host cancels a router-confirmed menu gesture. Guards use this source-clock authority to restore snapshots even when USB edges arrive with no simulation ticks. Ordinary interruption/cancel does not acquire it. |
 | `menuGesture()` | `{ armed, elapsedMs, thresholdMs, progress }`: whether a third press of the menu gesture is being counted now. |
 | `hint(text)` | App-specific status/readout text above the control deck. |
 | `controls(text)` | Update the persistent control deck when a cartridge changes mode. |
 | `tone(hz, seconds, waveform, gain?)` | Short synthesized tone. `gain` (0..1, default 1) scales it under the master volume, for quiet layered voices. |
 | `synth.startTone(hz)` / `stopTone()` | Morse or held-input sidetone. |
-| `leds([r,g,b,r,g,b,r,g,b])` | Desired light values, 0–255, left to right. Host coalesces changes. |
+| `leds(values)` / `lampCount()` | Nine legacy or twelve current RGB values, 0–255, left to right. `lampCount()` is 3 or 4. Host coalesces writes and clips to hardware. |
+| `board([r,g,b])` / `hasBoardLed()` | Optional dim accent owned by the app; clear on cancel/pause/exit. It never replaces an essential lamp cue. |
 | `pattern(steps)` | Node-timed finite light sequence. Each step has `ms` and nine `values`. |
 | `best(metric?)` / `score(number, metric?)` | Persisted high score; higher is better. Reaction uses physical/keyboard/simulator classes; Glyph uses scan interval classes. |
 | `progress()` / `saveProgress(object)` | This app's small JSON progress object, at most 8 KiB. |

@@ -272,6 +272,15 @@ export class GlyphVault {
   }
 
   // ------------------------------------------------------------------------------------- input
+  knock(event = {}) {
+    if (this.downAt !== null) return;
+    if (this.phase === "title" || this.phase === "over" && this.t - this.overAt >= LOCKOUT) {
+      const d = this.c.settings?.().tapMode === "sides" && event.side === "right" ? 1 : -1;
+      this.sv.wing = (this.sv.wing + d + WINGS.length) % WINGS.length; this.title(); return;
+    }
+    if (this.phase === "intro") { this.c.toast?.("Study the entry. Button tap advances the lesson."); return; }
+    if (this.phase === "play") this.c.toast?.("Button tap: MATCH. Button hold: NO MATCH. Case taps do not answer cards.");
+  }
   down() {
     this.guard.mark();
     if (this.phase === "over" && this.t - this.overAt < LOCKOUT) return;
@@ -337,6 +346,7 @@ export class GlyphVault {
     }
     this.cardT += dt;
     this.lamps.frame(dt, this.lampValues());
+    this.c.board?.(this.phase === "intro" ? dim(this.wing().lamp, 0.18) : LAMP.off);
     const run = this.run, deck = this.deck(), wing = this.wing();
     this.c.hud(this.phase === "play" || this.phase === "intro"
       ? [["CARD", `${Math.min(CARDS, run.cards + (this.stage === "ask" ? 1 : 0))} / ${CARDS}`], ["SCORE", run.points], ["COMBO", run.combo], ["SEALS", this.seals ? "◇".repeat(this.seals) : "0"]]

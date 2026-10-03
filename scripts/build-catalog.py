@@ -18,10 +18,10 @@ def build(check=False):
     text += 'export const DEFAULT_SETTINGS = ' + json.dumps(data['settings'], indent=2) + ';\n'
     path = ROOT / 'web/apps/catalog.js'
     if check:
-        if not path.exists() or path.read_text() != text:
+        if not path.exists() or path.read_text(encoding='utf-8') != text:
             raise SystemExit('Browser catalog is stale. Run scripts/build-catalog.py.')
     else:
-        path.write_text(text)
+        path.write_text(text, encoding='utf-8')
 
 
 if __name__ == '__main__':

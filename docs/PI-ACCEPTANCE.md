@@ -1,0 +1,35 @@
+# Candidate acceptance and rollback
+
+No steps in this plan have been executed on the Pi. Development/builds/tests remain on Windows. The next action requiring Sam's agreement is staging and switching a tested candidate for physical acceptance; no firmware flash is needed.
+
+## Dependencies before a switch
+
+1. Finish Windows regressions, browser checks, generated catalog/demo and a manifest-verified release ZIP. Record the candidate commit and source hash, ZIP SHA-256 and recoverable Git bundle.
+2. Use a brief centralized SSH check to re-read `vesper.service`, live HEAD/status, connected node identity and free disk space. Stop if they differ from the recorded baseline. Keep the Pi on external power for transfer/acceptance.
+3. Preserve the exact user service unit/drop-ins and existing `live/` tree. The rollback source is `f3bfaccaf19046d13738fddd96140b20127d0e98`; do not reset it to main. Preserve the as-found 16 MB firmware backup and its restore instructions; do not read or publish that private backup.
+4. Stage the ZIP under a new `/home/sam/VESPER-9-v0.2.0-Claude/releases/<candidate-commit>/` directory. Verify transferred file SHA-256 and the release manifest on the Pi; source/hash checks are targeted, no build or suite runs there.
+5. Stage optional Encyclopedia content separately from source. The verified Windows archive is Simple English Wikipedia without pictures, September 2026, 1,094,936,257 bytes, SHA-256 `ee93790aa7907c41570b0861fa15c3645bbcf6da208fd2a426a62459231a66f4`. Its provenance sidecar must accompany it. Check free space for both candidate and rollback data. The separately staged reader wheel is `libzim-3.13.0-cp313-cp313-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl` (10,613,591 bytes), SHA-256 `3379aeebfc7fc21b13f9b7e2e1cb802ef39edf28732387fe2249cc208d51e0b3`. Verify aarch64, CPython 3.13 and glibc >=2.27 on the Pi before using it. Install only that matching prebuilt dependency into the candidate's private dependency directory; never compile it on the Pi.
+
+## Save-preserving trial
+
+Create a private candidate data directory rather than pointing the trial at the only production save copy. Use SQLite's online backup API to copy `vesper9/data/console/vesper.sqlite3` consistently; do not copy an open database without its transaction state. Copy local library metadata/content and other required private assets into that trial directory, or retain verified read-only content references. Never include them in Git or the release ZIP. Preserve all original databases, recordings, models and calibration files.
+
+The current service uses `live/.venv/bin/python`, loopback port 8799, the native-USB/CH340 serial glob pair and data at `vesper9/data/console`. Keep its existing port/serial/desktop options. Point a reversible service override at the new source and **candidate** data directory; use the existing compatible Python dependencies plus a private candidate dependency directory for any added reader wheel. Do not change the shared environment in place merely to enable Encyclopedia.
+
+Before starting: close extra controlling browser tabs. Restart once after approval, then reopen/refresh the deck browser. Verify service health, loopback-only binding, connected firmware/counts, microphone OFF, no capture, CRC counters, and the new source identity through `/api/system`. Hash the served JS against the release manifest. This is what establishes a deployed-source match; a service-active flag alone does not.
+
+## Sam's physical checks
+
+1. **Menus, two minutes:** button next; generic back-case tap previous; double case tap back; previous and next sector; hold-release select. In a game, tap/tap/hold then resume: confirm no lost life, purchase or accidental launch. Try an ordinary long game hold too.
+2. **Light/sound check:** Node Scope, lamps 1–4 red/green/blue, then board LED, then all off. Set a comfortable lamp level. With mic OFF, play a game with bass sounds and verify they do not cause case actions; deliberately tap during quiet gaps.
+3. **High Bar:** a button-only session, then a manual/shove-it/regrip session; one line challenge and practice. Report landing fairness, ease of manual recovery and any accidental menu opening. Confirm existing saves remain recognizable.
+4. **Readers/utilities:** reopen an old Stacks position, page backward, bookmark and resume. Open a real Encyclopedia article, follow a link and return after restarting the app. Check four-beat Cadence lamps/downbeat and Lantern's fourth lamp.
+5. **Wayfinder and one favorite game:** finish an expedition or intentionally abandon one, resume saved travel and try an equipment/region unlock. In an existing game, confirm the case action helps without replacing its core skill.
+6. **Optional sides only after generic passes:** calibrate left/right in your actual posture. Try ten left, ten right and ten comfortable back taps; record wrong-direction/unsure counts. Return to generic if back taps are misclassified. This optional mode is not required for completion.
+7. **Pi resources:** after ordinary play, capture a brief `/api/system` and Node Scope frame summary. Report stutter, temperature/throttling, audio problems and battery behavior. Do not run a benchmark or broad suite on the Pi.
+
+## Rollback and promotion
+
+If the candidate fails, stop its service, preserve its trial data directory, restore the saved unit/drop-in byte-for-byte, reload the user daemon and start the original live service. Reopen its browser, verify `f3bfacc` served files, original data path, node connected, mic OFF and lights responsive. Original saves were never overwritten; trial progress remains available for recovery even though it is not shown by the old build.
+
+After acceptance, decide whether the candidate data becomes the new authoritative data directory. Keep the former production data and candidate backup until both save migration and a restart have been checked. Choose a GitHub PR/merge path for the tested candidate, then record the accepted commit/source hash and Pi service path. Kiosk/autostart behavior is a separate preference: the prior session started at the desktop; this wave does not enable autologin or kiosk startup incidentally.

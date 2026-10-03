@@ -143,13 +143,13 @@ let browser;
 
   check("no page errors", pageErrors.length === 0, JSON.stringify(pageErrors));
   await browser.close();
-  server.kill();
+  await require('./browser-cleanup.cjs')(server, data);
   const failed = results.filter((r) => !r.ok);
   console.log(failed.length ? "FAILED " + failed.length + " of " + results.length : "ALL " + results.length + " PASSED");
   process.exit(failed.length ? 1 : 0);
 })().catch(async (error) => {
   console.error("ERROR", error, logs.slice(-1500));
   try { await browser?.close(); } catch {}
-  server.kill();
+  await require('./browser-cleanup.cjs')(server, data);
   process.exit(1);
 });

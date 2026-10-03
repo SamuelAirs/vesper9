@@ -1,5 +1,8 @@
 # VESPER-9 0.2.0 — the second pass
 
+> Current finished-node candidate (2026-10-02): see [candidate status and product decisions](NODE-CONSOLE-CANDIDATE.md). Developed and verified on Windows; Pi deployment and physical acceptance remain pending. Older implementation/firmware/sensor notes below describe their historical snapshots.
+
+
 This release implements the next pass in source, rather than only supplying an improvement prompt. The app and service are 0.2.0. The compatible ESP32 protocol and supplied 0.1.0 firmware are unchanged. No physical Pi/node deployment is claimed.
 
 ## Controls and engine

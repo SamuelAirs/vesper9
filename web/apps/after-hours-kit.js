@@ -11,6 +11,25 @@ import { lamps } from "../engine/lightshow.js";
 // A press at least this long, then released, chooses. Shorter presses are taps.
 export const HOLD = 0.5;
 
+// Case taps complement the button: reverse a choice without committing it. Calibrated right
+// taps optionally step forward. A tap while the button is held must never move its target.
+export function caseChoice(game, event = {}, pages = 1) {
+  if (game.held) return false;
+  const step = game.c.settings?.().tapMode === 'sides' && event.side === 'right' ? 1 : -1;
+  if (game.guide >= 0) { game.guide = Math.max(0, Math.min(pages - 1, game.guide + step)); return true; }
+  if (!['play', 'upgrade', 'over'].includes(game.phase) || game.stage === 'report') return false;
+  game.cursor = (game.cursor + step + 3) % 3;
+  game.c.tone?.(400 + game.cursor * 60, 0.025, 'triangle');
+  return true;
+}
+
+// The board LED is a dim release-ready accent, separate from the four game lamps.
+export function choiceAccent(game, hold = HOLD) {
+  if (!game.c.hasBoardLed?.()) return;
+  const ready = game.held && game.t - game.pressAt >= hold;
+  game.c.board?.(ready ? [12, 55, 22] : game.held ? [40, 22, 0] : [0, 0, 0]);
+}
+
 // 3 on the first node, 4 on the new one (PR #16's ctx.lampCount()).
 export const lampCount = (ctx) => (ctx.lampCount?.() === 4 ? 4 : 3);
 
@@ -58,7 +77,7 @@ export function drawGuide(g, name, pages, page, n) {
 }
 
 // The words under a choice row, the same in every After Hours game (`idle` replaces them when space is short).
-export function drawPressHelp(g, game, y, verb = "DO IT", idle = "TAP: NEXT CHOICE     HOLD, THEN RELEASE: " + verb) {
+export function drawPressHelp(g, game, y, verb = "DO IT", idle = "BUTTON: NEXT   CASE: PREVIOUS   HOLD / RELEASE: " + verb) {
   const f = holdFraction(game);
   if (f >= 1) text(g, "RELEASE TO " + verb, 480, y, 17, C.amber, "center");
   else if (f > 0) {

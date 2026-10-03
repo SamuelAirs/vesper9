@@ -59,4 +59,4 @@ const procMatches=(()=>{try{return Number(/^Pid:\s+(\d+)/m.exec(fs.readFileSync(
  const result={passed:true,scope:'Development-host simulated node; not Pi/hardware',browser:await browser.version(),durationSeconds:(Date.now()-started)/1000,reconnected,recordedSpeech:speech?{passed:true,savedLines:speech.sessions[0].lines,droppedChunks:speech.state.droppedChunks}:null,timerCompleted:true,endsMuted:true,samples,pageErrors:errors};
  fs.writeFileSync(path.join(output,'soak-results.json'),JSON.stringify(result,null,2));
  console.log(JSON.stringify({passed:true,durationSeconds:result.durationSeconds,samples:samples.length,recordedSpeech:result.recordedSpeech,endsMuted:true}));
-})().catch(e=>{console.error(e);console.error(logs.slice(-1800));process.exitCode=1;}).finally(async()=>{if(browser)await browser.close();server.kill('SIGTERM');fs.rmSync(data,{recursive:true,force:true});});
+})().catch(e=>{console.error(e);console.error(logs.slice(-1800));process.exitCode=1;}).finally(async()=>{if(browser)await browser.close();await require('./browser-cleanup.cjs')(server,data);});

@@ -471,8 +471,8 @@ class HostProbeTests(unittest.TestCase):
 class SystemEndpoint(ServiceCase):
     HOST_KEYS = {"model", "cpuTempC", "loadAvg", "cpuCount", "cpuPercent", "cpuPerCore", "cpuWindowS", "memory", "disk",
                  "uptimeS", "throttled"}
-    SERVICE_KEYS = {"version", "startedAt", "uptimeS", "rssBytes", "pid", "python", "tasks", "clients", "micMode"}
-    NODE_KEYS = {"connected", "simulated", "port", "link", "firmware", "statusAgeS", "capture", "generation", "crcErrors",
+    SERVICE_KEYS = {"build", "version", "startedAt", "uptimeS", "rssBytes", "pid", "python", "tasks", "clients", "micMode"}
+    NODE_KEYS = {"board", "lamps", "mics", "boardLed", "connected", "simulated", "port", "link", "firmware", "statusAgeS", "capture", "generation", "crcErrors",
                  "missingSamples", "audioBytes", "nodeRxCrc", "audioDrops", "sensor", "knock", "knockGuarded", "tapDirection"}
 
     async def fetch(self):
@@ -947,7 +947,7 @@ class InstallerKeepsData(unittest.TestCase):
         return out.getvalue()
 
     def exec_line(self):
-        return next(line for line in self.unit.read_text().splitlines() if line.startswith("ExecStart="))
+        return self.installer.unit_settings(self.unit)["args"]
 
     def test_default_directory_of_the_same_checkout_stays_the_default(self):
         root = self.checkout("a")
@@ -1015,7 +1015,9 @@ class KioskLauncher(unittest.TestCase):
             with contextlib.suppress(Launched):
                 runpy.run_path(str(ROOT / "scripts/kiosk.py"))
             if launched and launched[-1][-1].startswith("file://"):
-                self.page = Path(launched[-1][-1][len("file://"):]).read_text()
+                from urllib.request import url2pathname
+                from urllib.parse import urlsplit
+                self.page = Path(url2pathname(urlsplit(launched[-1][-1]).path)).read_text(encoding="utf-8")
         return attempts, launched, stderr.getvalue()
 
     def test_waits_at_least_three_minutes_then_shows_a_page_that_says_so_and_keeps_trying(self):

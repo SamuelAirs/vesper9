@@ -287,12 +287,17 @@ class Bounds(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(abs(h.calls[0] / BYTES_PER_SECOND - 21.4) < .1, h.calls)
 
     async def test_backlog_skips_the_second_pass_instead_of_growing_without_bound(self):
+        import threading
+        release = threading.Event()
         def slow(pcm):
-            time.sleep(.05)
+            release.wait(3)
             return 'Done.'
         with patch.object(speech_module, 'REFINE_BACKLOG_S', 0.2):
             async with Harness(FakeVosk(every=10), refine=slow) as h:
-                await h.feed(100, settle=False)
+                try:
+                    await h.feed(100, settle=False)
+                finally:
+                    release.set()
                 await h.settle(10)
                 self.assertLess(len(h.calls), 10)
                 self.assertEqual(len(h.finals()), 10)        # every utterance still got a final line

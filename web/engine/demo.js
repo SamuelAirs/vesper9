@@ -29,8 +29,11 @@ export class DemoBridge extends EventTarget {
         audioBytes: 0,
         button: false,
         generation: 1,
+        lamps: 4, mics: 2, boardLed: true,
       },
       leds: Array(9).fill(0),
+      lamps: { count: 4, values: Array(12).fill(0), board: [0, 0, 0] },
+      tapDirection: { available: false, calibrated: false, ready: false, mode: 'generic', targets: ['left', 'right'], label: null },
       mic: {
         mode: "off",
         level: 0,
@@ -64,7 +67,6 @@ export class DemoBridge extends EventTarget {
   connect() {
     queueMicrotask(() => {
       this.emit(this.state);
-      this.sensor();
     });
     this.interval = setInterval(() => {
       this.tick();
@@ -83,16 +85,8 @@ export class DemoBridge extends EventTarget {
     this.analysisTimer = setInterval(() => this.emit(syntheticAnalysis(seq++)), 100);
   }
   sensor() {
-    const t = Date.now() / 1000;
-    this.state.sensor = {
-      temperature: 22.4 + Math.sin(t / 95) * 0.6,
-      humidity: 43 + Math.sin(t / 120) * 2,
-      simulated: true,
-      at: t,
-    };
-    this.history.push({ ...this.state.sensor });
-    this.history = this.history.slice(-288);
-    this.emit({ type: "sensor", ...this.state.sensor });
+    // The finished node has no temperature/humidity sensor.
+    this.state.sensor = null;
   }
   tick() {
     const now = Date.now() / 1000;
@@ -111,18 +105,21 @@ export class DemoBridge extends EventTarget {
       type: "timers",
       timers: this.state.timers.map((t) => ({ ...t })),
     });
-    if (++this.next % 5 === 0) this.sensor();
   }
   // Same rule as the service: gameplay keeps its lamps, the other screens get an amber blink.
   timerAlert() {
     if (!this.connected || !["home", "timers", "environment"].includes(this.focus)) return;
     this.emit({ type: "light_effect", durationMs: 1200 });
-    const amber = Array(3).fill([180, 100, 0]).flat(), off = Array(9).fill(0);
+    const amber = Array(4).fill([180, 100, 0]).flat(), off = Array(12).fill(0);
     this.playPattern([{ ms: 180, values: amber }, { ms: 180, values: off }], 3);
   }
   setLeds(values) {
-    this.state.leds = values;
-    this.emit({ type: "leds", values });
+    // Same legacy wire mapping as vesper.device: duplicate the middle logical lamp when
+    // receiving nine values; fold physical middles with independent channel maxima.
+    const lamps = values.length === 9 ? [...values.slice(0, 6), ...values.slice(3, 6), ...values.slice(6, 9)] : values.slice();
+    this.state.leds = [...lamps.slice(0, 3), ...lamps.slice(3, 6).map((v, i) => Math.max(v, lamps[i + 6])), ...lamps.slice(9, 12)];
+    this.state.lamps.values = lamps;
+    this.emit({ type: "leds", values: this.state.leds, lamps });
   }
   playPattern(steps, repeat = 1) {
     this.pattern.forEach(clearTimeout);
@@ -153,16 +150,22 @@ export class DemoBridge extends EventTarget {
       // As on the node, nothing while knock input is off.
       if ((this.state.settings.knock || "medium") !== "off")
         this.emit({ type: "knock", at_us: performance.now() * 1000, peak: 20000, source: "simulator", generation: 1,
-          ...(["back", "left", "right"].includes(data.side) ? { side: data.side, sideVotes: 5 } : {}) });
+          ...(this.state.settings.tapMode === 'sides' && ["left", "right"].includes(data.side) ? { side: data.side, sideVotes: 5 } : {}) });
     } else if (command === "leds") {
       const values = data.values;
-      if (!Array.isArray(values) || values.length !== 9 || values.some((x) => !Number.isInteger(x) || x < 0 || x > 255))
-        throw new Error("Nine integer light values from 0 to 255 required");
+      if (!Array.isArray(values) || ![9, 12].includes(values.length) || values.some((x) => !Number.isInteger(x) || x < 0 || x > 255))
+        throw new Error("Nine or twelve integer light values from 0 to 255 required");
       // As on the node, an explicit write stops any running pattern or armed cue.
       clearTimeout(this.reaction);
       this.pattern.forEach(clearTimeout);
       this.pattern = [];
       this.setLeds(values.slice());
+    } else if (command === 'board_led') {
+      const values = data.values;
+      if (!Array.isArray(values) || values.length !== 3 || values.some(x => !Number.isInteger(x) || x < 0 || x > 255))
+        throw new Error('Three board LED values from 0 to 255 required');
+      this.state.lamps.board = values.slice();
+      this.emit({ type: 'board_led', values: values.slice() });
     } else if (command === "reaction") {
       const trial = Math.trunc(Number(data.trial)), delay = Math.trunc(Number(data.delay));
       if (!(trial >= 0 && trial <= 0xFFFFFFFF) || !(delay >= 250 && delay <= 10000)) throw new Error("Invalid reaction round");
@@ -190,7 +193,7 @@ export class DemoBridge extends EventTarget {
         throw new Error("Pattern must contain 1–16 steps and repeat 1–8 times");
       for (const step of steps) {
         const ms = Math.trunc(Number(step?.ms)), values = step?.values;
-        if (!(ms >= 10 && ms <= 10000) || !Array.isArray(values) || values.length !== 9 ||
+        if (!(ms >= 10 && ms <= 10000) || !Array.isArray(values) || ![9, 12].includes(values.length) ||
             values.some((v) => !Number.isInteger(v) || v < 0 || v > 255))
           throw new Error("Invalid pattern step");
       }
@@ -215,10 +218,6 @@ export class DemoBridge extends EventTarget {
       this.state.settings = { ...DEFAULT_SETTINGS };
       this.save();
       this.emit({ type: "settings", settings: this.state.settings });
-    } else if (command === "knock") {
-      // A knock on the simulated case (K, or J/I/L for the left, the back and the right).
-      const side = ["left", "right", "back"].includes(data.side) ? data.side : null;
-      this.emit({ type: "knock", at_us: performance.now() * 1000, peak: 20000, simulated: true, generation: 1, ...(side ? { side, sideVotes: 5 } : {}) });
     } else if (command === "keepalive") {
       // Nothing to watch in the standalone edition.
     } else if (command === "mic") {
@@ -295,7 +294,7 @@ export class DemoBridge extends EventTarget {
           tasks: { device: true, timers: true }, clients: 1, micMode: this.state.mic?.mode ?? "off" },
         node: { connected: true, simulated: true, port: "simulated", link: "simulated", firmware: "simulated", statusAgeS: 0.5,
           capture: false, generation: 1, crcErrors: 0, missingSamples: 0, audioBytes: 0, nodeRxCrc: null, audioDrops: null,
-          sensor: { simulated: true, ok: 1, fail: 0, err: null } },
+          lamps: 4, mics: 2, boardLed: true, sensor: null },
       };
     }
     if (path.startsWith("sessions") || path.startsWith("transcript/")) return [];

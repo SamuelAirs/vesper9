@@ -184,8 +184,19 @@ test("F3 ctx.leds values are rounded and clamped; malformed arrays are ignored",
 test("F4 demo leds payloads are validated like the service", async () => {
   const d = new DemoBridge();
   for (const values of [[0.5, 0, 0, 0, 0, 0, 0, 0, 0], [300, 0, 0, 0, 0, 0, 0, 0, 0], [-1, 0, 0, 0, 0, 0, 0, 0, 0], [1, 2, 3], undefined])
-    await assert.rejects(d.command("leds", { values }), /Nine integer/, JSON.stringify(values));
+    await assert.rejects(d.command("leds", { values }), /integer light values/, JSON.stringify(values));
   await d.command("leds", { values: Array(9).fill(255) });
+  await d.command('leds', { values: [1, 2, 3, 4, 5, 6, 7, 8, 9] });
+  assert.deepEqual(d.state.lamps.values, [1, 2, 3, 4, 5, 6, 4, 5, 6, 7, 8, 9]);
+  await d.command('leds', { values: [1, 2, 3, 90, 2, 40, 4, 80, 6, 7, 8, 9] });
+  assert.deepEqual(d.state.leds, [1, 2, 3, 90, 80, 40, 7, 8, 9]);
+  await d.command('leds', { values: Array(12).fill(75) });
+  assert.deepEqual(d.state.lamps.values, Array(12).fill(75));
+  assert.equal(d.state.lamps.count, 4);
+  assert.equal(d.state.sensor, null);
+  await d.command('board_led', { values: [10, 20, 30] });
+  assert.deepEqual(d.state.lamps.board, [10, 20, 30]);
+  await assert.rejects(d.command('board_led', { values: [256, 0, 0] }));
 });
 
 test("F4 demo leds cancels a running pattern", async () => {

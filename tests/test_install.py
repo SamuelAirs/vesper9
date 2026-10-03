@@ -45,13 +45,13 @@ class ServiceInstallTests(unittest.TestCase):
                  contextlib.redirect_stdout(io.StringIO()):
                 installer.main()
 
-            self.assertIn(str(root / ".venv/bin/python"), running["config"])
-            self.assertIn(str(data), running["config"])
+            self.assertIn(str(root / ".venv/bin/python"), installer.unit_settings(unit)["args"])
+            self.assertIn(str(data), installer.unit_settings(unit)["args"])
             self.assertEqual((data / "vesper.sqlite3").read_bytes(), b"existing user data")
             backup, = (root / "backups").iterdir()
             self.assertEqual((backup / "vesper.service").read_text(), "old service")
             self.assertEqual((backup / "vesper.desktop").read_text(), "old kiosk")
-            self.assertIn(str(root / "scripts/kiosk.py"), launcher.read_text())
+            self.assertIn(installer.systemd_quote(root / "scripts/kiosk.py"), launcher.read_text())
 
     def test_missing_kiosk_dependency_leaves_existing_service_untouched(self):
         with tempfile.TemporaryDirectory() as folder:

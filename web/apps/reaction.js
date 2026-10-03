@@ -129,6 +129,11 @@ export class LightTrial {
     this.c.tone(140, 0.2);
     this.lamps.flash(0.6, () => fill(LAMP.amber, 0.3, this.lampN()));
   }
+  // Acoustic detection cannot produce the button's same-clock reaction measurement.
+  knock() {
+    if (this.phase === "wait" || this.phase === "go") return;
+    this.c.toast?.("Reaction uses the button clock. Case taps never start or judge a trial.");
+  }
   down(event) {
     this.guard.mark();
     if (
@@ -310,6 +315,7 @@ export class LightTrial {
     if (this.phase === "go" && this.t - this.goAt > TOO_SLOW / 1000 + 0.4) this.tooSlow();
     // No host light while armed or waiting for the cue.
     if (this.phase !== "wait" && this.phase !== "go") this.lamps.frame(dt, null);
+    if (this.phase !== "wait" && this.phase !== "go") this.c.board?.(this.phase === "result" ? dim(LAMP.green, 0.15) : LAMP.off);
     const summary = reactionSummary(this.results);
     this.c.hud([
       ["LAST", this.last === null ? "—" : this.last + " ms"],

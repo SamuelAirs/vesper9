@@ -1,5 +1,46 @@
 # VESPER-9 0.2.0 validation
 
+> Current finished-node candidate (2026-10-02): see [candidate status and product decisions](NODE-CONSOLE-CANDIDATE.md). Developed and verified on Windows; Pi deployment and physical acceptance remain pending. Older implementation/firmware/sensor notes below describe their historical snapshots.
+
+## Final Windows candidate verification — 2026-10-03
+
+Host: Windows `DESKTOP-FD66EV2`; Python 3.11.5, Node 24.21.0, Chrome 154,
+Playwright 1.57, libzim 3.13.0. Development branch: `codex/node-console` in
+`C:\Users\ayers\vesper9-development`. The release manifest records the committed
+source identity; this working branch is not GitHub main or the Pi's live source.
+
+| Check | Fresh result |
+| --- | --- |
+| `scripts/check.py` | Exit 0: 273 Python tests, 2 expected skips; 1,379 JS tests all pass; catalog freshness passes |
+| Python skips | Local Vosk model vocabulary unavailable; POSIX graceful SIGTERM cannot be established on Windows |
+| Browser smoke | All 34 registered apps, service and standalone, no page errors |
+| Browser extension | Source/catalog/voice registration, button launch, persistence, service and standalone pass |
+| Browser host | 34/34, including burst and held-terminal gesture rollback, single cancellation, reverse navigation, low-tone gate and score classes |
+| Injected voice events | 37/37; this does not validate acoustic speech recognition |
+| Soak | 60.195 seconds, passes, ends muted; no Pi benchmark claim |
+| Real Encyclopedia | Verified 1,094,936,257-byte Kiwix archive, 400,061 articles; Sun→Star, random lookup, bookmarks/trail across reload pass |
+| Layout | Windows Chrome 1024×600 screenshots of dashboard, Node Scope, games and utilities reviewed |
+| Firmware | No firmware source/config/binary changes, builds or flashing |
+
+Evidence is retained outside Git at
+`C:\Users\ayers\vesper9-investigation\wave`: `final-check.log`,
+`browser-reviewed/summary.json`, `browser-reviewed/host-browser.json`,
+`utilities-newgame-report.md`, `highbar-report.md`, `game-node-report.md`,
+`service-report.md`, and the screenshot directories. Later review corrected a
+double-cancel bar release, a paid-survey softlock, legacy demo lamp mapping,
+retained ZIM exception references and Windows' coarse simulator clock. Their
+regressions are in the final passing suite. Earlier failing logs are historical.
+
+A centralized read-only Pi check at 2026-10-03 04:54:04 UTC found the same live
+`f3bfacc`, service PID 1128, one browser client, connected node 0.2.0, microphone
+off/capture false, zero CRC/missing samples, 55.6°C and no throttling. Pi `main`
+and GitHub `main` remain `5db9ae8`; node2 remains `b9079f1`. aarch64/glibc 2.41
+matches the staged reader wheel's platform requirements; its import on the Pi
+is still untested. No deployment/restart/flash occurred.
+
+## Historical validation
+
+
 Date: 2026-09-30. Scope: Linux x86-64 development host, simulated ESP32, Python 3.12, Node 24.19.0, Chromium 153.0.8010.0. The application is 0.2.0; the unchanged node firmware is 0.1.0 using protocol v1.
 
 **No physical Pi, node, GPIO, optical timing, real microphone acoustics or OS kiosk deployment was available for this pass.** These results establish software behavior in the stated environment, not hardware qualification or Pi performance.

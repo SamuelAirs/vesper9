@@ -3,7 +3,7 @@ import { AppGuard } from "../engine/input.js";
 import { LAMP, lamps, dim, meter, spot, lightsOff } from "../engine/lightshow.js";
 import { clamp } from "../engine/math.js";
 import { LampBus, lampMax } from "./game-kit.js";
-import { SIZES, PACES, fit, wrap, layoutChapter, pageAt, pageSeconds, drawLines, drawMenuPanel, drawRowList, drawNoticePanel } from "./reader-kit.js";
+import { SIZES, PACES, fit, wrap, layoutChapter, pageAt, pageSeconds, drawLines, drawMenuPanel, drawRowList, drawNoticePanel, readerKnock, boundReadingSave, readerLightContext, readerLights } from "./reader-kit.js";
 
 // ---------------------------------------------------------------------------------------------
 // THE STACKS: a book reader for one button. Books are DRM-free EPUB or text files that the service
@@ -31,7 +31,10 @@ export function migrateSave(raw) {
     .sort((a, b) => b[1].at - a[1].at)
     .slice(0, MAX_SAVED_BOOKS);
   save.books = Object.fromEntries(kept);
-  return save;
+  const marks = (Array.isArray(raw.marks) ? raw.marks : []).filter((m) => m && typeof m.book === "string" && m.book.length <= 32 && m.book.length)
+    .slice(0, 12).map((m) => ({ book: m.book, title: fit(String(m.title || m.book), 60), ch: int(m.ch, 0, 99999, 0), para: int(m.para, 0, 1e9, 0), char: int(m.char, 0, 1e6, 0) }));
+  if (marks.length) save.marks = marks;
+  return boundReadingSave(save);
 }
 
 const GUIDE = { id: "guide", title: "The Reader's Guide", author: "VESPER-9", format: "GUIDE", locked: null, chapters: [
@@ -42,10 +45,10 @@ const GUIDE_TEXT = [
     ["p", "The shelf lists every book in the library folder, with how far you have read. Your place is kept for each book, so you can leave for a game and come back to the same page."],
     ["p", "Turn the page now to learn the controls."]],
   [["h", "Reading with one button"],
-    ["p", "Tap the button to turn to the next page. At the end of a chapter the next one follows."],
+    ["p", "Tap the button to turn to the next page. Tap the case to go back a page. At the end of a chapter the next one follows. Every action is also available with the button alone."],
     ["p", "Press and hold, then let go, to open the reader's menu. While you hold, the lamps fill with cyan; let go once they are full. From the menu you can go back a page, jump to a chapter, change the text size, or set the pages to turn on their own."],
     ["p", "Auto-turn turns each page after the time it takes to read it at the pace you choose: 160, 220 or 300 words a minute. A tap still turns the page at once."],
-    ["p", "The three lamps show how far through the chapter you are, as a low amber bar. With auto-turn on, a small cyan light walks across them until the page turns."],
+    ["p", "The lamps show how far through the chapter you are, as a low amber bar. With auto-turn on, a small cyan light walks across them until the page turns. The reader menu lets you save a bookmark and return to it later."],
     ["p", "As everywhere on the console, tap, tap and hold opens the system menu. The two taps turn two pages; the library turns them back when the menu opens."]],
   [["h", "Adding books"],
     ["p", "Fifteen classics are already on the shelf: Standard Ebooks editions, which are free and in the public domain. Choose MORE CLASSICS for sixteen more. Hold on a title to fetch it. The console needs its internet connection for this."],
@@ -89,7 +92,7 @@ export class Library {
     this.c = ctx;
     this.data = new Stacks();
     this.layout = new Pages();
-    this.lamps = new LampBus(ctx);
+    this.lamps = new LampBus(readerLightContext(ctx));
     this.guard = new AppGuard(this, ctx);
     this.save = migrateSave(ctx.progress?.());
     this.phase = "shelf";
@@ -179,6 +182,9 @@ export class Library {
       return [
         { label: "RESUME READING", run: () => this.go("read") },
         { label: "PREVIOUS PAGE", run: () => { this.go("read"); this.turn(-1); } },
+        { label: "NEXT PAGE", run: () => { this.go("read"); this.turn(1); } },
+        { label: this.marked() ? "REMOVE BOOKMARK" : "BOOKMARK THIS PAGE", run: () => this.bookmark() },
+        { label: "BOOKMARKS · " + (this.save.marks?.length || 0), run: () => { this.marksBack = "read"; this.go("marks"); } },
         { label: "CHAPTERS", run: () => this.go("chapters", this.pos.ch + 1) },
         { label: "AUTO-TURN · " + (PACES[this.save.auto] ? PACES[this.save.auto] + " WPM" : "OFF"), stay: true,
           run: () => { this.save.auto = (this.save.auto + 1) % PACES.length; this.autoT = 0; this.dirty = true; } },
@@ -187,6 +193,12 @@ export class Library {
         { label: "BACK TO THE SHELF", run: () => this.toShelf() },
       ];
     }
+    if (this.phase === "marks") return [
+      { label: this.marksBack === "shelf" ? "BACK TO THE SHELF" : "BACK TO READING", run: () => this.marksBack === "shelf" ? this.toShelf() : this.go("read") },
+      ...(this.save.marks || []).map((m) => ({ label: m.title, sub: "CHAPTER " + (m.ch + 1), run: () => {
+        if (this.bookMeta(m.book)) this.open(m.book, { ch: Math.min(m.ch, this.chapterCount(m.book) - 1), para: m.para, char: m.char });
+        else { this.notice = { title: "BOOK NOT ON THE SHELF", lines: ["This bookmark is kept. Import its book again to continue here."], back: "marks" }; this.phase = "notice"; }
+      } }))];
     if (this.phase === "chapters") {
       const meta = this.bookMeta(), names = meta?.chapters || [];
       return [{ label: "BACK TO THE PAGE", run: () => this.go("read") },
@@ -199,10 +211,12 @@ export class Library {
           run: () => this.fetch(item) }))];
     }
     const rows = [GUIDE, ...d.books].map((book) => ({ book, label: fit(book.title, 52), sub: this.shelfLine(book), run: () => this.openBook(book) }));
+    if (this.save.marks?.length) rows.push({ label: "BOOKMARKS", sub: this.save.marks.length + " SAVED READING PLACES", run: () => { this.marksBack = "shelf"; this.go("marks", 1); } });
     if (d.service === "ok") {
       rows.push({ label: "MORE CLASSICS", sub: "FREE STANDARD EBOOKS EDITIONS, FETCHED ONLINE", run: () => this.go("store", 1) });
       rows.push({ label: "IMPORT FROM USB DRIVE", sub: "EPUB, TEXT AND KINDLE MY CLIPPINGS", run: () => this.importUsb() });
     }
+    if (d.service === "offline") rows.push({ label: "RETRY THE SHELF", sub: "RECONNECT TO THE CONSOLE'S BOOK SERVICE", run: () => this.refresh() });
     rows.push({ label: "LEAVE THE LIBRARY", sub: "BACK TO THE DASHBOARD", run: () => this.c.home?.() });
     return rows;
   }
@@ -219,6 +233,16 @@ export class Library {
   }
 
   // ---- actions -----------------------------------------------------------------------------
+  marked() { return (this.save.marks || []).some((m) => m.book === this.book && m.ch === this.pos.ch && m.para === this.pos.para && m.char === this.pos.char); }
+  bookmark() {
+    const marks = this.save.marks || [], present = this.marked();
+    this.save.marks = marks.filter((m) => !(m.book === this.book && m.ch === this.pos.ch && m.para === this.pos.para && m.char === this.pos.char));
+    if (!present) this.save.marks.unshift({ book: this.book, title: fit(this.bookMeta()?.title || this.book, 60), ...this.pos });
+    this.save.marks = this.save.marks.slice(0, 12);
+    this.dirty = true;
+    this.c.toast?.(present ? "BOOKMARK REMOVED" : "PAGE BOOKMARKED");
+    this.go("read");
+  }
   go(phase, cursor = 0) {
     this.phase = phase;
     this.cursor = cursor;
@@ -321,13 +345,13 @@ export class Library {
     const v = this.c.settings?.()?.holdMs;
     return Number.isFinite(v) ? clamp(v, 450, 1200) : 650;
   }
-  down() {
-    this.guard.mark();
+  down(event) {
+    this.guard.mark(event);
     this.held = true;
     this.pressT = 0;
   }
   up(event) {
-    this.guard.release();
+    this.guard.release(event);
     if (!this.held) return;
     this.held = false;
     const ms = Number.isFinite(event?.durationMs) ? event.durationMs : this.pressT * 1000;
@@ -340,6 +364,7 @@ export class Library {
     this.held = false;
     this.pressT = 0;
   }
+  knock(event) { readerKnock(this, event); }
   step() {
     if (this.phase === "read") { this.turn(1); return; }
     if (this.phase === "notice") {
@@ -388,7 +413,8 @@ export class Library {
     this.flush();
     this.lamps.clear();
     this.lamps.sleep();
-    this.c.leds?.(lightsOff());
+    this.c.leds?.(readerLights(lightsOff(), this.c.lampCount?.()));
+    this.c.board?.([0, 0, 0]);
   }
 
   // ---- simulation --------------------------------------------------------------------------
@@ -436,7 +462,7 @@ export class Library {
     if (this.phase === "read" && meta) {
       const pages = this.layoutReady() ? this.layout.pages : null;
       hud = [["CHAPTER", (this.pos.ch + 1) + "/" + this.chapterCount()], ["PAGE", pages ? (this.page + 1) + "/" + pages.length : "…"], ["READ", Math.round(this.fraction() * 100) + "%"]];
-      hint = "TAP: NEXT PAGE · HOLD & RELEASE: READER MENU";
+      hint = "BUTTON: NEXT PAGE · CASE TAP: PREVIOUS · HOLD: READER MENU";
     } else if (this.phase === "notice") {
       hud = [["BOOKS", String(this.data.books.length + 1)]];
       hint = this.notice?.wait && this.data.busy ? "WORKING…" : "TAP OR HOLD TO GO ON";
@@ -555,7 +581,7 @@ export class Library {
   drawList(g) {
     const rows = this.rows().map((row) => ({ ...row, muted: !!row.book?.locked, alert: !!row.book?.locked,
       progress: row.book && !row.book.locked ? this.save.books[row.book.id]?.f || 0 : undefined }));
-    const heading = this.phase === "store" ? "MORE CLASSICS · STANDARD EBOOKS" : this.phase === "chapters" ? fit(this.bookMeta()?.title, 44).toUpperCase() : "THE STACKS";
+    const heading = this.phase === "marks" ? "BOOKMARKS" : this.phase === "store" ? "MORE CLASSICS · STANDARD EBOOKS" : this.phase === "chapters" ? fit(this.bookMeta()?.title, 44).toUpperCase() : "THE STACKS";
     const count = this.phase === "chapters" ? this.chapterCount() + " CHAPTERS" : rows.length - 1 + " TITLES";
     drawRowList(g, rows, this.cursor, heading, count, this.phase === "store" ? "FETCHING NEEDS THE CONSOLE'S INTERNET CONNECTION" : "");
   }

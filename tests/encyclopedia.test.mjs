@@ -38,6 +38,23 @@ function mount(options = {}) {
 }
 const tap = (app) => { app.down({}); run(app, 0.08); app.up({ durationMs: 80 }); run(app, 0.1); };
 const hold = (app) => { app.down({}); run(app, 0.8); app.up({ durationMs: 800 }); run(app, 0.1); };
+
+test("bookmarks and link trails persist; a generic case tap returns through the trail at the first page", async () => {
+  const { app, ctx } = mount({ lampCount: 4 }); await settle(); app.open("Sun", "Sun", { trail: false }); await settle(); run(app, .1);
+  app.bookmark(); app.follow("Hydrogen", "Hydrogen"); await settle(); run(app, .1); assert.equal(app.trail.length, 1);
+  app.dispose(); const saved = JSON.parse(JSON.stringify(ctx.calls.saved.at(-1)));
+  assert.equal(saved.trail.length, 1); assert.equal(saved.marks[0].path, "Sun");
+  const again = mount({ progress: saved }).app; await settle(); again.rows()[0].run(); await settle(); run(again, .1);
+  assert.equal(again.article.path, "Hydrogen"); again.knock({ side: "right" }); await settle(); run(again, .1);
+  assert.equal(again.article.path, "Sun"); assert.equal(again.trail.length, 0);
+  assert.ok(ctx.calls.leds.every((v) => v.length === 12)); assert.deepEqual(ctx.calls.board.at(-1), [0,0,0]);
+});
+
+test("Unicode-heavy bookmarks and trails stay below the service byte limit without losing the current article", () => {
+  const place = (i) => ({ path: "P" + i + "😀".repeat(180), title: "😀".repeat(60), para: 0, char: 0 });
+  const save = migrateWiki({ last: place(0), marks: Array.from({ length: 12 }, (_, i) => place(i)), trail: Array.from({ length: 12 }, (_, i) => place(i)), recent: Array.from({ length: 20 }, (_, i) => ({ ...place(i), f: .3 })) });
+  assert.ok(new TextEncoder().encode(JSON.stringify(save)).length <= 7900); assert.equal(save.last.path, place(0).path);
+});
 const pick = async (app, label) => {
   const at = app.rows().findIndex((r) => r.label.startsWith(label));
   assert.ok(at >= 0, "no row " + label + " in " + app.rows().map((r) => r.label));
@@ -69,7 +86,7 @@ test("home offers the article of the day, today, random and the front page; with
   for (const status of [{ status: "missing", folder: "/data/encyclopedia" }, { status: "nolib" }, { status: "broken", error: "bad" }]) {
     const other = mount({ status }).app;
     await settle();
-    assert.deepEqual(other.rows().map((r) => r.label), ["LEAVE THE ENCYCLOPEDIA"]);
+    assert.deepEqual(other.rows().map((r) => r.label), ["CHECK AGAIN", "SETUP GUIDE", "LEAVE THE ENCYCLOPEDIA"]);
     other.draw(g);
   }
   const offline = mount({ get: () => { throw new Error("down"); } }).app;

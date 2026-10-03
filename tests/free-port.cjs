@@ -3,7 +3,11 @@
 const { execFileSync } = require("node:child_process");
 module.exports = function freePort() {
   const pinned = Number(process.env.VESPER_TEST_PORT);
-  if (pinned) return pinned;
+  if (process.env.VESPER_TEST_PORT) {
+    if (!Number.isInteger(pinned) || pinned < 1024 || pinned > 65535 || pinned === 8799)
+      throw new Error('VESPER_TEST_PORT must be1024–65535 and cannot be live port8799');
+    return pinned;
+  }
   const code = 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1])';
-  return Number(execFileSync(process.env.PYTHON || "python3", ["-c", code]).toString());
+  return Number(execFileSync(process.env.PYTHON || (process.platform === "win32" ? "python" : "python3"), ["-c", code], { timeout: 10000 }).toString());
 };

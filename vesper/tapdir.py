@@ -1,17 +1,19 @@
-"""Where on the case a tap landed: its back, left side or right side (docs/PROTOCOL.md, KNOCK_CLIP).
+"""Optional calibrated left/right case taps (docs/PROTOCOL.md, KNOCK_CLIP).
 
 A two-microphone node sends, after each KNOCK, the first 11 ms of the tap from both microphones on
 one clock. Three numbers are measured from it, as in the Pi's labelled session of 2026-10-02
 (fleet-notes/reports/knock-input.md; that session tapped the top, not the back): the level difference, the cross-correlation lag and the
 difference in onset between the right and the left microphone. No fixed rule separates the spots
 on a real case, and every node and tapping style differs, so the side is decided by the nearest
-labelled taps of this node's own calibration (Calibration > TAP DIRECTION). Without a calibration
-no side is given. When the nearest taps disagree the side is left out ("unsure") rather than guessed.
+labelled taps of this node's own calibration (Calibration > TAP DIRECTION). Generic mode always
+omits direction. Sides mode needs six usable left and six right examples and four of five agreeing
+neighbours; otherwise no side is given. Historical back examples remain saved but are not trained.
 """
 import math
 import time
 
-SIDES = ("back", "left", "right")  # back is the main tap; left and right are for games
+SIDES = ("back", "left", "right")  # Historical labels are retained for provenance.
+TARGETS = ("left", "right")        # Optional direction mode never trains a back classifier.
 WINDOW = 160                  # samples after the onset that are measured: 10 ms at 16 kHz
 MAX_LAG = 24                  # cross-correlation search, samples either way
 LAG_LIMIT = 8                 # a lag beyond this is a correlation peak at the edge: clamp it
@@ -73,8 +75,17 @@ def _vector(f):
 class Classifier:
     """k nearest labelled taps, each feature scaled by its spread across the calibration."""
 
-    def __init__(self, taps, k=K, min_votes=MIN_VOTES):
-        self.taps = [(t["side"], _vector(t)) for t in taps if t.get("side") in SIDES]
+    def __init__(self, taps, k=K, min_votes=MIN_VOTES, sides=SIDES):
+        self.taps = []
+        for tap in taps:
+            if not isinstance(tap, dict) or tap.get("side") not in sides:
+                continue
+            try:
+                vector = _vector(tap)
+            except (KeyError, TypeError, ValueError, OverflowError):
+                continue
+            if all(math.isfinite(v) for v in vector):
+                self.taps.append((tap["side"], vector))
         self.k, self.min_votes = k, min_votes
         columns = list(zip(*(v for _, v in self.taps))) if self.taps else []
         self.scale = []
@@ -113,17 +124,23 @@ class TapDirection:
 
     def __init__(self, store):
         self.store = store
+        self.mode = "generic"
         self.label = None          # the side being labelled now, or None
-        self.pending = {s: [] for s in SIDES}
+        self.pending = {s: [] for s in TARGETS}
         self.load()
 
     def load(self):
         saved = self.store.get("tapDirection", None) or {}
-        self.saved = saved if isinstance(saved.get("taps"), list) else {}
-        self.classifier = Classifier(self.saved["taps"]) if self.saved else None
+        self.saved = saved if isinstance(saved, dict) and isinstance(saved.get("taps"), list) else {}
+        classifier = Classifier(self.saved.get("taps", []), sides=TARGETS, min_votes=4)
+        self.ready = all(sum(side == s for side, _ in classifier.taps) >= MIN_TAPS for s in TARGETS)
+        self.classifier = classifier if self.ready else None
+        self.check = classifier.leave_one_out() if self.ready else None
 
     def annotate(self, event):
         """Measure a knock's clip (removed from the event) and add `side`, `sideVotes`, `tap`."""
+        event.pop("side", None)
+        event.pop("sideVotes", None)
         clip = event.pop("clip", None)
         if not clip:
             return event
@@ -137,7 +154,7 @@ class TapDirection:
             taps.append({"side": self.label, **f, "at": round(time.time(), 1)})
             del taps[:-MAX_TAPS]
             event["labelled"] = self.label
-        elif self.classifier:
+        elif self.mode == "sides" and self.classifier:
             side, votes = self.classifier.classify(f)
             event["sideVotes"] = votes
             if side:
@@ -145,36 +162,42 @@ class TapDirection:
         return event
 
     def status(self):
-        return {"calibrated": bool(self.classifier), "label": self.label,
+        return {"mode": self.mode, "enabled": self.mode == "sides" and self.ready,
+                "ready": self.ready, "calibrated": self.ready, "targets": list(TARGETS), "minimumTaps": MIN_TAPS,
+                "label": self.label,
                 "pending": {s: len(t) for s, t in self.pending.items()},
-                "saved": {s: sum(1 for t in self.saved.get("taps", []) if t.get("side") == s) for s in SIDES},
-                "check": self.saved.get("check"), "savedAt": self.saved.get("savedAt")}
+                "saved": {s: sum(1 for t in self.saved.get("taps", []) if isinstance(t, dict) and t.get("side") == s) for s in SIDES},
+                "check": self.check,
+                "savedAt": self.saved.get("savedAt")}
 
     def command(self, op, side=None):
         if op == "label":
-            if side is not None and side not in SIDES:
-                raise ValueError("Unknown tap side")
+            if side is not None and side not in TARGETS:
+                raise ValueError("Tap calibration targets are left and right")
             self.label = side
         elif op == "start":
-            self.pending = {s: [] for s in SIDES}
-            self.label = side if side in SIDES else None
+            if side is not None and side not in TARGETS:
+                raise ValueError("Tap calibration targets are left and right")
+            self.pending = {s: [] for s in TARGETS}
+            self.label = side
         elif op == "cancel":
             self.label = None
-            self.pending = {s: [] for s in SIDES}
+            self.pending = {s: [] for s in TARGETS}
         elif op == "save":
-            sides = [s for s in SIDES if len(self.pending[s]) >= MIN_TAPS]  # a skipped side is left out
-            if len(sides) < 2:
+            if any(len(self.pending[s]) < MIN_TAPS for s in TARGETS):
                 self.label = None
-                raise ValueError(f"At least two sides with {MIN_TAPS} taps each are needed")
-            taps = [t for s in sides for t in self.pending[s]]
-            check = Classifier(taps).leave_one_out()
-            self.store.put("tapDirection", {"version": 1, "taps": taps, "check": check, "savedAt": round(time.time())})
+                raise ValueError(f"Left and right each need at least {MIN_TAPS} taps")
+            taps = [t for s in TARGETS for t in self.pending[s]]
+            check = Classifier(taps, sides=TARGETS, min_votes=4).leave_one_out()
+            legacy = [t for t in self.saved.get("taps", []) if isinstance(t, dict) and t.get("side") == "back"]
+            self.store.put("tapDirection", {"version": 2, "taps": legacy + taps, "check": check, "savedAt": round(time.time())})
             self.label = None
-            self.pending = {s: [] for s in SIDES}
+            self.pending = {s: [] for s in TARGETS}
             self.load()
         elif op == "clear":
             self.store.put("tapDirection", {})
             self.label = None
+            self.pending = {s: [] for s in TARGETS}
             self.load()
         elif op != "status":
             raise ValueError("Unknown tap direction operation")

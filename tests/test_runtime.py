@@ -274,13 +274,38 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
 
 
 class DeviceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_simulated_cue_button_and_knock_share_high_resolution_clock(self):
+        events = []
+        async def emit(event):
+            events.append(event)
+        device = SimulatedDevice(emit)
+        with patch('vesper.device.time.monotonic_ns', return_value=0), \
+                patch('vesper.device.time.perf_counter_ns', side_effect=[10_000_000, 10_250_000, 10_500_000]):
+            await device.command(Kind.ARM, struct.pack('<IIBBBB', 77, 0, 1, 0, 255, 0))
+            for _ in range(100):
+                if any(e['type'] == 'cue' for e in events):
+                    break
+                await asyncio.sleep(.01)
+            await device.button(True)
+            await device.set_knock(1000)
+            await device.knock()
+        stamped = [e for e in events if e['type'] in ('cue', 'button', 'knock')]
+        self.assertEqual([e['type'] for e in stamped], ['cue', 'button', 'knock'])
+        self.assertEqual([e['at_us'] for e in stamped], [10000, 10250, 10500])
+        self.assertEqual({e['generation'] for e in stamped}, {1})
+        await device.close()
+
     async def test_reaction_same_clock_and_cancel(self):
         events = []
         async def emit(e):
             events.append(e)
         device = SimulatedDevice(emit)
         await device.command(Kind.ARM, struct.pack("<IIBBBB", 77, 25, 1, 0, 255, 0))
-        await asyncio.sleep(.04)
+        for _ in range(100):
+            if any(e["type"] == "cue" for e in events):
+                break
+            await asyncio.sleep(.01)
+        self.assertTrue(any(e["type"] == "cue" for e in events), "cue did not arrive within1s")
         await device.button(True)
         cue = next(e for e in events if e["type"] == "cue")
         button = next(e for e in events if e["type"] == "button")

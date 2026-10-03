@@ -272,7 +272,7 @@ async function button(page, ms = 80) {
     fullPage: true,
   });
   await page.setViewportSize({ width: 1366, height: 1100 });
-  await page.goto("file://" + path.join(root, "VESPER-9-Simulator.html"));
+  await page.goto(require('node:url').pathToFileURL(path.join(root, "VESPER-9-Simulator.html")).href);
   await page.waitForFunction(() => vesper.loaded);
   assert.equal(
     await page.locator("style").count(),
@@ -326,6 +326,5 @@ async function button(page, ms = 80) {
   })
   .finally(async () => {
     if (browser) await browser.close();
-    server.kill("SIGTERM");
-    fs.rmSync(data, { recursive: true, force: true });
+    await require('./browser-cleanup.cjs')(server, data);
   });

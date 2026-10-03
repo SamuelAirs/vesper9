@@ -6,6 +6,15 @@ import { Lantern, SCENES, COLOURS, SETS, LEVELS, SLEEP_MINUTES, sceneFrame, slee
 
 const valid = (v) => v.length === 9 && v.every((n) => Number.isInteger(n) && n >= 0 && n <= 255);
 const base = { scene: "steady", colour: 0, set: 0, level: 1, sunrise: 20, seed: 7 };
+
+test("all scenes cover a four-lamp node and owned board accent shuts down on dispose", () => {
+  for (const scene of SCENES) for (const time of [0, 1, 60, 600]) {
+    const frame = sceneFrame(scene.id, base, time, 4); assert.equal(frame.length, 12); assert.ok(frame.every((v) => Number.isInteger(v) && v >= 0 && v <= 255));
+  }
+  const { app, ctx, advance } = open({ lampCount: 4, boardLed: true }); choose(ctx, "LIGHT"); advance(.3);
+  assert.equal(ctx.calls.leds.at(-1).length, 12); assert.ok(ctx.calls.board.at(-1).some((v) => v > 0));
+  app.dispose(); assert.deepEqual(ctx.calls.leds.at(-1), Array(12).fill(0)); assert.deepEqual(ctx.calls.board.at(-1), [0,0,0]);
+});
 const peak = (v) => Math.max(...v);
 const labels = (ctx) => ctx.currentActions.map((a) => a.label);
 const choose = (ctx, text) => {

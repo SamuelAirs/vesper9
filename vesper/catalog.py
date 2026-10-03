@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 def load_catalog(path=None):
-    data = json.loads(Path(path or Path(__file__).with_name('catalog.json')).read_text())
+    data = json.loads(Path(path or Path(__file__).with_name('catalog.json')).read_text(encoding='utf-8'))
     ids, aliases = set(), set()
     for app in data['apps']:
         ident = app['id']
@@ -29,6 +29,8 @@ def load_catalog(path=None):
         record = app.get('record', {})
         if not isinstance(record, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in record.items()):
             raise ValueError(f'Invalid record labels: {ident}')
+        if 'scoreMetric' in app and (not isinstance(app['scoreMetric'], str) or not re.fullmatch(r'[a-z][a-z0-9-]{0,63}', app['scoreMetric'])):
+            raise ValueError(f'Invalid score metric: {ident}')
         for alias in app.get('voice', []):
             if not re.fullmatch(r'[a-z]+(?: [a-z]+)*', alias) or alias in aliases:
                 raise ValueError(f'Invalid or duplicate voice alias: {alias}')
@@ -99,6 +101,8 @@ def validate_setting(key, value):
     elif key == 'knock':
         # Sensitivity of knock-on-the-case input (vesper/device.py KNOCK_THRESHOLDS).
         valid = value in ('off', 'low', 'medium', 'high')
+    elif key == 'tapMode':
+        valid = isinstance(value, str) and value in ('generic', 'sides')
     elif key == 'gesturePace':
         valid = value in ('quick', 'standard', 'relaxed')
     elif key == 'renderQuality':

@@ -508,6 +508,20 @@ export class Ballista {
   // ---- input ---------------------------------------------------------------------------------
   // On the title, result and workshop screens a press is decided when it ends: a tap chooses the main
   // action, a press of HOLD_PICK or more opens or operates the workshop. In a run the press edge acts.
+  knock(event = {}) {
+    if (this.armed) return;
+    if (this.phase === "title" || this.phase === "over" && this.deadT > 0.7) { this.openShop(); return; }
+    if (this.phase === "shop") {
+      const d = this.c.settings?.().tapMode === "sides" && event.side === "right" ? 1 : -1;
+      if (this.view === "mods") this.mcur = (this.mcur + d + MODULES.length + 1) % (MODULES.length + 1);
+      else if (this.view === "menu") { this.cur = (this.cur + d + this.rows().length) % this.rows().length; this.need = ""; this.confirm = false; }
+      return;
+    }
+    // Immediate button edges own thrusters/skips; a delayed case tap only inspects the route.
+    if (this.phase === "aim" || this.phase === "fly") this.c.toast?.(this.phase === "aim"
+      ? "Hold the button to charge; release near the meter peak."
+      : this.pitAhead() ? "Sinkhole ahead: read the strip; save a button press for touchdown." : "Read the strip. Button presses fire thrusters or time a skip.");
+  }
   down() {
     this.guard.mark();
     this.btn = true;

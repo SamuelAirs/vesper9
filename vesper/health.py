@@ -62,7 +62,7 @@ class HostProbe:
         self.cpu = None             # last computed utilisation block
         self.throttle = (0.0, None)
         self.started = time.time()
-        self.page_size = safe(os.sysconf, "SC_PAGE_SIZE") or 4096
+        self.page_size = safe(lambda: os.sysconf("SC_PAGE_SIZE")) or 4096
         safe(self.measure_cpu)      # prime, so the first call covers "since the service started"
 
     def measure_cpu(self):
@@ -126,7 +126,7 @@ class HostProbe:
         """Host and service-process numbers. Blocking; keep it off the event loop."""
         with self.lock:
             cpu = safe(self.measure_cpu)
-            load = safe(lambda: [float(v) for v in read_text(self.proc + "/loadavg").split()[:3]]) or safe(os.getloadavg)
+            load = safe(lambda: [float(v) for v in read_text(self.proc + "/loadavg").split()[:3]]) or safe(lambda: os.getloadavg())
             return {
                 "model": safe(lambda: read_text("/proc/device-tree/model").strip("\0\n ") or None),
                 "cpuTempC": safe(self.temperature),

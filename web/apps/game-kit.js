@@ -46,7 +46,7 @@ export class GestureGuard {
   release() { this.line.release(this.t); }
   // Rewind after a menu gesture; returns whether it did.
   rewind() {
-    const first = this.line.match(this.t);
+    const first = this.line.match(this.t, this.c.cancelGesture?.() === true);
     if (!first) return false;
     for (const [key, value] of Object.entries(first.state)) this.game[key] = clone(value);
     // A run that ended and was replaced during the gesture is part of what was just undone.
@@ -108,7 +108,7 @@ export class LampBus {
   }
   // A timed event; fn(elapsed, total, ambient) returns nine values. It shows at once.
   flash(total, fn) { this.fx = { e: 0, total, fn }; this.put(fn(0, total, this.amb)); }
-  clear() { this.fx = null; this.sent = null; const live = this.live; this.live = true; this.put(null); this.live = live; }
+  clear() { this.fx = null; this.sent = null; const live = this.live; this.live = true; this.put(null); this.c.board?.([0, 0, 0]); this.live = live; }
   sleep() { this.clear(); this.live = false; }
   wake() { this.live = true; this.sent = null; }
 }

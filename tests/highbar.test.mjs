@@ -13,6 +13,7 @@ function mount(options = {}) {
   const board = [];
   ctx.board = (rgb) => board.push(rgb.slice());
   const app = new HighBar(ctx);
+  if (options.guided !== false) app.slot().guided = true;
   return { ctx, app, board };
 }
 function riding(options) {
@@ -148,7 +149,7 @@ test("a session ends on the clock, scores once and saves once", () => {
   const saves = ctx.calls.saved.length;
   assert.ok(saves >= 1);
   const saved = ctx.calls.saved.at(-1);
-  assert.equal(saved.schema, 1);
+  assert.equal(saved.schema, 2);
   assert.equal(saved.runs, 1);
   assert.equal(saved.slots[0].runs, 1);
   assert.ok(JSON.stringify(saved).length < 8192);
@@ -230,7 +231,7 @@ test("a saved game comes back in its slot and park", () => {
 test("migrateSave survives junk and keeps what is valid", () => {
   for (const junk of [null, undefined, 3, "x", [], { schema: 9 }, { slots: "no" }, { slots: [null, 5, { goals: "x" }] }, { slot: 99 }, { slot: -4, slots: [{ runs: -3, best: [NaN] }] }]) {
     const s = migrateSave(junk);
-    assert.equal(s.schema, 1);
+    assert.equal(s.schema, 2);
     assert.equal(s.slots.length, 3);
     assert.ok(s.slot >= 0 && s.slot < 3);
     assert.equal(typeof s.runs, "number");

@@ -267,6 +267,7 @@ export class Undertow {
     this.best0 = this.c.best?.() ?? 0;
     this.note = ""; this.noteT = 0;
     this.trail = [];
+    this.survey = null; this.surveyNext = 0;
     this.ping = 0; // sonar ring radius, in the Abyss
     this.pingT = 0;
     this.flashT = 0;
@@ -295,6 +296,25 @@ export class Undertow {
   // In play the button is the thruster. On the title, result and dock screens a press is decided
   // when it ends: a tap dives (or moves to the next line), a press of HOLD_PICK seconds or more
   // opens or operates the dock.
+  // A case tap surveys a contact, never changes the craft or logs a species for free.
+  knock(event = {}) {
+    if (this.armed) return;
+    if (this.phase === "title" || this.phase === "over" && this.deadT > LOCKOUT) { this.openDock(); return; }
+    if (this.phase === "dock") {
+      const d = this.c.settings?.().tapMode === "sides" && event.side === "right" ? 1 : -1;
+      if (this.view === "refit") this.rc = (this.rc + d + UPGRADES.length + 1) % (UPGRADES.length + 1);
+      else if (this.view === "menu") this.cur = (this.cur + d + DOCK.length) % DOCK.length;
+      return;
+    }
+    if (this.phase !== "play" || this.t < (this.surveyNext || 0)) return;
+    this.surveyNext = this.t + 2;
+    const contacts = this.life.filter(f => !f.done && f.x > CX - 40 && f.x < 960);
+    const target = contacts.sort((a, b) => Math.hypot(a.x - CX, a.y - this.y) - Math.hypot(b.x - CX, b.y - this.y))[0];
+    this.survey = target ? { id: target.id, until: this.t + 1.5 } : null;
+    this.announce(target ? "CONTACT: " + SPECIES_BY[target.id].name + " / FLY CLOSE TO LOG" : "NO UNLOGGED CONTACT / KEEP SCANNING", 1.5);
+    this.c.tone(1047, 0.08, "sine");
+  }
+  menuActions() { return this.phase === "play" ? [{ label: "UNDERTOW / SURVEY CONTACTS", run: () => { this.knock(); this.c.resume?.(); } }] : []; }
   down() {
     this.guard.mark();
     if (this.phase === "title" || this.phase === "dock" || (this.phase === "over" && this.deadT > LOCKOUT)) {
@@ -405,7 +425,7 @@ export class Undertow {
       // When Undertow is one of today's three, the daily dive's goal is its order in the logbook.
       this.guard.hold("daily", () => this.c.daily?.("Daily dive: " + goal));
     }
-    this.setHint("Hold to rise. Release to sink. Pass through the openings.");
+    this.setHint("Hold to rise. Release to sink. Case tap: survey wildlife.");
   }
   announce(message, seconds = 2.6) { this.note = message; this.noteT = seconds; }
 
@@ -556,6 +576,7 @@ export class Undertow {
     if (this.phase === "play") this.fly(dt);
     else if (this.phase === "over") this.deadT += dt;
     this.lamps.frame(dt, this.phase === "play" ? this.lampValues() : null);
+    this.c.board?.(this.phase === "play" && this.survey?.until > this.t ? dim(LAMP.cyan, 0.22) : LAMP.off);
     this.hud();
   }
   fly(dt) {
@@ -975,6 +996,10 @@ export class Undertow {
       g.globalAlpha = f.done ? 0.75 : 1;
       this.drawCreature(g, s, f.x, y, f.ph, f.fl);
       g.globalAlpha = 1;
+      if (this.survey?.id === f.id && this.survey.until > this.t && !f.done) {
+        circle(g, f.x, y, 42, C.cyan, false);
+        text(g, s.name, clamp(f.x, 105, 850), y - 49, 16, C.cyan, "center");
+      }
       if (!f.done && f.scan > 0) {
         const need = this.scanNeed();
         g.beginPath(); g.arc(f.x, y, 34, -Math.PI / 2, -Math.PI / 2 + TAU * clamp(f.scan / need, 0, 1));

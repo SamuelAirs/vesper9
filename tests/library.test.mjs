@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Library, migrateSave, SAVE_VERSION } from "../web/apps/library.js";
-import { layoutChapter, wrap, pageAt, SIZES } from "../web/apps/reader-kit.js";
+import { layoutChapter, wrap, pageAt, SIZES, readerLights } from "../web/apps/reader-kit.js";
 import { appContext, fakeCanvas, run } from "./helpers/app-context.mjs";
 
 const settle = async () => { for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r)); };
@@ -33,6 +33,32 @@ function mount(options = {}) {
 }
 const tap = (app) => { app.down({}); run(app, 0.08); app.up({ durationMs: 80 }); run(app, 0.1); };
 const hold = (app) => { app.down({}); run(app, 0.8); app.up({ durationMs: 800 }); run(app, 0.1); };
+
+test("bookmarks survive reopen and a generic case tap goes backwards without directional hardware", async () => {
+  const { app, ctx } = mount({ lampCount: 4 }); await openBook(app);
+  tap(app); const page = app.page; app.bookmark(); assert.equal(app.save.marks.length, 1);
+  tap(app); app.knock({ side: "right" }); assert.equal(app.page, page);
+  app.dispose(); const saved = JSON.parse(JSON.stringify(ctx.calls.saved.at(-1)));
+  const again = mount({ progress: saved }).app; await openBook(again); again.go("marks", 1); again.rows()[1].run(); await settle(); run(again, .1);
+  assert.equal(again.page, page); assert.equal(again.save.marks.length, 1);
+  again.bookmark(); assert.equal(again.save.marks.length, 0);
+  assert.ok(ctx.calls.leds.every((v) => v.length === 12)); assert.deepEqual(ctx.calls.leds.at(-1), Array(12).fill(0)); assert.deepEqual(ctx.calls.board.at(-1), [0,0,0]);
+});
+
+test("reader gradients span all four lamps and Unicode-heavy bookmarks respect the service save byte limit", () => {
+  assert.deepEqual(readerLights([30,0,0,0,30,0,0,0,30], 4), [30,0,0,10,20,0,0,20,10,0,0,30]);
+  const raw = { books: {}, marks: Array.from({ length: 12 }, (_, i) => ({ book: "b" + i, title: "😀".repeat(60), ch: 0, para: 0, char: 0 })) };
+  for (let i = 0; i < 30; i++) raw.books["😀".repeat(15) + i] = { ch: 1, para: 1, char: 1, f: .5, at: i };
+  const saved = migrateSave(raw); assert.ok(new TextEncoder().encode(JSON.stringify(saved)).length <= 7900);
+});
+
+test("the shelf keeps unavailable books' bookmarks accessible and explains how to resume them", async () => {
+  const mark = { book: "missingbook", title: "A Missing Voyage", ch: 1, para: 3, char: 20 };
+  const { app } = mount({ offline: true, progress: { marks: [mark] } }); await settle();
+  app.rows().find((r) => r.label === "BOOKMARKS").run(); assert.equal(app.rows()[0].label, "BACK TO THE SHELF");
+  app.rows()[1].run(); assert.equal(app.notice.title, "BOOK NOT ON THE SHELF"); assert.equal(app.save.marks.length, 1);
+  app.step(); app.rows()[0].run(); assert.equal(app.phase, "shelf");
+});
 async function openBook(app) {
   await settle();
   while (app.rows()[app.cursor].book?.id !== BOOK.id) tap(app);
@@ -138,8 +164,7 @@ test("a text size change keeps the reader on the same passage", async () => {
   for (let i = 0; i < 4; i++) tap(app);
   const first = app.layout.pages[app.page][0];
   hold(app);                    // menu
-  for (let i = 0; i < 4; i++) tap(app);
-  assert.match(app.rows()[app.cursor].label, /^TEXT/);
+  while (!app.rows()[app.cursor].label.startsWith("TEXT")) tap(app);
   hold(app);                    // MEDIUM -> LARGE, the menu stays open
   assert.equal(app.save.size, 2);
   assert.equal(app.phase, "menu");
@@ -196,11 +221,11 @@ test("without the book service the guide still reads, and nothing is NaN in any 
   const { app } = mount({ offline: true });
   await settle();
   assert.equal(app.data.service, "offline");
-  assert.deepEqual(app.rows().map((r) => r.label), ["The Reader's Guide", "LEAVE THE LIBRARY"]);
+  assert.deepEqual(app.rows().map((r) => r.label), ["The Reader's Guide", "RETRY THE SHELF", "LEAVE THE LIBRARY"]);
   hold(app);
   assert.equal(app.phase, "read");
   const g = fakeCanvas();
-  for (let i = 0; i < 40; i++) { tap(app); app.draw(g); }
+  for (let i = 0; i < 40 && app.phase === "read"; i++) { tap(app); app.draw(g); }
   assert.equal(app.phase, "notice", "the end of the guide");
   assert.equal(app.notice.title, "THE END");
   app.draw(g);

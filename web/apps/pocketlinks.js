@@ -251,6 +251,17 @@ export class PocketLinks {
     this.stage = "charge"; this.power = 0; this.previewAt = -1;
     this.c.hint("Aim locked. RELEASE when the predicted shot and power look right. Power rises and falls slowly.");
   }
+  // Club choice is deliberately outside the shot's timing window. Case input's acoustic delay
+  // cannot change the locked aim, power or a ball already in flight.
+  knock() {
+    if (this.held) return false;
+    if (this.guide >= 0) { this.guide = Math.max(0, this.guide - 1); return true; }
+    if (this.phase !== 'play' || this.stage !== 'aim') return false;
+    this.club = 1 - this.club; this.previewAt = -1;
+    this.c.tone(this.club ? 620 : 420, 0.05, 'triangle');
+    this.c.hint('CASE TAP: CHANGE CLUB · HOLD: LOCK AIM · RELEASE: POWER');
+    this.makePreview(); return true;
+  }
   up(e = {}) {
     this.guard.release();
     if (this.consume) { this.consume = false; this.held = false; return; }
@@ -351,6 +362,7 @@ export class PocketLinks {
     this.landing = landing; this.previewAt = this.t;
   }
   update(dt) {
+    if (this.c.hasBoardLed?.()) this.c.board?.(this.stage === 'charge' ? [12, 40, 25] : this.phase === 'play' && this.stage === 'aim' ? (this.club ? [15, 20, 45] : [30, 28, 8]) : [0, 0, 0]);
     this.guard.tick(dt);
     this.t += dt; this.messageT = Math.max(0, this.messageT - dt);
     if (this.phase === "play" && this.guide < 0) {

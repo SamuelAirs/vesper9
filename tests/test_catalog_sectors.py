@@ -109,7 +109,7 @@ class Layout(unittest.TestCase):
         self.assertEqual({i for i in IDS if i not in on_dashboard} - {'pulsar', 'helix'},
                          {'settings', 'diagnostics', 'telemetry', 'ephemeris', 'timers', 'descent', 'environment', 'tideline'})
         # Tideline is retired from the dashboard (Sam, 2026-10-03): off the dashboard, without a voice name.
-        self.assertEqual({i for i in IDS if i not in on_dashboard}, {'settings', 'diagnostics', 'telemetry', 'ephemeris', 'timers', 'tideline'})
+        self.assertEqual({i for i in IDS if i not in on_dashboard}, {'settings', 'diagnostics', 'telemetry', 'ephemeris', 'timers', 'descent', 'environment', 'tideline'})
 
     def test_tideline_is_off_the_dashboard_but_still_registered(self):
         on_dashboard = {i for s in CATALOG['sectors'] for i in s['apps']}

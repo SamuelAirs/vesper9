@@ -66,10 +66,9 @@
       ]
     },
     {
-      "name": "SENSORS",
-      "tagline": "What the node hears and feels.",
+      "name": "LISTEN",
+      "tagline": "What the node hears.",
       "apps": [
-        "environment",
         "resonance",
         "transcribe"
       ]
@@ -455,9 +454,7 @@
       "category": "INSTRUMENT / ENVIRONMENT",
       "glyph": 4,
       "factory": "Environment",
-      "voice": [
-        "environment"
-      ],
+      "voice": [],
       "capabilities": [
         "sensor"
       ]

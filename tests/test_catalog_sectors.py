@@ -51,8 +51,8 @@ class Layout(unittest.TestCase):
         self.assertNotIn('pulsar', listed)
         self.assertNotIn('helix', listed)
         # New instruments (The Stacks, "library") join TOOLS; these seven are always there.
-        self.assertLessEqual({'morse', 'cadence', 'lantern', 'oracle', 'environment', 'resonance', 'transcribe'},
-                             set(sectors['TOOLS'] + sectors['SENSORS']))
+        self.assertLessEqual({'morse', 'cadence', 'lantern', 'oracle', 'resonance', 'transcribe'},
+                             set(sectors['TOOLS'] + sectors['LISTEN']))
         self.assertTrue(all(s.get('tagline') for s in CATALOG['sectors']), 'every page says what it is for')
 
     def test_descent_is_on_hold_off_the_dashboard_but_still_registered(self):
@@ -61,6 +61,16 @@ class Layout(unittest.TestCase):
         self.assertNotIn('descent', on_dashboard)
         self.assertEqual(descent['voice'], [], 'its voice name is gone')
         self.assertEqual(descent['factory'], 'Descent', 'its code and saves stay, launchable by id')
+
+    def test_atmosphere_is_retired_with_the_sensor_node(self):
+        # The new node has no temperature/humidity sensor (Sam, 2026-10-03). Atmosphere stays
+        # registered, so its stored history is untouched, but it is off the dashboard and voice.
+        on_dashboard = {i for s in CATALOG['sectors'] for i in s['apps']}
+        atmosphere = next(app for app in CATALOG['apps'] if app['id'] == 'environment')
+        self.assertNotIn('environment', on_dashboard)
+        self.assertEqual(atmosphere['voice'], [])
+        sensor_only = [a['id'] for a in CATALOG['apps'] if a['capabilities'] == ['sensor'] and a['id'] in on_dashboard]
+        self.assertEqual(sensor_only, [], 'no dashboard app needs only the sensor')
 
     def test_slots_held_for_cartridges_on_their_way_in_are_only_the_known_ones(self):
         # The source catalog may name a cartridge whose own pull request has not landed: Meridian and
@@ -92,9 +102,10 @@ class Layout(unittest.TestCase):
         self.assertEqual(ephemeris['factory'], 'Ephemeris', 'but it is still registered and launchable by id')
         # Everything that is not on the dashboard is a system tool or retired (Ephemeris, Chronometer).
         # Pulsar and Helix are retired games, removed from the catalog by their own pull requests.
-        # Descent is on hold (Sam, 2026-10-02): off the dashboard, without a voice name.
+        # Descent is on hold (Sam, 2026-10-02) and Atmosphere retired with the temperature/humidity
+        # sensor (2026-10-03): off the dashboard, without a voice name.
         self.assertEqual({i for i in IDS if i not in on_dashboard} - {'pulsar', 'helix'},
-                         {'settings', 'diagnostics', 'telemetry', 'ephemeris', 'timers', 'descent'})
+                         {'settings', 'diagnostics', 'telemetry', 'ephemeris', 'timers', 'descent', 'environment'})
 
     def test_the_catalog_no_longer_carries_a_menu_policy(self):
         self.assertTrue(all('escape' not in app for app in CATALOG['apps']))

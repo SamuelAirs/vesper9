@@ -188,6 +188,10 @@ a {
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
+/* The temperature/humidity readout: hidden since the node lost its sensor (2026-10-03). */
+.environment-mini[hidden] {
+  display: none !important;
+}
 .mic-pill {
   margin-left: auto;
   border: 1px solid var(--line);

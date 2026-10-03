@@ -246,6 +246,8 @@ const DEPOT = ["RIDE OUT", "SLED", "START", "ZEN", "DAILY", "WORKSHOP", "ORDERS"
 const kmh = (v) => Math.round((v / PX_M) * 3.6);
 
 export class Moonrunner {
+  // Up to four saves (engine/slots.js): ctx.progress() and ctx.saveProgress() are the active slot's.
+  static saveSlots = true;
   constructor(ctx) {
     this.c = ctx;
     this.guard = new AppGuard(this, ctx); // takes back a menu gesture that reached the game (docs/ENGINE.md)
@@ -1002,6 +1004,9 @@ export class Moonrunner {
     this.trailN = Math.min(TRAIL, this.trailN + 1);
   }
 
+  // A save slot's row in the system menu: level and the furthest zone reached, e.g. "LEVEL 5 · THE RILLES".
+  slotSummary(value) { const sv = migrateSave(value); return "LEVEL " + sv.lv + " · " + ZONES[sv.far].name; }
+
   // ---- lamps -----------------------------------------------------------------------------
   // Three lamps (the first node), left to right:
   //   speed, in the zone's colour, filling up as the sled goes faster (cyan while diving);
@@ -1015,6 +1020,7 @@ export class Moonrunner {
   //   speed | landing | chain (green, a step brighter per perfect slide) and fever (white,
   //   pulsing faster at each level, dimming as it runs out) | daylight.
   lampCount() { return this.c.lampCount?.() >= 4 ? 4 : 3; }
+
   lampValues() {
     const n = this.lampCount(), four = n === 4, zc = ZONES[this.zone].col;
     if (this.phase === "title") return lightsOff(n);

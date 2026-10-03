@@ -69,6 +69,7 @@ The long integrated run was started while final review continued. The final held
 - Fixes: a held sled, or one on a downslope steeper than `GLUE` (0.12 rad), stays on the ground; a dive up to `STEEP_OK` (0.12 rad) steeper than the window is still perfect. A notch harder: a thud keeps only `THUD_KEEP` (55 percent) of the speed, the run starts with 35 s (was 40) and zone II gives 22 s (was 25).
 - Four lamps (helpers from PR #16, merged in): on a four-lamp node the third lamp is the chain and fever and the fourth the daylight, so the landing lamp is never hidden by the fever chase. Three-lamp nodes look as before.
 - Bots, 8 seeds, score (metres): precise about 48 000 (7 700); 150 ms late 34 400 (7 500); 250 ms late 6 300 (2 800, reaches V 2/8, VI 0/8); by eye 13 300 (5 300, VI 3/8); never pressing 370 in 36 s.
+- Save slots (PR #16's API): `static saveSlots = true`, and `slotSummary()` labels a slot "LEVEL 5 · THE RILLES".
 - Not verified on the device.
 
 ## 2026-10-02 — Moonrunner: fixes from the platform review (desktop/cloud session)

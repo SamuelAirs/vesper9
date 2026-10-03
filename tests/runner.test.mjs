@@ -744,3 +744,14 @@ test("four lamps: speed, landing, chain and fever, daylight; fever no longer hid
   const w = lamp(v, 2);
   assert.ok(w[0] > 0 && w[0] >= w[1] && w[1] >= w[2] && w[2] > 0, "fever is not the white lamp on the third lamp: " + w);
 });
+test("save slots: Moonrunner opts in, and a slot's row shows its level and furthest zone", () => {
+  assert.equal(Moonrunner.saveSlots, true);
+  const g = new Moonrunner(appContext({ seed: 64 }));
+  assert.equal(g.slotSummary({ schema: 3, lv: 5, far: 2 }), "LEVEL 5 · THE RILLES");
+  assert.equal(g.slotSummary(undefined), "LEVEL 1 · THE MARE", "an empty or old save still has a summary");
+  assert.ok(g.slotSummary({ schema: 3, lv: 12, far: 5 }).length <= 24);
+  // A fresh slot is a fresh save: level 1, nothing unlocked, no shards.
+  const fresh = new Moonrunner(appContext({ seed: 64, progress: {} }));
+  assert.equal(fresh.sv.lv, 1);
+  assert.equal(fresh.sv.sh, 0);
+});

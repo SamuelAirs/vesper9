@@ -1,7 +1,7 @@
 // RELAY: the rhythms, the call and answer timeline, the judging, the stages, the songbook, the save, the lamps.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Relay, RHYTHMS, MODES, migrateSave, stageSpec, dailyGoal, voice, byId, latency, WIN, LEARNED, MASTERED } from "../web/apps/relay.js";
+import { Relay, RHYTHMS, MODES, migrateSave, stageSpec, dailyGoal, voice, byId, latency, stripX, WIN, LEARNED, MASTERED } from "../web/apps/relay.js";
 import { appContext, fakeCanvas, run } from "./helpers/app-context.mjs";
 import { Random } from "../web/engine/math.js";
 
@@ -104,6 +104,47 @@ test("an answer is graded note by note; a wide tap is an extra, a note let by is
   assert.ok(s.notes.slice(2).every((n) => n.miss), "the notes let by are missed");
   assert.equal(app.shields, 3, "the first answer is the warm-up");
   assert.equal(app.segs.find((x) => x.kind === "call" && x.t0 > s.t0).r.id, s.r.id, "a lost answer is called again");
+});
+
+// A canvas that keeps the centre of every filled circle and the x of every vertical line.
+function recorder() {
+  const out = { dots: [], ticks: [] };
+  let at = null;
+  const g = new Proxy({}, {
+    get(o, k) {
+      if (k in o) return o[k];
+      if (k === "measureText") return () => ({ width: 100 });
+      if (k === "arc") return (x, y) => { at = [x, y]; };
+      if (k === "fill") return () => { if (at) out.dots.push(at); };
+      if (k === "moveTo") return (x, y) => { at = null; out.from = [x, y]; };
+      if (k === "lineTo") return (x, y) => { if (out.from && Math.abs(out.from[0] - x) < 1e-9 && y !== out.from[1]) out.ticks.push(x); };
+      if (k === "beginPath") return () => { at = null; };
+      if (typeof k === "string" && /^create.*(Gradient|Pattern)$/.test(k)) return () => ({ addColorStop() {} });
+      return () => {};
+    },
+    set(o, k, v) { o[k] = v; return true; },
+  });
+  return { g, out };
+}
+
+test("the strip: a tap on time is drawn on its note and on the playhead, not half a step ahead", () => {
+  for (const latencyMs of [0, 80]) {
+    const { app } = mount({ settings: { latencyMs } });
+    app.start("relay");
+    const s = toAnswer(app), n = s.notes[1];
+    // The tap that is exactly on the note, as the game judges it (arrival less the calibration).
+    app.rt = n.t + latencyMs / 1000;
+    s.taps.push({ t: n.t, g: 0 });
+    const { g, out } = recorder();
+    app.draw(g);
+    const x = stripX(s.r.steps, n.s);
+    assert.ok(out.dots.some(([dx, dy]) => Math.abs(dx - x) < 1e-6 && dy === 330), "the tap sits on the note's step (" + latencyMs + " ms)");
+    assert.ok(out.ticks.some((tx) => Math.abs(tx - x) < 1e-6), "the note's tick and the playhead are at the same x");
+    assert.equal(out.ticks.filter((tx) => Math.abs(tx - x) < 1e-6).length, 2, "tick and playhead both at the note (" + latencyMs + " ms)");
+  }
+  assert.equal(stripX(8, 0), 150);
+  assert.equal(stripX(8, 8), 810);
+  assert.equal(stripX(8, 20), 810, "a late tap stays on the strip");
 });
 
 test("latency: with the console's calibration a late-arriving tap is judged where it was meant, and a miss waits for it", () => {
@@ -228,6 +269,30 @@ test("the lamps carry the call: nine whole numbers, dark after cancel() and disp
   assert.deepEqual(sent.at(-1), Array(9).fill(0));
   app.dispose();
   assert.deepEqual(sent.at(-1), Array(9).fill(0));
+});
+
+test("four lamps: the rhythm stays on lamps one to three, the fourth keeps the beat through count-in, call and answer", () => {
+  const { ctx, app } = mount();
+  ctx.lampCount = () => 4;
+  app.start("relay");
+  const lit = (v, i) => v[i * 3] + v[i * 3 + 1] + v[i * 3 + 2] > 0;
+  const seen = { count: 0, call: 0, answer: 0 };
+  let callNotes = 0;
+  for (let i = 0; i < 60 * 14 && app.phase === "play"; i++) {
+    app.update(1 / 60);
+    const s = app.seg(), v = app.lampOut;
+    assert.equal(v.length, 12);
+    if (s && lit(v, 3)) seen[s.kind]++;
+    if (s?.kind === "call" && [0, 1, 2].some((k) => lit(v, k))) callNotes++;
+  }
+  assert.ok(seen.count > 0 && seen.call > 0 && seen.answer > 0, "the beat lamp lights in every part: " + JSON.stringify(seen));
+  assert.ok(callNotes > 0, "the call's notes are on lamps one to three");
+  for (const v of ctx.calls.leds) assert.ok(v.length === 12 || v.every((x) => x === 0), "four-lamp frames are twelve values");
+  // Three lamps: nine values, as before.
+  const three = mount();
+  three.app.start("relay");
+  run(three.app, 4);
+  assert.ok(three.ctx.calls.leds.every((v) => v.length === 9));
 });
 
 test("the songbook: a hold opens it, taps move, locked modes refuse, the clave opens accelerando, learned rhythms open kits", () => {

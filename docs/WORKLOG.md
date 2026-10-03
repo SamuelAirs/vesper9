@@ -94,3 +94,10 @@ The long integrated run was started while final review continued. The final held
 - The menu gesture's final hold is 600 ms longer inside a game (1.6 s at the standard pace); menus keep 1 s. `SETTLE` is 2.8 s.
 - TIMING OFFSET in Calibration (`latencyMs`, tap-along), two knocks on the case go back outside a game (needs PR #4's firmware and service), and the console logbook (today's three, streak, feats; progress id `console`, version 1).
 - Report and per-game cut list: `fleet-notes/reports/platform-polish.md`.
+
+## 2026-10-03 — Relay after Sam's playtest: tap marks on the line, four lamps (desktop, not verified on the device)
+
+- Fix: the notation drew notes and taps half a step to the right of their tick while the playhead ran on the ticks, so a tap on time showed well ahead of the line. Notes now sit on their tick (`stripX`), taps where they were judged, and the answer's playhead runs the TIMING OFFSET behind, so a fresh tap meets it. Test draws the strip and checks note, tap and playhead share an x, with and without calibration.
+- Latency from PR #16's `engine/latency.js`.
+- Four lamps (`ctx.lampCount()` = 4): lamp 4 is the beat (count-in, a quiet pulse under the call, the stage's click in the answer, green on a clean answer, red on a slip); lamps 1–3 carry only the rhythm. Title and menu chase a bar of four. Three-lamp nodes unchanged (nine values).
+- Merged PR #16; Relay sits in the MIND sector.

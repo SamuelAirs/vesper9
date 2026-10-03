@@ -17,12 +17,13 @@ import { C, space, text, line, circle, diamond, banner } from "../engine/draw.js
 import { clamp, lerp, mixSeed, Random } from "../engine/math.js";
 import { LAMP, lamps, dim } from "../engine/lightshow.js";
 import { AppGuard } from "../engine/input.js";
+import { latencySec } from "../engine/latency.js";
 import { LampBus } from "./game-kit.js";
 
 const HOLD_PICK = 0.5; // a press this long on a menu screen chooses instead of tapping
 // The console-wide latency calibration (settings.latencyMs, positive when taps register late) is
 // taken off every tap, so the judging matches what the player heard; clamped, 0 when absent.
-export const latency = (ctx) => { const v = Number(ctx.settings?.()?.latencyMs); return Number.isFinite(v) ? clamp(v, -150, 300) / 1000 : 0; };
+export const latency = (ctx) => latencySec(ctx.settings?.());
 // Timing windows in seconds either side of a note: PERFECT, GOOD, CLOSE. The tones carry the exact
 // time; the lamps update about 17 times a second, so they show the rhythm rather than the instant.
 export const WIN = [0.05, 0.095, 0.14];
@@ -168,6 +169,9 @@ export function migrateSave(raw) {
 }
 // The notation strip on screen.
 const SX0 = 150, SX1 = 810, SY = 330;
+// Where a step (or a fraction of one) sits on the notation strip: step 0 on the bar line, every
+// note on the tick of the moment it sounds, so a tap on time is drawn on top of its note.
+export const stripX = (steps, step) => SX0 + clamp(step, 0, steps) * (SX1 - SX0) / steps;
 
 export class Relay {
   constructor(ctx) {
@@ -185,7 +189,7 @@ export class Relay {
     this.sq = []; // queued notes: [due, hz, seconds, wave]
     this.hudKey = "";
     this.hintText = "";
-    this.lampOut = Array(9).fill(0);
+    this.lampOut = Array(this.four() ? 12 : 9).fill(0);
     this.reset();
     this.phase = "title";
     this.setHint("The lamps play a rhythm, then go dark: tap it back. Hold for the songbook.");
@@ -214,6 +218,7 @@ export class Relay {
     this.glow = [0, 0, 0]; // lamp flashes, decaying
     this.glowCol = [LAMP.amber, LAMP.amber, LAMP.amber];
     this.beatGlow = 0;
+    this.beatCol = LAMP.cyan;
     this.lastBeat = "";
     this.offs = []; // the last taps' timing errors in ms (negative is early)
     this.fb = null; // the last judgement: { word, pts, col, t, ms }
@@ -469,6 +474,7 @@ export class Relay {
     this.c.tone(110, 0.12, "sawtooth");
     this.glow = [0.5, 0.5, 0.5];
     this.glowCol = [LAMP.red, LAMP.red, LAMP.red];
+    if (this.four()) { this.beatGlow = 0.5; this.beatCol = LAMP.red; }
   }
 
   // ---- frame ------------------------------------------------------------------------------------
@@ -525,13 +531,16 @@ export class Relay {
     const key = s.t0 + ":" + b;
     if (b < 0 || key === this.lastBeat) return;
     this.lastBeat = key;
-    if (s.kind === "count") { this.c.tone(b === 0 ? 1568 : 1175, 0.03, "sine"); this.beatGlow = 0.6; return; }
+    if (s.kind === "count") { this.c.tone(b === 0 ? 1568 : 1175, 0.03, "sine"); this.beatGlow = 0.6; this.beatCol = b === 0 ? LAMP.white : LAMP.cyan; return; }
+    // Four lamps: the fourth keeps the beat under the call too, silently, so the rhythm reads against it.
+    if (s.kind === "call") { if (this.four()) { this.beatGlow = b % s.r.bar === 0 ? 0.4 : 0.22; this.beatCol = LAMP.amber; } return; }
     if (s.kind !== "answer") return;
     const click = this.spec().click, step = b;
     const bar = step % s.r.bar === 0;
     if (click === "beat" || (click === "bar" && bar) || (click === "first" && step === 0)) {
       this.c.tone(bar ? 1568 : 1175, 0.025, "sine");
       this.beatGlow = bar ? 0.5 : 0.3;
+      this.beatCol = LAMP.cyan;
     }
   }
   // An answer is over: count its slips. More than a quarter of its notes (but at least one in a pattern
@@ -554,6 +563,7 @@ export class Relay {
       this.fb = { word: s.carry ? "CARRIED" : "CLEAN", pts: bonus, col: C.cyan, t: 1.1 };
       [784, 1047].forEach((hz, i) => this.queue(0.05 + 0.07 * i, hz, 0.08, "sine"));
       this.cleanRow++;
+      if (this.four()) { this.beatGlow = 0.9; this.beatCol = LAMP.green; }
       if (this.cleanRow % REGEN === 0 && this.shields < SHIELDS && this.mode !== "studio") {
         this.shields++;
         this.announce("SHIELD RESTORED", 1.6);
@@ -677,15 +687,29 @@ export class Relay {
   }
 
   // ---- lamps --------------------------------------------------------------------------------------
+  // Three lamps or four, as the node has (the first node had three). The fourth, when there is one,
+  // keeps the beat: the count-in, a quiet pulse under the call, and in the answer the stage's click,
+  // so lamps one to three carry only the rhythm.
+  four() { return this.c.lampCount?.() === 4; }
   // The call lights each note on its lamp; the answer is dark but for the downbeat's faint glow on the
-  // left lamp and the player's own taps, lit by grade. Title and menus breathe a slow waltz.
+  // left lamp (on three lamps) and the player's own taps, lit by grade. Title and menus breathe a slow
+  // waltz on three lamps, a bar of four on four.
   lampValues() {
+    const four = this.four();
+    if (four && (this.phase === "title" || this.phase === "menu")) {
+      const b = Math.floor(this.t * 2) % 4, f = 1 - ((this.t * 2) % 1);
+      return lamps(...[0, 1, 2, 3].map((i) => (i === b ? dim(LAMP.amber, (i ? 0.08 : 0.14) * f) : null)));
+    }
     if (this.phase === "title" || this.phase === "menu") {
       const b = Math.floor(this.t * 1.5) % 3, f = 1 - ((this.t * 1.5) % 1);
       return lamps(b === 0 ? dim(LAMP.amber, 0.14 * f) : null, b === 1 ? dim(LAMP.amber, 0.08 * f) : null, b === 2 ? dim(LAMP.amber, 0.08 * f) : null);
     }
-    if (this.phase === "over") return this.deadT < 1 ? lamps(dim(LAMP.red, 0.3 * (1 - this.deadT)), null, dim(LAMP.red, 0.3 * (1 - this.deadT))) : lamps(null, null, null);
+    if (this.phase === "over") {
+      const red = this.deadT < 1 ? dim(LAMP.red, 0.3 * (1 - this.deadT)) : null;
+      return four ? lamps(red, null, null, red) : lamps(red, null, red);
+    }
     const out = [0, 1, 2].map((i) => (this.glow[i] > 0 ? dim(this.glowCol[i], Math.min(1, this.glow[i])) : null));
+    if (four) return lamps(out[0], out[1], out[2], this.beatGlow > 0 ? dim(this.beatCol, Math.min(1, this.beatGlow)) : null);
     if (this.beatGlow > 0 && !out[0]) out[0] = dim(LAMP.cyan, 0.25 * this.beatGlow);
     return lamps(out[0], out[1], out[2]);
   }
@@ -728,11 +752,13 @@ export class Relay {
     else { word = s.carry ? "AGAIN, FROM MEMORY" : s.practice ? "YOUR TURN / WARM-UP" : "YOUR TURN"; col = C.cyan; }
     text(g, word, 480, 256, 28, col, "center");
     this.drawStrip(g, s);
-    // Three lamps as the console shows them.
-    for (let i = 0; i < 3; i++) {
-      const v = this.lampOut, rgb = "rgb(" + v[i * 3] + "," + v[i * 3 + 1] + "," + v[i * 3 + 2] + ")";
-      if (v[i * 3] + v[i * 3 + 1] + v[i * 3 + 2] > 12) circle(g, 420 + i * 60, 424, 16, rgb, true);
-      circle(g, 420 + i * 60, 424, 16, C.line, false, 2);
+    // The lamps as the console shows them; on four, the fourth (the beat) set apart and named.
+    const v = this.lampOut, n = v.length / 3;
+    for (let i = 0; i < n; i++) {
+      const x = 480 + (i - (n - 1) / 2) * 60 + (n === 4 && i === 3 ? 16 : 0), rgb = "rgb(" + v[i * 3] + "," + v[i * 3 + 1] + "," + v[i * 3 + 2] + ")";
+      if (v[i * 3] + v[i * 3 + 1] + v[i * 3 + 2] > 12) circle(g, x, 424, 16, rgb, true);
+      circle(g, x, 424, 16, C.line, false, 2);
+      if (n === 4 && i === 3) text(g, "BEAT", x + 26, 424, 14, C.muted);
     }
     if (this.fb) {
       g.globalAlpha = clamp(this.fb.t / 0.3, 0, 1);
@@ -744,11 +770,13 @@ export class Relay {
   }
   // The notation: one cell per step, beats and bars marked, the notes as dots. During a call the dots
   // light as they sound; during an answer they show only while the rhythm is new, and the taps appear
-  // where they fell, coloured by grade, with missed notes ringed red.
+  // where they fell, coloured by grade, with missed notes ringed red. A note sits on the tick of the
+  // moment it sounds, so a tap on time lands on the playhead and on its note. During an answer the
+  // playhead runs the console's latency behind, as the taps are judged, so a fresh tap meets it.
   drawStrip(g, s) {
     const r = s.r, w = (SX1 - SX0) / r.steps, beats = beatsOf(r);
     for (let i = 0; i <= r.steps; i++) {
-      const x = SX0 + i * w, bar = i % r.bar === 0, beat = beats.includes(i % r.steps) || i === r.steps;
+      const x = stripX(r.steps, i), bar = i % r.bar === 0, beat = beats.includes(i % r.steps) || i === r.steps;
       line(g, x, SY - (bar ? 26 : beat ? 16 : 6), x, SY + (bar ? 26 : beat ? 16 : 6), bar ? C.muted : C.line, bar ? 2 : 1);
     }
     line(g, SX0, SY, SX1, SY, C.line, 1);
@@ -756,20 +784,19 @@ export class Relay {
     const rad = Math.min(11, w * 0.42);
     const showDots = s.kind === "call" || (s.kind === "answer" && s.show) || s.kind === "count";
     if (showDots) for (const n of s.notes.length ? s.notes : r.on.map((st) => ({ s: st, v: voice(r, st), done: false }))) {
-      const x = SX0 + (n.s + 0.5) * w, y = SY - 0 + (n.v - 1) * -10;
+      const x = stripX(r.steps, n.s), y = SY - 0 + (n.v - 1) * -10;
       const lit = s.kind === "call" && n.done, pop = lit ? Math.max(0, 1 - (el - n.s) / 2) : 0;
       if (s.kind === "answer") circle(g, x, y, rad, C.line, false, 2);
       else circle(g, x, y, rad * (1 + 0.4 * pop), lit ? C.amber : s.kind === "count" ? C.line : C.muted, lit);
     }
     if (s.kind === "answer") {
-      for (const n of s.notes) if (n.miss) circle(g, SX0 + (n.s + 0.5) * w, SY + (n.v - 1) * -10, rad + 3, C.red, false, 2);
+      for (const n of s.notes) if (n.miss) circle(g, stripX(r.steps, n.s), SY + (n.v - 1) * -10, rad + 3, C.red, false, 2);
       for (const tp of s.taps) {
-        const x = SX0 + ((tp.t - s.t0) / s.sd + 0.5) * w;
-        circle(g, clamp(x, SX0, SX1), SY, rad * 0.8, [C.cyan, C.ink, C.amber, C.red][tp.g], true);
+        circle(g, stripX(r.steps, (tp.t - s.t0) / s.sd), SY, rad * 0.8, [C.cyan, C.ink, C.amber, C.red][tp.g], true);
       }
     }
     // The playhead.
-    if (live) { const x = SX0 + clamp(el, 0, r.steps) * w; line(g, x, SY - 34, x, SY + 34, s.kind === "answer" ? C.cyan : C.amber, 2); }
+    if (live) { const x = stripX(r.steps, s.kind === "answer" ? el - latency(this.c) / s.sd : el); line(g, x, SY - 34, x, SY + 34, s.kind === "answer" ? C.cyan : C.amber, 2); }
   }
   // The last taps' timing on a strip: left of the centre line is early, right is late; newest brightest.
   drawTiming(g, y) {

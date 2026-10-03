@@ -1116,7 +1116,8 @@ export class Vesper {
     $("toast").textContent = message;
     $("toast").hidden = false;
     clearTimeout(this.toastTimer);
-    this.toastTimer = setTimeout(() => ($("toast").hidden = true), 6500);
+    // Shorter over a running game, where it sits on the play area.
+    this.toastTimer = setTimeout(() => ($("toast").hidden = true), document.body.classList.contains("playing") ? 3500 : 6500);
   }
   fail(error) {
     if (this.faulted) return;

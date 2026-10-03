@@ -315,3 +315,12 @@ The long integrated run was started while final review continued. The final held
 - Lamps: in the air a spot shows the angle to the ground (centred and green is a safe landing); on a bar the swing; on the ground the roll window, else speed. Four lamps on the new node, three on the old. The board LED flashes amber on a five-trick bank or a goal and is otherwise dark.
 - Tests: tests/highbar.test.mjs (17), plus the menu-gesture suite. Headless Chromium at 4× CPU throttling: draw median 0.6 ms, p95 1.4 ms, no long frames. Not played on the console.
 - 2026-10-03: Tideline ditched (Sam): off the dashboard and voice, code and saves kept, matching PR #8's catalog change.
+
+## 2026-10-03 — Encyclopedia, an offline Wikipedia (desktop, not verified on the device)
+
+- New app `encyclopedia` (ENCYCLOPEDIA, `web/apps/encyclopedia.js`) beside The Stacks, and `vesper/encyclopedia.py` with `GET /api/encyclopedia`, `/api/encyclopedia/article` and `/api/encyclopedia/random` (docs/PROTOCOL.md). Home: continue, article of the day, on this day, random, front page, recently read. Tap turns the page; at the end of an article a tap opens "where next?", the article's links; hold opens the menu (links on this page first, sections, back to the article you came from, auto-turn, text size). Lamps: the amber article bar, a cyan light that moves right as the trail of links gets deeper, cyan filling during a hold.
+- The page layout and the reader's shared screens moved to `web/apps/reader-kit.js`, used by both apps.
+- Content: Simple English Wikipedia without pictures, downloaded on the Pi by `scripts/get-encyclopedia.py` (resumable, SHA-256 checked) into `<data>/encyclopedia`; read with the optional `libzim` extra. Nothing is bundled. kiwix.org is blocked from this desktop, so the download script has not been run; the service and app are tested against small ZIM files written with libzim (tests/test_encyclopedia.py, tests/encyclopedia.test.mjs).
+- Saved (versioned `v: 1`, `migrateWiki`): text size, auto-turn, the last place and the 20 most recent articles with how far each was read.
+- Voice name "encyclopedia" still needs the Vosk vocabulary check on the Pi.
+- Dashboard placement belongs to PR #11: The Stacks and the Encyclopedia sit in its TOOLS sector. This branch adds only the two catalog entries, no sector lines, so on this branch alone they open by voice or `vesper.launch` but have no dashboard card.

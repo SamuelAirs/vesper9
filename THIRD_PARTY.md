@@ -25,3 +25,7 @@ The optional browser test uses Playwright and an installed Chromium. Neither is 
 ## Bundled books
 
 `books/` holds text-only EPUBs of fifteen Standard Ebooks editions (https://standardebooks.org): public-domain texts, with the Standard Ebooks production dedicated to the public domain under CC0 1.0. See `books/README.md`.
+
+## Encyclopedia
+
+The Encyclopedia reads Kiwix ZIM files with `libzim` (python-libzim, GPL-3.0; https://github.com/openzim/python-libzim), an optional extra installed on the console, not bundled. No Wikipedia content ships with VESPER-9: `scripts/get-encyclopedia.py` downloads it on the console from https://download.kiwix.org. Wikipedia text is available under the Creative Commons Attribution-ShareAlike licence (https://en.wikipedia.org/wiki/Wikipedia:Copyrights); the app names the source on its home screen.

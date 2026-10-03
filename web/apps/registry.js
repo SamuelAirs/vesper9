@@ -29,6 +29,7 @@ import { Oracle } from "./oracle.js";
 import { Telemetry } from "./telemetry.js";
 import { Meridian } from "./meridian.js";
 import { Library } from "./library.js";
+import { Encyclopedia } from "./encyclopedia.js";
 import { Crawlspace } from "./crawlspace.js";
 import { Supper } from "./supper.js";
 import { PocketLinks } from "./pocketlinks.js";
@@ -38,7 +39,7 @@ const FACTORIES = { OrbitLock, Moonrunner, Undertow, EchoVault, LightTrial, Rela
   MorseSchool, Timers, Transcription, Environment, Diagnostics, Settings,
   Pulsar, Perihelion, Descent, Ricochet, Ballista, HighBar,
   Tideline, Outpost,
-  Lantern, Cadence, Ephemeris, Resonance, Oracle, Telemetry, Meridian, Library };
+  Lantern, Cadence, Ephemeris, Resonance, Oracle, Telemetry, Meridian, Library, Encyclopedia };
 // The After Hours pack (four games built from docs/GAME-KIT.md).
 Object.assign(FACTORIES, { Crawlspace, Supper, PocketLinks, NightGrid });
 export const APPS = CARTRIDGES.map(meta => {

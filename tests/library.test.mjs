@@ -1,7 +1,8 @@
 // The Stacks (web/apps/library.js): shelf, reading, the reader menu, saved places and the lamps.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Library, migrateSave, layoutChapter, wrap, pageAt, SIZES, SAVE_VERSION } from "../web/apps/library.js";
+import { Library, migrateSave, SAVE_VERSION } from "../web/apps/library.js";
+import { layoutChapter, wrap, pageAt, SIZES } from "../web/apps/reader-kit.js";
 import { appContext, fakeCanvas, run } from "./helpers/app-context.mjs";
 
 const settle = async () => { for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r)); };

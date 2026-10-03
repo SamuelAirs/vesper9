@@ -716,9 +716,29 @@ export const CARTRIDGES = [
       "audio",
       "progress"
     ]
+  },
+  {
+    "id": "encyclopedia",
+    "name": "ENCYCLOPEDIA",
+    "subtitle": "Offline Wikipedia, one link at a time.",
+    "description": "Simple English Wikipedia kept on the console: the article of the day, today in history, a random article or the front page. Tap turns the page; at the end, pick a link and go deeper. Hold for links, sections and the way back.",
+    "controls": "TAP: NEXT PAGE · HOLD & RELEASE: LINKS, SECTIONS, BACK",
+    "category": "INSTRUMENT / READING",
+    "glyph": 3,
+    "icon": "<circle cx=\"24\" cy=\"24\" r=\"17\"/><path d=\"M7 24h34M24 7c-6 5-6 29 0 34M24 7c6 5 6 29 0 34M10 15h28M10 33h28\"/>",
+    "factory": "Encyclopedia",
+    "voice": [
+      "encyclopedia"
+    ],
+    "capabilities": [
+      "button",
+      "lights",
+      "audio",
+      "progress"
+    ]
   }
 ];
-export const SECTORS = [{"name": "VOYAGES", "tagline": "Long games to sink an evening into.", "apps": ["perihelion", "outpost", "drift", "ballista"]}, {"name": "ARCADE", "tagline": "Quick runs for sharp hands.", "apps": ["orbit", "ricochet", "runner", "highbar"]}, {"name": "LAMPS", "tagline": "Played on the three lamps.", "apps": ["meridian", "relay", "reaction"]}, {"name": "MIND", "tagline": "Memory, reading and pattern.", "apps": ["echo", "glyphs"]}, {"name": "AFTER HOURS", "tagline": "Four slower games for the end of the day.", "apps": ["crawlspace", "supper", "pocketlinks", "nightgrid"]}, {"name": "TOOLS", "tagline": "Useful things for the desk.", "apps": ["lantern", "cadence", "oracle", "morse", "library"]}, {"name": "LISTEN", "tagline": "What the node hears.", "apps": ["resonance", "transcribe"]}];
+export const SECTORS = [{"name": "VOYAGES", "tagline": "Long games to sink an evening into.", "apps": ["perihelion", "outpost", "drift", "ballista"]}, {"name": "ARCADE", "tagline": "Quick runs for sharp hands.", "apps": ["orbit", "ricochet", "runner", "highbar"]}, {"name": "LAMPS", "tagline": "Played on the three lamps.", "apps": ["meridian", "relay", "reaction"]}, {"name": "MIND", "tagline": "Memory, reading and pattern.", "apps": ["echo", "glyphs"]}, {"name": "AFTER HOURS", "tagline": "Four slower games for the end of the day.", "apps": ["crawlspace", "supper", "pocketlinks", "nightgrid"]}, {"name": "TOOLS", "tagline": "Useful things for the desk.", "apps": ["lantern", "cadence", "oracle", "morse", "library", "encyclopedia"]}, {"name": "LISTEN", "tagline": "What the node hears.", "apps": ["resonance", "transcribe"]}];
 export const SYSTEM_APPS = ["settings", "diagnostics", "telemetry"];
 export const DEFAULT_SETTINGS = {
   "sound": true,

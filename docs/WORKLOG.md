@@ -63,6 +63,23 @@ The long integrated run was started while final review continued. The final held
 - Project placed under local git: `v0.2.0-as-delivered`, then bring-up commits. The generated simulator is no longer tracked.
 - Sam's feedback after playing: fun; the lamps are underused; dictation a little inaccurate; wants more games and instruments. Plan for the overnight agent fleet: `../fleet/PLAN.md`.
 
+## 2026-10-01 — dashboard tidy (desktop, not verified on the device)
+
+- Sectors regrouped by kind instead of PLAY / PLAY II / PLAY III and INSTRUMENTS / II: VOYAGES (Perihelion, Outpost, Undertow, Ballista, Tideline), ARCADE (Orbit Lock, Ricochet, Moonrunner, Light Trial, Descent), MIND (Echo Vault, Glyph Archive), TOOLS (Lantern, Cadence, Oracle, Signal School), SENSORS (Atmosphere, Resonance, Field Notes). Pulsar and Helix (retired by Sam) are off the dashboard; their own pull requests remove them. Sectors may carry an optional `tagline`.
+- The decorative hero became a sector header (serif sector name, tagline, the orrery) and a strip of every sector with the current one lit; with NEXT SECTOR highlighted, the sector it leads to is marked in amber. Game cards show their kind, best score and runs (or UNCHARTED); part-filled pages square off with empty bays. Headless 1024 × 600, 800 × 900 and 400 × 800 screenshots looked at.
+- Storage migration `ballista_metres_v2`: the old artillery best moves to `ballista:artillery` once, so the rebuilt launcher's metres start a fresh best (tests/test_storage_migrations.py).
+
+## 2026-10-02 — platform polish from the review (desktop, not verified on the device)
+
+- Play mode: the console's chrome folds into a 34 px top row and a 26 px bottom row while a game runs, so on 1024 × 600 the game is shown at 960 × 540 instead of about 670 × 377. The canvas backing store follows the shown size; RENDER QUALITY (auto, sharp, fast) can draw fewer pixels. Headless Chromium at 12× CPU throttling: Perihelion's slow frames 37/147 sharp, 21/165 fast; Ballista 12/174 and 2/182. Not a Pi measurement.
+- The menu gesture's final hold is 600 ms longer inside a game (1.6 s at the standard pace); menus keep 1 s. `SETTLE` is 2.8 s.
+- TIMING OFFSET in Calibration (`latencyMs`, tap-along), two knocks on the case go back outside a game (needs PR #4's firmware and service), and the console logbook (today's three, streak, feats; progress id `console`, version 1).
+- Report and per-game cut list: `fleet-notes/reports/platform-polish.md`.
+- Later the same night: a LAMPS sector (Meridian, Relay, Light Trial) after ARCADE, and The Stacks on TOOLS. Sectors may name a cartridge that is not in the catalog yet; it is left out until its pull request adds it, so each draft merges with its catalog entry alone. The dashboard's system menu no longer lists DASHBOARD beside RETURN TO DASHBOARD.
+- 2026-10-02: Descent is on hold (Sam): off the dashboard and without its voice name; its code and saves stay and it still launches by id.
+- 2026-10-03: the new node has no temperature/humidity sensor (Sam). Atmosphere is off the dashboard and voice (still registered, its history untouched); SENSORS became LISTEN (Resonance, Field Notes); the top bar's temperature/humidity readout is hidden in index.html. main.js still writes to the hidden readout, and Node Scope and Telemetry still show sensor rows.
+- 2026-10-03 (platform polish): inside the system menu tap, tap, hold no longer reopens the menu (Sam: choosing DASHBOARD, the third row, opened the menu again). Save slots for games that opt in (`saveSlots = true`; `engine/slots.js`, progress ids `<id>#2..4` and `slots`); Outpost wires them first. The sensor rows are gone from the top bar code, Node Scope (it shows the lamp count and the current node's wiring), Telemetry and Calibration's TEMPERATURE unit; Atmosphere keeps its own. Not verified on the device.
+
 ## 2026-10-01 — knock input (cloud session, not on the device)
 
 - Knock on the case, approved by Sam: detected on the node (firmware 0.1.3, `firmware/main/knock.h`) so only a knock event leaves it; knocks within 60 ms of a button edge are dropped on the node, which owns the button timing. Protocol v1 gains KNOCK (8) and KNOCK_SET (22); older firmware ignores the new command and the console carries on without knocks.

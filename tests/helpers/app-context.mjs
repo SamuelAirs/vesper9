@@ -20,6 +20,7 @@ export function appContext(options = {}) {
     state: () => state,
     progress: () => progress,
     saveProgress: (value) => { progress = value; calls.saved.push(value); return Promise.resolve({ ok: true }); },
+    slot: () => ({ index: options.slot || 1, count: 4, fresh: !Object.keys(options.progress || {}).length }),
     best: () => best,
     score: (value, metric = "default") => { calls.score.push([value, metric]); best = Math.max(best, value); },
     leds: (values) => calls.leds.push(values.slice()),

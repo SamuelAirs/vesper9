@@ -115,6 +115,14 @@ test("tap direction: label back, left and right on their lamps, save, then show 
   assert.match(ctx.calls.content.at(-1), /18 \/ 20 PLACED · BACK 10\/10 · RIGHT 8\/10/);
   app.event({ type: "knock", peak: 9000, tap: { level_db: 0 }, side: "back", sideVotes: 4 });
   assert.match(ctx.calls.content.at(-1), /LAST TAP · BACK · 4 OF 5 AGREE/);
+  // Two knocks on the back go back (engine/input.js): here they leave the page, never the app.
+  assert.equal(app.back(), true);
+  assert.equal(act("tap-direction").label, "TAP DIRECTION / CALIBRATED");
+  act("tap-direction").run();
+  act("tap-start").run();
+  app.event({ type: "tap_direction", calibrated: true, label: "back", pending: { back: 2, left: 0, right: 0 }, saved: {} });
+  assert.equal(app.back(), true, "while labelling, a double knock is a labelled tap, not a way out");
+  assert.match(ctx.calls.content.at(-1), /TAP THE BACK OF THE CASE/);
   app.dispose();
 });
 

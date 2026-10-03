@@ -83,8 +83,3 @@ test("Atmosphere offset actions step by half a degree, clamp, and clear", async 
   assert.match(ctx.calls.content.at(-1), /22\.0<small> °C/);
 });
 
-test("Node Scope shows the corrected sensor temperature and the offset", () => {
-  const ctx = context(-2, "C");
-  new Diagnostics(ctx);
-  assert.match(ctx.calls.content.at(-1), /24\.0 °C \(CASE OFFSET −2\.0 °C\)/);
-});

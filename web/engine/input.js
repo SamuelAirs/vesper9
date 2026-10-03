@@ -1,7 +1,7 @@
 // Raw edges remain immediate. The menu gesture can already have affected a game when it completes.
 //
 // The one menu gesture, in every app and on the dashboard: TAP, TAP, HOLD. Two quick taps, then a
-// third press that stays down for `holdMs`. `tapMs` is the longest press that still counts as a tap,
+// third press that stays down for `holdMs` (longer inside a game: see PLAY_HOLD_EXTRA_MS). `tapMs` is the longest press that still counts as a tap,
 // `gapMs` the longest release-to-press pause between the three presses. The three presets are the
 // "gesture pace" setting.
 export const GESTURE_PACES = {
@@ -20,9 +20,32 @@ export const FALLBACK_HOLD_MS = 3000;
 export const RAW_STUCK_MS = 30000;
 // A node STATUS that says "up" this soon after a press may have been composed before it.
 const STATUS_GRACE_MS = 250;
+// Two knocks on the case, in a menu, the dashboard or an instrument, go back (main.js back()). The
+// second must come 120 to 650 ms after the first (by the node's clock), with the button untouched
+// for KNOCK_QUIET_MS before either, and nothing else counts for a second after a back. One stray
+// knock only shows "KNOCK AGAIN: BACK" and is forgotten. In a game a knock is the game's (knock()).
+export const DOUBLE_KNOCK_MIN_MS = 120;
+export const DOUBLE_KNOCK_MS = 650;
+export const KNOCK_QUIET_MS = 400;
+export const KNOCK_AFTER_BACK_MS = 1000;
+// Where a knock landed (PR #4: event.side from the two-microphone node, absent when unsure). Sam's
+// three spots are left, right and back; "top", the old name for the back spot, still reads as back.
+// Outside a game a knock on the left or right moves the highlight one row back or on; a knock on the
+// back, or one whose side is unknown, counts towards the two knocks that go back. Games get the side.
+export const KNOCK_SIDES = ['left', 'right', 'back'];
+export function knockSide(event = {}) {
+  const side = event.side === 'top' ? 'back' : event.side;
+  return KNOCK_SIDES.includes(side) ? side : null;
+}
 const MIN_TAP_MS = 8;
 
+// In a game (raw input) the hold runs this much longer: two quick taps and then a long press are
+// natural play there (feathering thrust, a long swing), and a menu opening mid-run breaks the run.
+// The standard pace's 1000 ms becomes 1600 ms. Menus and the dashboard keep the shorter hold.
+export const PLAY_HOLD_EXTRA_MS = 600;
+
 export const paceOf = (name) => GESTURE_PACES[name] || GESTURE_PACES.standard;
+export const playHoldMs = (pace) => pace.holdMs + PLAY_HOLD_EXTRA_MS;
 // How long the third press must stay down. `selectMs` is the navigation selection threshold, or 0
 // in a game where a hold means nothing to the host.
 export const gestureHoldMs = (pace, selectMs = 0) => Math.max(pace.holdMs, selectMs ? selectMs + SELECT_MARGIN_MS : 0);
@@ -68,7 +91,7 @@ export class GestureTimeline {
     const linked = (a, b) => quick(a) && b.at - a.up <= gap;
     if (last.up === null) {
       if (now - last.at <= pace.tapMs / 1000 + 0.05) return true; // it may still turn out to be a tap
-      if (now - last.at > gestureHoldMs(pace, settings.holdMs || 0) / 1000 + 0.3) return false;
+      if (now - last.at > Math.max(gestureHoldMs(pace, settings.holdMs || 0), playHoldMs(pace)) / 1000 + 0.3) return false;
       const first = marks.at(-3), second = marks.at(-2);
       return !!first && !!second && linked(first, second) && linked(second, last);
     }
@@ -122,7 +145,7 @@ export class AppGuard {
     this.app = app; this.c = ctx; this.skip = new Set(skip); this.t = 0;
     this.line = new GestureTimeline(settings || (() => ctx.settings?.() || {}));
     this.queue = []; this.open = true;
-    for (const name of ["score", "saveProgress"]) {
+    for (const name of ["score", "saveProgress", "feat", "dailyMet"]) {
       const original = ctx[name];
       if (typeof original !== "function") continue;
       ctx[name] = (...args) => this.hold(name, () => original.apply(ctx, args));
@@ -179,13 +202,15 @@ export class InputRouter {
   constructor(host, clock = () => performance.now()) {
     this.host = host; this.clock = clock; this.press = null;
     this.blocked = false; this.sequence = null;
+    this.lastEdge = -Infinity; this.knockAt = null; this.knockQuietUntil = -Infinity;
   }
   policy() { return this.host.escapePolicy?.() || { pace: 'standard' }; }
   pace() { return paceOf(this.policy().pace); }
   stamp(e) { return Number.isFinite(e.at_us) ? e.at_us / 1000 : this.clock(); }
   // The hold this press needs to complete the gesture: longer in a menu, so choosing never gets there first.
+  // In a game it is the longer play hold (PLAY_HOLD_EXTRA_MS).
   thresholdMs(press) {
-    return gestureHoldMs(this.pace(), press.mode === 'menu' ? this.host.holdMs() : 0);
+    return press.mode === 'menu' ? gestureHoldMs(this.pace(), this.host.holdMs()) : playHoldMs(this.pace());
   }
   // Seen by apps through ctx.menuGesture(): is a third press being counted right now?
   gestureState() {
@@ -199,6 +224,7 @@ export class InputRouter {
     this.host.clickVisual?.(0);
   }
   down(event = {}) {
+    if (!event.repeat) { this.lastEdge = this.clock(); this.forgetKnock(); }
     if (event.repeat || this.blocked || this.press) return;
     const mode = this.host.inputMode(), at = this.clock();
     const source = event.source || 'local', generation = event.generation ?? 0;
@@ -207,14 +233,18 @@ export class InputRouter {
         stamp - seq.end > pace.gapMs || stamp < seq.end || at - seq.received > pace.gapMs + 100)) this.resetSequence();
     const live = this.sequence;
     // The third press of tap, tap, hold. A sequence of three or more taps is not the gesture.
-    const armed = !!live && live.count === GESTURE_TAPS;
+    // Inside the system menu it is not the gesture either (host.gestureOff): there tap, tap and a
+    // hold is how the third row is chosen, so the menu must not open over itself.
+    const off = !!this.host.gestureOff?.();
+    const armed = !off && !!live && live.count === GESTURE_TAPS;
     // Where the highlight stood before the first tap, so the gesture can put it back.
     const mark = live ? live.mark : this.host.focusMark?.() ?? null;
-    this.press = { at, stamp, epoch: this.host.epoch, mode, event, source, generation, consumed: false, armed, mark };
+    this.press = { at, stamp, epoch: this.host.epoch, mode, event, source, generation, consumed: false, armed, mark, off };
     this.host.pressVisual(true);
     if (mode === 'raw') this.host.rawDown(event);
   }
   up(event = {}) {
+    this.lastEdge = this.clock(); this.forgetKnock();
     if (this.blocked) {
       if (!this.blockSource || !event.source || event.source === this.blockSource) {
         this.blocked = false; this.blockSource = null;
@@ -254,6 +284,7 @@ export class InputRouter {
   }
   update() {
     const pace = this.pace();
+    if (this.knockAt && this.clock() - this.knockAt.received > DOUBLE_KNOCK_MS + 250) this.forgetKnock();
     // The pause after the last tap runs out. (While the third press is down it is judged by its hold.)
     if (this.sequence && !this.press && this.clock() - this.sequence.received > pace.gapMs + 100) this.resetSequence();
     if (!this.press) return;
@@ -268,7 +299,7 @@ export class InputRouter {
       return;
     }
     if (menu) this.host.holdVisual(Math.min(1, elapsed / this.host.holdMs()), elapsed >= this.host.holdMs(), false);
-    if (menu && elapsed >= FALLBACK_HOLD_MS && !press.consumed) this.open(press, 'hold');
+    if (menu && !press.off && elapsed >= FALLBACK_HOLD_MS && !press.consumed) this.open(press, 'hold');
   }
   reconcile(pressed, source = 'node') {
     const press = this.press;
@@ -280,14 +311,45 @@ export class InputRouter {
     if (!this.blocked || (this.blockSource && this.blockSource !== source)) return;
     if (pressed === false) { this.blocked = false; this.blockSource = null; this.resetSequence(); }
   }
-  // A knock on the case (docs/PROTOCOL.md): a second input that is a single instant, with no press
-  // or release. It reaches the app (its knock() method) only where button presses do: never in a
-  // menu or navigation context, and not while a menu's press is still waiting for its release.
-  // It does not touch the tap, tap, hold sequence. Returns whether the app was given it.
+  // A knock on the case (docs/PROTOCOL.md): a single instant, with no press or release. In a game it
+  // reaches the app (its knock() method), never while a menu's press is still waiting for its release,
+  // and it does not touch the tap, tap, hold sequence. Elsewhere two knocks go back (DOUBLE_KNOCK_MS).
+  // Returns whether anything acted on it.
   knock(event = {}) {
-    if (this.blocked || this.host.inputMode() !== 'raw') return false;
-    this.host.rawKnock(event);
-    return true;
+    const mode = this.host.inputMode();
+    const side = knockSide(event);
+    if (mode === 'raw') {
+      if (this.blocked) return false;
+      const { side: _, ...rest } = event;
+      this.host.rawKnock(side ? { ...rest, side } : rest);
+      return true;
+    }
+    const now = this.clock(), at = this.stamp(event), source = event.source || 'node';
+    if (this.blocked || this.press || now - this.lastEdge < KNOCK_QUIET_MS || now < this.knockQuietUntil) {
+      this.forgetKnock();
+      return false;
+    }
+    if (side === 'left' || side === 'right') {
+      this.forgetKnock();
+      this.host.advance(side === 'left' ? -1 : 1);
+      return true;
+    }
+    const first = this.knockAt, since = first ? at - first.at : -1;
+    if (first && first.source === source && first.epoch === this.host.epoch && since >= DOUBLE_KNOCK_MIN_MS &&
+        since <= DOUBLE_KNOCK_MS && now - first.received <= DOUBLE_KNOCK_MS + 250) {
+      this.forgetKnock();
+      this.knockQuietUntil = now + KNOCK_AFTER_BACK_MS;
+      this.host.back?.('knock');
+      return true;
+    }
+    this.knockAt = { at, received: now, source, epoch: this.host.epoch };
+    this.host.knockVisual?.(true);
+    return false;
+  }
+  forgetKnock() {
+    if (!this.knockAt) return;
+    this.knockAt = null;
+    this.host.knockVisual?.(false);
   }
   cancel(waitForRelease = this.blocked, source = this.blockSource) {
     if (this.press?.mode === 'raw') this.host.rawCancel();

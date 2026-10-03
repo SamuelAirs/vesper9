@@ -12,52 +12,58 @@
     "tempUnit": "F",
     "tempOffset": 0,
     "lampLevel": "medium",
-    "lampAmbient": true
+    "lampAmbient": true,
+    "latencyMs": 0,
+    "renderQuality": "auto"
   },
   "sectors": [
     {
-      "name": "PLAY",
+      "name": "VOYAGES",
+      "tagline": "Long games to sink an evening into.",
       "apps": [
         "perihelion",
-        "orbit",
-        "runner",
-        "pulsar",
+        "outpost",
+        "drift",
+        "ballista",
         "tideline"
       ]
     },
     {
-      "name": "PLAY II",
+      "name": "ARCADE",
+      "tagline": "Quick runs for sharp hands.",
       "apps": [
-        "drift",
-        "descent",
-        "ballista",
-        "ricochet"
+        "orbit",
+        "ricochet",
+        "runner",
+        "reaction",
+        "descent"
       ]
     },
     {
-      "name": "PLAY III",
+      "name": "MIND",
+      "tagline": "Memory, reading and pattern.",
       "apps": [
-        "outpost",
-        "reaction",
         "echo",
         "glyphs"
       ]
     },
     {
-      "name": "INSTRUMENTS",
+      "name": "TOOLS",
+      "tagline": "Useful things for the desk.",
       "apps": [
-        "morse",
+        "lantern",
         "cadence",
-        "transcribe",
-        "environment"
+        "oracle",
+        "morse"
       ]
     },
     {
-      "name": "INSTRUMENTS II",
+      "name": "SENSORS",
+      "tagline": "What the node hears and feels.",
       "apps": [
-        "lantern",
+        "environment",
         "resonance",
-        "oracle"
+        "transcribe"
       ]
     }
   ],

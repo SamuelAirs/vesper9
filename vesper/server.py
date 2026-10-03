@@ -28,6 +28,16 @@ from .storage import Store
 ROOT = Path(__file__).resolve().parents[1]
 from .catalog import APP_IDS, DEFAULT_SETTINGS, validate_setting
 
+SAVE_SLOTS = 4
+
+
+def progress_id(app):
+    """An id progress may be saved under: an app, a save slot of one, or the console's own records."""
+    if app in APP_IDS or app in ("console", "slots"):
+        return True
+    base, sep, slot = app.partition("#")
+    return bool(sep) and base in APP_IDS and slot.isdigit() and 2 <= int(slot) <= SAVE_SLOTS and slot == str(int(slot))
+
 VERSION = "0.2.0"
 # Microphone modes. "commands" and "transcribe" run speech recognition; "analyze" only measures
 # level, spectrum and pitch (vesper/analysis.py): nothing is recognised, stored or sent anywhere.
@@ -519,8 +529,9 @@ class Console:
             await self.broadcast({"type": "scores", "scores": self.store.scores()})
         elif kind == "progress":
             app, value = data.get("app"), data.get("value")
-            # "console" is the console's own logbook (web/engine/logbook.js), not an app.
-            if not isinstance(app, str) or (app not in APP_IDS and app != "console") or not isinstance(value, dict):
+            # "console" is the console's own logbook (web/engine/logbook.js), not an app; "slots" says which
+            # save slot each game is on, and "<app>#2".."<app>#4" are those slots (web/engine/slots.js).
+            if not isinstance(app, str) or not progress_id(app) or not isinstance(value, dict):
                 raise ValueError("Invalid app progress")
             if len(json.dumps(value, allow_nan=False)) > 8192:  # allow_nan=False raises ValueError on NaN/Infinity
                 raise ValueError("Invalid app progress")

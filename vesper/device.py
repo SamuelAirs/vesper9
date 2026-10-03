@@ -1,15 +1,17 @@
 """An explicit simulator and a reconnecting USB-serial transport."""
+import array
 import asyncio
 import collections
 import concurrent.futures
-import array
 import contextlib
 import glob
 import json
 import logging
 import math
 import os
+import random
 import struct
+import sys
 import time
 
 from .protocol import Decoder, Kind, encode
@@ -49,6 +51,28 @@ def spread_lamps(values):
 WRITE_FAILURES_LIMIT = 3   # consecutive failed writes before the link is torn down and reopened
 READ_STALL_S = 1.5         # a serial read that has not returned by then (it waits at most 0.1 s) means a dead link
 REPEAT_LOG_EVERY = 30      # a link that stays down is logged on the first failure, then every 30th
+
+
+# Simulated taps: right-minus-left level (dB), right's delay (samples) and spread, near the medians of
+# the Pi's labelled session on the two-microphone case (2026-10-02).
+SIMULATED_SIDES = {"left": (-0.5, 3, 0.8), "right": (3.0, -3, 0.8), "top": (3.5, -1, 0.8)}
+
+
+def simulated_tap(side, rng=random):
+    """An 11 ms two-microphone clip (16 samples before the onset) of a tap on `side`."""
+    level, delay, spread = SIMULATED_SIDES[side]
+    level += rng.uniform(-spread, spread)
+    delay += rng.choice((-1, 0, 0, 1))
+    gain = 10 ** (level / 20)
+    def ring(start, amplitude):
+        out = []
+        for i in range(176):
+            t = (i - start) / 16000
+            out.append(int(amplitude * math.exp(-t / 0.004) * math.sin(2 * math.pi * 900 * t)) if i >= start else 0)
+        return [v + rng.randint(-40, 40) for v in out]
+    left = ring(16 + max(0, -delay), 12000)
+    right = ring(16 + max(0, delay), 12000 * gain)
+    return {"pre": 16, "left": left, "right": right}
 
 
 class SimulatedDevice:
@@ -149,14 +173,18 @@ class SimulatedDevice:
     async def set_knock(self, threshold):
         await self.command(Kind.KNOCK_SET, struct.pack("<H", threshold))
 
-    async def knock(self):
-        """A simulated knock on the case, as strong as a firm tap. Ignored while detection is off, as on the node."""
+    async def knock(self, side=None):
+        """A simulated knock on the case, as strong as a firm tap. Ignored while detection is off, as on the node.
+        With a side, it also carries a two-microphone clip shaped like a tap on that side of the real case."""
         if not self.knock_threshold:
             return
         self.status["knock"]["n"] += 1
         self.status["knock"]["peak"] = 20000
-        await self.emit({"type": "knock", "at_us": time.monotonic_ns() // 1000, "peak": 20000, "source": "simulator",
-                         "generation": self.generation})
+        event = {"type": "knock", "at_us": time.monotonic_ns() // 1000, "peak": 20000, "source": "simulator",
+                 "generation": self.generation}
+        if side:
+            event["clip"] = simulated_tap(side)
+        await self.emit(event)
 
     def status_age(self):
         """Seconds since the last status record (None before the first)."""
@@ -204,6 +232,7 @@ class SerialDevice:
         # and a read stuck on a dead port cannot hold up the next connection.
         self.reader = self.writer = None
         self.link_broken = False    # set when repeated write failures closed the port
+        self.knock_clip = None      # (at_us, clip) of the last KNOCK_CLIP, for the KNOCK that follows it
         self.attempt_failures = 0   # consecutive connection attempts that never heard the node
         self.mic_mix = "sum"        # which microphone(s) of a two-microphone node feed speech and analysis
         self.lamp_values = [0] * 9  # every physical lamp's values, as the node last reported or was told
@@ -467,11 +496,21 @@ class SerialDevice:
                 else:
                     mono = array.array("h", [(pairs[i] + pairs[i + 1]) // 2 for i in range(0, len(pairs), 2)])
                 await self.emit({"type": "audio", "pcm": mono.tobytes()})
+            elif kind == Kind.KNOCK_CLIP and len(p) >= 14 and (len(p) - 10) % 4 == 0 and p[9] == 2:
+                # Sent just before its KNOCK, from a two-microphone node: kept until that KNOCK arrives.
+                at, pre = struct.unpack_from("<QB", p)
+                pairs = array.array("h", p[10:])
+                if sys.byteorder != "little":
+                    pairs.byteswap()
+                self.knock_clip = (at, {"pre": pre, "left": list(pairs[0::2]), "right": list(pairs[1::2])})
             elif kind == Kind.KNOCK and len(p) in (10, 11):
                 at, peak = struct.unpack_from("<QH", p)
                 event = {"type": "knock", "at_us": at, "peak": peak, "source": "node", "generation": self.generation}
                 if len(p) == 11:
                     event["hf"] = p[10]
+                clip, self.knock_clip = self.knock_clip, None
+                if clip and clip[0] == at:
+                    event["clip"] = clip[1]
                 if self.button_sound(at):
                     self.knock_guarded += 1
                     log.debug("Knock at %d dropped as the button's sound (peak %d)", at, peak)

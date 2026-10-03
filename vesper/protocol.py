@@ -19,11 +19,11 @@ class Kind(enum.IntEnum):
     SENSOR = 3
     AUDIO = 4
     CUE = 5
+    KNOCK_CLIP = 10
     STATUS = 6
     ACK = 7
     KNOCK = 8
     AUDIO2 = 9
-    KNOCK_CLIP = 10
     PING = 16
     LEDS = 17
     MIC = 18

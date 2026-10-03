@@ -24,6 +24,7 @@ from .health import HostProbe, safe
 from .protocol import Kind
 from .speech import Speech, COMMANDS
 from .storage import Store
+from .tapdir import TapDirection
 
 ROOT = Path(__file__).resolve().parents[1]
 from .catalog import APP_IDS, DEFAULT_SETTINGS, validate_setting
@@ -72,6 +73,7 @@ class Console:
     def __init__(self, args):
         self.args = args
         self.store = Store(args.data)
+        self.tap_direction = TapDirection(self.store)
         self.clients = set()
         self.outboxes = {}
         self.controller = None
@@ -157,7 +159,8 @@ class Console:
                            "analysis": {"rate": analysis.RATE, "bands": analysis.BANDS, "edgesHz": analysis.EDGES,
                                         "intervalMs": round(analysis.HOP * 1000 / analysis.RATE)}},
                 "sensor": self.sensor, "timers": self.public_timers(), "settings": self.settings,
-                "scores": self.store.scores(), "progress": self.store.get("progress", {}), "serverTime": time.time()}
+                "scores": self.store.scores(), "progress": self.store.get("progress", {}),
+                "tapDirection": self.tap_direction.status(), "serverTime": time.time()}
 
     def public_timers(self):
         now = time.time()
@@ -239,6 +242,10 @@ class Console:
 
     async def event(self, event):
         kind = event["type"]
+        if kind == "knock" and "clip" in event:
+            event = self.tap_direction.annotate(event)
+            if event.get("labelled"):
+                await self.broadcast({"type": "tap_direction", **self.tap_direction.status()})
         if kind == "audio":
             if self.mode != "off":
                 pcm = event["pcm"]
@@ -523,7 +530,16 @@ class Console:
         elif kind == "knock":
             if not self.device.simulated:
                 raise ValueError("Desktop controls are disabled in hardware mode")
-            await self.device.knock()
+            side = data.get("side")
+            if side is not None and side not in ("left", "right", "top"):
+                raise ValueError("Unknown tap side")
+            await self.device.knock(side)
+        elif kind == "tap_direction":
+            op, side = data.get("op"), data.get("side")
+            if not isinstance(op, str) or (side is not None and not isinstance(side, str)):
+                raise ValueError("Unknown tap direction operation")
+            status = self.tap_direction.command(op, side)
+            await self.broadcast({"type": "tap_direction", **status})
         elif kind == "mic":
             mode = data.get("mode")
             if not isinstance(mode, str):
@@ -707,6 +723,7 @@ class Console:
             "sensor": status.get("sensor"),
             "knock": status.get("knock"),
             "knockGuarded": getattr(device, "knock_guarded", 0),
+            "tapDirection": self.tap_direction.status(),
         }
         alive = {name: not task.done() for name, task in zip(self.task_names, self.tasks)}
         service = {

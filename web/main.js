@@ -213,10 +213,11 @@ export class Vesper {
       });
   }
   // K on the keyboard: a knock on the case, for the simulator and for trying a game without the node.
-  softwareKnock() {
+  // K knocks; J, I and L knock on the left side, the top and the right side of the case.
+  softwareKnock(side) {
     if (this.state.controller === false) return;
-    if (this.state.simulated) this.bridge.command("knock", {}, true).catch(() => {});
-    else this.event({ type: "knock", at_us: performance.now() * 1000, peak: 20000, source: "keyboard" });
+    if (this.state.simulated) this.bridge.command("knock", side ? { side } : {}, true).catch(() => {});
+    else this.event({ type: "knock", at_us: performance.now() * 1000, peak: 20000, source: "keyboard", ...(side ? { side, sideVotes: 5 } : {}) });
   }
   bind() {
     const bindButton = (element) => {
@@ -242,9 +243,10 @@ export class Vesper {
         e.preventDefault();
         if (!e.repeat) this.softwareButton(true);
       }
-      if (e.code === "KeyK" && !e.repeat) {
+      const knockKeys = { KeyK: null, KeyJ: "left", KeyI: "top", KeyL: "right" };
+      if (e.code in knockKeys && !e.repeat) {
         e.preventDefault();
-        this.softwareKnock();
+        this.softwareKnock(knockKeys[e.code]);
       }
       if (e.code === "Escape") {
         e.preventDefault();
@@ -849,6 +851,11 @@ export class Vesper {
     }
   }
   event(e) {
+    // The console's own low tones shake the case into a tap: drop knocks while one plays.
+    if (e.type === "knock" && this.synth.shaking()) {
+      this.knocksMuted = (this.knocksMuted || 0) + 1;
+      return;
+    }
     switch (e.type) {
       case "state":
         this.state = {

@@ -42,7 +42,7 @@ export const CARTRIDGES = [
     "id": "drift",
     "name": "UNDERTOW",
     "subtitle": "Follow the silent current.",
-    "description": "Pilot a small craft through an impossible ocean. Hold to rise, release to sink, and thread the openings between ancient columns. The hull survives a bump or two. The lamps show your depth and where the next opening is.",
+    "description": "Pilot a small craft down through an impossible ocean. Hold to rise, release to sink, and thread the openings between ancient columns through six zones of currents, dark water and breathing vents. Gather pearls for new craft at the dock (hold on the title screen), try the daily dive, earn feats. The lamps show your depth and where the next opening is.",
     "controls": "HOLD TO RISE · RELEASE TO SINK",
     "category": "PLAY / FLIGHT",
     "glyph": 2,
@@ -55,7 +55,12 @@ export const CARTRIDGES = [
       "lights",
       "audio",
       "progress"
-    ]
+    ],
+    "record": {
+      "passages": "Passages",
+      "pearls": "Pearls",
+      "zone": "Deepest zone"
+    }
   },
   {
     "id": "echo",
@@ -182,9 +187,7 @@ export const CARTRIDGES = [
       "sites": "Sites cleared",
       "fuel": "Best fuel left %"
     },
-    "voice": [
-      "lander"
-    ],
+    "voice": [],
     "capabilities": [
       "button",
       "lights",
@@ -216,32 +219,6 @@ export const CARTRIDGES = [
       "chamber": "Chamber reached",
       "cells": "Cells broken",
       "chain": "Best chain (x)"
-    }
-  },
-  {
-    "id": "helix",
-    "name": "HELIX",
-    "subtitle": "Grow without crossing yourself.",
-    "description": "A signal thread that only turns one way. Tap to turn, gather fragments, and do not touch your own trail. The walls are soft for the first twenty seconds.",
-    "controls": "TAP TO TURN",
-    "category": "PLAY / TRAIL",
-    "glyph": 2,
-    "factory": "Helix",
-    "voice": [
-      "snake"
-    ],
-    "capabilities": [
-      "button",
-      "lights",
-      "audio",
-      "progress"
-    ],
-    "icon": "<path d=\"M6 40V8h30v26H16V18h12v6\"/><circle cx=\"22\" cy=\"24\" r=\"2\" fill=\"currentColor\"/><path d=\"M40 40l3-3M40 37l3 3\"/>",
-    "record": {
-      "score": "Score",
-      "fragments": "Fragments",
-      "longest": "Longest thread",
-      "milestone": "Milestone"
     }
   },
   {
@@ -381,9 +358,7 @@ export const CARTRIDGES = [
     "category": "INSTRUMENT / ENVIRONMENT",
     "glyph": 4,
     "factory": "Environment",
-    "voice": [
-      "environment"
-    ],
+    "voice": [],
     "capabilities": [
       "sensor"
     ]
@@ -533,7 +508,7 @@ export const CARTRIDGES = [
     ]
   }
 ];
-export const SECTORS = [{"name": "PLAY", "apps": ["perihelion", "orbit", "runner", "pulsar", "tideline"]}, {"name": "PLAY II", "apps": ["drift", "descent", "ballista", "ricochet", "helix"]}, {"name": "PLAY III", "apps": ["outpost", "reaction", "echo", "glyphs"]}, {"name": "INSTRUMENTS", "apps": ["morse", "cadence", "transcribe", "environment"]}, {"name": "INSTRUMENTS II", "apps": ["lantern", "resonance", "oracle"]}];
+export const SECTORS = [{"name": "VOYAGES", "tagline": "Long games to sink an evening into.", "apps": ["perihelion", "outpost", "drift", "ballista", "tideline"]}, {"name": "ARCADE", "tagline": "Quick runs for sharp hands.", "apps": ["orbit", "ricochet", "runner"]}, {"name": "LAMPS", "tagline": "Played on the three lamps.", "apps": ["reaction"]}, {"name": "MIND", "tagline": "Memory, reading and pattern.", "apps": ["echo", "glyphs"]}, {"name": "TOOLS", "tagline": "Useful things for the desk.", "apps": ["lantern", "cadence", "oracle", "morse"]}, {"name": "LISTEN", "tagline": "What the node hears.", "apps": ["resonance", "transcribe"]}];
 export const SYSTEM_APPS = ["settings", "diagnostics", "telemetry"];
 export const DEFAULT_SETTINGS = {
   "sound": true,
@@ -547,5 +522,7 @@ export const DEFAULT_SETTINGS = {
   "tempUnit": "F",
   "tempOffset": 0,
   "lampLevel": "medium",
-  "lampAmbient": true
+  "lampAmbient": true,
+  "latencyMs": 0,
+  "renderQuality": "auto"
 };

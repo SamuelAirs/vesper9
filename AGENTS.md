@@ -15,7 +15,7 @@ cloud speech, paid services, or unrelated home-AI integration is assumed.
 
 The system menu opens with one gesture everywhere, in every game, instrument
 and on the dashboard: tap, tap, hold (two quick taps, then a press held for
-about a second), with timing presets in Calibration. Normal long game holds
+about a second, 1.6 s inside a game), with timing presets in Calibration. Normal long game holds
 must remain available: the gesture needs exactly two quick taps first, and no
 plain hold opens the menu inside a game. Menu navigation remains short-release
 next, hold-release select, with a silent three-second plain hold as a fallback

@@ -617,6 +617,14 @@ export function applyKit(s) {
 }
 
 // ---- saving -------------------------------------------------------------------
+// The save's name in a console that keeps several saves per game (passed beside the save, never in
+// it): where the outpost stands and how long it has been played, at most 24 characters.
+export function slotLabel(s) {
+  const sec = num(Number(s.st?.tp)), min = Math.floor(sec / 60);
+  const time = min < 60 ? Math.max(1, min) + " MIN" : sec < 36000 ? (sec / 3600).toFixed(1) + " H" : Math.min(999, Math.round(sec / 3600)) + " H";
+  const site = siteOf(s).n, label = site + " · " + time;
+  return label.length <= 24 ? label : (site.replace(/^THE /, "") + " · " + time).slice(0, 24);
+}
 const KNOWN = new Set(["v", "t", "sig", "rt", "lt", "own", "up", "taps", "b", "L", "tree", "relics", "runs", "maxTier", "ex", "play", "last", "milestone",
   "st", "f", "fk", "sg", "sp", "gs", "sm", "sc", "gl", "ev", "rd", "rs", "dat", "cn", "site", "sx", "sv", "of", "cf", "ans", "fe", "ft"]);
 export function serialize(s, t) {

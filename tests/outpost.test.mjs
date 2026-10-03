@@ -1644,3 +1644,103 @@ test("the long game: a player who stays for each site's sounding hears the whole
   assert.ok(after.app.s.L > 2 * s.L, "and the bearings keep growing");
   finiteDeep(after.app.s);
 });
+
+// ======================= save slots (the console's slot layer, PR #16) =======================
+// A console that keeps up to three saves per game, as the slot layer is proposed: each launch reads
+// and writes only the slot it was opened in, a label rides beside the save, and the logbook is shared.
+const console3 = () => {
+  const slots = { 1: undefined, 2: undefined, 3: undefined }, labels = {}, book = { feats: [] };
+  const launch = (n) => {
+    const ctx = appContext(), fresh = slots[n] === undefined;
+    ctx.progress = () => slots[n] || {};
+    ctx.saveProgress = (value, meta) => { slots[n] = structuredClone(value); labels[n] = meta?.label; ctx.calls.saved.push(value); return Promise.resolve({ ok: true }); };
+    ctx.slot = () => ({ n, count: Object.values(slots).filter(Boolean).length, fresh });
+    ctx.feat = (id, name) => { if (book.feats.some((f) => f[0] === id)) return false; book.feats.push([id, name]); return true; };
+    return { ctx, app: new Outpost(ctx) };
+  };
+  return { slots, labels, book, launch };
+};
+
+test("save slots: each launch keeps to its own save, a new one starts at the first card, the first is found as it was", () => {
+  const box = console3();
+  // slot 1: an outpost at the crater rim with its fitting, five hours in
+  let { app } = box.launch(1);
+  app.down(); app.up({ durationMs: 50 });
+  const k = E.SITES.findIndex((x) => x.n === "CRATER RIM"), s = app.s;
+  s.site = k; s.sv[0] = 1; s.sv[1] = 1; s.sv[k] = 1; s.ft = [k]; s.runs = 3; s.L = 40; s.b = 40;
+  s.own = [30, 25, 15, 8, 2, ...Array(E.NP - 5).fill(0)]; s.maxTier = 4; s.rt = 2e6; s.lt = 5e6; s.sig = 12345; s.taps = 321; s.st.tp = 5 * 3600;
+  app.dirty = true; app.recalc();
+  app.dispose();
+  const first = structuredClone(box.slots[1]);
+  assert.equal(first.site, k);
+  assert.deepEqual(first.ft, [k]);
+  assert.equal(box.labels[1], "CRATER RIM · 5.0 H");
+  // slot 2: a new outpost at the first-launch card, with nothing of slot 1's
+  ({ app } = box.launch(2));
+  assert.equal(app.phase_, "intro");
+  assert.equal(app.s.site, 0);
+  assert.deepEqual(app.s.ft, []);
+  assert.equal(app.s.runs, 0);
+  assert.equal(app.s.sig, 0);
+  assert.equal(E.siteFx(app.s), E.SITES[0].fx, "no fitting carried over from the other save");
+  app.down(); app.up({ durationMs: 50 });
+  for (let i = 0; i < 10; i++) { tap(app); advance(app, 0.4); }
+  app.dispose();
+  assert.ok(box.slots[2].taps >= 10);
+  assert.equal(box.labels[2], "LANDING SITE · 1 MIN");
+  assert.deepEqual(box.slots[1], first, "playing the new save left the first untouched");
+  // back to slot 1 ten minutes later: the same outpost, credited for the time its save was closed
+  wall += 10 * 60000;
+  ({ app } = box.launch(1));
+  assert.equal(app.phase_, "away");
+  assert.equal(app.s.site, k);
+  assert.deepEqual(app.s.ft, [k]);
+  assert.deepEqual(app.s.own, first.own);
+  assert.equal(app.s.runs, 3);
+  assert.ok(app.s.sig > first.sig, "the station worked while its save was closed");
+  assert.equal(E.siteFx(app.s).flare, E.SITES[k].fx.flare * E.FIT[k].fx[0].flare, "its FLARE MAST is back in the rules");
+});
+
+test("save slots: a feat the console already keeps, met again in a new save, is asked for once and marked", () => {
+  const box = console3();
+  let { app, ctx } = box.launch(1);
+  app.down(); app.up({ durationMs: 50 });
+  app.s.runs = 1;
+  app.checkFeats();
+  assert.deepEqual(box.book.feats.map((f) => f[0]), ["first-relocation"]);
+  app.dispose();
+  ({ app, ctx } = box.launch(2));
+  const feat = ctx.feat;
+  let asked = 0;
+  ctx.feat = (...args) => { asked++; return feat(...args); };
+  app.down(); app.up({ durationMs: 50 });
+  app.s.runs = 1;
+  for (let i = 0; i < 3; i++) app.checkFeats();
+  assert.equal(asked, 1, "asked once: the logbook already had it");
+  assert.equal(box.book.feats.length, 1, "kept once across both saves");
+  assert.ok(app.s.fe & 1, "the new save marks it reported");
+});
+
+test("a save's label for the console's save picker: the site and the time played, at most 24 characters", () => {
+  const s = E.freshState();
+  assert.equal(E.slotLabel(s), "LANDING SITE · 1 MIN");
+  s.st.tp = 59 * 60;
+  assert.equal(E.slotLabel(s), "LANDING SITE · 59 MIN");
+  s.st.tp = 3600;
+  assert.equal(E.slotLabel(s), "LANDING SITE · 1.0 H");
+  s.st.tp = 14.4 * 3600;
+  assert.equal(E.slotLabel(s), "LANDING SITE · 14 H");
+  s.site = E.SILENT; s.st.tp = 45 * 60;
+  assert.equal(E.slotLabel(s), "SILENT COAST · 45 MIN");
+  s.st.tp = 3e6;
+  assert.equal(E.slotLabel(s), "THE SILENT COAST · 833 H");
+  for (let k = -1; k <= E.NSITE; k++) for (const tp of [0, 59, 3599, 3600, 35999, 36000, 3.6e6, 1e12, NaN, -5, Infinity]) {
+    s.site = k; s.st.tp = tp;
+    const label = E.slotLabel(s);
+    assert.ok(label.length >= 12 && label.length <= 24, JSON.stringify(label));
+  }
+  // a host that keeps one save per game gets the same save as before, and the label only beside it
+  const { ctx, app } = begin();
+  app.save(true);
+  assert.equal(lastSave(ctx).label, undefined, "the label is never written into the save");
+});

@@ -54,7 +54,7 @@ import {
   HUM_MULT, HUM_SEC, HUM_MAX, HUM_NOTES, HARMONICS, PC_NAMES, PC_PROD, humNotes, humMachines, humMultOf, humSecOf, humMaxOf, upgCost,
   SITES, NSITE, SILENT, SURVEY_BONUS, SURVEY_LEVELS, SURVEY, siteOf, siteFx, siteMach, siteKnown, surveysDone, surveyOf, offerSites,
   CALL_ID, CALL_FRAGS, CALL_LOG, CALL_ANSWERED, CHORUS_MULT, FINALE_SEC, callMelody, FEATS,
-  FIT, NFIT, FIT_AT, FIT_OPEN, fitMark, blueprints, workshopOpen, fitsBuilt, fitName, fitLines, fitSummary, offerFits,
+  FIT, NFIT, FIT_AT, FIT_OPEN, fitMark, blueprints, workshopOpen, fitsBuilt, fitName, fitLines, fitSummary, offerFits, slotLabel,
   hasRes, resSlots, tiersOwned, dataRate, dataBonus, unlockedN, masteredN, goalFrac, chartCost, chartName, chartsOpen, stageOf,
   num, fmt, fmtRate, dur, fmtInt, fmtDate, clock, costOf, milestonesAt, nextMilestone, globalMult, prodMult, evaluate, tapParts,
   capHours, pendingOf, revealOf, readyRatio, readyOf, slotsOf, upgradeVisible, tierOpen, prodVisible, freshState, applyKit, serialize, migrate,
@@ -1224,7 +1224,8 @@ export class Outpost {
     const s = this.s;
     const level = Math.floor(20 * Math.log10(1 + s.lt));
     if (level > this.lastLevel) { this.lastLevel = level; this.c.score?.(level); }
-    try { this.c.saveProgress?.({ ...serialize(s, Date.now()), runs: s.runs })?.catch?.(() => {}); } catch { /* the host reports save failures */ }
+    // the label names this save in the console's save picker; a host without one ignores it
+    try { this.c.saveProgress?.({ ...serialize(s, Date.now()), runs: s.runs }, { label: slotLabel(s) })?.catch?.(() => {}); } catch { /* the host reports save failures */ }
   }
   // Production the sim did not see: wall time minus game time since the last sync.
   syncWall(now) {
@@ -1398,6 +1399,6 @@ Outpost.music = { SONGS, MEL, GEN_ID, makeMelody, genTune, genName, scaleUp, mid
 Outpost.econ = { RES, GOALS, STAGES, VOICE, EV, NR, NG, NS, NT, HUM_MULT, HUM_SEC, HUM_MAX, HUM_NOTES, HARMONICS, PC_NAMES, PC_PROD, humNotes, humMachines, humMultOf, humSecOf, humMaxOf, upgCost,
   SITES, NSITE, SILENT, SURVEY_BONUS, SURVEY_LEVELS, SURVEY, siteOf, siteFx, siteMach, siteKnown, surveysDone, surveyOf, offerSites,
   CALL_ID, CALL_FRAGS, CALL_LOG, CALL_ANSWERED, CHORUS_MULT, FINALE_SEC, callMelody, FEATS, DAILY, dailyPick,
-  FIT, NFIT, FIT_AT, FIT_OPEN, fitMark, blueprints, workshopOpen, fitsBuilt, fitName, fitLines, fitSummary, offerFits, hasRes, tierOpen, tiersOwned, dataRate, masteredN, unlockedN, stageOf, fmtInt, fmtDate, revealOf, fmt, fmtRate, dur, costOf, prodMult, globalMult, evaluate, tapParts, capHours, pendingOf, readyOf, migrate, serialize, freshState, applyKit,
+  FIT, NFIT, FIT_AT, FIT_OPEN, fitMark, blueprints, workshopOpen, fitsBuilt, fitName, fitLines, fitSummary, offerFits, slotLabel, hasRes, tierOpen, tiersOwned, dataRate, masteredN, unlockedN, stageOf, fmtInt, fmtDate, revealOf, fmt, fmtRate, dur, costOf, prodMult, globalMult, evaluate, tapParts, capHours, pendingOf, readyOf, migrate, serialize, freshState, applyKit,
   PROD, UPG, TREE, EXPED, READY_RATIO, MILESTONES, SCHEMA, BIG, PRESTIGE_K, READY_MIN, KIT, NUP, NP, milestonesAt,
   readyRatio, READY_LATE, READY_FLOOR, chartCost, chartName, chartsOpen, CONST, CHART_REQ, CHART_MULT, CHART_MAX, GROOVE_MAX, VOICE_GAIN };

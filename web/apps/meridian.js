@@ -1,7 +1,9 @@
-// MERIDIAN — a one-button game played on the three lamps. A light swings like a pendulum from one end
-// lamp to the other. The screen calls a lamp, LEFT, MIDDLE or RIGHT; tap as the swinging light reaches
-// it. Each hit calls the next lamp. The screen never shows the light itself: the lamps are the play
-// field. The run speeds up and moves through stages that change how the swing must be read: red
+// MERIDIAN — a one-button game played on the lamps (three on the first node, four on the current one).
+// A light swings like a pendulum from one end lamp to the other. The screen calls a lamp, LEFT, MIDDLE
+// or RIGHT (on four: LEFT, INNER LEFT, INNER RIGHT, RIGHT); tap as the swinging light reaches it. Each
+// hit calls the next lamp. The lamps are the play field: the screen draws the light too only during
+// each run's practice swings (the guide light, which the observatory can keep on or turn off). The
+// title screen shows how to play on a small model of the lamps, and HOW TO PLAY has the rules. The run speeds up and moves through stages that change how the swing must be read: red
 // swings that must pass untouched, changes of tempo, swings that go dark near the called lamp, and
 // feints that turn back early, then sequences: two or three lamps called at once, caught in order.
 // Three shields; a wide tap, a lapse or a burned red swing costs one. Every tap shows how early or
@@ -10,7 +12,7 @@
 // colours (by stars lit), the sky chart and a log. Feats and the daily order go to the console's
 // logbook (ctx.feat, ctx.daily, ctx.dailyMet); the game keeps no streak or feat list of its own.
 // Save schema 3.
-import { C, space, text, line, circle, diamond, banner } from "../engine/draw.js";
+import { C, space, text, line, circle, diamond, wrapText } from "../engine/draw.js";
 import { clamp, lerp, mixSeed, Random } from "../engine/math.js";
 import { LAMP, lamps, dim, spot, pulse, only } from "../engine/lightshow.js";
 import { AppGuard } from "../engine/input.js";
@@ -24,6 +26,9 @@ const HOLD_PICK = 0.5; // a press this long on a menu screen chooses instead of 
 export const WIN = [0.06, 0.11, 0.17];
 export const END_WIN = 1.35;
 export const SIDE = ["LEFT", "MIDDLE", "RIGHT"];
+export const SIDE4 = ["LEFT", "INNER LEFT", "INNER RIGHT", "RIGHT"];
+export const sides = (n) => (n === 4 ? SIDE4 : SIDE);
+const NUMERAL = ["I", "II", "III", "IV"];
 const GRADES = ["PERFECT", "GOOD", "CLOSE"];
 const BASE = [100, 60, 25];
 const SHIELDS = 3;
@@ -69,7 +74,41 @@ const LIGHTS = [
   { name: "WHITE", rgb: LAMP.white, css: "#f2ead8", need: 24 },
 ];
 const SCALE = [523, 587, 659, 784, 880, 1047, 1175, 1319]; // a pentatonic climb, one note per combo step
-const ROWS = ["SWING", "DAILY", "SPRINT", "ECLIPSE", "LIGHT", "SKY", "LOG"];
+export const ROWS = ["SWING", "HOWTO", "DAILY", "SPRINT", "ECLIPSE", "LIGHT", "ASSIST", "SKY", "LOG"];
+// The guide light: the swinging light drawn on the screen as well, with a ring that closes on the
+// called lamp as the light arrives. During each run's practice swings (the default), always, or never.
+export const GUIDES = ["PRACTICE", "ALWAYS", "OFF"];
+// The title's model of the lamps calls these in turn (and the lamps show the same).
+const DEMO = { 3: [2, 1, 0, 2, 0, 1], 4: [3, 1, 0, 2, 3, 0, 1, 2] };
+// HOW TO PLAY, page by page.
+const GUIDE = [
+  { title: "THE SWING", demo: true, lines: [
+    "A light swings from one end lamp to the other and back, like a pendulum: slow as it turns at the ends, fast through the middle.",
+    "The screen calls one lamp in large letters and rings it. On the lamps the called one glows a faint cyan.",
+    "Tap the button the moment the light reaches the called lamp. Each catch calls the next one."] },
+  { title: "MISSES AND SHIELDS", demo: true, lines: [
+    "Tap with the light nowhere near the called lamp: WIDE. Let it go past: LAPSE. Either costs a shield.",
+    "Three shields, top right. Fifteen catches in a row without a mistake win one back.",
+    "The first four swings of every run are practice: mistakes cost nothing, and the light is drawn on the screen too, with a ring that closes as it arrives."] },
+  { title: "TIMING AND SCORE", lines: [
+    "PERFECT, GOOD or CLOSE, by how near the moment you tapped. The strip at the bottom shows every tap: left of the centre line was early, right was late.",
+    "An end lamp is caught as the light turns there, so its window is wider.",
+    "Every five GOOD or PERFECT catches raise the multiplier, up to x8. A mistake resets it.",
+    "If every tap reads late, set TIMING OFFSET in the console's Calibration."] },
+  { title: "THE STAGES", lines: [
+    "I SWING: the swing alone.",
+    "II RED PASS: a red swing must go by untouched. Tapping it burns a shield; letting it pass scores.",
+    "III TEMPO: each swing has its own pace. Watch it, do not count it.",
+    "IV ECLIPSE: some swings go dark near the called lamp. Keep the rhythm and tap where it would be.",
+    "V FEINT: some swings turn back before the far end.",
+    "VI SEQUENCE: two or three lamps called at once. Catch them in the order called.",
+    "Then cycles of everything, faster each time."] },
+  { title: "THE OBSERVATORY", lines: [
+    "Hold on the title or result screen to open it. Tap moves down a line, hold chooses.",
+    "DAILY: the same swings for everyone today, with a goal. SPRINT (reach TEMPO): sixty seconds. ECLIPSE (reach ECLIPSE): every swing goes dark near the called lamp.",
+    "Runs light stars: one for each stage cleared, one for every two sequences. Stars open new colours for the light.",
+    "GUIDE LIGHT: the light on the screen during practice (as it starts), always, or never."] },
+];
 // ---- the sky: six constellations of eight stars, lit one star at a time across runs ------------
 // A run lights a star for every stage it clears and for every second sequence it completes.
 const SKY_NAMES = ["THE PLUMB LINE", "THE KEEL", "THE TWIN LAMPS", "THE LONG SWING", "THE WATCHER", "MERIDIAN"];
@@ -144,7 +183,7 @@ export function migrateSave(raw) {
     ft: Array.isArray(r.ft) ? r.ft.filter((id, i) => FEAT_IDS.includes(id) && r.ft.indexOf(id) === i) : [],
     st: { hits: pos(st.hits), perfects: pos(st.perfects), held: pos(st.held) },
     best: { swing: pos(best.swing), sprint: pos(best.sprint), eclipse: pos(best.eclipse), combo: pos(best.combo) },
-    sel: { light: clamp(pos(sel.light), 0, LIGHTS.length - 1) },
+    sel: { light: clamp(pos(sel.light), 0, LIGHTS.length - 1), guide: clamp(pos(sel.guide), 0, GUIDES.length - 1) },
     sky: Math.min(SKY_SIZE, r.schema >= 2 ? pos(r.sky) : Math.min(99, pos(r.far))),
     dl: { d: typeof dl.d === "string" ? dl.d.slice(0, 10) : "", best: pos(dl.best), done: dl.done ? 1 : 0 },
   };
@@ -163,9 +202,17 @@ export function gateTime(sw, p) {
   const mid = (sw.x0 + sw.x1) / 2, k = (p - mid) / (sw.x0 - mid);
   return sw.t0 + (sw.D * Math.acos(clamp(k, -1, 1))) / Math.PI;
 }
-// The lamp row on screen: three still lamps; the called one is marked. The light is not drawn on a
-// console with a node; in the simulator, where there are no lamps, the sockets show them.
-const LX = [330, 480, 630], LY = 372;
+// The lamp row on screen: three or four still lamps on a shallow arc; the called one is marked. The
+// light is on the lamps (and in the simulator, where there are no lamps, the sockets show them); the
+// guide light draws it on the arc too.
+const LY = 372;
+const SPAN = { 3: 300, 4: 390 };
+// Where lamp position x (0 = left lamp .. n-1 = right lamp) sits on the arc, for n lamps.
+export function arcAt(n, x) {
+  const u = clamp(x / (n - 1), 0, 1), span = SPAN[n] || SPAN[3];
+  return [480 - span / 2 + u * span, LY + 88 * u * (1 - u)];
+}
+export const sockets = (n) => Array.from({ length: n }, (_, i) => arcAt(n, i));
 
 export class Meridian {
   constructor(ctx) {
@@ -184,10 +231,12 @@ export class Meridian {
     this.sq = []; // queued notes: [due, hz, seconds, wave]
     this.hudKey = "";
     this.hintText = "";
-    this.lampOut = Array(9).fill(0);
+    this.n = this.lampN(); // lamps in play, fixed for a run
+    this.demo = { p: DEMO[this.n][0], k: 0, f: 0, last: -1 }; // the title's model: called lamp, flash
+    this.lampOut = Array(this.n * 3).fill(0);
     this.reset();
     this.phase = "title";
-    this.setHint("Watch the lamps. Tap as the light reaches the called lamp. Hold for the observatory.");
+    this.setHint("Tap to play. Hold for how to play, the modes and the sky.");
     this.c.hud([["BEST", this.c.best?.() ?? 0]]);
   }
 
@@ -214,10 +263,10 @@ export class Meridian {
     this.seqAll = []; // the whole sequence, for the screen
     this.callT = 0; // seconds since the last call, for its animation
     this.offs = []; // the last taps' timing errors in ms (negative is early)
-    this.sock = [0, 0, 0]; // socket flash timers
-    this.sockCol = ["", "", ""];
+    this.sock = [0, 0, 0, 0]; // socket flash timers
+    this.sockCol = ["", "", "", ""];
     // The light waits at the right lamp for a moment before the first swing.
-    this.sw = { t0: 0.8, D: 1.25, x0: 2, x1: 0, feint: false, red: false, blind: false, gate: null };
+    this.sw = { t0: 0.8, D: 1.25, x0: this.n - 1, x1: 0, feint: false, red: false, blind: false, gate: null };
     this.sw.gate = this.makeGate(this.sw);
     this.fb = null; // the last judgement on screen: { word, pts, col, t }
     this.note = "";
@@ -252,14 +301,22 @@ export class Meridian {
   }
   unlocked(mode) { return this.sv.far >= (MODES[mode].need || 0); }
   light() { const l = LIGHTS[this.sv.sel.light] || LIGHTS[0]; return this.sv.sky >= l.need ? l : LIGHTS[0]; }
+  lampN() { return this.c.lampCount?.() === 4 ? 4 : 3; }
+  // Is the light drawn on the screen as well as on the lamps?
+  guideOn() {
+    const mode = this.sv.sel.guide || 0;
+    if (this.phase !== "play" || mode === 2) return false;
+    return mode === 1 || (this.sw.gate ? this.sw.gate.practice : this.gates <= PRACTICE);
+  }
 
   // The pass of this half-swing that is judged for the called lamp, if it has one.
   makeGate(sw) {
     const at = gateTime(sw, this.target);
     if (at === null || at < this.from) return null;
     const practice = this.gates < PRACTICE;
+    if (this.gates === PRACTICE && this.phase === "play" && !this.sv.sel.guide) this.announce("PRACTICE OVER: NOW THE LIGHT IS ON THE LAMPS ONLY", 2.6);
     this.gates++;
-    return { t: at, p: this.target, kind: sw.red && !practice ? "red" : "normal", blind: sw.blind && !practice && !sw.red, done: false, practice, end: this.target !== 1 };
+    return { t: at, p: this.target, kind: sw.red && !practice ? "red" : "normal", blind: sw.blind && !practice && !sw.red, done: false, practice, end: this.target === 0 || this.target === this.n - 1 };
   }
   // Call a lamp. Mostly a different one; never the same three times running. From the sequence stage a
   // call can be two or three lamps at once, caught in order; the later ones are known in advance, so
@@ -269,11 +326,11 @@ export class Meridian {
     if (this.seq.length) { p = this.seq.shift(); lead = 0.2; }
     else {
       this.seqAll = [];
-      if (this.repeats >= 1 || this.rand() < 0.75) p = (p + 1 + Math.floor(this.rand() * 2)) % 3;
+      if (this.repeats >= 1 || this.rand() < 0.75) p = (p + 1 + Math.floor(this.rand() * (this.n - 1))) % this.n;
       const sp = this.spec();
       if (sp.seq && this.gates >= PRACTICE && this.rand() < sp.seq) {
         const n = 2 + (sp.seqMax > 2 && this.rand() < 0.4 ? 1 : 0), all = [p];
-        while (all.length < n) all.push((all[all.length - 1] + 1 + Math.floor(this.rand() * 2)) % 3);
+        while (all.length < n) all.push((all[all.length - 1] + 1 + Math.floor(this.rand() * (this.n - 1))) % this.n);
         this.seqAll = all;
         this.seq = all.slice(1);
       }
@@ -296,12 +353,14 @@ export class Meridian {
     if (this.mode === "sprint") D *= 0.9;
     if (sp.drift) D *= this.range(0.82, 1.18);
     let x1, feint = false;
-    const atEnd = x0 === 0 || x0 === 2;
-    if (!atEnd) x1 = x0 > 1 ? 2 : 0;
+    const E = this.n - 1, atEnd = x0 === 0 || x0 === E;
+    if (!atEnd) x1 = x0 > E / 2 ? E : 0;
     else if (sp.feint && !old.feint && this.gates >= PRACTICE && this.rand() < sp.feint) {
+      // A feint turns back short of the middle (on four lamps, near the inner lamp on its own side).
       feint = true;
-      x1 = x0 === 2 ? 2 - this.range(0.45, 0.7) : this.range(0.45, 0.7);
-    } else x1 = x0 === 2 ? 0 : 2;
+      const k = this.range(0.45, 0.7) * E / 2;
+      x1 = x0 === E ? E - k : k;
+    } else x1 = x0 === E ? 0 : E;
     const red = this.gates >= PRACTICE && this.lastRed < 2 && this.rand() < sp.red;
     this.lastRed = red ? this.lastRed + 1 : 0;
     const blind = this.gates >= PRACTICE && (this.mode === "eclipse" || this.rand() < sp.blind);
@@ -346,6 +405,11 @@ export class Meridian {
       else this.start(this.phase === "over" ? this.mode : "swing");
       return;
     }
+    if (this.view === "guide") {
+      // Tap: next page (the last goes back). Hold: back.
+      if (!long && this.page < GUIDE.length - 1) { this.page++; this.c.tone(440, 0.03, "sine"); } else this.view = "menu";
+      return;
+    }
     if (this.view !== "menu") { this.view = "menu"; return; }
     if (!long) { this.cur = (this.cur + 1) % ROWS.length; this.c.tone(440, 0.03, "sine"); return; }
     this.choose();
@@ -353,7 +417,7 @@ export class Meridian {
   openMenu() {
     this.phase = "menu";
     this.view = "menu";
-    this.cur = 0;
+    this.cur = this.sv.runs < 3 ? 1 : 0; // a newcomer's cursor starts on HOW TO PLAY
     this.page = 0;
     this.setHint("Tap: next line. Hold: choose.");
   }
@@ -361,6 +425,13 @@ export class Meridian {
     const row = ROWS[this.cur];
     if (row === "LOG") { this.view = "log"; return; }
     if (row === "SKY") { this.view = "sky"; return; }
+    if (row === "HOWTO") { this.view = "guide"; this.page = 0; return; }
+    if (row === "ASSIST") {
+      this.sv.sel.guide = (this.sv.sel.guide + 1) % GUIDES.length;
+      this.c.tone(520, 0.05, "sine");
+      this.persist();
+      return;
+    }
     if (row === "LIGHT") {
       let i = this.sv.sel.light;
       do i = (i + 1) % LIGHTS.length; while (this.sv.sky < LIGHTS[i].need);
@@ -375,6 +446,7 @@ export class Meridian {
   }
   start(mode) {
     this.mode = mode;
+    this.n = this.lampN();
     this.reset();
     this.phase = "play";
     if (mode === "daily") {
@@ -383,7 +455,7 @@ export class Meridian {
     }
     this.best0 = this.bestRef();
     this.announce(mode === "swing" ? this.spec().note : MODES[mode].name + ": " + MODES[mode].text, 3.4);
-    this.setHint(mode === "eclipse" ? "Listen for the turns. Tap where the called lamp would light." : "Watch the lamps. Tap as the light reaches the called lamp. Let red swings pass.");
+    this.setHint(mode === "eclipse" ? "Listen for the turns. Tap where the called lamp would light." : "Tap as the swinging light reaches the called lamp. Let red swings pass.");
     this.lamps.clear();
   }
 
@@ -448,7 +520,7 @@ export class Meridian {
     this.c.tone(SCALE[this.combo % SCALE.length] * (grade === 2 ? 0.5 : 1), grade === 0 ? 0.12 : 0.08, grade === 0 ? "triangle" : "sine");
     // The caught lamp flashes the grade colour.
     const col = grade === 0 ? LAMP.white : grade === 1 ? LAMP.green : LAMP.amber, p = g.p;
-    this.lamps.flash(0.28, (e) => only(p, col, 0.85 * (1 - e / 0.28) + 0.1));
+    this.lamps.flash(0.28, (e) => only(p, col, 0.85 * (1 - e / 0.28) + 0.1, this.n));
     this.cleared();
     this.call();
     this.stageHits++;
@@ -471,7 +543,7 @@ export class Meridian {
       this.shields++;
       this.announce("SHIELD RESTORED", 1.6);
       this.queue(0.1, 988, 0.1, "sine");
-      this.lamps.flash(0.5, (e) => spot(e / 0.5, dim(LAMP.cyan, 0.6)));
+      this.lamps.flash(0.5, (e) => spot(e / 0.5, dim(LAMP.cyan, 0.6), 0.75, this.n));
     }
   }
   penalty(word, free) {
@@ -481,7 +553,7 @@ export class Meridian {
     this.R.pRun = 0;
     this.fb = { word: free ? word + " / PRACTICE" : word, pts: 0, col: C.red, t: 0.9 };
     this.c.tone(110, 0.2, "sawtooth");
-    this.lamps.flash(0.4, (e) => lamps(dim(LAMP.red, 0.7 * (1 - e / 0.4)), null, dim(LAMP.red, 0.7 * (1 - e / 0.4))));
+    this.lamps.flash(0.4, (e) => this.ends(dim(LAMP.red, 0.7 * (1 - e / 0.4))));
     if (free) return;
     this.stageClean = false;
     if (this.mode === "sprint") { this.clock -= 3; return; }
@@ -498,7 +570,7 @@ export class Meridian {
     const sp = this.spec();
     this.announce(sp.label + ": " + sp.note, 3.4);
     [659, 784, 1047].forEach((hz, i) => this.queue(0.08 * i, hz, 0.12, "sine"));
-    this.lamps.flash(0.6, (e) => only(Math.min(2, Math.floor(e / 0.2)), LAMP.cyan, 0.6));
+    this.lamps.flash(0.6, (e) => only(Math.min(this.n - 1, Math.floor(e / (0.6 / this.n))), LAMP.cyan, 0.6, this.n));
   }
   announce(message, seconds) { this.note = message; this.noteT = seconds; }
   queue(after, hz, sec, wave) { if (this.sq.length < 8) this.sq.push([this.t + after, hz, sec, wave]); }
@@ -584,12 +656,25 @@ export class Meridian {
     if (this.noteT > 0) this.noteT -= dt;
     if (this.fb) { this.fb.t -= dt; if (this.fb.t <= 0) this.fb = null; }
     this.callT += dt;
-    for (let i = 0; i < 3; i++) this.sock[i] = Math.max(0, this.sock[i] - dt);
+    for (let i = 0; i < 4; i++) this.sock[i] = Math.max(0, this.sock[i] - dt);
     if (this.phase === "play") this.step(dt);
     else {
-      // The title and menus keep a slow swing going behind them.
+      // The title and menus keep a slow swing going behind them; on the title (and the first pages of
+      // HOW TO PLAY) it catches the lamp it calls, as a player would.
+      if (this.lampN() !== this.n) {
+        this.n = this.lampN();
+        this.sw = { t0: this.rt, D: 1.4, x0: 0, x1: this.n - 1, feint: false, red: false, blind: false, gate: null };
+        this.demo = { p: DEMO[this.n][0], k: 0, f: 0, last: -1 };
+      }
+      const before = this.rt;
       this.rt += dt * 0.6;
-      for (let i = 0; i < 4 && this.rt >= this.sw.t0 + this.sw.D; i++) this.sw = { t0: this.sw.t0 + this.sw.D, D: 1.4, x0: this.sw.x1, x1: this.sw.x1 > 1 ? 0 : 2, feint: false, red: false, blind: false, gate: null };
+      this.demo.f = Math.max(0, this.demo.f - dt);
+      for (let i = 0; i < 4; i++) {
+        this.demoCatch(before);
+        if (this.rt < this.sw.t0 + this.sw.D) break;
+        const E = this.n - 1;
+        this.sw = { t0: this.sw.t0 + this.sw.D, D: 1.4, x0: this.sw.x1, x1: this.sw.x1 > E / 2 ? 0 : E, feint: false, red: false, blind: false, gate: null };
+      }
       if (this.phase === "over") this.deadT += dt;
     }
     this.lampOut = this.lampValues();
@@ -609,6 +694,18 @@ export class Meridian {
       if (this.phase !== "play") return;
     }
   }
+  // The title's model: when the swing reaches the lamp it calls, that lamp is caught and the next called.
+  demoCatch(before) {
+    const at = gateTime(this.sw, this.demo.p);
+    if (at === null || at <= before || at > this.rt) return;
+    const d = this.demo, order = DEMO[this.n];
+    d.f = 0.6; d.last = d.p; d.k++;
+    d.p = order[d.k % order.length];
+  }
+  demoShown() { return this.phase === "title" || (this.phase === "menu" && this.view === "guide" && GUIDE[this.page]?.demo); }
+  // Lamp values with the end lamps (or the inner ones) lit.
+  ends(rgb) { return lamps(...Array.from({ length: this.n }, (_, i) => (i === 0 || i === this.n - 1 ? rgb : null))); }
+  inner(rgb) { return lamps(...Array.from({ length: this.n }, (_, i) => (i === 0 || i === this.n - 1 ? null : rgb))); }
   pushHud() {
     if (this.phase !== "play") return;
     const items = [["SCORE", this.score], ["COMBO", this.combo + "  x" + this.mult()],
@@ -625,18 +722,24 @@ export class Meridian {
   // ---- lamps ----------------------------------------------------------------------------------
   // The swinging light is a spot that moves across the lamps; the middle lamp keeps a faint marker.
   lampValues() {
-    const x = this.x(), col = this.light().rgb;
-    if (this.phase === "title" || this.phase === "menu") return spot(x / 2, dim(col, 0.12));
+    const x = this.x(), col = this.light().rgb, n = this.n, at = x / (n - 1);
+    if (this.demoShown()) {
+      // The model on the lamps too: the called lamp faintly marked, flashing as the light catches it.
+      const d = this.demo;
+      const mark = d.f > 0 ? only(d.last, LAMP.white, 0.5 * d.f / 0.6, n) : only(d.p, LAMP.cyan, 0.08, n);
+      return lampMax(mark, spot(at, dim(col, 0.14), 0.75, n));
+    }
+    if (this.phase === "title" || this.phase === "menu") return spot(at, dim(col, 0.12), 0.75, n);
     if (this.phase === "over") {
-      if (this.deadT < 1.2) return lamps(dim(LAMP.red, 0.3 * (1 - this.deadT / 1.2)), null, dim(LAMP.red, 0.3 * (1 - this.deadT / 1.2)));
-      if (this.newRecord) return lamps(null, dim(LAMP.amber, 0.08 + 0.12 * pulse(this.t, 0.5)), null);
-      return spot(x / 2, dim(col, 0.06));
+      if (this.deadT < 1.2) return this.ends(dim(LAMP.red, 0.3 * (1 - this.deadT / 1.2)));
+      if (this.newRecord) return this.inner(dim(LAMP.amber, 0.08 + 0.12 * pulse(this.t, 0.5)));
+      return spot(at, dim(col, 0.06), 0.75, n);
     }
     // A cyan mark on the called lamp, breathing so it reads as a marker and not as the light; the
     // swinging light is red exactly when the screen says the swing must pass.
     const g = this.sw.gate, red = !!g && g.kind === "red";
-    let out = only(this.target, LAMP.cyan, 0.16 + 0.08 * pulse(this.t, 1.5));
-    if (!this.hidden(x)) out = lampMax(out, spot(x / 2, dim(red ? LAMP.red : col, 0.55)));
+    let out = only(this.target, LAMP.cyan, 0.16 + 0.08 * pulse(this.t, 1.5), n);
+    if (!this.hidden(x)) out = lampMax(out, spot(at, dim(red ? LAMP.red : col, 0.55), 0.75, n));
     return out;
   }
 
@@ -645,11 +748,63 @@ export class Meridian {
     space(g, this.t * 6, 0.25);
     if (this.phase === "play") { this.drawLamps(g); this.drawPlay(g); return; }
     if (this.phase !== "menu") this.drawStars(g, 0.35);
-    if (this.phase === "title") {
-      banner(g, "MERIDIAN", "A light swings across the three lamps. The screen calls one: tap as the light reaches it.");
-      if (this.sv.sky) text(g, "SKY  " + skyPlace(this.sv.sky), 480, 470, 18, C.muted, "center");
-    } else if (this.phase === "over") this.drawOver(g);
+    if (this.phase === "title") this.drawTitle(g);
+    else if (this.phase === "over") this.drawOver(g);
     else this.drawMenu(g);
+  }
+  // The title is the first lesson: a model of the lamps where the light swings and catches the lamp it
+  // calls, and the rules in four lines.
+  drawTitle(g) {
+    g.fillStyle = "#0c1511e8";
+    g.fillRect(120, 56, 720, 448);
+    line(g, 175, 64, 785, 64, C.line);
+    text(g, "MERIDIAN", 480, 102, 42, C.ink, "center");
+    this.drawDemo(g, 214);
+    const steps = [
+      "A LIGHT SWINGS FROM END TO END ACROSS THE LAMPS.",
+      "THE SCREEN CALLS ONE LAMP AND RINGS IT.",
+      "TAP THE MOMENT THE LIGHT REACHES THAT LAMP.",
+      "RED SWING: LET IT PASS. THREE MISSES END THE RUN.",
+    ];
+    steps.forEach((line1, i) => {
+      text(g, String(i + 1), 186, 304 + i * 32, 20, C.amber, "center");
+      text(g, line1, 210, 304 + i * 32, 18, i === 2 ? C.cyan : C.ink);
+    });
+    text(g, "TAP = PLAY     HOLD = HOW TO PLAY, MODES, SKY", 480, 446, 18, C.amber, "center");
+    if (this.sv.sky) text(g, "SKY  " + skyPlace(this.sv.sky), 480, 478, 16, C.muted, "center");
+  }
+  // A small model of the lamps at height y: the arc, the sockets, the called lamp named above and
+  // ringed, the light where the swing is, and a TAP where it catches the called lamp.
+  drawDemo(g, y) {
+    const n = this.n, d = this.demo, dy = y - LY, S = sockets(n);
+    text(g, "CALLED:  " + sides(n)[d.p], 480, y - 52, 20, C.cyan, "center");
+    g.strokeStyle = C.line; g.lineWidth = 2; g.beginPath(); g.moveTo(S[0][0], LY + dy); g.quadraticCurveTo(480, LY + 44 + dy, S[n - 1][0], LY + dy); g.stroke();
+    S.forEach(([sx, sy], i) => {
+      const on = i === d.p, f = i === d.last ? d.f / 0.6 : 0;
+      circle(g, sx, sy + dy, 22, C.bg, true);
+      if (f > 0) {
+        g.globalAlpha = f * 0.7; circle(g, sx, sy + dy, 22, C.cyan, true);
+        g.globalAlpha = f; circle(g, sx, sy + dy, 22 + (1 - f) * 26, C.cyan, false, 3);
+        text(g, "TAP", sx, sy + dy + 44, 18, C.cyan, "center");
+        g.globalAlpha = 1;
+      }
+      circle(g, sx, sy + dy, 22, on ? C.cyan : C.line, false, on ? 3 : 2);
+    });
+    const [lx, ly] = arcAt(n, this.x());
+    g.globalAlpha = 0.35; circle(g, lx, ly + dy, 16, this.light().css, true); g.globalAlpha = 1;
+    circle(g, lx, ly + dy, 9, this.light().css, true);
+  }
+  // HOW TO PLAY: one page of rules, the swinging model on the first two.
+  drawGuide(g) {
+    const pg = GUIDE[this.page];
+    text(g, pg.title + "   " + (this.page + 1) + " / " + GUIDE.length, 480, 120, 22, C.cyan, "center");
+    let y = 156;
+    for (const para of pg.lines) {
+      for (const part of wrapText(para, 60)) { text(g, part, 150, y, 17, C.ink); y += 23; }
+      y += 8;
+    }
+    if (pg.demo) this.drawDemo(g, y + 66);
+    text(g, this.page < GUIDE.length - 1 ? "TAP = NEXT PAGE     HOLD = BACK" : "TAP = BACK", 480, 486, 18, C.amber, "center");
   }
   // The lit stars of the sky, faint, behind the title and result screens.
   drawStars(g, alpha) {
@@ -670,37 +825,56 @@ export class Meridian {
         const x = 480 + (i - (n - 1) / 2) * w, now = i === at;
         const c = i < at ? C.line : now ? col : C.muted;
         g.save(); g.translate(x, 236); if (now) g.scale(pop, pop);
-        text(g, SIDE[p], 0, 0, now ? 60 : 40, c, "center");
+        const label = sides(this.n)[p], k = label.length > 6 ? 0.6 : 1;
+        text(g, label, 0, 0, (now ? 60 : 40) * k, c, "center");
         g.restore();
         if (i < n - 1) diamond(g, x + w / 2, 236, 7, C.line, true);
       });
       text(g, "SEQUENCE " + (at + 1) + " / " + n, 480, 178, 18, C.muted, "center");
     } else {
       g.save(); g.translate(480, 236); g.scale(pop, pop);
-      text(g, SIDE[this.target], 0, 0, 84, col, "center");
+      text(g, sides(this.n)[this.target], 0, 0, 84, col, "center");
       g.restore();
     }
     // A faint arc the light travels, and the sockets on it.
-    g.strokeStyle = C.line; g.lineWidth = 2; g.beginPath(); g.moveTo(LX[0], LY); g.quadraticCurveTo(480, LY + 44, LX[2], LY); g.stroke();
+    const n = this.n, S = sockets(n);
+    g.strokeStyle = C.line; g.lineWidth = 2; g.beginPath(); g.moveTo(S[0][0], LY); g.quadraticCurveTo(480, LY + 44, S[n - 1][0], LY); g.stroke();
     const sim = !!this.c.simulated?.();
-    for (let i = 0; i < 3; i++) {
-      const on = i === this.target, f = this.sock[i] / 0.5, y = i === 1 ? LY + 22 : LY;
-      g.fillStyle = C.bg; g.beginPath(); g.arc(LX[i], y, 30, 0, Math.PI * 2); g.fill();
+    for (let i = 0; i < n; i++) {
+      const on = i === this.target, f = this.sock[i] / 0.5, [sx, y] = S[i];
+      g.fillStyle = C.bg; g.beginPath(); g.arc(sx, y, 30, 0, Math.PI * 2); g.fill();
       // With no node attached the lamps exist only on screen: the sockets show them, at full size.
       if (sim) {
         const v = this.lampOut, k = 255 / Math.max(1, v[i * 3], v[i * 3 + 1], v[i * 3 + 2]);
         const lvl = Math.max(v[i * 3], v[i * 3 + 1], v[i * 3 + 2]) / 255;
-        if (lvl > 0.02) { g.globalAlpha = Math.min(1, lvl * 1.6); circle(g, LX[i], y, 28, "rgb(" + Math.round(v[i * 3] * k) + "," + Math.round(v[i * 3 + 1] * k) + "," + Math.round(v[i * 3 + 2] * k) + ")", true); g.globalAlpha = 1; }
+        if (lvl > 0.02) { g.globalAlpha = Math.min(1, lvl * 1.6); circle(g, sx, y, 28, "rgb(" + Math.round(v[i * 3] * k) + "," + Math.round(v[i * 3 + 1] * k) + "," + Math.round(v[i * 3 + 2] * k) + ")", true); g.globalAlpha = 1; }
       }
       if (f > 0) {
-        g.globalAlpha = f * 0.8; circle(g, LX[i], y, 30, this.sockCol[i], true);
-        g.globalAlpha = f; circle(g, LX[i], y, 30 + (1 - f) * 34, this.sockCol[i], false, 3);
+        g.globalAlpha = f * 0.8; circle(g, sx, y, 30, this.sockCol[i], true);
+        g.globalAlpha = f; circle(g, sx, y, 30 + (1 - f) * 34, this.sockCol[i], false, 3);
         g.globalAlpha = 1;
       }
-      circle(g, LX[i], y, 30, on ? col : C.line, false, on ? 4 : 2);
-      if (on) circle(g, LX[i], y, 12, col, true);
-      text(g, ["I", "II", "III"][i], LX[i], y + 46, 18, on ? col : C.muted, "center");
+      circle(g, sx, y, 30, on ? col : C.line, false, on ? 4 : 2);
+      if (on) circle(g, sx, y, 12, col, true);
+      text(g, NUMERAL[i], sx, y + 46, 18, on ? col : C.muted, "center");
     }
+    if (this.guideOn()) this.drawGuideLight(g, S);
+  }
+  // The guide light: the swing drawn on the arc where the player sees it on the lamps (the console's
+  // lag behind), and a ring that closes on the called lamp, meeting it at the moment to tap.
+  drawGuideLight(g, S) {
+    const seen = this.rt - this.lag(), x = swingX(this.sw, seen), gate = this.sw.gate, red = gate && gate.kind === "red";
+    if (gate && !gate.done && !red) {
+      const ahead = gate.t - seen;
+      if (ahead > 0 && ahead < 0.8) {
+        const [gx, gy] = S[gate.p], k = ahead / 0.8;
+        g.globalAlpha = 0.9 - 0.6 * k; circle(g, gx, gy, 30 + 70 * k, C.cyan, false, 3); g.globalAlpha = 1;
+      }
+    }
+    if (this.hidden(x)) return;
+    const [lx, ly] = arcAt(this.n, x), css = red ? C.red : this.light().css;
+    g.globalAlpha = 0.35; circle(g, lx, ly, 22, css, true); g.globalAlpha = 1;
+    circle(g, lx, ly, 12, css, true);
   }
   drawPlay(g) {
     // Shields as diamonds, top right; the multiplier in a ring that fills toward the next step, top left.
@@ -719,7 +893,9 @@ export class Meridian {
     if (this.noteT > 0) { g.globalAlpha = clamp(this.noteT / 0.4, 0, 1); text(g, this.note, 480, 116, 22, C.amber, "center"); g.globalAlpha = 1; }
     const gate = this.sw.gate;
     if (gate && gate.kind === "red" && !gate.done) text(g, "RED SWING / LET IT PASS", 480, 304, 24, C.red, "center");
-    else if (gate && gate.blind && !gate.done) text(g, "DARK SWING", 480, 304, 24, C.muted, "center");
+    else if (gate && gate.blind && !gate.done) text(g, "DARK SWING / TAP WHERE IT WOULD BE", 480, 304, 22, C.muted, "center");
+    else if (this.seqAll.length) text(g, "CATCH THEM IN THE ORDER CALLED", 480, 304, 20, C.muted, "center");
+    else if (this.stage === 0 || this.gates <= PRACTICE) text(g, "TAP AS THE LIGHT REACHES THE " + sides(this.n)[this.target] + " LAMP", 480, 304, 20, C.muted, "center");
     if (this.fb) {
       g.globalAlpha = clamp(this.fb.t / 0.3, 0, 1);
       const when = this.fb.ms === undefined ? "" : Math.abs(this.fb.ms) <= 10 ? "   ON TIME" : "   " + Math.abs(this.fb.ms) + " ms " + (this.fb.ms < 0 ? "EARLY" : "LATE");
@@ -798,6 +974,8 @@ export class Meridian {
       const lock = (m) => (this.unlocked(m) ? null : "REACH " + STAGES[MODES[m].need].name);
       const rows = {
         SWING: ["SWING", "BEST " + this.bestRefFor("swing")],
+        HOWTO: ["HOW TO PLAY", GUIDE.length + " PAGES"],
+        ASSIST: ["GUIDE LIGHT", GUIDES[sv.sel.guide] || GUIDES[0]],
         DAILY: ["DAILY", this.sv.dl.d === this.dayKey() && this.sv.dl.done ? "DONE TODAY" : "SEEDED BY DATE"],
         SPRINT: ["SPRINT", lock("sprint") || "BEST " + sv.best.sprint],
         ECLIPSE: ["ECLIPSE", lock("eclipse") || "BEST " + sv.best.eclipse],
@@ -806,7 +984,7 @@ export class Meridian {
         LOG: ["LOG", "RUNS " + sv.runs],
       };
       ROWS.forEach((id, i) => {
-        const y = 132 + i * 37, on = i === this.cur;
+        const y = 126 + i * 33, on = i === this.cur;
         const locked = (id === "SPRINT" && !this.unlocked("sprint")) || (id === "ECLIPSE" && !this.unlocked("eclipse"));
         if (on) diamond(g, 150, y, 9, C.amber, true);
         text(g, rows[id][0], 180, y, 24, on ? C.amber : locked ? C.line : C.ink);
@@ -817,12 +995,16 @@ export class Meridian {
       if (id === "LIGHT") { const next = LIGHTS.find((l) => sv.sky < l.need); info = "The colour of the swinging light." + (next ? "  NEXT: " + next.name + " AT " + next.need + " STARS" : ""); }
       else if (id === "SKY") info = skyPlace(sv.sky) + ".  Runs light the stars.";
       else if (id === "LOG") info = "What you have done so far.";
+      else if (id === "HOWTO") info = "The rules, page by page.";
+      else if (id === "ASSIST") info = "The light on the screen too, with a ring that closes as it arrives.";
       else if (id === "DAILY") info = "Goal: " + dailyGoal(this.dayKey()).text;
       else info = MODES[id.toLowerCase()].text;
       text(g, info, 480, 446, 18, C.muted, "center");
       text(g, "TAP = NEXT LINE     HOLD = CHOOSE", 480, 480, 18, C.cyan, "center");
     } else if (this.view === "sky") {
       this.drawSky(g);
+    } else if (this.view === "guide") {
+      this.drawGuide(g);
     } else {
       const lines = [
         ["RUNS", sv.runs], ["SWINGS STRUCK", sv.st.hits], ["PERFECT", sv.st.perfects], ["RED SWINGS HELD", sv.st.held],

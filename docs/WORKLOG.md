@@ -113,3 +113,11 @@ The long integrated run was started while final review continued. The final held
 - The menu gesture's final hold is 600 ms longer inside a game (1.6 s at the standard pace); menus keep 1 s. `SETTLE` is 2.8 s.
 - TIMING OFFSET in Calibration (`latencyMs`, tap-along), two knocks on the case go back outside a game (needs PR #4's firmware and service), and the console logbook (today's three, streak, feats; progress id `console`, version 1).
 - Report and per-game cut list: `fleet-notes/reports/platform-polish.md`.
+
+## 2026-10-03 — Meridian after Sam's playtest: directions, four lamps (desktop, not verified on the device)
+
+- Sam: "I don't understand it. Let's add some directions and instructions." The title is now the first lesson: a small model of the lamps where the light swings and catches the lamp it calls, with the rules in four lines. HOW TO PLAY (five pages) in the observatory; a newcomer's cursor starts on it.
+- Guide light: during each run's four practice swings the light is drawn on the screen arc too, with a ring that closes on the called lamp as it arrives (both drawn the console's lag behind, as taps are judged), then PRACTICE OVER. Observatory GUIDE LIGHT: PRACTICE (default), ALWAYS, OFF; saved as `sel.guide` in schema 3 (defaults to PRACTICE).
+- A line under the call in stage I and practice: "TAP AS THE LIGHT REACHES THE LEFT LAMP"; sequences say "CATCH THEM IN THE ORDER CALLED"; dark swings "TAP WHERE IT WOULD BE".
+- Four lamps (`ctx.lampCount()` = 4): the swing runs across all four; calls LEFT, INNER LEFT, INNER RIGHT, RIGHT; end lamps keep the wider turn window. Bot balance on four matches three (perfect and 50 ms players play the full 10 minutes; 80 ms players reach cycles 5–7 either way). Three-lamp nodes unchanged.
+- Merged PR #16; Meridian sits in the MIND sector.

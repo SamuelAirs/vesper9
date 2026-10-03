@@ -1,13 +1,14 @@
 // MERIDIAN: the swing, the called lamp, the judging, the stages, the observatory, the save, the lamps.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Meridian, migrateSave, swingX, gateTime, stageSpec, dailyGoal, starsEarned, skyPlace, WIN, PRACTICE, SIDE, STARS_PER, SKY_SIZE, LAMP_LAG } from "../web/apps/meridian.js";
+import { Meridian, migrateSave, swingX, gateTime, stageSpec, dailyGoal, starsEarned, skyPlace, WIN, PRACTICE, SIDE, STARS_PER, SKY_SIZE, LAMP_LAG, ROWS, GUIDES, SIDE4, sockets, arcAt } from "../web/apps/meridian.js";
 import { appContext, fakeCanvas, run } from "./helpers/app-context.mjs";
 import { Random } from "../web/engine/math.js";
 
 const tap = (a) => { a.down(); a.up(); };
 function mount(options = {}) {
   const ctx = appContext({ seed: 7, ...options });
+  if (options.lamps) ctx.lampCount = () => options.lamps;
   return { ctx, app: new Meridian(ctx) };
 }
 // The pass of the called lamp still to be judged (an end lamp is reached as one half-swing ends).
@@ -234,7 +235,20 @@ test("the observatory: a hold opens it, taps move, locked modes refuse, stages o
   const { app } = mount();
   app.down(); run(app, 0.6); app.up();
   assert.equal(app.phase, "menu");
-  const pick = (name) => { while (["SWING", "DAILY", "SPRINT", "ECLIPSE", "LIGHT", "SKY", "LOG"][app.cur] !== name) tap(app); app.down(); run(app, 0.6); app.up(); };
+  assert.equal(ROWS[app.cur], "HOWTO", "a newcomer's cursor starts on HOW TO PLAY");
+  const pick = (name) => { while (ROWS[app.cur] !== name) tap(app); app.down(); run(app, 0.6); app.up(); };
+  pick("HOWTO");
+  assert.equal(app.view, "guide");
+  for (let i = 1; i < 5; i++) { tap(app); assert.equal(app.page, i, "a tap turns the page"); }
+  tap(app);
+  assert.equal(app.view, "menu", "a tap on the last page goes back");
+  pick("HOWTO"); tap(app); app.down(); run(app, 0.6); app.up();
+  assert.equal(app.view, "menu", "a hold leaves the guide from any page");
+  assert.equal(app.sv.sel.guide, 0);
+  pick("ASSIST");
+  assert.equal(GUIDES[app.sv.sel.guide], "ALWAYS");
+  pick("ASSIST"); pick("ASSIST");
+  assert.equal(GUIDES[app.sv.sel.guide], "PRACTICE", "the guide light cycles");
   pick("SPRINT");
   assert.equal(app.phase, "menu", "sprint is locked until TEMPO is reached");
   pick("SKY");
@@ -439,4 +453,71 @@ test("every screen draws without throwing", () => {
   app.start("swing"); app.stage = 6; app.gates = 99; app.seqAll = [0, 2, 1]; app.seq = [2, 1]; app.offs = [-40, 10, 90]; app.sock = [0.3, 0, 0]; app.sockCol = ["#fff", "", ""];
   run(app, 0.2, () => app.draw(g));
   assert.ok(g.count.fillText > 50);
+  // Four lamps, the guide and every guide page.
+  const four = mount({ lamps: 4 }).app;
+  four.draw(g);
+  four.openMenu(); four.view = "guide";
+  for (four.page = 0; four.page < 5; four.page++) run(four, 0.5, () => four.draw(g));
+  four.sv.sel.guide = 1; four.start("swing"); four.stage = 6; four.gates = 99; four.seqAll = [0, 3, 1]; four.seq = [3, 1];
+  run(four, 3, () => four.draw(g));
+});
+
+test("four lamps: the swing runs end to end across all four, every lamp is called, the ends are judged at the turn", () => {
+  const { ctx, app } = mount({ lamps: 4, seed: 3 });
+  tap(app);
+  assert.equal(app.n, 4);
+  const called = new Set(), ends = new Set();
+  let checked = 0;
+  for (let i = 0; i < 160 * 60 && app.phase === "play"; i++) {
+    const gate = open(app);
+    if (gate && gate.kind === "normal" && app.rt + 1 / 120 >= gate.t + app.lag()) tap(app);
+    app.update(1 / 60);
+    called.add(app.target);
+    if (!app.sw.feint && (app.sw.x0 === 0 || app.sw.x0 === 3)) ends.add(app.sw.x0);
+    if (app.sw.gate) { checked++; assert.equal(app.sw.gate.end, app.sw.gate.p === 0 || app.sw.gate.p === 3); }
+  }
+  assert.deepEqual([...called].sort(), [0, 1, 2, 3], "all four lamps are called");
+  assert.deepEqual([...ends].sort(), [0, 3], "the swing turns at the end lamps");
+  assert.ok(checked > 100);
+  assert.ok(app.R.far >= 4, "a steady player goes as far on four lamps: " + app.R.far);
+  const sent = ctx.calls.leds.filter((v) => v.some((x) => x));
+  assert.ok(sent.length > 50 && sent.every((v) => v.length === 12), "frames for four lamps are twelve values");
+  // The lamp row on screen: four sockets on the arc, the inner ones a little lower, labelled.
+  const S = sockets(4);
+  assert.equal(S.length, 4);
+  assert.ok(S[1][1] > S[0][1] && Math.abs(S[1][1] - S[2][1]) < 1e-9 && S[0][1] === S[3][1]);
+  assert.deepEqual(arcAt(3, 1), [480, 394], "three lamps keep their old places");
+  assert.equal(SIDE4.length, 4);
+  // Three lamps stay as they were.
+  const three = mount().app;
+  tap(three); run(three, 2);
+  assert.equal(three.n, 3);
+  assert.ok(three.lampOut.length === 9);
+});
+
+test("directions: the title's model catches the lamp it calls, practice draws the light on screen, then it is on the lamps only", () => {
+  const { app } = mount();
+  const caught = [];
+  for (let i = 0; i < 20 * 60; i++) {
+    const k = app.demo.k;
+    app.update(1 / 60);
+    if (app.demo.k !== k) caught.push([app.demo.last, app.x()]);
+  }
+  assert.ok(caught.length >= 6, "the model keeps catching: " + caught.length);
+  for (const [p, x] of caught) assert.ok(Math.abs(p - x) < 0.25, "caught as the light reached lamp " + p + " (at " + x.toFixed(2) + ")");
+  assert.ok(new Set(caught.map(([p]) => p)).size === 3, "it calls every lamp");
+  // The title lamps show the model: the called lamp marked, a flash as it is caught.
+  assert.ok(app.lampOut.some((v) => v > 0));
+  // The guide light: on during practice, then off, with a note; ALWAYS keeps it; OFF never shows it.
+  tap(app);
+  assert.equal(app.guideOn(), true, "practice swings show the light on screen");
+  for (let i = 0; i < 60 * 60 && app.gates <= 5; i++) { const gate = open(app); if (gate && gate.kind === "normal" && app.rt + 1 / 120 >= gate.t + app.lag()) tap(app); app.update(1 / 60); }
+  assert.equal(app.guideOn(), false, "after practice the light is on the lamps only");
+  assert.match(app.note, /PRACTICE OVER/);
+  app.sv.sel.guide = 1;
+  assert.equal(app.guideOn(), true);
+  app.sv.sel.guide = 2; app.start("swing");
+  assert.equal(app.guideOn(), false);
+  assert.equal(migrateSave({ sel: { guide: 9 } }).sel.guide, 2);
+  assert.equal(migrateSave({}).sel.guide, 0);
 });

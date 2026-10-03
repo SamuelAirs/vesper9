@@ -3,6 +3,8 @@ import { LAMP, dim, fill, meter, ramp, lamps, lightsOff } from "../engine/lights
 import { microphoneStatus, recognizerLabel } from "../engine/status.js";
 import { VOICE_HELP } from "../engine/voice.js";
 import { CARTRIDGES } from "./catalog.js";
+import { TapSync, describe, MIN_TAPS } from "./tapsync.js";
+import { latencyMs } from "../engine/latency.js";
 const panel = (title, body) =>
   `<div class="utility-panel"><h2>${esc(title)}</h2>${body}</div>`;
 // The nearest running timer (smallest time left), or null when none is running.
@@ -454,6 +456,10 @@ const LAMP_SCALE = { full: 1, medium: 0.5, low: 0.2, off: 0 };
 // esp_err_t values the sensor driver is likely to report (esp_err.h).
 const ESP_ERRORS = { 0: 'NONE', '-1': 'FAIL', 0x101: 'NO MEMORY', 0x102: 'INVALID ARGUMENT', 0x103: 'INVALID STATE', 0x104: 'INVALID SIZE', 0x105: 'NOT FOUND', 0x106: 'NOT SUPPORTED', 0x107: 'TIMEOUT', 0x108: 'INVALID RESPONSE', 0x109: 'BAD CRC' };
 // The node's sensor diagnostics (firmware 0.1.2 status: addr, ok, fail, err) as two display strings.
+// The node's wiring, as Sam's tables give it: the current node (four lamps, two microphones, board LED)
+// and the first (three lamps). Neither has a temperature/humidity sensor any more.
+const PINS_FOUR = '<p>Button GPIO 12/46 · mic L 4/5/6 · mic R 47/45/21 · board LED 48.<br>LED R/G/B: 1 7/15/16 · 2 17/18/8 · 3 9/10/11 · 4 13/14/3.</p>';
+const PINS_THREE = '<p>Button GPIO 12/46 · mic 4/5/6.<br>LED R/G/B: LEFT 15/7/16 · MIDDLE 18/17/8 · RIGHT 11/9/10.</p>';
 export function sensorBus(sensor) {
   if (!sensor || typeof sensor !== 'object') return { bus: '—', error: '—' };
   const { addr, ok, fail, err } = sensor;
@@ -490,10 +496,9 @@ export class Diagnostics {
   render() {
     const s = this.c.state(),
       d = s.device || {},
-      sensor = s.sensor,
       level = this.level(),
       node = this.node,
-      bus = sensorBus(node?.sensor);
+      four = this.c.lampCount?.() === 4;
     const waiting = s.simulated ? 'SIMULATOR' : d.connected ? 'AWAITING STATUS' : '—';
     const rows = [
       ["NODE", d.connected ? "CONNECTED" : "DISCONNECTED"],
@@ -502,9 +507,7 @@ export class Diagnostics {
       ["FIRMWARE", node?.fw ? String(node.fw) : waiting],
       ["BUTTON", d.button ? "DOWN" : "UP"],
       ["NODE IDENTITY", (d.name || "—") + " · CONN " + (d.generation || 0)],
-      ["SENSOR BUS", node ? bus.bus : waiting],
-      ["SENSOR LAST ERROR", node ? bus.error : waiting],
-      ["SENSOR", sensor ? `${formatSensorTemp(sensor.temperature, this.c.settings().tempUnit, 1, this.c.settings())}${tempOffset(this.c.settings()) ? ' (CASE OFFSET ' + formatOffset(tempOffset(this.c.settings()), this.c.settings().tempUnit) + ')' : ''} / ${sensor.humidity.toFixed(1)}%` : "NO READING"],
+      ["LAMPS", four ? "4" + (this.c.hasBoardLed?.() ? " + BOARD LED" : "") : "3"],
       ["LAMP LEVEL", level.toUpperCase()],
       ["FRAME / p95", (this.c.stats?.().p95Ms || 0).toFixed(1) + " ms"],
       ["SPEECH DROPS", s.mic?.droppedChunks || 0],
@@ -519,7 +522,7 @@ export class Diagnostics {
       : level === 'low' ? '<p class="recording-tag">LAMP LEVEL IS LOW (CALIBRATION): CHANNEL CHECKS ARE DIM.</p>' : '';
     const html = panel(
       "Node instruments",
-      `<div class="diag-list">${rows.map(([k, v]) => `<div class="diag-item"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("")}</div>${notice}<p>Button GPIO 12/46 · mic 4/5/6 · sensor SDA 13 / SCL 14.<br>LED R/G/B: LEFT 15/7/16 · MIDDLE 18/17/8 · RIGHT 11/9/10.</p>`,
+      `<div class="diag-list">${rows.map(([k, v]) => `<div class="diag-item"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("")}</div>${notice}${four ? PINS_FOUR : PINS_THREE}`,
     );
     if (html !== this.html) { this.html = html; this.c.content(html); }
     this.c.actions([
@@ -604,12 +607,61 @@ export function voicePages() {
     return { title: page.title, body };
   });
 }
+const RENDER_NEXT = { auto: 'sharp', sharp: 'fast', fast: 'auto' };
+const RENDER_WORDS = { auto: 'AUTO', sharp: 'SHARP', fast: 'FAST' };
 export class Settings {
   constructor(c) {
     this.c = c;
     this.navigation = true;
     this.voicePage = null;
+    // The tap-along timing calibration runs on the game canvas with raw button input (tapsync.js),
+    // then comes back here with its result to save or discard.
+    this.sync = null;
+    this.syncResult = null;
     this.render();
+  }
+  startSync() {
+    this.syncResult = null;
+    this.sync = new TapSync(this.c, (result) => this.endSync(result));
+    this.navigation = false;
+    this.c.restage?.();
+    this.c.controls?.('TAP ON EVERY BEAT');
+    this.c.hint('Tap the button on each beat. The first four are for listening.');
+  }
+  endSync(result) {
+    this.sync = null;
+    this.syncResult = result;
+    this.navigation = true;
+    this.c.leds?.([0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    this.c.restage?.();
+    this.render();
+  }
+  // Two knocks on the case: a voice page or a calibration result goes back to the list.
+  back() {
+    if (this.voicePage === null && !this.syncResult) return false;
+    this.voicePage = null; this.syncResult = null; this.render();
+    return true;
+  }
+  // Raw input while the tap-along runs. The menu gesture abandons it.
+  down(e) { this.sync?.down(e); }
+  up(e) { this.sync?.up(e); }
+  update(dt) { this.sync?.update(dt); }
+  draw(g) { this.sync?.draw(g); }
+  cancel() { if (this.sync) this.endSync(null); }
+  pause() { if (this.sync) this.endSync(null); }
+  renderSync() {
+    const r = this.syncResult, s = this.c.settings(), now = latencyMs(s);
+    const verdict = !r.n ? '<p>No taps landed near the beat, so nothing was measured.</p>'
+      : r.ok ? `<p>Your taps arrived <strong>${describe(r.ms)}</strong> on average (${r.n} taps, spread ±${r.spread} ms). Timing games judge every tap with this offset taken off.</p>`
+      : `<p>Measured <strong>${describe(r.ms)}</strong>, but ${r.n < MIN_TAPS ? 'only ' + r.n + ' taps landed on the beat' : 'the taps were uneven (spread ±' + r.spread + ' ms)'}. Try again for a steadier reading.</p>`;
+    this.c.content(panel('Timing calibration', verdict + `<p>Current offset: <strong>${describe(now)}</strong>.</p>`));
+    this.c.actions([
+      ...(r.ok ? [{ id: 'sync-save', label: 'SAVE / ' + describe(r.ms), run: () => { this.setting('latencyMs', r.ms); this.syncResult = null; this.render(); } }] : []),
+      { id: 'sync-again', label: 'TRY AGAIN', run: () => this.startSync() },
+      { id: 'sync-zero', label: 'SET TO ON TIME (0 ms)', run: () => { this.setting('latencyMs', 0); this.syncResult = null; this.render(); } },
+      { id: 'sync-back', label: 'BACK TO CALIBRATION', run: () => { this.syncResult = null; this.render(); } },
+    ]);
+    this.c.hint('Tap to advance. Hold and release to choose.');
   }
   renderVoice() {
     const pages = voicePages(), page = pages[this.voicePage];
@@ -626,12 +678,14 @@ export class Settings {
     this.c.command("settings", { key, value }).catch(this.c.error);
   }
   render() {
+    if (this.sync) return;
+    if (this.syncResult) return this.renderSync();
     if (this.voicePage !== null) return this.renderVoice();
     const s = this.c.settings();
     this.c.content(
       panel(
         "Adjust the instrument",
-        "<p>Every setting is reachable with the arcade button. Voice uses the prefix <strong>“computer”</strong>. Sound plays through the Pi or browser audio output.</p><p>One gesture opens the system menu from anywhere, in every game, instrument and on the dashboard: <strong>tap, tap, then press and hold</strong> for about a second. CLICK TIMING sets how quick the taps must be. Inside a menu a tap moves and a hold chooses; hold clearly longer, after two taps, and the menu opens instead. The microphone always starts muted after a service restart.</p>",
+        "<p><strong>Tap, tap, then hold</strong> opens the system menu anywhere: hold about a second in menus, a little longer (1.6 s) inside a game so a long press there stays in the game. MENU GESTURE TIMING sets how quick the taps must be. TIMING OFFSET measures your button's delay so rhythm games judge you fairly. Voice uses the prefix <strong>“computer”</strong>; the microphone starts muted after a restart.</p>",
       ),
     );
     this.c.actions([
@@ -671,14 +725,15 @@ export class Settings {
         run: () =>
           this.setting("holdMs", s.holdMs >= 1000 ? 450 : s.holdMs + 100),
       },
-      { id: 'temp-unit', label: 'TEMPERATURE / ' + (s.tempUnit === 'F' ? 'FAHRENHEIT' : 'CELSIUS'),
-        run: () => this.setting('tempUnit', s.tempUnit === 'F' ? 'C' : 'F') },
       { id: 'lamp-level', label: 'LAMP LEVEL / ' + String(s.lampLevel || 'medium').toUpperCase(),
         run: () => this.setting('lampLevel', ({ full: 'medium', medium: 'low', low: 'off', off: 'full' })[s.lampLevel] || 'full') },
       { id: 'lamp-ambient', label: 'AMBIENT GLOW / ' + (s.lampAmbient === false ? 'OFF' : 'ON'),
         run: () => this.setting('lampAmbient', s.lampAmbient === false) },
       { id: 'gesture-pace', label: 'MENU GESTURE TIMING / ' + s.gesturePace.toUpperCase(),
         run: () => this.setting('gesturePace', ({ quick: 'standard', standard: 'relaxed', relaxed: 'quick' })[s.gesturePace]) },
+      { id: 'timing', label: 'TIMING OFFSET / ' + describe(latencyMs(s)) + ' · CALIBRATE', run: () => this.startSync() },
+      { id: 'render', label: 'RENDER QUALITY / ' + (RENDER_WORDS[s.renderQuality] || 'AUTO'),
+        run: () => this.setting('renderQuality', RENDER_NEXT[s.renderQuality] || 'sharp') },
       { id: 'scan-speed', label: 'ANSWER SCAN / ' + s.scanMs + ' ms',
         run: () => this.setting('scanMs', ({ 600: 850, 850: 1200, 1200: 1600, 1600: 600 })[s.scanMs] || 850) },
       { id: 'reset-settings', label: this.confirmReset ? 'CONFIRM / RESET SETTINGS ONLY' : 'RESET SETTINGS…', run: () => {
@@ -691,6 +746,6 @@ export class Settings {
     this.c.hint("Tap to advance. Hold and release to change a setting.");
   }
   event(e) {
-    if (e.type === "settings") this.render();
+    if (e.type === "settings" && !this.sync) this.render();
   }
 }

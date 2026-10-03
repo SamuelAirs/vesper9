@@ -10,7 +10,7 @@ export function recordRun(ctx, result) {
 export const LOCKOUT = 0.6;
 // A run that ends is recorded this long afterwards (or at once when the player leaves), which
 // is longer than any menu gesture, so a death caused by the gesture's own taps can be undone.
-export const SETTLE = 2;
+export const SETTLE = 2.8;
 
 const clone = (value) => structuredClone(value);
 

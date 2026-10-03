@@ -5,67 +5,95 @@ The short version, for an agent taking over. The detail lives in
 conflicts, Sam's decisions and verdicts, conventions. The project's notes are copied
 alongside it in `docs/handoff/`.
 
-**Where these facts come from.** The Pi's Claude session went offline at 02:25 UTC on
-2026-10-03, so nothing on the Pi could be checked live for this file. Pi and node facts come
-from that session's last reports in the project chat (times in UTC). GitHub facts were
-checked with git at 03:10 UTC. Anything marked *unchecked* needs a look on the Pi.
+**Where these facts come from.** The Pi's Claude session read sections 1-3 live, without
+changing anything, at 2026-10-03 03:15 UTC. Its full note is
+[`docs/handoff/pi/pi-state.md`](docs/handoff/pi/pi-state.md). GitHub facts were checked with
+git at 03:10 UTC.
 
 ## 1. What the Pi is running
 
-| | |
-| --- | --- |
-| Folder | `~/VESPER-9-v0.2.0-Claude` on host `raspberrypi`. The repo is `~/VESPER-9-v0.2.0-Claude/vesper9` (inferred from paths like `vesper9/backups/…`); the deploy recipe in `fleet-notes/START-HERE-DESKTOP.md` also uses a `live` checkout beside it. |
-| Branch | **Not `main`.** A local integration branch built on the Pi from every open draft PR head except #2 (Descent), merged in the order #16 (contains #11), #1, #4, #19, then the games. Its name was never reported. |
-| Commit | f3bfacc, deployed 2026-10-03 01:19 (per the project notes; the Pi's own report doesn't give the hash). This commit **exists only on the Pi**. |
-| PR heads it used | The heads around 01:11. Four PRs got new commits after the deploy, so the console lacks them: #4 d78cfc0, #11 6b75fba, #12 c4cf082 (the Encyclopedia) and #16 923ddab. #20 d800b42 (01:14) may or may not be in. Current heads are in `docs/handoff/PROJECT.md` §5. |
-| Uncommitted or unpushed | *Unchecked.* The Pi's node work lives on a local branch `pi/node-two-mics`. All four bundles it handed over are on PR #19 (head b9079f1). The Pi couldn't push directly because the GitHub login sits in Sam's locked desktop keyring. Nothing later was reported. |
-| Sam's data | Saves were reported intact after the 01:19 deploy. |
+Everything is under `/home/sam/VESPER-9-v0.2.0-Claude/` on host `raspberrypi`, user `sam`.
 
-To see the true state, run on the Pi: `git -C ~/VESPER-9-v0.2.0-Claude/vesper9 status`,
-`git log -1`, `git branch -vv`, and the same in `../live`.
+| Folder | What it is | Branch and commit | Uncommitted |
+| --- | --- | --- | --- |
+| `vesper9/` | `main` checkout; also holds `data/`, `backups/`, `.venv/`, `models/` | `main` at 5db9ae8 (= `origin/main`) | none |
+| `live/` | git worktree of `vesper9/`; **the console runs from here** | detached at **f3bfaccaf19046d13738fddd96140b20127d0e98** | none (`.venv`, `models` symlink into `vesper9/`) |
+| `node2/` | separate clone for the second node's work | `pi/node-two-mics` at b9079f1 = PR #19's head | none |
+| `fleet/` | not git: the Pi's log `STATUS.md`, `tools/`, `test-output/` | | |
+
+**The console build f3bfacc is not on GitHub and is not for merging.** It is local branch
+`pi/test-games-and-taps` in `vesper9/`, made by the Pi's `fleet/tools/bundle.py`: PR #16 at
+7d468d9 as the base, then merges of #1 b9dfe20, #3 666d427, #5 3770a42, #6 b255b4c,
+#11 616d7e8, #7 34fd64b, #8 e14cc9d, #15 a61e59e, #17 ac586a4, #18 d14b760, #4 370274e,
+#9 6a4e351, #10 41b56e6, #12 3541f2e, #14 17c39a1, #20 ce2e650, #21 6c5cdf9 and #19 b9079f1.
+#2 (Descent) is left out. Since then #4 (d78cfc0), #11 (6b75fba), #12 (c4cf082, the
+Encyclopedia), #16 (923ddab) and #20 (d800b42) have moved, and the console doesn't have those
+commits.
+
+`docs/handoff/pi/` has the only off-Pi copies of:
+- `pi-live-console-f3bfacc.bundle`: a git bundle of f3bfacc. Its prerequisites are the PR
+  commits above. To restore it, run
+  `git fetch docs/handoff/pi/pi-live-console-f3bfacc.bundle 'refs/heads/*:refs/remotes/pi/*'`.
+- `tools/bundle.py` and its three resolvers (the build recipe and its conflict rules),
+  `tools/knock-trace.py`, `tools/tap-direction.py`.
+- `STATUS.md`: the Pi's dated log of every deploy, flash and test.
 
 ## 2. The node
 
 | | |
 | --- | --- |
-| Hardware | The second node: ESP32-S3 N16R8 (MAC dc:da:0c:14:8f:c0), four RGB lamps, two I2S mics, WS2812 board LED on GPIO 48, one button, **no temperature/humidity sensor**. Pin map: `docs/handoff/PROJECT.md` §2. |
-| Firmware | `vesper-node-0.2.0` built with board profile `NODE_BOARD=2` (`scripts/build-firmware.sh 2`), from PR #19's source. That is the firmware the Pi built; the version string wasn't read back from the node in any report. |
-| Flash history | First flash 2026-10-02 18:09; reflashed 19:40 with the green/blue swap fixed; reflashed 2026-10-03 00:58 with the corrected KNOCK_CLIP (#19 commit ba11dd7). |
-| Backup | Full 16 MB backup of the node as found: `vesper9/backups/node2-as-found-20261002-125315.bin` on the Pi. It held a factory MicroPython demo. Never commit `backups/`. |
+| Connected | Sam's second node on native USB, `/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_DC:DA:0C:14:8F:C0-if00` |
+| Firmware | **`vesper-node-0.2.0`**, read back from the node (link `usb`, 4 lamps, board LED, 0 CRC errors) |
+| Board profile | **2** (`NODE_BOARD=2`, `firmware/main/hardware.h` on #19): ESP32-S3 N16R8, four RGB lamps, two INMP441 mics on one clock, button GPIO12/46, WS2812 board LED on GPIO48, no SHT3x. Built in `node2/` from ba11dd7 (the last `firmware/` commit, on #19) with `scripts/build-firmware.sh 2`, flashed over native USB. Sends KNOCK_CLIP before each KNOCK. |
+| Backups | `vesper9/backups/`: `node2-as-found-20261002-125315.bin` (second node as delivered), `node-vesper-0.1.2-20261001-153459.bin` and `node-room-3.1-20260930.bin` (first node; the latter holds Wi-Fi credentials, never copy it). Restore command in `backups/RESTORE.txt`. |
+| First node | Unplugged. Board 1 (3 lamps, 1 mic, SHT3x), running 0.1.3 from #4 at f0c0136. |
 
-Verified on the device (the Pi session's reports):
+Verified on the device (2026-10-02/03, with Sam watching or acting):
+- all twelve lamp outputs, in the right colour
+- the board LED
+- the button
+- both mics: clean, about 100-200 rms quiet, no hum, 0 read errors
+- speech through both mics averaged: one sentence and three commands heard correctly
+- tap detection at threshold 4000
+- KNOCK_CLIP: 89 clips for 89 knocks
+- flashing over native USB
 
-- **Lamps and board LED:** all four lamps right after the colour fix (Sam: "Everything worked perfectly", 2026-10-02 19:41). The board LED is a separate command, off unless a game sets it.
-- **Button:** working (stepped through all 12 lamp outputs).
-- **Mics:** both clean and in sync after the right mic was rewired (2026-10-02 19:35). Before that the left had mains hum and the right sent zeros.
-- **Speech:** three commands recognised exactly; one sentence had a single word wrong ("jumped" for "jumps").
-- **Taps (knock):** detection works, and every one of 89 KNOCK_CLIPs arrived. Tap *direction* failed live (Sam's calibration placed back and right taps right only about half the time), so Sam dropped it: any tap counts.
-- **Beep test:** only the two deepest console tones (98 and 110 Hz) shake the case into a false tap.
-- **Known problem:** on 2026-10-03 00:04 the node stopped accepting messages for about 0.5 s, and the console took 14 s to reconnect. The reconnect was fixed (#19 commit 77b703e, deployed 00:11), but the pause's cause is unknown.
+Not verified on the device:
+- Tap direction failed Sam's check (left 10/10, back 5/10, right 5/10), so any tap counts now.
+- No speech comparison of the mic mixes was done.
+- The service's twelve-value `leds`, `pattern` and `board_led` commands were tested only
+  against fakes and the simulator.
 
 ## 3. How Vesper starts
 
-- `vesper.service` is a systemd **user** unit. It starts at login and runs the Python service
-  (`vesper.server`) from the repo's `.venv`, serving the console on loopback port 8799.
-  Chromium opens it in kiosk mode at desktop login. Both come from
-  `scripts/install-service.py --port <serial port> --data <dir> --kiosk` (`docs/INSTALL.md`).
-- The exact ExecStart, serial port and `--data` directory on this Pi were never reported
-  (*unchecked*): see `systemctl --user cat vesper.service`. The repo default for data is
-  `data/console/vesper.sqlite3`. Re-running the installer without `--data` keeps the existing
-  data directory.
-- Control:
-  `systemctl --user status|restart|stop vesper.service`,
-  `journalctl --user -u vesper.service -f`.
-  Stop the service before flashing (`scripts/flash-node.sh` does this and backs up first).
-- Deploying from `main` (the normal path, not what's on the Pi now):
-  `git pull --ff-only`, check out `origin/main` in `../live`, run
-  `python3 scripts/build-demo.py` there, then `systemctl --user restart vesper.service`.
-- Screen blanking is off for good (changed 2026-10-03 01:20, survives reboots), because the
-  node's button can't wake the screen. The console volume was set to 0 on 2026-10-01; it may
-  have been changed since.
+User unit `~/.config/systemd/user/vesper.service`, enabled, starts at boot:
+
+```
+WorkingDirectory=/home/sam/VESPER-9-v0.2.0-Claude/live
+ExecStart=live/.venv/bin/python -m vesper.server
+  --port "/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_*,/dev/serial/by-id/usb-1a86_USB_Single_Serial_*"
+  --data /home/sam/VESPER-9-v0.2.0-Claude/vesper9/data/console
+Restart=on-failure
+```
+
+- The console is at http://localhost:8799 (loopback only). The port patterns pick whichever
+  node is plugged in, which needs #19's service code.
+- Data lives in `vesper9/data/console/vesper.sqlite3` (WAL): 20 scores and 28 app saves at the
+  time of the read. Every deploy first copies it to
+  `vesper9/backups/data-<stamp>-before-<commit>/`.
+- Restart with `systemctl --user restart vesper.service`. Logs:
+  `journalctl --user-unit vesper.service`.
+- Deploy or roll back a commit:
+  `git -C live checkout --detach <commit> && (cd live && python3 scripts/build-demo.py) && systemctl --user restart vesper.service`.
+  Back up the data first.
+- Screen blanking is off (`~/.config/autostart/vesper-no-blank.desktop`), because the node's
+  button can't wake a blanked screen. The Pi runs on a battery pack, has dropped several times,
+  and reboots into the same build.
+- The Pi can't push to GitHub unless Sam is logged in at his desktop (the `gh` token is in his
+  keyring), and `git push` hangs otherwise. Fetching works because the repo is public. When it
+  can't push, the Pi hands over git bundles.
 - Pi-only work: firmware, serial and flashing, the live console, Sam's data, deploys, and the
-  Vosk vocabulary test (`tests/test_commands.py`; voice names must be in the Vosk small model's
-  vocabulary).
+  Vosk vocabulary test (`tests/test_commands.py`).
 
 ## 4. What remains
 
@@ -88,15 +116,20 @@ console.
    are in `docs/handoff/PROJECT.md` §7.
 5. **On the Pi:** redeploy after 1-4 land, then merge #4's new head into #19. Install the
    Encyclopedia after Sam OKs a ~1 GB download (`pip install -e '.[encyclopedia]'`,
-   `scripts/get-encyclopedia.py --data <dir>`). Run the Vosk check for "encyclopedia" and
-   confirm the result for "high bar" (the project notes say it passed; the Pi's report doesn't
-   show it).
-6. **Waiting on Sam:** a playtest of the 01:19 console, an answer on Outpost's second-save
+   `scripts/get-encyclopedia.py --data vesper9/data/console`; neither is done and Sam hasn't
+   been asked). Run the Vosk check for "encyclopedia" and confirm the result for "high bar"
+   (the project notes say it passed; the Pi's report doesn't show it).
+6. **Waiting on Sam:** a playtest of the f3bfacc console, an answer on Outpost's second-save
    starting points, what Pocket Links polish he wants, whether lamp 4 is readable in Echo
    Vault and Glyph Archive, and who merges.
 
 **Known failures.** The Perihelion "planning bot crosses every region" test (seed 3003) fails
-on `main`; PR #1 fixes it. The node's 0.5 s pause has no known cause.
+on `main`; PR #1 fixes it. On the Pi's build, Python `tests/test_catalog_sectors.py`
+`test_tools_are_off_the_dashboard_...` fails: it expects `descent` and `environment` on the
+dashboard, but the merged layout has neither (the drafts disagree on that test).
+On the device, the 98 and 110 Hz game tones register as taps (the
+mute that fixes it is lost; item 3). On 2026-10-03 00:04 UTC the node took no writes for 0.5 s;
+the cause is unknown, and the 14 s reconnect it caused is fixed on #19.
 
 **Recent test results.**
 
@@ -106,6 +139,6 @@ on `main`; PR #1 fixes it. The node's 0.5 s pause has no known cause.
 | Pi, all drafts combined | 2026-10-02 23:33 | 1202 JS and 224 Python pass |
 | Pi, PR #19 branch | 2026-10-02 22:43 | 815 JS and 204 Python pass |
 | #4 head d78cfc0, knock thread | 2026-10-03 01:25 | JS, Python, catalog and browser checks pass, except the Perihelion test |
-| Pi, 01:19 deploy | 2026-10-03 | no counts reported |
+| Pi, console build f3bfacc | 2026-10-03 | 1276/1276 JS; 240/241 Python (the catalog test above) |
 
 The browser suites can't run on the Pi. Nothing in the unfinished list has run on the device.

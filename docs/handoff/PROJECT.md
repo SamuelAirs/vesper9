@@ -70,7 +70,7 @@ Protocol v1 additions (PR #19 and #4, `docs/PROTOCOL.md` on those branches):
   `fleet-notes/START-HERE-DESKTOP.md` has the normal "pull `main` and restart" deploy.
 - **Right now the Pi is not running `main`.** On 2026-10-03 01:19 UTC the Pi session built a
   local integration of every draft PR head (all except #2 Descent) and deployed that, with
-  Sam's saves intact. That integration commit (f3bfacc per the notes) exists only on the Pi; #4, #11, #12 and #16 got new commits after it. See `HANDOFF.md` §1.
+  Sam's saves intact. That integration commit (f3bfacc) exists only on the Pi; #4, #11, #12, #16 and #20 got new commits after it. See `HANDOFF.md` §1.
   Screen blanking is disabled permanently on the Pi.
 - Work split. Cloud/desktop: games, engine, service code, tests, docs, headless browser tests.
   **Pi only:** node firmware, serial and flashing, the live console, Sam's data, deploys, and
@@ -313,3 +313,4 @@ the raw tap-clip zip (its data is in #4's test fixtures) and the original After 
 - `memory/`: the project's memory notes as they stood (MEMORY.md is the index). They were
   written for agents inside the project chat; ids like `cmsg_…` refer to that chat and aren't
   readable from here. Where they differ from this file, this file was checked against GitHub.
+- `pi/`: the Pi's live-state note (`pi-state.md`), a git bundle of the console build f3bfacc, the Pi's bundle script and tap tools, and its log `STATUS.md` (added 2026-10-03 03:15 from the Pi).

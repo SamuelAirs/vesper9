@@ -527,9 +527,123 @@ export const CARTRIDGES = [
     "capabilities": [
       "sensor"
     ]
+  },
+  {
+    "id": "crawlspace",
+    "name": "CRAWLSPACE",
+    "subtitle": "A hammer, a drill, and a deeply unreasonable house.",
+    "description": "A turn-based household roguelike through three increasingly strange levels. Tap to move between swing, brace and drill, then hold and release to act; enemies announce their next move and wait for you. Build synergies from useful junk, choose repairs or risky rooms, defeat the house's three bosses, then try a tougher crawl.",
+    "controls": "TAP: NEXT CARD · HOLD + RELEASE: DO IT · ENEMIES WAIT",
+    "category": "PLAY / ROGUELIKE",
+    "glyph": 4,
+    "factory": "Crawlspace",
+    "voice": [
+      "crawl space"
+    ],
+    "capabilities": [
+      "button",
+      "lights",
+      "audio",
+      "progress"
+    ],
+    "record": {
+      "score": "Score",
+      "floor": "Level",
+      "pests": "Pests cleared",
+      "relics": "Useful finds",
+      "heat": "Heat",
+      "cleared": "House secured"
+    },
+    "icon": "<path d=\"M5 20L24 5L43 20M11 18V28H37V18M4 33H44M11 40H16M23 39L27 43M35 39H40\"/><path d=\"M21 28V19H28V28\"/>"
+  },
+  {
+    "id": "supper",
+    "name": "SUPPER CLUB",
+    "subtitle": "Three pans. One button. A house full of hungry people.",
+    "description": "Run a small supper club through four dinner services. Tap to move between pans and hold and release to cook, plate or clean; the kitchen slows while you hold. Combine rice, greens and eggs into ticketed meals. Limited stock, food freshness and three chosen kitchen upgrades make every service a different balancing act.",
+    "controls": "TAP: NEXT PAN · HOLD + RELEASE: COOK / PLATE · HOLDING SLOWS TIME",
+    "category": "PLAY / STRATEGY",
+    "glyph": 4,
+    "factory": "Supper",
+    "voice": [
+      "supper",
+      "kitchen"
+    ],
+    "capabilities": [
+      "button",
+      "lights",
+      "audio",
+      "progress"
+    ],
+    "record": {
+      "score": "Tips",
+      "meals": "Meals served",
+      "waves": "Services",
+      "waste": "Portions wasted",
+      "stars": "Stars",
+      "won": "Closed happy"
+    },
+    "icon": "<circle cx=\"22\" cy=\"27\" r=\"13\"/><path d=\"M34 32l10 5M15 19h14M17 10V4M24 10V4M31 11V6\"/>"
+  },
+  {
+    "id": "pocketlinks",
+    "name": "POCKET LINKS",
+    "subtitle": "Nine small courses. Big little decisions.",
+    "description": "Play a full nine-hole round with real bank shots, water, rough, ice and sloping greens. Tap to switch a precise putter for a wall-hopping wedge; hold to freeze the aiming arrow and release to choose power. Plan safe routes or daring shortcuts, with three water mulligans for the round.",
+    "controls": "TAP CLUB · HOLD AIM · RELEASE POWER",
+    "category": "PLAY / SPORT",
+    "glyph": 1,
+    "factory": "PocketLinks",
+    "voice": [
+      "golf",
+      "pocket links"
+    ],
+    "capabilities": [
+      "button",
+      "lights",
+      "audio",
+      "progress"
+    ],
+    "record": {
+      "score": "Score",
+      "strokes": "Strokes",
+      "par": "Course par",
+      "holes": "Holes",
+      "birdies": "Birdies or better",
+      "aces": "Holes in one",
+      "mulligans": "Mulligans used"
+    },
+    "icon": "<path d=\"M31 36V9l11 5-11 5\"/><ellipse cx=\"30\" cy=\"37\" rx=\"9\" ry=\"3\"/><circle cx=\"12\" cy=\"32\" r=\"4\"/><path d=\"M15 28l8-8\"/>"
+  },
+  {
+    "id": "nightgrid",
+    "name": "NIGHT GRID",
+    "subtitle": "Keep the neighborhood glowing until dawn.",
+    "description": "Restore three neighborhood circuits through ten storm-night shifts. Invest repair kits in feeders, smart meters and cross-ties, then route limited power using visible demand forecasts. Shops earn supplies, stored water cushions outages, and a stable neighborhood builds your score. Nothing happens until you pick: tap to move between cards, hold and release to pick one.",
+    "controls": "TAP: NEXT CARD · HOLD + RELEASE: PICK · NO TIME LIMIT",
+    "category": "PLAY / STRATEGY",
+    "glyph": 4,
+    "factory": "NightGrid",
+    "voice": [
+      "night grid"
+    ],
+    "capabilities": [
+      "button",
+      "lights",
+      "audio",
+      "progress"
+    ],
+    "record": {
+      "score": "Score",
+      "service": "Service %",
+      "chain": "Stable chain",
+      "result": "Dawn report",
+      "shifts": "Shifts"
+    },
+    "icon": "<path d=\"M24 5V15M9 15H39M9 15V25M24 15V25M39 15V25M9 34H39\"/><rect x=\"4\" y=\"25\" width=\"10\" height=\"14\"/><rect x=\"19\" y=\"25\" width=\"10\" height=\"14\"/><rect x=\"34\" y=\"25\" width=\"10\" height=\"14\"/>"
   }
 ];
-export const SECTORS = [{"name": "VOYAGES", "tagline": "Long games to sink an evening into.", "apps": ["perihelion", "outpost", "drift", "ballista", "tideline"]}, {"name": "ARCADE", "tagline": "Quick runs for sharp hands.", "apps": ["orbit", "ricochet", "runner"]}, {"name": "LAMPS", "tagline": "Played on the three lamps.", "apps": ["reaction"]}, {"name": "MIND", "tagline": "Memory, reading and pattern.", "apps": ["echo", "glyphs"]}, {"name": "TOOLS", "tagline": "Useful things for the desk.", "apps": ["lantern", "cadence", "oracle", "morse"]}, {"name": "LISTEN", "tagline": "What the node hears.", "apps": ["resonance", "transcribe"]}];
+export const SECTORS = [{"name": "VOYAGES", "tagline": "Long games to sink an evening into.", "apps": ["perihelion", "outpost", "drift", "ballista", "tideline"]}, {"name": "ARCADE", "tagline": "Quick runs for sharp hands.", "apps": ["orbit", "ricochet", "runner"]}, {"name": "LAMPS", "tagline": "Played on the three lamps.", "apps": ["reaction"]}, {"name": "MIND", "tagline": "Memory, reading and pattern.", "apps": ["echo", "glyphs"]}, {"name": "AFTER HOURS", "tagline": "Four slower games for the end of the day.", "apps": ["crawlspace", "supper", "pocketlinks", "nightgrid"]}, {"name": "TOOLS", "tagline": "Useful things for the desk.", "apps": ["lantern", "cadence", "oracle", "morse"]}, {"name": "LISTEN", "tagline": "What the node hears.", "apps": ["resonance", "transcribe"]}];
 export const SYSTEM_APPS = ["settings", "diagnostics", "telemetry"];
 export const DEFAULT_SETTINGS = {
   "sound": true,

@@ -1,6 +1,21 @@
 # Candidate acceptance and rollback
 
-No steps in this plan have been executed on the Pi. Development/builds/tests remain on Windows. The next action requiring Sam's agreement is staging and switching a tested candidate for physical acceptance; no firmware flash is needed.
+The trial switch was authorized and completed on 2026-10-03 at 14:44 UTC. The
+Pi now runs release `60adf7ad07fff9e8969af3e1e673cca453493d67` from
+`/home/sam/VESPER-9-v0.2.0-Claude/releases/60adf7ad07fff9e8969af3e1e673cca453493d67/VESPER-9-v0.2.0/vesper9`,
+with a separate `trial-data/` directory beside the extracted release. The original
+`live/` tree and production saves remain intact. Service identity, served source
+hashes, connected node, microphone OFF, loopback listener and Encyclopedia article
+reading passed targeted checks; one refreshed deck browser is connected.
+Physical play acceptance below remains pending. No firmware was changed.
+
+Rollback is prepared on the Pi: run
+`python3 /home/sam/VESPER-9-v0.2.0-Claude/releases/60adf7ad07fff9e8969af3e1e673cca453493d67/deploy.py rollback`
+after closing the trial browser. The helper removes only its exact service
+override, checks the original unit/source/data and preserves trial progress.
+It reopens the deck browser after recovery. This rollback path has been reviewed
+and its prerequisites preserved; a live rollback rehearsal has not been run.
+The steps below describe the rollout procedure and remaining acceptance work.
 
 ## Dependencies before a switch
 

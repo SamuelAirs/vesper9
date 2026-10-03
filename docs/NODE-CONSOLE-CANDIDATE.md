@@ -5,7 +5,19 @@
 > describes the dedicated park/visual/practice/mastery pass; the source and Pi
 > snapshots below remain historical evidence, not a claim of deployment.
 
-This is a Windows-developed candidate for Sam's Raspberry Pi 5. It has **not been deployed**. The last read-only Pi check (2026-10-03 04:54:04 UTC) found the recovered `f3bfaccaf19046d13738fddd96140b20127d0e98` build running; the later polish pass made no Pi connection. Windows/browser results below are software evidence, not physical acceptance or Pi performance measurements.
+**Deployment update, 2026-10-03 14:44 UTC:** Sam authorized the trial. The Pi now
+runs High Bar release `60adf7a` with source hash
+`6cac4052fc319860b7e44458ca277f32f93cf8a40a43a182ad514f5fc083d2bb`.
+The source and five served JS assets were verified against the Windows package.
+Original live source/data remain untouched; the trial has its own verified save
+copy. The connected board remains firmware 0.2.0; no flash occurred. See
+[trial acceptance and rollback](PI-ACCEPTANCE.md). The investigation snapshot
+below predates this deployment; GitHub publication/merge remains separate.
+
+This is a Windows-developed candidate for Sam's Raspberry Pi 5. Before the trial
+switch above, the read-only Pi check at 2026-10-03 04:54:04 UTC found the recovered
+`f3bfaccaf19046d13738fddd96140b20127d0e98` build running. Windows/browser results
+below are software evidence, not physical acceptance or Pi performance measurements.
 
 ## Product decisions
 

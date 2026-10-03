@@ -3,20 +3,21 @@
 The current candidate is developed on Windows in `codex/highbar-refresh`, based
 on the preserved `codex/console-polish` at `0354a35` (and `codex/node-console`
 at `b818558`). The dedicated [High Bar refresh](HIGH-BAR.md) adds park art,
-practice tools, line mastery and bank-time progression saves. It is not deployed. Read
+practice tools, line mastery and bank-time progression saves. Release `60adf7a`
+is now deployed as a save-preserving Pi trial. Read
 [the candidate](NODE-CONSOLE-CANDIDATE.md), [validation](VALIDATION.md),
 [the worklog](WORKLOG.md), and [the trial/rollback plan](PI-ACCEPTANCE.md).
 Earlier release notes describe earlier hardware and must not drive a flash.
 
-## 1. Review and stage one recoverable release
+## 1. Recoverable trial deployed; physical acceptance next
 
-Agree the candidate with Sam before changing the running console. Recheck the
-actual service working directory, source identity, data path and node identity.
-The last read-only Pi snapshot was `live/` at detached `f3bfacc`, separate from
-`vesper9/` main at `5db9ae8`. Preserve both and the exact service configuration.
-Verify the candidate manifest after transfer; use a consistent private copy of
-saves for the trial. No firmware update is needed. All builds and broad tests
-stay on Windows.
+Sam authorized the switch on 2026-10-03. The release manifest, source identity,
+served JS, private save copy and node identity were verified. Original `live/`
+at `f3bfacc`, production saves and the service unit remain intact. The new
+release uses a reversible drop-in and separate trial data. Encyclopedia is ready
+and the full-screen deck browser was refreshed. No firmware update occurred;
+all builds and broad tests remain on Windows. Follow the rollback instructions
+in PI-ACCEPTANCE.md if physical testing finds a regression.
 
 Acceptance: the chosen commit/source hash matches the files actually served by
 the Pi; the service stays loopback-only with one controlling browser, the node

@@ -1,6 +1,6 @@
 # High Bar: parks, flow and line mastery
 
-The full High Bar refresh is a Windows candidate, not deployed to the Pi. High Bar keeps the skate/bowl and rigid-bar swing equations and style-v2 score scale. The button pumps, grabs and tucks; release ollies, launches and straightens. A case tap adds optional style. The default tap uses no direction; calibrated side input only biases the manual correction or shove-it animation. Button-only play can still complete sessions, unlock parks and earn skill medals.
+The full High Bar refresh was developed on Windows and deployed as Pi trial `60adf7a` on 2026-10-03; physical play acceptance is pending. High Bar keeps the skate/bowl and rigid-bar swing equations and style-v2 score scale. The button pumps, grabs and tucks; release ollies, launches and straightens. A case tap adds optional style. The default tap uses no direction; calibrated side input only biases the manual correction or shove-it animation. Button-only play can still complete sessions, unlock parks and earn skill medals.
 
 ## How a line works
 

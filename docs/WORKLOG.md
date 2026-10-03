@@ -456,3 +456,48 @@ exercise the final coaching correction through actual simulated controls.
 CPU-throttled Windows draw p95 was 1.1–1.2 ms across 600 samples per park; this is
 Canvas submission evidence, not a Pi benchmark. Complete 1,533 JS and 35-app
 service/standalone smoke were rerun after the final display correction.
+
+## Authorized Pi trial — 2026-10-03 14:44 UTC
+
+Sam asked to put the tested candidate on the Pi for hands-on testing. Root
+centrally performed the transfer and targeted checks from native Windows;
+one GPT-6.1 Sol agent reviewed the rollout locally without SSH. No Pi builds,
+agents, model inference, broad suites or firmware changes were performed.
+
+Verified the original service still used clean tracked source `f3bfacc`, its
+existing live Python environment and original console data. Preserved that
+source and the exact base service unit. Staged the manifest-verified `60adf7a`
+release ZIP and matching aarch64 CPython 3.13 libzim wheel in a new release
+directory. Installed only the prebuilt wheel into private trial dependencies;
+verified imports and explicit existing speech-model path without loading models.
+Transferred the verified Simple English Wikipedia archive and provenance sidecar.
+
+The first browser-blanking attempt did not disconnect the old tab; the guard
+stopped before changing the service. Closed the identified single deck window
+gracefully instead and confirmed zero clients. Stopped the service, copied its
+private library unchanged, and used SQLite backup for the trial database.
+Quick-check, table counts and settings digest matched; private data had no
+symlinks into original writable storage. The original database hash stayed
+unchanged after the candidate started.
+
+A single service drop-in selects the extracted release, private dependencies,
+explicit existing model path and separate trial data. Base unit, serial globs,
+port and production data stay preserved. The new service reported commit
+`60adf7ad07fff9e8969af3e1e673cca453493d67`, clean source hash
+`6cac4052fc319860b7e44458ca277f32f93cf8a40a43a182ad514f5fc083d2bb`.
+Five served JS hashes matched the release. Only 127.0.0.1:8799 is listening.
+Encyclopedia reports ready and returned a nonempty Guitar article.
+
+Reopened the deck in full-screen Chromium. A follow-up status and screenshot
+confirmed the refreshed dashboard, one client, connected board 2 / firmware
+0.2.0 / four lamps / two microphones, generic tap mode, mic OFF, capture false,
+zero CRC/missing samples and healthy device/timer tasks. Snapshot temperature
+was 59°C with no throttling; this is a brief status check, not a performance test.
+
+Evidence and the reviewed deployment/rollback helper are private under
+`C:/Users/ayers/vesper9-investigation/highbar-refresh/pi-deployment-20261003/`
+and the Pi's release directory. The rollback helper validates the exact owned
+override before removal and checks original served assets, node and data path.
+No rollback rehearsal or physical gameplay validation is claimed. Trial
+progress stays in its own directory; promotion and GitHub publication remain
+separate decisions after Sam's physical acceptance.

@@ -3,7 +3,7 @@
 > High Bar design refresh (2026-10-03): [parks, practice and mastery](docs/HIGH-BAR.md).
 > Finished-node refresh (2026-10-03): [what changed](docs/REFRESH-REPORT.md),
 > [candidate/source status](docs/NODE-CONSOLE-CANDIDATE.md), and
-> [Pi acceptance/rollback](docs/PI-ACCEPTANCE.md). Developed on Windows; not deployed.
+> [Pi acceptance/rollback](docs/PI-ACCEPTANCE.md). Release `60adf7a` is running on the Pi as a save-preserving trial; physical acceptance is pending.
 
 
 **A small signal in the dark.**

@@ -40,11 +40,19 @@ static atomic_bool mic_wanted = false, mic_active = false;
 // coincide with a button edge (the switch clicks) and sends the rest.
 #define KNOCK_GUARD_US 60000
 #define KNOCK_EDGES 32
+// KNOCK_CLIP (two-microphone nodes): both channels around each knock that is sent, so the Pi can
+// tell where on the case it landed. CLIP_PRE frames before the onset, CLIP_FRAMES in all.
+#define CLIP_PRE 32
+#define CLIP_FRAMES 176
 typedef struct {
   int64_t at;
   int32_t peak;
   uint8_t hf;
   uint8_t verdict;
+#if NODE_MICS == 2
+  bool clip_ok;
+  int16_t clip[CLIP_FRAMES * 2]; // left, right pairs
+#endif
 } knock_candidate;
 static atomic_uint knock_threshold = 0;
 static int64_t button_edges[KNOCK_EDGES] = {0};
@@ -428,6 +436,10 @@ static void microphone_task(void *unused) {
   static int32_t raw2[NODE_AUDIO_SAMPLES * 2];
   static int16_t left[NODE_AUDIO_SAMPLES], right[NODE_AUDIO_SAMPLES];
   dc_filter filter2 = {0};
+  // The last RING frames of both channels, indexed by the detector's sample count, so a knock's clip
+  // can be cut when its verdict arrives 90 ms after the onset.
+#define RING 2048
+  static int16_t ring[RING * 2];
 #endif
   uint32_t index = 0;
   // Discard the first 300 ms after enabling (the offset is largest then).
@@ -520,6 +532,11 @@ static void microphone_task(void *unused) {
       right[i] = dc_push(&filter2, raw2[i * 2]);
 #endif
       if (!settle && threshold) {
+#if NODE_MICS == 2
+        const uint32_t slot = (knock.samples % RING) * 2;
+        ring[slot] = value;
+        ring[slot + 1] = right[i];
+#endif
         knock_verdict v = knock_push(&knock, value);
         if (v != KNOCK_NONE)
           verdict = v;
@@ -537,6 +554,18 @@ static void microphone_task(void *unused) {
                            .peak = knock.last_peak,
                            .hf = (uint8_t)knock.last_hf,
                            .verdict = (uint8_t)verdict};
+#if NODE_MICS == 2
+      // The clip starts CLIP_PRE frames before the onset; all of it is still in the ring (the
+      // verdict is 1440 frames after the onset, the ring holds 2048).
+      const uint32_t first = knock.onset - CLIP_PRE, have = knock.samples - first;
+      c.clip_ok = microphone2 && verdict == KNOCK_HIT && have >= CLIP_FRAMES && have <= RING;
+      if (c.clip_ok)
+        for (int f = 0; f < CLIP_FRAMES; f++) {
+          const uint32_t slot = ((first + (uint32_t)f) % RING) * 2;
+          c.clip[f * 2] = ring[slot];
+          c.clip[f * 2 + 1] = ring[slot + 1];
+        }
+#endif
       xQueueSend(knock_queue, &c, 0);
     }
     if (!stream)
@@ -590,6 +619,17 @@ static void knock_decide(const knock_candidate *c) {
   v9_put16(p + 8, (uint16_t)(c->peak > 32767 ? 32767 : c->peak));
   p[10] = c->hf;
   send_message(V9_KNOCK, p, 11, false);
+#if NODE_MICS == 2
+  if (c->clip_ok) {
+    static uint8_t clip[10 + CLIP_FRAMES * 4];
+    v9_put64(clip, (uint64_t)c->at);
+    clip[8] = CLIP_PRE;
+    clip[9] = 2;
+    for (int i = 0; i < CLIP_FRAMES * 2; i++)
+      v9_put16(clip + 10 + i * 2, (uint16_t)c->clip[i]);
+    send_message(V9_KNOCK_CLIP, clip, sizeof(clip), false);
+  }
+#endif
 }
 
 #if NODE_SENSOR
@@ -781,7 +821,7 @@ void app_main(void) {
       button_edge = now;
       button_edges[button_edge_next++ % KNOCK_EDGES] = now;
     }
-    knock_candidate candidate;
+    static knock_candidate candidate; // with a clip it is about 720 bytes: keep it off the main task stack
     if (xQueuePeek(knock_queue, &candidate, 0) == pdTRUE && now >= candidate.at + KNOCK_GUARD_US &&
         xQueueReceive(knock_queue, &candidate, 0) == pdTRUE)
       knock_decide(&candidate);

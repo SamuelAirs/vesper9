@@ -15,6 +15,7 @@ enum {
   V9_ACK = 7,
   V9_KNOCK = 8,
   V9_AUDIO2 = 9,
+  V9_KNOCK_CLIP = 10,
   V9_PING = 16,
   V9_LEDS = 17,
   V9_MIC = 18,

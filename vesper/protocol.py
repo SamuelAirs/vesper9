@@ -23,6 +23,7 @@ class Kind(enum.IntEnum):
     ACK = 7
     KNOCK = 8
     AUDIO2 = 9
+    KNOCK_CLIP = 10
     PING = 16
     LEDS = 17
     MIC = 18

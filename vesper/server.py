@@ -601,7 +601,12 @@ class Console:
             if app == "reaction":
                 if metric not in ("physical", "keyboard", "simulator"):
                     raise ValueError("Reaction score requires a timing source")
-            elif metric != "default" and not (app == "glyphs" and metric in ("scan600", "scan850", "scan1200", "scan1600")):
+            elif metric != "default" and metric not in {
+                "glyphs": ("scan600", "scan850", "scan1200", "scan1600"),
+                "highbar": ("style-v2",),
+                "wayfinder": ("region-0", "region-1", "region-2"),
+                "twinbeat": ("assist", "sides"),
+            }.get(app, ()):
                 raise ValueError("Unknown score class")
             self.store.score(app if metric == "default" else app + ":" + metric, data.get("score"))
             await self.broadcast({"type": "scores", "scores": self.store.scores()})

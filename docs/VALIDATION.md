@@ -2,7 +2,32 @@
 
 > Current finished-node candidate (2026-10-02): see [candidate status and product decisions](NODE-CONSOLE-CANDIDATE.md). Developed and verified on Windows; Pi deployment and physical acceptance remain pending. Older implementation/firmware/sensor notes below describe their historical snapshots.
 
-## Final Windows candidate verification — 2026-10-03
+## Twinbeat follow-up verification — 2026-10-03
+
+The second requested new game, [Twinbeat](TWINBEAT.md), is implemented on the same
+Windows development branch. No Pi access, deployment or firmware change occurred
+in this follow-up. These results supersede the software counts of the initial
+candidate below; its Pi observations remain an earlier read-only snapshot.
+
+| Check | Fresh result |
+| --- | --- |
+| `scripts/check.py` | Exit 0: 274 Python tests, 2 expected skips; 1,421 JS tests pass; catalog freshness passes |
+| Twinbeat deterministic tests | 33/33: eight charts with side/generic/button play, estimated native arrival delay, score/unlock separation, practice, wrong/duplicate taps, cleanup, all three gesture paces during play and across finish |
+| Twinbeat real-host browser | 29/29: timed assist and calibrated simulated-side clears, separate durable scores, reload/unlocks, live calibration status, menu rollback/resume, custom actions, 1024×600 fit, no page errors |
+| Existing browser smoke | 35 registered apps, service and standalone, pass with no page errors |
+| Existing host browser | 34/34 pass, including the preserved low-tone filter and source/score separation |
+| Visual review | Both lanes, home, result, pause/count-in and both manual pages at 1024×600 |
+| Service score regression | Real WebSocket commands, API state and independent database connection verify Twinbeat assist/sides, High Bar style-v2 and Wayfinder region-0/1/2; invalid cross-game classes remain rejected |
+
+Evidence: `C:/Users/ayers/vesper9-investigation/wave/twinbeat-final-check.log`,
+`twinbeat-browser/` and `twinbeat-regressions/`. An initial browser failure exposed
+the missing service score classes; its historical log is retained separately.
+The service simulator needs synthetic left/right calibration before its J/L
+events can exercise the classifier. This establishes the software path only.
+Case accuracy, speaker-induced taps, acoustic timing and Pi rendering still
+require the physical acceptance steps in [PI-ACCEPTANCE.md](PI-ACCEPTANCE.md).
+
+## Initial Windows candidate verification — 2026-10-03
 
 Host: Windows `DESKTOP-FD66EV2`; Python 3.11.5, Node 24.21.0, Chrome 154,
 Playwright 1.57, libzim 3.13.0. Development branch: `codex/node-console` in

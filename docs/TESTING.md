@@ -31,6 +31,12 @@ model-vocabulary check is skipped without a local model, and Windows cannot prov
 the POSIX graceful-SIGTERM check. GitHub CI defines Windows/Linux jobs; local
 results do not imply that remote CI has run.
 
+The browser runner also includes `--only twinbeat-browser` for the two-lane
+drumming game's actual host routing, separate assist/side records, progression,
+pause/resume and 1024×600 layout. These use simulated/keyboard input and private
+data, not the physical microphones. `tests/twinbeat.test.mjs` covers chart timing,
+judgement and campaign rules deterministically.
+
 Each browser test starts its own loopback service on a free port and temporary
 database. Port 8799 is rejected as an explicit test port. Cleanup terminates only
 that test's owned process tree, including the Windows Python venv launcher, before

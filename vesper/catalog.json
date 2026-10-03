@@ -37,7 +37,8 @@
         "orbit",
         "ricochet",
         "runner",
-        "highbar"
+        "highbar",
+        "twinbeat"
       ]
     },
     {
@@ -346,6 +347,22 @@
         "combo": "Best combo",
         "park": "Park"
       }
+    },
+    {
+      "id": "twinbeat",
+      "scoreMetric": "sides",
+      "scoreLabel": "TWO-SIDE",
+      "name": "TWINBEAT",
+      "subtitle": "Two lanes. Four lamps. Find your rhythm.",
+      "description": "Drum the left and right sides of the node as notes reach the strike line. Eight original rhythm levels build from steady beats to syncopation and changing patterns, with saved progress and replay medals. Calibrated two-side play and generic tap/button assist keep separate records; practice is unranked.",
+      "controls": "LEFT / RIGHT CASE: DRUM · GENERIC / BUTTON: ASSIST · MENUS: TAP NEXT, HOLD SELECT",
+      "category": "PLAY / RHYTHM",
+      "glyph": 5,
+      "factory": "Twinbeat",
+      "voice": ["twin beat", "drums", "drumming"],
+      "capabilities": ["button", "knock", "lights", "audio", "progress"],
+      "icon": "<path d=\"M12 5V33M36 5V33M5 35H43\"/><rect x=\"7\" y=\"13\" width=\"10\" height=\"5\"/><rect x=\"31\" y=\"23\" width=\"10\" height=\"5\"/><circle cx=\"12\" cy=\"40\" r=\"3\"/><circle cx=\"36\" cy=\"40\" r=\"3\"/>",
+      "record": {"score": "Score", "level": "Level", "accuracy": "Accuracy", "combo": "Best streak"}
     },
     {
       "id": "wayfinder",

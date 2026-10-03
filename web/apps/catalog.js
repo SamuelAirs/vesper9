@@ -259,6 +259,37 @@ export const CARTRIDGES = [
     }
   },
   {
+    "id": "twinbeat",
+    "scoreMetric": "sides",
+    "scoreLabel": "TWO-SIDE",
+    "name": "TWINBEAT",
+    "subtitle": "Two lanes. Four lamps. Find your rhythm.",
+    "description": "Drum the left and right sides of the node as notes reach the strike line. Eight original rhythm levels build from steady beats to syncopation and changing patterns, with saved progress and replay medals. Calibrated two-side play and generic tap/button assist keep separate records; practice is unranked.",
+    "controls": "LEFT / RIGHT CASE: DRUM · GENERIC / BUTTON: ASSIST · MENUS: TAP NEXT, HOLD SELECT",
+    "category": "PLAY / RHYTHM",
+    "glyph": 5,
+    "factory": "Twinbeat",
+    "voice": [
+      "twin beat",
+      "drums",
+      "drumming"
+    ],
+    "capabilities": [
+      "button",
+      "knock",
+      "lights",
+      "audio",
+      "progress"
+    ],
+    "icon": "<path d=\"M12 5V33M36 5V33M5 35H43\"/><rect x=\"7\" y=\"13\" width=\"10\" height=\"5\"/><rect x=\"31\" y=\"23\" width=\"10\" height=\"5\"/><circle cx=\"12\" cy=\"40\" r=\"3\"/><circle cx=\"36\" cy=\"40\" r=\"3\"/>",
+    "record": {
+      "score": "Score",
+      "level": "Level",
+      "accuracy": "Accuracy",
+      "combo": "Best streak"
+    }
+  },
+  {
     "id": "wayfinder",
     "scoreMetric": "region-0",
     "scoreLabel": "SCOUT",
@@ -787,7 +818,7 @@ export const CARTRIDGES = [
     ]
   }
 ];
-export const SECTORS = [{"name": "VOYAGES", "tagline": "Long games to sink an evening into.", "apps": ["perihelion", "outpost", "drift", "ballista", "wayfinder"]}, {"name": "ARCADE", "tagline": "Quick runs for sharp hands.", "apps": ["orbit", "ricochet", "runner", "highbar"]}, {"name": "LAMPS", "tagline": "Four lamps. Read the signal.", "apps": ["meridian", "relay", "reaction"]}, {"name": "MIND", "tagline": "Memory, reading and pattern.", "apps": ["echo", "glyphs"]}, {"name": "AFTER HOURS", "tagline": "Four slower games for the end of the day.", "apps": ["crawlspace", "supper", "pocketlinks", "nightgrid"]}, {"name": "TOOLS", "tagline": "Useful things for the desk.", "apps": ["lantern", "cadence", "oracle", "morse", "library", "encyclopedia"]}, {"name": "LISTEN", "tagline": "What the node hears.", "apps": ["resonance", "transcribe"]}];
+export const SECTORS = [{"name": "VOYAGES", "tagline": "Long games to sink an evening into.", "apps": ["perihelion", "outpost", "drift", "ballista", "wayfinder"]}, {"name": "ARCADE", "tagline": "Quick runs for sharp hands.", "apps": ["orbit", "ricochet", "runner", "highbar", "twinbeat"]}, {"name": "LAMPS", "tagline": "Four lamps. Read the signal.", "apps": ["meridian", "relay", "reaction"]}, {"name": "MIND", "tagline": "Memory, reading and pattern.", "apps": ["echo", "glyphs"]}, {"name": "AFTER HOURS", "tagline": "Four slower games for the end of the day.", "apps": ["crawlspace", "supper", "pocketlinks", "nightgrid"]}, {"name": "TOOLS", "tagline": "Useful things for the desk.", "apps": ["lantern", "cadence", "oracle", "morse", "library", "encyclopedia"]}, {"name": "LISTEN", "tagline": "What the node hears.", "apps": ["resonance", "transcribe"]}];
 export const SYSTEM_APPS = ["settings", "diagnostics", "telemetry"];
 export const DEFAULT_SETTINGS = {
   "sound": true,

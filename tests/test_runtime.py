@@ -209,6 +209,31 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.console.settings['gesturePace'], 'standard')
         self.assertEqual(self.console.store.get('progress')['morse']['correct'], 7)
 
+    async def test_candidate_score_classes_persist_separately_through_service(self):
+        classes = {'highbar': ['style-v2'], 'wayfinder': ['region-0', 'region-1', 'region-2'],
+                   'twinbeat': ['assist', 'sides']}
+        expected = {}
+        self.console.store.score('highbar', 999999)
+        for app, metrics in classes.items():
+            for index, metric in enumerate(metrics):
+                score = 1000 + index
+                reply = await self.command('score', app=app, metric=metric, score=score)
+                self.assertTrue(reply['ok'], (app, metric, reply))
+                self.assertTrue((await self.command('score', app=app, metric=metric, score=1))['ok'])
+                expected[app + ':' + metric] = score
+        for app, metric in [('orbit', 'sides'), ('twinbeat', 'region-0'),
+                            ('wayfinder', 'region-3'), ('highbar', 'assist')]:
+            self.assertFalse((await self.command('score', app=app, metric=metric, score=9000))['ok'])
+        state = await (await self.client.get('/api/state')).json()
+        self.assertEqual(state['scores'], {'highbar': 999999, **expected})
+        # An independent database connection verifies durable scores rather than
+        # only the browser's optimistic state or the service's response object.
+        reopened = Store(self.temporary.name)
+        try:
+            self.assertEqual(reopened.scores(), {'highbar': 999999, **expected})
+        finally:
+            reopened.close()
+
     async def test_reaction_score_classes_preserve_ambiguous_legacy_record(self):
         self.console.store.score('reaction', 999)
         self.assertFalse((await self.command('score', app='reaction', score=800))['ok'])

@@ -1270,6 +1270,11 @@ export class Vesper {
         this.hostLamps.touch(performance.now());
         this.input.knock(e);
         break;
+      case "tap_direction":
+        // Calibration changes must reach subsequently launched apps without a
+        // page reload, including clearing a calibration that was previously ready.
+        this.state.tapDirection = e;
+        break;
       case "sensor":
         this.state.sensor = e;
         this.status();

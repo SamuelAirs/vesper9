@@ -12,53 +12,65 @@
     "tempUnit": "F",
     "tempOffset": 0,
     "lampLevel": "medium",
-    "lampAmbient": true
+    "lampAmbient": true,
+    "latencyMs": 0,
+    "renderQuality": "auto"
   },
   "sectors": [
     {
-      "name": "PLAY",
+      "name": "VOYAGES",
+      "tagline": "Long games to sink an evening into.",
       "apps": [
         "perihelion",
-        "orbit",
-        "runner",
-        "pulsar",
-        "tideline"
-      ]
-    },
-    {
-      "name": "PLAY II",
-      "apps": [
-        "drift",
-        "descent",
-        "ballista",
-        "ricochet",
-        "helix"
-      ]
-    },
-    {
-      "name": "PLAY III",
-      "apps": [
         "outpost",
-        "reaction",
+        "drift",
+        "ballista"
+      ]
+    },
+    {
+      "name": "ARCADE",
+      "tagline": "Quick runs for sharp hands.",
+      "apps": [
+        "orbit",
+        "ricochet",
+        "runner"
+      ]
+    },
+    {
+      "name": "LAMPS",
+      "tagline": "Played on the three lamps.",
+      "apps": [
+        "meridian",
+        "relay",
+        "reaction"
+      ]
+    },
+    {
+      "name": "MIND",
+      "tagline": "Memory, reading and pattern.",
+      "apps": [
         "echo",
         "glyphs"
       ]
     },
     {
-      "name": "INSTRUMENTS",
+      "name": "TOOLS",
+      "tagline": "Useful things for the desk.",
       "apps": [
-        "morse",
+        "lantern",
         "cadence",
-        "transcribe",
-        "environment"
+        "oracle",
+        "morse",
+        "library",
+        "encyclopedia"
       ]
     },
     {
-      "name": "INSTRUMENTS II",
+      "name": "LISTEN",
+      "tagline": "What the node hears.",
       "apps": [
-        "lantern",
         "resonance",
-        "oracle"
+        "transcribe"
       ]
     }
   ],
@@ -245,9 +257,7 @@
         "sites": "Sites cleared",
         "fuel": "Best fuel left %"
       },
-      "voice": [
-        "lander"
-      ],
+      "voice": [],
       "capabilities": [
         "button",
         "lights",
@@ -342,9 +352,7 @@
       "category": "PLAY / ANGLING",
       "glyph": 2,
       "factory": "Tideline",
-      "voice": [
-        "fishing"
-      ],
+      "voice": [],
       "capabilities": [
         "button",
         "lights",
@@ -444,9 +452,7 @@
       "category": "INSTRUMENT / ENVIRONMENT",
       "glyph": 4,
       "factory": "Environment",
-      "voice": [
-        "environment"
-      ],
+      "voice": [],
       "capabilities": [
         "sensor"
       ]

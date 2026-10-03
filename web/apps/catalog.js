@@ -182,9 +182,7 @@ export const CARTRIDGES = [
       "sites": "Sites cleared",
       "fuel": "Best fuel left %"
     },
-    "voice": [
-      "lander"
-    ],
+    "voice": [],
     "capabilities": [
       "button",
       "lights",
@@ -279,9 +277,7 @@ export const CARTRIDGES = [
     "category": "PLAY / ANGLING",
     "glyph": 2,
     "factory": "Tideline",
-    "voice": [
-      "fishing"
-    ],
+    "voice": [],
     "capabilities": [
       "button",
       "lights",
@@ -381,9 +377,7 @@ export const CARTRIDGES = [
     "category": "INSTRUMENT / ENVIRONMENT",
     "glyph": 4,
     "factory": "Environment",
-    "voice": [
-      "environment"
-    ],
+    "voice": [],
     "capabilities": [
       "sensor"
     ]
@@ -533,7 +527,7 @@ export const CARTRIDGES = [
     ]
   }
 ];
-export const SECTORS = [{"name": "PLAY", "apps": ["perihelion", "orbit", "runner", "pulsar", "tideline"]}, {"name": "PLAY II", "apps": ["drift", "descent", "ballista", "ricochet", "helix"]}, {"name": "PLAY III", "apps": ["outpost", "reaction", "echo", "glyphs"]}, {"name": "INSTRUMENTS", "apps": ["morse", "cadence", "transcribe", "environment"]}, {"name": "INSTRUMENTS II", "apps": ["lantern", "resonance", "oracle"]}];
+export const SECTORS = [{"name": "VOYAGES", "tagline": "Long games to sink an evening into.", "apps": ["perihelion", "outpost", "drift", "ballista"]}, {"name": "ARCADE", "tagline": "Quick runs for sharp hands.", "apps": ["orbit", "ricochet", "runner"]}, {"name": "LAMPS", "tagline": "Played on the three lamps.", "apps": ["reaction"]}, {"name": "MIND", "tagline": "Memory, reading and pattern.", "apps": ["echo", "glyphs"]}, {"name": "TOOLS", "tagline": "Useful things for the desk.", "apps": ["lantern", "cadence", "oracle", "morse"]}, {"name": "LISTEN", "tagline": "What the node hears.", "apps": ["resonance", "transcribe"]}];
 export const SYSTEM_APPS = ["settings", "diagnostics", "telemetry"];
 export const DEFAULT_SETTINGS = {
   "sound": true,
@@ -547,5 +541,7 @@ export const DEFAULT_SETTINGS = {
   "tempUnit": "F",
   "tempOffset": 0,
   "lampLevel": "medium",
-  "lampAmbient": true
+  "lampAmbient": true,
+  "latencyMs": 0,
+  "renderQuality": "auto"
 };

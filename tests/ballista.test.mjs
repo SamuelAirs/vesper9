@@ -1,471 +1,791 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  Ballista, buildStation, flightTick, launchProbe, robustShot, hitsTarget, sweepAngle, powerAt,
-  RISE, MIN_HOLD, SWEEP,
+  Ballista, migrateSave, dailyGoal, loadout, zoneAt, sweepAngle, powerAt, timeToGround,
+  ZONES, UPGRADES, PODS, FEATS, MODULES, SLOTS, SLOT3_MODS, M, RISE, MIN_HOLD, SKIP_WIN, EARLY_WIN, LATE_WIN,
+  contractText, contractProgress, chainMult, salvageFor, upCost, MARK_SPEED, slotLabel,
 } from "../web/apps/ballista.js";
 import { Random } from "../web/engine/math.js";
 import { appContext, fakeCanvas, run } from "./helpers/app-context.mjs";
+import { playRun, campaign, shop } from "./helpers/ballista-bot.mjs";
 
 const F = 1 / 60;
-const MAX_STEPS = 60 * 60 * 15; // fifteen simulated minutes
-
-// A bot that plays like a careful human: it reads the wind and the target, picks the press
-// moment and hold length that hit with the most room for error, then adds timing jitter.
-function plan(app) {
-  const s = app.site, ti = s.targets.findIndex((t) => !t.hit);
-  const tryShot = (d, h) => {
-    const p = s.fixedPower || h / (RISE * 60);
-    if (h < 11 || p > 1) return false;
-    return hitsTarget(s, ti, sweepAngle(s, app.sweepT + d * F), p, app.wind, app.st + (d + h) * F);
-  };
-  let any = null;
-  for (let d = 0; d <= Math.ceil(SWEEP * 60); d += 2) {
-    const hs = s.fixedPower ? [Math.ceil(RISE * 60)] : Array.from({ length: 30 }, (_, i) => Math.round((0.1 + 0.03 * i) * RISE * 60));
-    for (const h of hs) {
-      if (!tryShot(d, h)) continue;
-      const solid = s.fixedPower
-        ? tryShot(d - 1, h) && tryShot(d + 1, h)
-        : tryShot(d, h - 2) && tryShot(d, h + 2) && tryShot(d - 1, h) && tryShot(d + 1, h);
-      if (solid) return { d, h };
-      any ||= { d, h };
-    }
-  }
-  return any;
+const tap = (app) => { app.down(); app.up(); };
+function hold(app, seconds) { app.down(); run(app, seconds); app.up(); }
+// The workshop line `id` for this save (lines that do nothing yet are hidden).
+const row = (app, id) => { const i = app.rows().indexOf(id); assert.ok(i >= 0, id + " is not shown"); return i; };
+const mount = (options = {}) => { const ctx = appContext({ seed: 11, ...options }); return { ctx, app: new Ballista(ctx) }; };
+// Starts a run and fires at `angle` with full power.
+function fire(app, angle = 40) {
+  if (app.phase !== "aim") tap(app);
+  for (let i = 0; i < 400 && Math.abs(app.angle - angle) > 1.5; i++) app.update(F);
+  app.down();
+  for (let i = 0; i < 200 && app.power < 0.97; i++) app.update(F);
+  app.up();
 }
-
-// A press and release, as the host sends them.
-const tapButton = (app) => { app.down({ source: "keyboard" }); app.up({ source: "keyboard", durationMs: 60 }); };
-
-function play(options = {}) {
-  const ctx = appContext({ seed: options.seed ?? 7 });
-  const app = new Ballista(ctx);
-  const mode = options.mode || "bot";
-  const jitter = new Random((options.seed ?? 7) * 31 + 5);
-  const jd = options.jd ?? Number(process.env.BALLISTA_JD ?? 3), jh = options.jh ?? Number(process.env.BALLISTA_JH ?? 5);
-  let steps = 0, pending = null, wait = 0, holding = 0, idle = 0;
-  const press = () => app.down({ source: "keyboard" });
-  const release = (ms) => app.up({ source: "keyboard", durationMs: ms });
-  press();
-  release(60);
-  while (steps < (options.max ?? MAX_STEPS) && app.phase !== "over") {
-    steps++;
-    if (app.phase === "play") {
-      idle = 0;
-      if (mode === "bot" && !app.flight && !app.charging) {
-        if (!pending) {
-          pending = plan(app) || { d: jitter.int(0, 200), h: jitter.int(15, 90) };
-          pending = { d: Math.max(0, pending.d + jitter.int(-jd, jd)), h: Math.max(12, pending.h + jitter.int(-jh, jh)) };
-          wait = pending.d;
-        }
-        if (wait === 0 && !app.btn) { press(); holding = pending.h; }
-        else if (wait > 0) wait--;
-      } else if (mode === "random" && !app.flight && !app.charging && !app.btn && steps % 90 === 0) {
-        press();
-        holding = jitter.int(15, 200);
-      } else if (mode === "taps" && !app.btn && steps % 30 === 0) {
-        press();
-        holding = 4;
-      }
-      if (app.btn) {
-        holding--;
-        if (holding <= 0) { release(100); pending = null; }
-      }
-    } else {
-      if (app.btn) release(50);
-      pending = null;
-      idle++;
-      if (app.phase !== "brief" && idle > 120) { press(); release(50); idle = 0; }
-    }
-    app.update(F);
-    if (options.onStep) options.onStep(app, ctx);
-    if (options.stopAtStation && app.stationNo > options.stopAtStation) break;
-  }
-  return { app, ctx, steps };
+function finite(value, path = "app") {
+  if (typeof value === "number") assert.ok(Number.isFinite(value), path + " is " + value);
+  else if (ArrayBuffer.isView(value)) value.forEach((v, i) => assert.ok(Number.isFinite(v), path + "[" + i + "]"));
+  else if (Array.isArray(value)) value.forEach((v, i) => finite(v, path + "[" + i + "]"));
+  else if (value && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) for (const k of Object.keys(value)) finite(value[k], path + "." + k);
 }
+const plainState = (app) => Object.fromEntries(Object.entries(app).filter(([k, v]) => !["c", "guard"].includes(k) && typeof v !== "function"));
+const validLamps = (values) => values.length === 9 && values.every((v) => Number.isInteger(v) && v >= 0 && v <= 255);
 
-test("generated stations are always solvable, across seeds and station numbers", () => {
-  let fallbacks = 0, worstMs = 0, count = 0;
-  for (const seed of [1, 2]) { // two seeds of 30 stations: trimmed from three to keep the suite quick
-    const rng = new Random(seed);
-    for (let no = 1; no <= 30; no++) {
-      const t0 = Date.now();
-      const s = buildStation(no, rng);
-      worstMs = Math.max(worstMs, Date.now() - t0);
-      count++;
-      if (s.fallback) fallbacks++;
-      // a finer proof than the one used to build it: nine winds and four phases of any moving target
-      const winds = s.windA ? [-1, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1].map((k) => k * s.windA) : [0];
-      s.targets.forEach((tg, ti) => {
-        for (const w of winds) {
-          for (const ph of tg.amp ? [0, 1.5, 3, 4.5] : [0]) {
-            assert.ok(robustShot(s, ti, w, ph), `seed ${seed} station ${no} target ${ti} wind ${w} phase ${ph}`);
-          }
-        }
-        assert.ok(tg.cx - tg.amp > 250 && tg.cx + tg.amp + tg.r < 940);
-      });
-    }
-  }
-  assert.equal(count, 60);
-  assert.equal(fallbacks, 0);
-  assert.ok(worstMs < 1500, "worst build " + worstMs + " ms");
-});
+// ---- the pieces --------------------------------------------------------------------------------
 
-test("station 1 teaches power (any angle in its sweep works); station 2 teaches angle with preset power", () => {
-  for (const seed of [4, 5, 6]) {
-    const s1 = buildStation(1, new Random(seed));
-    assert.equal(s1.windA, 0);
-    assert.ok(s1.aHi - s1.aLo <= 10 && s1.targets[0].r >= 50);
-    for (let a = s1.aLo + 0.5; a < s1.aHi; a += 1) {
-      assert.ok(robustShot({ ...s1, aLo: a - 0.5, aHi: a + 0.5 }, 0, 0, 0, 1), "angle " + a);
-    }
-    const s2 = buildStation(2, new Random(seed));
-    assert.ok(s2.fixedPower > 0 && s2.windA === 0 && s2.aHi - s2.aLo >= 60);
-    // whatever the hold past the preset, the power stays at the preset, so only the angle is a decision
-    assert.equal(powerAt(RISE * 3, s2.fixedPower), s2.fixedPower);
-    assert.equal(powerAt(RISE * 5, s2.fixedPower), s2.fixedPower);
-    const wins = [];
-    for (let a = s2.aLo; a <= s2.aHi; a += 0.5) if (hitsTarget(s2, 0, a, s2.fixedPower, 0, 0)) wins.push(a);
-    assert.ok(wins.length > 0 && wins.length < (s2.aHi - s2.aLo) * 1.4, "the angle matters: " + wins.length);
-  }
-});
-
-test("the power meter peaks and falls, so holding too long is not best", () => {
+test("the aim sweeps inside its range and the power meter rises, peaks at RISE and falls", () => {
+  for (let t = 0; t < 6; t += 0.05) { const a = sweepAngle(t); assert.ok(a >= 14 - 1e-9 && a <= 74 + 1e-9); }
   assert.equal(powerAt(0), 0);
   assert.ok(Math.abs(powerAt(RISE) - 1) < 1e-9);
-  assert.ok(powerAt(RISE * 1.5) < powerAt(RISE * 1.1) && powerAt(RISE * 1.1) < 1);
-  assert.ok(powerAt(RISE * 2 - 0.01) < 0.02);
+  assert.ok(powerAt(RISE * 1.5) < 0.6);
+  assert.ok(Math.abs(powerAt(RISE * 2)) < 1e-9);
 });
 
-test("physics is exact at the fixed step: constant gravity, wind as a constant acceleration", () => {
-  const s = { ...buildStation(1, new Random(1)), targets: [] };
-  s.g = 300;
-  const pr = launchProbe(s, 50, 0.6, 20);
-  const { x, y, vx, vy } = pr;
-  const N = 90;
-  for (let i = 0; i < N; i++) assert.ok(flightTick(s, pr, 0, -1) <= 2);
-  assert.ok(Math.abs(pr.vx - (vx + 20 * N * F)) < 1e-9 && Math.abs(pr.vy - (vy - 300 * N * F)) < 1e-9);
-  let ex = x, ey = y, evx = vx, evy = vy;
-  for (let i = 0; i < N; i++) { evx += 20 * F; ex += evx * F; evy -= 300 * F; ey += evy * F; }
-  assert.ok(Math.abs(pr.x - ex) < 1e-6 && Math.abs(pr.y - ey) < 1e-6);
+test("zones start where they say, and every upgrade level makes the pod better", () => {
+  ZONES.forEach((z, i) => { assert.equal(zoneAt(z.from), i); if (i) assert.equal(zoneAt(z.from - 1), i - 1); });
+  const a = loadout([0, 0, 0, 0, 0], 0), b = loadout([5, 5, 5, 5, 5], 0);
+  assert.ok(b.vmax > a.vmax && b.kicks > a.kicks && b.e > a.e && b.drag < a.drag && b.magnet > a.magnet);
+  for (const u of UPGRADES) { assert.equal(u.cost.length, 5); u.cost.forEach((c, i) => i && assert.ok(c > u.cost[i - 1])); }
+  for (const p of PODS.slice(1)) assert.ok(FEATS.some((f) => f.id === p.need && !f.hidden), p.name + " is earned by a listed feat");
 });
 
-test("a competent bot clears many stations and scores far above random shots", () => {
-  const rows = [];
-  for (const seed of [3, 7, 11, 19]) {
-    const good = play({ seed });
-    const random = play({ seed, mode: "random" });
-    rows.push([seed, good.app.total, good.app.cleared, good.app.shots, good.app.hits, good.app.phase, random.app.total, random.app.cleared]);
-    assert.ok(good.app.cleared >= 10, `seed ${seed} stations ${good.app.cleared}`);
-    assert.ok(good.app.total > 3 * Math.max(1, random.app.total), `seed ${seed} ${good.app.total} vs ${random.app.total}`);
-    assert.equal(random.app.phase, "over", "random shots end the run");
-  }
-  if (process.env.BALLISTA_REPORT) console.log(JSON.stringify(rows));
+test("time to the ground is right for a falling body", () => {
+  // from 100 px falling at 200 px/s: 100 = 200t + 210t^2
+  const t = timeToGround(100, -200);
+  assert.ok(Math.abs(200 * t + 0.5 * 420 * t * t - 100) < 1e-6);
+  assert.equal(timeToGround(0, 0), 0);
 });
 
-test("the first stations are learnable: a sloppy bot still clears stations 1 to 3", () => {
-  for (const seed of [5, 9]) {
-    const { app } = play({ seed, stopAtStation: 3 });
-    assert.ok(app.stationNo > 3 && app.phase !== "over", `seed ${seed}`);
-  }
+// ---- input and flow --------------------------------------------------------------------------
+
+test("title: a tap starts a run, a hold opens the workshop; a short press in the aim fires nothing", () => {
+  const { app } = mount();
+  assert.equal(app.phase, "title");
+  hold(app, 0.6);
+  assert.equal(app.phase, "shop");
+  const b = mount().app;
+  tap(b);
+  assert.equal(b.phase, "aim");
+  b.down(); run(b, MIN_HOLD - 0.05); b.up();
+  assert.equal(b.phase, "aim", "a short press launched");
+  hold(b, 0.5);
+  assert.equal(b.phase, "fly");
+  assert.ok(b.p.vx > 0 && b.p.vy > 0);
 });
 
-test("a run ends in a loss with a saved record", () => {
-  const { app, ctx } = play({ mode: "random", seed: 2 });
-  assert.equal(app.phase, "over");
-  assert.equal(ctx.calls.saved.length, 1);
-  const last = ctx.calls.saved[0].last;
-  assert.equal(last.score, app.total);
-  assert.equal(typeof last.stations, "number");
-  assert.ok(ctx.calls.hint.length > 3);
-});
-
-test("stray quick taps all run long never end the run", () => {
-  const { app } = play({ mode: "taps", seed: 3, max: 60 * 120 });
-  assert.equal(app.phase, "play");
-  assert.equal(app.shots, 0);
-});
-
-test("numeric state stays finite, lists stay bounded, lamps are nine whole bytes that change", () => {
-  const seen = new Set();
-  const { ctx } = play({
-    seed: 23,
-    onStep(app, c) {
-      for (const v of [app.wind, app.hold, app.power, app.st, app.total, app.angle]) assert.ok(Number.isFinite(v));
-      if (app.flight) for (const v of [app.flight.x, app.flight.y, app.flight.vx, app.flight.vy]) assert.ok(Number.isFinite(v));
-      assert.ok(app.traces.length === 3 && app.traces.every((t) => t.n <= 400));
-      assert.ok(app.sfx.length <= 12 && app.site.targets.length <= 3 && app.site.bumps.length <= 3);
-      const l = c.calls.leds.at(-1);
-      if (l) seen.add(l.join(","));
-    },
-  });
-  for (const v of ctx.calls.leds) {
-    assert.equal(v.length, 9);
-    for (const c of v) assert.ok(Number.isInteger(c) && c >= 0 && c <= 255);
-  }
-  assert.ok(seen.size > 40, "lamps change during play: " + seen.size);
-});
-
-function started(seed = 1) {
-  const ctx = appContext({ seed });
-  const app = new Ballista(ctx);
-  app.down(); app.up();
-  run(app, 3);
-  assert.equal(app.phase, "play");
-  return { ctx, app };
-}
-const lastLeds = (ctx) => ctx.calls.leds.at(-1);
-const sum = (v) => v.reduce((a, b) => a + b, 0);
-
-test("short taps launch nothing and cost nothing; three stray taps then cancel() leave the run intact", () => {
-  const { ctx, app } = started(3);
-  const probes = app.probes;
-  for (let i = 0; i < 3; i++) {
-    app.down({ source: "node" });
-    run(app, 0.05);
-    app.up({ source: "node", durationMs: 50 });
-    run(app, 0.2);
-  }
-  assert.equal(app.shots, 0);
-  assert.equal(app.probes, probes);
-  assert.equal(app.flight, null);
-  // the fourth tap opens the menu: the host then cancels
-  app.down({ source: "node" });
-  app.cancel();
-  assert.equal(app.phase, "play");
-  assert.equal(app.probes, probes);
-  assert.equal(app.shots, 0);
-  const tones = ctx.calls.tone.length;
-  // a hold past the threshold does launch
-  app.down();
-  run(app, MIN_HOLD + 0.05);
-  app.up();
-  assert.equal(app.shots, 1);
-  assert.equal(app.probes, probes - 1);
-  assert.ok(ctx.calls.tone.length > tones);
-});
-
-test("the press fixes the angle where the sweep is at that instant", () => {
-  const { app } = started(4);
-  run(app, 0.7);
-  const expect = sweepAngle(app.site, app.sweepT);
-  app.down();
-  assert.ok(Math.abs(app.angle - expect) < 1e-9);
-  const locked = app.angle;
-  run(app, 1);
-  assert.equal(app.angle, locked);
-  app.up();
-  assert.ok(Math.abs(app.last.angle - locked) < 1e-9);
-});
-
-test("lamps while aiming: a spot of light follows the sweep from left to right", () => {
-  const { ctx, app } = started(5);
-  const centre = (l) => {
-    const w = [l[0] + l[1] + l[2], l[3] + l[4] + l[5], l[6] + l[7] + l[8]];
-    return (w[1] + 2 * w[2]) / Math.max(1, w[0] + w[1] + w[2]);
-  };
-  let lo = 9, hi = -9;
-  for (let i = 0; i < SWEEP * 60; i++) {
-    run(app, F);
-    const c = centre(lastLeds(ctx));
-    lo = Math.min(lo, c);
-    hi = Math.max(hi, c);
-  }
-  assert.ok(lo < 0.3 && hi > 1.7, `spot travelled ${lo.toFixed(2)}..${hi.toFixed(2)}`);
-});
-
-test("lamps while charging fill green, amber, red from the left, then drain past the peak", () => {
-  const { ctx, app } = started(6);
-  assert.equal(app.site.fixedPower, 0);
-  app.down();
-  const to = (sec) => { run(app, sec - app.hold); return lastLeds(ctx); };
-  let l = to(0.3);
-  assert.ok(l[1] > l[0] * 2 && l[1] > 40 && sum(l.slice(3)) === 0, "first lamp green only: " + l);
-  l = to(0.8);
-  assert.ok(l[1] > 80 && l[3] > 40 && l[3] > l[4] && sum(l.slice(6)) === 0, "green and amber: " + l);
-  l = to(RISE * 0.95);
-  assert.ok(l[6] > 60 && l[6] > l[7] * 5 && l[3] > l[4], "all three, last one red: " + l);
-  let flashed = false, peak = 0;
-  for (let i = 0; i < 20; i++) { run(app, F); peak = Math.max(peak, sum(lastLeds(ctx))); if (app.flash > 0) flashed = true; }
-  assert.ok(flashed && app.peaked, "the peak is marked");
+test("the angle is fixed by the press and the speed by the release", () => {
+  const { app } = mount();
+  tap(app);
   run(app, 0.4);
-  let min = 1e9;
-  for (let i = 0; i < 30; i++) { run(app, F); min = Math.min(min, sum(lastLeds(ctx))); }
-  assert.ok(min < peak * 0.6, `the fill drains after the peak: ${min} vs ${peak}`);
-  app.cancel();
-});
-
-function fireAt(app, shot) {
-  const s = app.site;
-  let guard = 0;
-  while (Math.abs(sweepAngle(s, app.sweepT) - shot.angle) > 0.3 && guard++ < 2000) run(app, F);
   app.down();
-  run(app, shot.power * RISE);
+  const angle = app.angle;
+  run(app, RISE * 0.5);
+  assert.equal(app.angle, angle, "the barrel moved while charging");
   app.up();
-}
-
-test("lamps in flight follow the probe toward the target; a hit flashes all three", () => {
-  const { ctx, app } = started(8);
-  const tg = app.site.targets[0];
-  fireAt(app, robustShot(app.site, 0, 0, 0));
-  assert.ok(app.flight);
-  const positions = [];
-  while (app.flight) {
-    run(app, F);
-    const l = lastLeds(ctx);
-    positions.push((sum(l.slice(3, 6)) + 2 * sum(l.slice(6))) / Math.max(1, sum(l)));
-  }
-  assert.ok(positions[3] < 0.8 && positions.at(-3) > 1.2, `spot advances: ${positions[3]} -> ${positions.at(-3)}`);
-  assert.equal(tg.hit, true, "the planned shot hit");
-  let flashed = 0;
-  for (let i = 0; i < 40; i++) {
-    run(app, F);
-    const l = lastLeds(ctx);
-    if (sum(l.slice(0, 3)) > 0 && sum(l.slice(3, 6)) > 0 && sum(l.slice(6)) > 0) flashed++;
-  }
-  assert.ok(flashed > 15, "all three lamps lit on a hit");
+  const v = Math.hypot(app.p.vx, app.p.vy), want = app.L.vmax * (0.3 + 0.7 * powerAt(RISE * 0.5));
+  assert.ok(Math.abs(v - want) < 2, v + " vs " + want);
+  assert.ok(Math.abs(Math.atan2(app.p.vy, app.p.vx) * 180 / Math.PI - angle) < 0.01);
 });
 
-test("a miss lights the left lamp when short and the right lamp when long", () => {
-  for (const [power, side] of [[0.12, 0], [1, 2]]) {
-    const { ctx, app } = started(9);
-    app.angle = 45;
-    app.charging = true;
-    app.launch(power);
-    while (app.flight) run(app, F);
-    run(app, 0.1);
-    assert.equal(app.last.kind, "miss");
-    const l = lastLeds(ctx);
-    const lit = [sum(l.slice(0, 3)), sum(l.slice(3, 6)), sum(l.slice(6))];
-    assert.ok(lit[side] > 0 && lit[side] > lit[2 - side] * 3, `${side ? "long" : "short"} lamp: ${l}`);
-    assert.equal(app.last.side, side ? 1 : -1);
-  }
+test("a thruster fires on a press in flight, and there are only as many as the loadout", () => {
+  const { app } = mount();
+  fire(app);
+  run(app, 0.3);
+  const vx = app.p.vx, kicks = app.kicks;
+  assert.equal(kicks, 2);
+  tap(app);
+  assert.equal(app.kicks, 1);
+  assert.ok(app.p.vx > vx && app.p.vy > 0);
+  run(app, 0.1);
+  tap(app);
+  assert.equal(app.kicks, 0);
+  const vx2 = app.p.vx;
+  tap(app);
+  assert.equal(app.p.vx, vx2, "an empty thruster still pushed");
 });
 
-test("cancel() and dispose() mid-charge and mid-flight stop the tone and leave the lamps off", () => {
-  for (const phase of ["charge", "flight"]) {
-    const { ctx, app } = started(10);
-    let stops = 0;
-    ctx.synth.stopTone = () => stops++;
-    app.down();
-    run(app, 0.5);
-    if (phase === "flight") { app.up(); run(app, 0.3); assert.ok(app.flight); }
-    app.cancel();
-    assert.equal(app.charging, false);
-    assert.ok(stops >= 1);
-    app.dispose();
-    assert.deepEqual(lastLeds(ctx), Array(9).fill(0));
-  }
-});
-
-test("spare probes carry into the next station", () => {
-  const { app } = started(12);
-  fireAt(app, robustShot(app.site, 0, 0, 0));
-  while (app.flight) run(app, F);
-  assert.equal(app.phase, "cleared");
-  assert.ok(app.probes >= 3 && app.reserve === 2);
-  run(app, 1.2);
-  app.down(); app.up();
-  assert.equal(app.stationNo, 2);
-  assert.equal(app.probes, app.site.probes + 2);
-});
-
-test("draw runs in every state without throwing and within a bounded number of primitives", () => {
-  const g = fakeCanvas();
-  const { ctx, app } = started(14);
-  app.draw(g);
-  new Ballista(appContext({ seed: 2 })).draw(g);
-  app.down(); run(app, 0.7); app.draw(g); app.up();
-  for (let i = 0; i < 40; i++) { run(app, F); app.draw(g); }
-  while (app.flight) run(app, F);
-  app.draw(g);
-  for (const phase of ["cleared", "failed", "over", "brief"]) { app.phase = phase; app.outcome = { why: "X" }; app.draw(g); }
-  for (const phase of ["play", "brief"]) {
-    app.phase = phase;
-    const before = g.count.lineTo + g.count.moveTo + g.count.arc + g.count.fillText;
-    app.draw(g);
-    const frame = g.count.lineTo + g.count.moveTo + g.count.arc + g.count.fillText - before;
-    assert.ok(frame < 400, phase + " frame primitives " + frame);
-  }
-  assert.ok(ctx.calls.hud.length > 0 && ctx.calls.hint.length > 0);
-});
-
-test("the next station is built a few steps per frame during play, never in one go", () => {
-  const ctx = appContext({ seed: 12 });
-  const app = new Ballista(ctx);
-  tapButton(app); // title -> brief
-  run(app, 3.2);
-  assert.equal(app.phase, "play");
-  assert.ok(app.job && app.job.n === 2, "station 2 is being built");
-  let calls = 0, worst = 0, frames = 0;
-  const it = app.job.it;
-  const next = it.next.bind(it);
-  it.next = () => { calls++; return next(); };
-  while (!app.job.done && frames < 2000) {
-    const before = calls;
-    app.update(1 / 60);
-    worst = Math.max(worst, calls - before);
-    frames++;
-  }
-  assert.ok(app.job.done, "finished within " + frames + " frames");
-  assert.ok(worst <= 4, "at most 4 generator steps in a frame during play: " + worst);
-  assert.ok(app.job.site.targets.length >= 1 && app.job.site.attempts >= 1);
-  assert.equal(app.phase, "play", "building does not disturb the station being played");
-});
-
-test("a brief waits for an unfinished build, shows that it is surveying, and then starts normally", () => {
-  const ctx = appContext({ seed: 5 });
-  const app = new Ballista(ctx);
-  tapButton(app);
-  run(app, 3.2);
-  const g = fakeCanvas();
-  // Force a clear of station 1 at once, before station 2 has had time to build.
-  app.job = app.makeJob(2);
-  app.phase = "cleared"; app.pt = 2;
-  app.stationNo = 1;
-  tapButton(app);
-  assert.equal(app.stationNo, 2);
-  assert.equal(app.phase, "brief");
-  assert.ok(app.applyPending, "the station is not ready yet");
-  app.draw(g);
-  tapButton(app); // too early: cannot start play on a station that does not exist
-  assert.equal(app.phase, "brief");
-  let frames = 0;
-  while (app.applyPending && frames < 3000) { app.update(1 / 60); frames++; }
-  assert.ok(!app.applyPending);
-  assert.match(ctx.calls.hint.at(-1), /STATION 2: /);
-  assert.doesNotMatch(ctx.calls.hint.at(-1), /SURVEYING/, "the hint moves on to the briefing");
-  assert.equal(app.site.n, 2);
-  assert.ok(app.probes >= 3);
-  app.draw(g);
-  run(app, 3);
-  assert.equal(app.phase, "play");
-});
-
-test("a run is reproducible: the same seed and the same inputs give the same stations", () => {
-  const seq = (seed) => {
-    const out = [];
-    play({ seed, stopAtStation: 4, onStep: (app) => { if (app.site && out[out.length - 1] !== app.site.n + ":" + app.site.targets[0].cx.toFixed(2)) out.push(app.site.n + ":" + app.site.targets[0].cx.toFixed(2)); } });
-    return out.join("|");
+test("a press just before touchdown is a skip, and a perfect skip bounces higher and keeps more speed than none", () => {
+  const drop = (press) => {
+    const { app } = mount();
+    fire(app, 30);
+    app.features = []; app.nextX = 1e9; // open ground
+    Object.assign(app.p, { x: 300, y: 200, vx: 400, vy: -300, mode: "air" });
+    let pressed = false;
+    for (let i = 0; i < 200 && app.p.vy < 0; i++) {
+      const tti = app.skipWindow();
+      if (press && !pressed && tti >= 0 && tti <= app.L.perfect * 0.5) { tap(app); pressed = true; }
+      app.update(F);
+    }
+    return { vy: app.p.vy, vx: app.p.vx, perfect: app.R.perfect, kicks: app.kicks };
   };
-  assert.equal(seq(31), seq(31));
-  assert.notEqual(seq(31), seq(32));
+  const plain = drop(false), skipped = drop(true);
+  assert.equal(skipped.perfect, 1);
+  assert.equal(skipped.kicks, 2, "the skip used a thruster");
+  assert.ok(skipped.vy > plain.vy * 1.3, skipped.vy + " vs " + plain.vy);
+  assert.ok(skipped.vx > plain.vx);
 });
 
-test("pause() and cancel() switch the lamps off while aiming, charging and in flight", () => {
-  for (const how of ["pause", "cancel"]) {
-    const ctx = appContext({ seed: 9 });
-    const app = new Ballista(ctx);
-    tapButton(app);
-    run(app, 3.3);
-    assert.equal(app.phase, "play");
-    assert.ok(ctx.calls.leds.at(-1).some((v) => v > 0), "aim spot is lit");
-    app[how]();
-    assert.deepEqual(ctx.calls.leds.at(-1), Array(9).fill(0), how + " while aiming");
-    app.down({}); run(app, 0.5);
-    assert.ok(ctx.calls.leds.at(-1).some((v) => v > 0), "charge is lit");
-    app[how]();
-    assert.deepEqual(ctx.calls.leds.at(-1), Array(9).fill(0), how + " while charging");
-    assert.equal(app.charging, false);
+test("a press near touchdown never spends a thruster: early does nothing, late is still a skip", () => {
+  const descend = () => {
+    const { app } = mount();
+    fire(app, 30);
+    app.features = []; app.nextX = 1e9;
+    Object.assign(app.p, { x: 300, y: 200, vx: 400, vy: -300, mode: "air" });
+    return app;
+  };
+  // early: a press a little before the window is ignored, and a second press in it still skips
+  const early = descend(), kicks = early.kicks;
+  let pressed = 0;
+  for (let i = 0; i < 200 && early.p.vy < 0; i++) {
+    const t = early.landIn();
+    if (pressed === 0 && t > SKIP_WIN && t < SKIP_WIN + EARLY_WIN) { tap(early); pressed = 1; assert.equal(early.kicks, kicks, "early press spent a thruster"); assert.ok(early.early > 0); assert.equal(early.skip, null); }
+    if (pressed === 1 && t >= 0 && t <= early.L.perfect * 0.5) { tap(early); pressed = 2; }
+    early.update(F);
   }
+  assert.equal(pressed, 2);
+  assert.equal(early.R.perfect, 1);
+  assert.equal(early.kicks, kicks);
+  // late: a press just after a plain touchdown turns it into a good skip
+  const late = descend(), plain = descend();
+  for (let i = 0; i < 200 && late.p.y > 0.01 && late.p.vy <= 0; i++) { late.update(F); plain.update(F); }
+  late.update(F); plain.update(F);
+  for (let i = 0; i < Math.floor((LATE_WIN * 60) / 2); i++) { late.update(F); plain.update(F); }
+  tap(late);
+  assert.equal(late.kicks, kicks, "late press spent a thruster");
+  assert.equal(late.R.good, 1);
+  late.update(F); plain.update(F);
+  assert.ok(late.p.vx > plain.p.vx && late.p.vy > plain.p.vy, late.p.vx + "," + late.p.vy + " vs " + plain.p.vx + "," + plain.p.vy);
+  // after the late window a press is a thruster again
+  const after = descend();
+  for (let i = 0; i < 200 && after.p.vy <= 0; i++) after.update(F);
+  for (let i = 0; i < Math.ceil(LATE_WIN * 60) + 2; i++) after.update(F);
+  if (after.landIn() < 0) { tap(after); assert.equal(after.kicks, kicks - 1); }
+});
+
+test("perfect skips gain speed, and more along a chain; good skips lose a little", () => {
+  const skipAt = (frac, chain) => {
+    const { app } = mount();
+    fire(app, 30);
+    app.features = []; app.nextX = 1e9;
+    Object.assign(app.p, { x: 300, y: 200, vx: 400, vy: -300, mode: "air" });
+    app.chain = chain;
+    let done = false;
+    for (let i = 0; i < 200 && app.p.vy < 0; i++) {
+      const tti = app.skipWindow();
+      if (!done && tti >= 0 && tti <= frac) { tap(app); done = true; }
+      app.update(F);
+    }
+    return app.p.vx;
+  };
+  const vxBefore = (() => { const { app } = mount(); fire(app, 30); app.features = []; app.nextX = 1e9; Object.assign(app.p, { x: 300, y: 200, vx: 400, vy: -300, mode: "air" }); for (let i = 0; i < 200 && app.p.vy < 0 && app.p.y > 5; i++) app.update(F); return app.p.vx; })();
+  const perfect0 = skipAt(0.03, 0), perfect5 = skipAt(0.03, 5), good = skipAt(SKIP_WIN * 0.95, 0);
+  assert.ok(perfect0 > vxBefore, perfect0 + " vs " + vxBefore);
+  assert.ok(perfect5 > perfect0 * 1.05, perfect5 + " vs " + perfect0);
+  assert.ok(good < vxBefore, good + " vs " + vxBefore);
+});
+
+test("the aim screen predicts where a shot first lands, and shows the field to there", () => {
+  const { app } = mount();
+  tap(app);
+  assert.equal(app.phase, "aim");
+  assert.ok(app.features.some((f) => f.x > app.reach * 0.8), "the field is placed out to the reach");
+  for (const [angle, power] of [[20, 0.5], [40, 1], [60, 0.8]]) {
+    const { app: b } = mount();
+    tap(b);
+    const want = b.carry(angle, power);
+    b.features = []; b.nextX = 1e9;
+    b.angle = angle; b.power = power;
+    b.fire();
+    let x = 0;
+    for (let i = 0; i < 1200 && b.phase === "fly"; i++) { b.update(F); if (b.p.y <= 0.6 && b.R.bounces + b.R.lifts > 0) { x = b.p.x; break; } if (b.p.mode !== "air") { x = b.p.x; break; } }
+    assert.ok(Math.abs(x - want) < 30, angle + "/" + power + ": " + x + " vs " + want);
+  }
+  const g = fakeCanvas();
+  app.draw(g);
+  app.down(); run(app, 0.4); app.draw(g); app.up();
+});
+
+test("a sinkhole ends the run, unless the pod skips off it", () => {
+  const into = (skip) => {
+    const { app } = mount();
+    fire(app, 30);
+    app.features = [{ k: "pit", x: 380, w: 120, y: 0, h: 0, a: 0, used: 0 }]; app.nextX = 1e9;
+    Object.assign(app.p, { x: 400, y: 60, vx: 100, vy: -320, mode: "air" });
+    for (let i = 0; i < 60 && app.phase === "fly" && app.p.vy < 0; i++) {
+      if (skip && app.skipWindow() >= 0 && !app.skip) tap(app);
+      app.update(F);
+    }
+    return app;
+  };
+  const lost = into(false);
+  assert.equal(lost.phase, "over");
+  assert.equal(lost.reason, "pit");
+  const saved = into(true);
+  assert.equal(saved.phase, "fly");
+  assert.equal(saved.R.pitskip, 1);
+});
+
+test("pads, boosters and mines throw the pod on; drifts and nets slow it", () => {
+  const land = (k, extra = {}) => {
+    const { app } = mount();
+    fire(app, 30);
+    app.features = [{ k, x: 380, w: 120, y: 0, h: 0, a: 0, used: 0, ...extra }]; app.nextX = 1e9;
+    Object.assign(app.p, { x: 360, y: 30, vx: 300, vy: -250, mode: "air" });
+    for (let i = 0; i < 40; i++) app.update(F);
+    return app;
+  };
+  const ground = land("updraft", { x: 5000 });
+  const pad = land("pad"), boost = land("boost"), mine = land("mine"), drift = land("drift");
+  assert.ok(pad.p.y > ground.p.y + 40, "pad");
+  assert.ok(boost.p.x > ground.p.x + 40, "boost");
+  assert.ok(mine.p.y > pad.p.y, "mine");
+  assert.ok(drift.p.vx < ground.p.vx, "drift");
+  assert.equal(mine.R.mines, 1);
+  assert.equal(pad.R.lifts + boost.R.lifts + mine.R.lifts, 3);
+  const net = land("net", { x: 400, h: 200 });
+  assert.ok(net.p.vx < 200, "net");
+});
+
+test("a run rests and ends, scores its metres and saves, and the result screen offers again or the workshop", () => {
+  const { ctx, app } = mount();
+  const r = playRun(app, { thrust: false, skip: false });
+  assert.equal(app.phase, "over");
+  assert.ok(r.metres > 40, "metres " + r.metres);
+  assert.equal(ctx.calls.score.at(-1)[0], r.metres);
+  const saved = ctx.calls.saved.at(-1);
+  assert.equal(saved.schema, 3);
+  assert.equal(saved.runs, 1);
+  assert.equal(saved.best, r.metres);
+  assert.equal(saved.last.metres, r.metres);
+  assert.ok(saved.salvage >= r.salvage - 1);
+  hold(app, 0.6);
+  assert.equal(app.phase, "shop");
+});
+
+// ---- the bot -----------------------------------------------------------------------------------
+
+test("a careful player flies much farther than one who only fires, on the same fields", () => {
+  const sum = (opts) => {
+    let total = 0;
+    for (let seed = 1; seed <= 6; seed++) {
+      const { app } = mount({ seed });
+      total += playRun(app, { ...opts, jitter: new Random(seed) }).metres;
+    }
+    return total / 6;
+  };
+  const careful = sum({ skill: 1 }), idle = sum({ thrust: false, skip: false });
+  assert.ok(careful > idle * 1.6, careful + " vs " + idle);
+});
+
+test("upgrades do not outweigh skill: careful timing on a small loadout keeps up with a full one", () => {
+  // bots with a hand's lag; `skill` sets how widely their skips scatter around the perfect moment
+  const mean = (level, skill) => {
+    const { app } = mount({ seed: 7 });
+    app.sv.up = [level, level, level, level, level];
+    const jitter = new Random(22);
+    let total = 0;
+    for (let r = 0; r < 16; r++) total += playRun(app, { skill, lag: 0.2, jitter }).metres;
+    return total / 16;
+  };
+  const sharp0 = mean(0, 1), sharp2 = mean(2, 1), sharp5 = mean(5, 1), loose2 = mean(2, 0.2), loose5 = mean(5, 0.2);
+  assert.ok(sharp2 > loose2 * 1.3, "skill at II: " + sharp2 + " vs " + loose2);
+  assert.ok(sharp5 > loose5 * 1.3, "skill at V: " + sharp5 + " vs " + loose5);
+  assert.ok(sharp2 > loose5 * 0.75, "a sharp II against a loose V: " + sharp2 + " vs " + loose5);
+  assert.ok(sharp5 < sharp0 * 4.5, "upgrades: " + sharp0 + " -> " + sharp5);
+});
+
+test("a campaign of runs with the workshop gets steadily farther and reaches new zones", () => {
+  const { app, out } = campaign(30, 5, { skill: 0.6 });
+  // the first runs buy the cheap levels quickly; after that, skill carries more of the distance
+  const early = out.slice(0, 2).reduce((a, o) => a + o.m, 0) / 2, late = out.slice(-5).reduce((a, o) => a + o.m, 0) / 5;
+  assert.ok(late > early * 1.6, early + " -> " + late);
+  assert.ok(app.sv.far >= 3, "zone " + app.sv.far);
+  assert.ok(app.sv.up.reduce((a, b) => a + b) >= 10);
+  assert.ok(app.sv.ft.length >= 5);
+  // the save stays small and every number in the app stays finite, lists bounded
+  assert.ok(JSON.stringify(app.sv).length < 4096);
+  finite(plainState(app));
+  assert.ok(app.features.length <= 60 && app.sq.length <= 12);
+});
+
+test("lamp values are always nine whole numbers 0-255 and change during play", () => {
+  const { ctx, app } = mount();
+  playRun(app, { skill: 0.8, jitter: new Random(2) });
+  assert.ok(ctx.calls.leds.every(validLamps));
+  assert.ok(new Set(ctx.calls.leds.map((v) => v.join())).size > 20);
+});
+
+test("on a four-lamp node the fourth lamp is the landing lamp; three-lamp frames stay as they were", () => {
+  const four = () => {
+    const ctx = appContext({ seed: 11 });
+    ctx.lampCount = () => 4;
+    const board = [];
+    ctx.hasBoardLed = () => true;
+    ctx.board = (rgb) => board.push(rgb.slice());
+    return { ctx, app: new Ballista(ctx), board };
+  };
+  const L4 = (v) => v.slice(9, 12), sum = (v) => v.reduce((a, b) => a + b, 0);
+  const { ctx, app, board } = four();
+  playRun(app, { skill: 0.8, jitter: new Random(2) });
+  assert.ok(ctx.calls.leds.every((v) => v.length === 12 && v.every((x) => Number.isInteger(x) && x >= 0 && x <= 255)), "twelve values every frame");
+  assert.ok(new Set(ctx.calls.leds.map((v) => L4(v).join())).size > 5, "the fourth lamp does something");
+  // aiming: the landing lamp says what this shot comes down on
+  const a = four().app;
+  tap(a);
+  const pad = { k: "pad", x: 0, w: 1e6, y: 0, h: 0, a: 0, used: 0 }, pit = { ...pad, k: "pit" };
+  a.features = [pad]; a.update(F);
+  const onPad = L4(a.lampValues());
+  a.features = [pit]; a.update(F);
+  const onPit = L4(a.lampValues());
+  assert.ok(onPad[2] > onPad[0], "cyan over a pad: " + onPad);
+  assert.ok(onPit[0] > onPit[2], "red over a sinkhole: " + onPit);
+  // in flight the skip cue is on the landing lamp, and the three instruments stay themselves
+  const b = four().app;
+  fire(b, 30);
+  b.features = []; b.nextX = 1e9;
+  Object.assign(b.p, { x: 300, y: 200, vx: 400, vy: -300, mode: "air" });
+  let cue = null;
+  for (let i = 0; i < 200 && b.p.vy < 0; i++) {
+    const t = b.skipWindow();
+    if (t > b.L.perfect && t < SKIP_WIN) { cue = b.lampValues(); break; }
+    b.update(F);
+  }
+  assert.ok(cue, "reached the skip window");
+  assert.ok(L4(cue)[2] > 20 && L4(cue)[1] > 20, "landing lamp cyan: " + L4(cue));
+  assert.notDeepEqual(cue.slice(0, 3), cue.slice(9, 12), "the height lamp is not the cue");
+  // the same moment on a three-lamp node floods all three cyan, as before
+  const c = mount().app;
+  fire(c, 30);
+  c.features = []; c.nextX = 1e9;
+  Object.assign(c.p, { x: 300, y: 200, vx: 400, vy: -300, mode: "air" });
+  for (let i = 0; i < 200 && c.p.vy < 0; i++) {
+    const t = c.skipWindow();
+    if (t > c.L.perfect && t < SKIP_WIN) { const v = c.lampValues(); assert.equal(v.length, 9); assert.deepEqual(v.slice(0, 3), v.slice(3, 6)); break; }
+    c.update(F);
+  }
+  // the board LED: an accent for chains, sent only when it changes, dark when the app is left
+  const d = four();
+  fire(d.app, 30);
+  d.app.chain = 3; d.app.update(F); d.app.update(F);
+  assert.ok(sum(d.board.at(-1)) > 0, "a chain lights the board LED");
+  const sent = d.board.length;
+  d.app.update(F);
+  assert.equal(d.board.length, sent, "unchanged, not resent");
+  d.app.dispose();
+  assert.deepEqual(d.board.at(-1), [0, 0, 0]);
+  assert.equal(d.ctx.calls.leds.at(-1).length, 12);
+});
+
+// ---- tolerance -----------------------------------------------------------------------------
+
+test("cancel() and dispose() at any moment leave the lamps off and nothing charging", () => {
+  for (const at of [0.2, 0.9, 2.5]) {
+    const { ctx, app } = mount();
+    tap(app);
+    app.down();
+    run(app, at);
+    app.cancel();
+    assert.deepEqual(ctx.calls.leds.at(-1), Array(9).fill(0));
+    assert.equal(app.charging, false);
+    fire(app);
+    run(app, at);
+    app.dispose();
+    assert.deepEqual(ctx.calls.leds.at(-1), Array(9).fill(0));
+  }
+});
+
+test("three stray taps in flight do not end the run; tap, tap, hold and cancel() take back the thrusters", () => {
+  const { ctx, app } = mount({ progress: { schema: 2, up: [0, 3, 0, 0, 0] } });
+  fire(app);
+  run(app, 0.4);
+  const kicks = app.kicks, x = app.p.x;
+  for (let i = 0; i < 3; i++) { app.down(); app.update(F); app.up(); app.update(F); app.update(F); }
+  assert.equal(app.phase, "fly");
+  assert.ok(app.kicks < kicks);
+  run(app, 1);
+  const before = { kicks: app.kicks, x: app.p.x, vx: app.p.vx, R: { ...app.R } };
+  for (let i = 0; i < 2; i++) { app.down(); run(app, 4 / 60); app.up(); run(app, 3 / 60); }
+  app.down();
+  run(app, 1);
+  app.cancel();
+  assert.equal(app.phase, "fly");
+  assert.deepEqual({ kicks: app.kicks, x: app.p.x, vx: app.p.vx, R: { ...app.R } }, before);
+  assert.ok(app.p.x > x);
+  assert.equal(ctx.calls.score.length, 0);
+});
+
+test("draw() runs in every phase and view, with the pod high above the screen", () => {
+  const { app } = mount({ progress: { schema: 2, runs: 4, best: 300, salvage: 999, far: 5 } });
+  const g = fakeCanvas();
+  app.draw(g);
+  tap(app);
+  app.draw(g);
+  app.down(); run(app, 0.4); app.draw(g); app.up();
+  Object.assign(app.p, { y: 900 });
+  for (const k of ["pad", "boost", "mine", "drift", "ice", "pit", "beacon", "net", "updraft", "gust", "scrap"]) app.place(k, app.p.x + 200);
+  run(app, 0.2);
+  app.draw(g);
+  app.finish("pit");
+  run(app, 1);
+  app.draw(g);
+  hold(app, 0.6);
+  for (let i = 0; i < 10; i++) { app.draw(g); tap(app); }
+  app.cur = row(app, "LOG"); hold(app, 0.6); app.draw(g); tap(app);
+  app.cur = row(app, "CONTRACTS"); hold(app, 0.6); app.draw(g); tap(app);
+  app.sv.mods = ["spring"];
+  app.cur = row(app, "MODULES"); hold(app, 0.6); for (let i = 0; i < 12; i++) { app.draw(g); tap(app); }
+  hold(app, 0.6); app.draw(g);
+  for (let z = 0; z < ZONES.length; z++) { app.sv.far = z; app.draw(g); }
+  app.phase = "fly"; for (let z = 0; z < ZONES.length; z++) { app.camX = ZONES[z].from * M - 300; app.draw(g); } // every zone's sky and silhouettes
+  assert.ok(g.count.fillText > 50);
+});
+
+// ---- the workshop, pods, feats ---------------------------------------------------------------
+
+test("the workshop buys a level with salvage, refuses without it, and saves", () => {
+  const { ctx, app } = mount({ progress: { schema: 2, salvage: 50 } });
+  hold(app, 0.6);
+  assert.equal(app.phase, "shop");
+  assert.equal(app.cur, 1, "the cursor starts on something affordable");
+  hold(app, 0.6);
+  assert.equal(app.sv.up[0], 1);
+  assert.equal(app.sv.salvage, 50 - UPGRADES[0].cost[0]);
+  assert.equal(ctx.calls.saved.at(-1).up[0], 1);
+  hold(app, 0.6);
+  assert.equal(app.sv.up[0], 1, "bought without the salvage");
+  assert.match(app.need, /NEED/);
+  // pods are locked until their feat
+  assert.ok(!app.rows().includes("POD"));
+  app.sv.ft = ["m100", "pad", "skip1", "mine"];
+  assert.ok(!app.rows().includes("POD"), "any four feats used to unlock SKIPPER");
+  app.sv.ft.push(PODS[1].need);
+  app.cur = row(app, "POD"); hold(app, 0.6);
+  assert.equal(app.sv.pod, 1);
+  app.cur = 0; hold(app, 0.6);
+  assert.equal(app.phase, "aim");
+  assert.equal(app.podIx, 1);
+  assert.ok(app.L.vmax > 560 && app.L.e > 0.4 + 0.05);
+});
+
+test("a feat is marked once, pays its bounty and shows on the result", () => {
+  const { app } = mount();
+  fire(app, 30);
+  app.features = [{ k: "pad", x: 300, w: 200, y: 0, h: 0, a: 0, used: 0 }]; app.nextX = 1e9;
+  Object.assign(app.p, { x: 320, y: 20, vx: 50, vy: -200, mode: "air" });
+  run(app, 0.2);
+  assert.equal(app.R.pads, 1);
+  app.finish("rest");
+  assert.ok(app.sv.ft.includes("pad"));
+  assert.ok(app.newFeats.includes("pad"));
+  assert.ok(app.result.bounty >= 30);
+});
+
+// ---- the daily run -------------------------------------------------------------------------
+
+test("the daily run has the same field and loadout for everyone on a date, and does not touch the console best", () => {
+  const day = (seed, up) => {
+    const { ctx, app } = mount({ seed, progress: { schema: 2, up, pod: 0 } });
+    app.dayKey = () => "2026-10-01";
+    hold(app, 0.6);
+    app.cur = row(app, "DAILY");
+    hold(app, 0.6);
+    assert.equal(app.phase, "aim");
+    assert.ok(app.daily);
+    return { ctx, app };
+  };
+  const a = day(1, [0, 0, 0, 0, 0]), b = day(99, [5, 5, 5, 5, 5]);
+  assert.deepEqual(a.app.features, b.app.features);
+  assert.deepEqual(a.app.L, b.app.L);
+  playRun(a.app, { skill: 1, jitter: new Random(1) });
+  assert.equal(a.ctx.calls.score.length, 0);
+  assert.equal(a.app.sv.dl.d, "2026-10-01");
+  assert.ok(a.app.sv.dl.best > 0);
+  assert.equal(a.app.sv.best, 0);
+});
+
+test("daily goals are fixed per date; meeting one is told to the console's logbook", () => {
+  assert.deepEqual(dailyGoal("2026-10-01"), dailyGoal("2026-10-01"));
+  const kinds = new Set();
+  for (let d = 1; d <= 28; d++) kinds.add(dailyGoal("2026-10-" + String(d).padStart(2, "0")).kind);
+  assert.equal(kinds.size, 4);
+  const ctx = appContext({ seed: 11, progress: { schema: 2, dl: { d: "2026-09-30", done: 1, streak: 3, last: "2026-09-30", best: 50 } } });
+  const told = { daily: [], met: 0, feats: [] };
+  ctx.today = () => ({ goal: "Score 100 or more", done: false, own: false });
+  ctx.daily = (text) => told.daily.push(text);
+  ctx.dailyMet = () => told.met++;
+  ctx.feat = (id, name) => told.feats.push([id, name]);
+  const app = new Ballista(ctx);
+  assert.equal(told.daily.length, 1, "Ballista states its order when it is one of today's three");
+  assert.match(told.daily[0], /^Daily run: /);
+  app.dayKey = () => "2026-10-01";
+  app.startRun(true);
+  app.goalMet = () => true;
+  app.finish("rest");
+  run(app, 3); // past the gesture window: the held calls go out
+  assert.equal(app.sv.dl.done, 1);
+  assert.equal(told.met, 1);
+  assert.ok(app.sv.ft.includes("daily"));
+  assert.ok(told.feats.some(([id, name]) => id === "daily" && name === "ON THE DAY"), "the feat goes to the console");
+  // not one of today's three: no order is stated
+  const quiet = appContext({ seed: 11 });
+  let said = 0;
+  quiet.today = () => null; quiet.daily = () => said++;
+  new Ballista(quiet);
+  assert.equal(said, 0);
+});
+
+test("a good player meets each kind of daily goal on the daily loadout", () => {
+  const goals = { metres: (a) => a.metres, perfect: (a) => a.R.perfect, lifts: (a) => a.R.lifts, scrap: (a) => a.R.scrap };
+  const most = { metres: 0, perfect: 0, lifts: 0, scrap: 0 };
+  for (let d = 1; d <= 8; d++) {
+    const { app } = mount({ seed: d });
+    app.dayKey = () => "2026-10-0" + d;
+    app.startRun(true);
+    playRun(app, { skill: 1, aimPad: true, jitter: new Random(3) });
+    for (const k in goals) most[k] = Math.max(most[k], goals[k](app));
+  }
+  // the hardest version of each goal
+  assert.ok(most.metres >= 300, "metres " + most.metres);
+  assert.ok(most.perfect >= 3, "perfect " + most.perfect);
+  assert.ok(most.lifts >= 3, "lifts " + most.lifts);
+  assert.ok(most.scrap >= 11, "scrap " + most.scrap);
+});
+test("save slots: Ballista opts in, and each slot's row names its mark, best and farthest zone", () => {
+  assert.equal(Ballista.saveSlots, true);
+  assert.equal(slotLabel(migrateSave(null)), "NO RUNS YET");
+  assert.equal(slotLabel(migrateSave({ schema: 1, runs: 7, last: { score: 1840 } })), "FIRST RANGE · REBUILT");
+  assert.equal(slotLabel(migrateSave({ schema: 3, runs: 9, best: 640, far: 3 })), "BEST 640 m · IV");
+  assert.equal(slotLabel(migrateSave({ schema: 3, runs: 90, best: 1840, far: 4, mark: 2 })), "MK III · BEST 1840 m · V");
+  assert.equal(slotLabel(migrateSave({ schema: 3, runs: 90, best: 1840, far: 6, mark: 2 })), "MK III · BEST 1840 m", "the zone goes when too long");
+  for (const sv of [{ schema: 3, runs: 300, best: 99999, far: 6, mark: 7 }, { schema: 1, runs: 7 }]) assert.ok(slotLabel(migrateSave(sv)).length <= 24, slotLabel(migrateSave(sv)));
+  // a run saves with its label; slotSummary reads any stored shape
+  const ctx = appContext({ seed: 11 }), labels = [];
+  const save = ctx.saveProgress;
+  ctx.saveProgress = (value, opts) => { labels.push(opts?.label); return save(value); };
+  const app = new Ballista(ctx);
+  playRun(app, { skill: 0.8, jitter: new Random(2) });
+  run(app, 3);
+  assert.match(labels.at(-1), /^BEST \d+ m · I+V?$|^BEST \d+ m · [IV]+$/);
+  assert.equal(app.slotSummary(ctx.calls.saved.at(-1)), labels.at(-1));
+  assert.equal(app.slotSummary(undefined), "NO RUNS YET");
+});
+
+// ---- saves -------------------------------------------------------------------------------------
+
+// What the first Ballista (an artillery game) left behind: kit.js recordRun's record.
+const V1 = { schema: 1, runs: 7, last: { score: 1840, stations: 4, shots: 19, accuracy: 42, milestone: 4 }, milestone: 4 };
+
+test("a save from the first Ballista migrates: runs carry over, its record is kept, and it brings salvage", () => {
+  const s = migrateSave(V1);
+  assert.equal(s.schema, 3);
+  assert.equal(s.ct.length, 3);
+  assert.deepEqual(s.mods, []);
+  assert.equal(s.runs, 7);
+  assert.equal(s.salvage, 140);
+  assert.equal(s.best, 0);
+  assert.equal(s.milestone, 0);
+  assert.deepEqual(s.up, [0, 0, 0, 0, 0]);
+  assert.deepEqual(s.legacy, { runs: 7, score: 1840, stations: 4 });
+  assert.deepEqual(s.last, {});
+  // migration is idempotent and a migrated save survives a JSON round trip
+  assert.deepEqual(migrateSave(JSON.parse(JSON.stringify(s))), s);
+  assert.equal(migrateSave({ schema: 1, runs: 400 }).salvage, 300, "the grant is capped");
+});
+
+test("the app loads a first-Ballista save, plays, and writes schema 3 that keeps the old record", () => {
+  const { ctx, app } = mount({ progress: V1 });
+  assert.equal(app.sv.salvage, 140);
+  app.draw(fakeCanvas());
+  playRun(app, { skill: 0.7, jitter: new Random(4) });
+  const saved = ctx.calls.saved.at(-1);
+  assert.equal(saved.schema, 3);
+  assert.equal(saved.runs, 8);
+  assert.equal(saved.legacy.score, 1840);
+  assert.ok(saved.salvage > 140);
+});
+
+test("migrateSave tolerates nothing, garbage and out-of-range values", () => {
+  for (const raw of [undefined, null, 5, "x", [], {}, { schema: 2, up: "no", ft: ["nope", "pad", "pad"], pod: 9, far: -3, salvage: NaN, dl: 7, seen: { pad: 1, evil: 1 } }]) {
+    const s = migrateSave(raw);
+    assert.equal(s.schema, 3);
+    assert.equal(s.ct.length, 3);
+    assert.equal(s.up.length, UPGRADES.length);
+    assert.ok(s.pod >= 0 && s.pod < PODS.length && s.far >= 0 && s.far < ZONES.length);
+    finite(s);
+  }
+  const s = migrateSave({ schema: 2, ft: ["nope", "pad", "pad"], seen: { pad: 1, evil: 1 }, up: [9, -1, 2.7] });
+  assert.deepEqual(s.ft, ["pad"]);
+  assert.deepEqual(s.seen, { pad: 1 });
+  assert.deepEqual(s.up, [5, 0, 2, 0, 0]);
+});
+
+test("metres are measured in tenths of the logical pixel scale", () => {
+  assert.equal(M, 10);
+  assert.ok(SKIP_WIN > 0.2 && SKIP_WIN < 0.5);
+});
+
+test("shopping from the result screen spends salvage on the cheapest system", () => {
+  const { app } = mount({ progress: { schema: 2, salvage: 200 } });
+  playRun(app, { thrust: false, skip: false });
+  shop(app);
+  assert.ok(app.sv.up.reduce((a, b) => a + b) >= 3);
+  assert.equal(app.phase, "aim");
+});
+
+// ---- schema 3: contracts, modules, chains ------------------------------------------------------
+
+// What the launcher wrote before modules and contracts (the first version of this PR): schema 2.
+const V2 = {
+  schema: 2, runs: 12, last: { metres: 640, salvage: 85, lifts: 2, skips: 3, reason: "CAME TO REST" }, milestone: 6, best: 640, salvage: 85,
+  up: [2, 2, 1, 2, 1], pod: 1, pb: [640, 300, 0], far: 3, ft: ["m100", "m400", "pad", "skip1"],
+  st: { metres: 4200, pads: 9, perfect: 14, mines: 1, scrap: 60, daily: 1 },
+  dl: { d: "2026-10-01", best: 410, done: 1, streak: 1, last: "2026-10-01" }, seen: { pad: 1, drift: 1, skip: 1 },
+};
+
+test("a schema 2 save migrates to schema 3 and keeps everything it had", () => {
+  const s = migrateSave(V2);
+  assert.equal(s.schema, 3);
+  for (const k of ["runs", "milestone", "best", "salvage", "pod", "far"]) assert.equal(s[k], V2[k], k);
+  assert.deepEqual(s.up, V2.up);
+  assert.deepEqual(s.ft, V2.ft);
+  assert.deepEqual(s.st, V2.st);
+  assert.deepEqual(s.dl, V2.dl);
+  assert.deepEqual(s.last, V2.last);
+  assert.deepEqual(s.pb, [640, 300, 0, 0]);
+  assert.deepEqual(s.seen, V2.seen);
+  assert.deepEqual([s.mods, s.eq, s.cdone, s.chain], [[], [], 0, 0]);
+  assert.equal(s.ct.length, 3);
+  assert.equal(new Set(s.ct.map((c) => c.k)).size, 3, "three different contracts");
+  assert.ok(s.ct.every((c) => c.n > 0 && c.pay > 0 && contractText(c)));
+  assert.deepEqual(migrateSave(JSON.parse(JSON.stringify(s))), s, "idempotent");
+  assert.deepEqual(migrateSave(V2).ct, s.ct, "the same contracts every time");
+});
+
+test("a contract met by a run pays, counts and is replaced; a daily run takes none", () => {
+  const { app } = mount({ progress: { schema: 3, best: 200 } });
+  app.sv.ct = [{ k: "scrap", n: 2, pay: 77, left: 10 }, { k: "chain", n: 9, pay: 50, left: 10 }, { k: "lifts", n: 9, pay: 50, left: 10 }];
+  app.startRun(false);
+  app.R.scrap = 3;
+  app.finish("rest");
+  assert.equal(app.sv.cdone, 1);
+  assert.ok(app.result.bounty >= 77);
+  assert.deepEqual(app.result.contracts, ["Collect 2 scrap in one run."]);
+  assert.notEqual(app.sv.ct[0].k, "scrap");
+  assert.equal(app.sv.ct.length, 3);
+  assert.equal(new Set(app.sv.ct.map((c) => c.k)).size, 3);
+  const before = JSON.stringify(app.sv.ct);
+  app.dayKey = () => "2026-10-02";
+  app.startRun(true);
+  app.R.scrap = 99; app.R.chain = 99; app.R.lifts = 99;
+  app.finish("rest");
+  assert.equal(JSON.stringify(app.sv.ct), before);
+  assert.equal(app.sv.cdone, 1);
+  assert.equal(contractProgress({ k: "unaided", n: 100 }, { m: 300, thrusts: 1 }), 0);
+  // a job not met in ten runs is withdrawn and another posted
+  app.sv.ct = [{ k: "chain", n: 10, pay: 50, left: 1 }, { k: "lifts", n: 9, pay: 50, left: 5 }, { k: "scrap", n: 99, pay: 50, left: 5 }];
+  app.startRun(false);
+  app.finish("rest");
+  assert.notEqual(app.sv.ct[0].k, "chain");
+  assert.equal(app.sv.ct[0].left, 10);
+  assert.equal(app.sv.ct[1].left, 4);
+  assert.equal(contractProgress({ k: "zone", n: 2 }, { m: 400 }), 2);
+});
+
+test("a chain grows with pads and perfect skips, ends on a plain landing, and multiplies salvage", () => {
+  const { app } = mount();
+  fire(app, 30);
+  app.features = [{ k: "pad", x: 300, w: 60, y: 0, h: 0, a: 0, used: 0 }, { k: "pad", x: 900, w: 2000, y: 0, h: 0, a: 0, used: 0 }]; app.nextX = 1e9;
+  Object.assign(app.p, { x: 320, y: 20, vx: 300, vy: -200, mode: "air" });
+  for (let i = 0; i < 400 && app.R.lifts < 2; i++) app.update(F);
+  assert.ok(app.chain >= 2, "chain " + app.chain);
+  assert.ok(app.R.chain >= 2);
+  app.features = []; // open ground: the next landing is plain
+  for (let i = 0; i < 400 && app.chain; i++) app.update(F);
+  assert.equal(app.chain, 0);
+  assert.equal(chainMult(0), 1);
+  assert.equal(chainMult(4), 1.4);
+  assert.equal(chainMult(40), 2);
+  assert.equal(salvageFor(80, 5, 2, 2), 2 * (5 + 10 + 10));
+});
+
+test("modules are built, fitted and removed in the workshop, within the slots", () => {
+  const { ctx, app } = mount({ progress: { schema: 3, salvage: 5000, up: [2, 2, 2, 2, 2] } });
+  assert.ok(!mount({ progress: { schema: 3, salvage: 5000 } }).app.rows().includes("MODULES"), "modules wait for the systems");
+  hold(app, 0.6);
+  app.cur = row(app, "MODULES"); hold(app, 0.6);
+  assert.equal(app.view, "mods");
+  hold(app, 0.6); // build SPRING TUNING: fitted at once
+  tap(app); hold(app, 0.6); // SCRAP SCANNER
+  tap(app); hold(app, 0.6); // BEACON RELAY: built, slots full
+  assert.deepEqual(app.sv.mods, ["spring", "scanner", "relay"]);
+  assert.deepEqual(app.sv.eq, ["spring", "scanner"]);
+  assert.equal(app.sv.salvage, 5000 - 400 - 350 - 500);
+  hold(app, 0.6); // relay again: slots full
+  assert.match(app.need, /SLOTS ARE FULL/);
+  app.mcur = 0; hold(app, 0.6); // remove spring
+  app.mcur = 2; hold(app, 0.6); // fit relay
+  assert.deepEqual(app.sv.eq, ["scanner", "relay"]);
+  assert.deepEqual(ctx.calls.saved.at(-1).eq, ["scanner", "relay"]);
+  app.mcur = MODULES.length; hold(app, 0.6);
+  assert.equal(app.view, "menu");
+  app.cur = 0; hold(app, 0.6);
+  assert.deepEqual(app.mods, ["scanner", "relay"]);
+  assert.equal(app.L.scrap, 4);
+  assert.equal(app.L.relay, 2);
+  // a third slot with SLOT3_MODS built
+  app.sv.mods = MODULES.slice(0, SLOT3_MODS).map((m) => m.id);
+  assert.equal(app.slots(), SLOTS + 1);
+});
+
+test("module effects: the shell saves one sinkhole, the cutter parts nets, spring tuning throws higher", () => {
+  const drop = (eq, k, extra = {}) => {
+    const { app } = mount({ progress: { schema: 3, mods: eq, eq } });
+    fire(app, 30);
+    app.features = [{ k, x: 380, w: 120, y: 0, h: 0, a: 0, used: 0, ...extra }]; app.nextX = 1e9;
+    Object.assign(app.p, { x: 360, y: 30, vx: 300, vy: -250, mode: "air" });
+    for (let i = 0; i < 20 && app.phase === "fly"; i++) app.update(F);
+    return app;
+  };
+  assert.equal(drop([], "pit").phase, "over");
+  const shelled = drop(["shell"], "pit");
+  assert.equal(shelled.phase, "fly");
+  assert.equal(shelled.shell, 0);
+  assert.ok(drop(["cutter"], "net", { x: 400, h: 200 }).p.vx > 200);
+  assert.ok(drop([], "net", { x: 400, h: 200 }).p.vx < 120);
+  assert.ok(drop(["spring"], "pad").p.vy > drop([], "pad").p.vy);
+});
+
+test("the daily run fits no modules", () => {
+  const { app } = mount({ progress: { schema: 3, mods: ["burner", "rig"], eq: ["burner", "rig"] } });
+  app.startRun(true);
+  assert.deepEqual(app.mods, []);
+  assert.equal(app.L.rig, 1);
+  app.startRun(false);
+  assert.deepEqual(app.mods, ["burner", "rig"]);
+  assert.equal(app.L.rig, 1.25);
+});
+
+test("an overhaul needs every system at V and a second hold, then strips them for a faster mark", () => {
+  const { ctx, app } = mount({ progress: { schema: 3, up: [5, 5, 5, 5, 4], salvage: 0 } });
+  hold(app, 0.6);
+  assert.ok(!app.rows().includes("OVERHAUL"), "no overhaul line before every system is at V");
+  app.overhaul();
+  assert.match(app.need, /EVERY SYSTEM/);
+  app.sv.up[4] = 5;
+  const v0 = loadout(app.sv.up, 0, [], 0).vmax;
+  app.cur = row(app, "OVERHAUL");
+  hold(app, 0.6);
+  assert.equal(app.sv.mark, 0, "one hold overhauled");
+  hold(app, 0.6);
+  assert.equal(app.sv.mark, 1);
+  assert.deepEqual(app.sv.up, [0, 0, 0, 0, 0]);
+  assert.equal(ctx.calls.saved.at(-1).mark, 1);
+  assert.ok(app.sv.ft.includes("mark2"));
+  assert.ok(upCost(0, 0, 1) > UPGRADES[0].cost[0]);
+  assert.ok(Math.abs(loadout([5, 5, 5, 5, 5], 0, [], 1).vmax - v0 * (1 + MARK_SPEED)) < 1e-6);
+  // stepping away cancels a pending overhaul
+  const b = mount({ progress: { schema: 3, up: [5, 5, 5, 5, 5] } }).app;
+  hold(b, 0.6); b.cur = row(b, "OVERHAUL"); hold(b, 0.6); tap(b); b.cur = row(b, "OVERHAUL"); hold(b, 0.6);
+  assert.equal(b.sv.mark, 0);
 });

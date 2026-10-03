@@ -182,9 +182,7 @@ export const CARTRIDGES = [
       "sites": "Sites cleared",
       "fuel": "Best fuel left %"
     },
-    "voice": [
-      "lander"
-    ],
+    "voice": [],
     "capabilities": [
       "button",
       "lights",
@@ -247,18 +245,19 @@ export const CARTRIDGES = [
   {
     "id": "ballista",
     "name": "BALLISTA",
-    "subtitle": "Launch probes through the wind.",
-    "description": "The aim sweeps by itself. Hold to charge, release to launch, and allow for the wind.",
-    "controls": "HOLD TO CHARGE · RELEASE TO LAUNCH",
-    "category": "PLAY / ARTILLERY",
+    "subtitle": "Fire the pod as far as it will go.",
+    "description": "Press to fix the sweeping aim, hold to charge, release to fire. Pads, mines and boosters throw the pod on; drifts, nets and sinkholes stop it. In flight a press fires a thruster, or skips the pod if it is about to land. Salvage buys upgrades in the workshop.",
+    "controls": "HOLD TO CHARGE · RELEASE TO FIRE · PRESS IN FLIGHT",
+    "category": "PLAY / LAUNCHER",
     "glyph": 4,
     "factory": "Ballista",
     "icon": "<path d=\"M5 38h38M8 38l4-6h8l4 6\"/><path d=\"M16 31l8-8\" stroke-width=\"4\"/><path d=\"M22 20C27 8 36 8 40 25\" stroke-dasharray=\"3 4\"/><circle cx=\"40\" cy=\"31\" r=\"6\"/><circle cx=\"40\" cy=\"31\" r=\"2\" fill=\"currentColor\"/>",
     "record": {
-      "score": "Score",
-      "stations": "Stations cleared",
-      "shots": "Probes launched",
-      "accuracy": "Accuracy %"
+      "metres": "Metres",
+      "salvage": "Salvage earned",
+      "lifts": "Pads, boosters and mines",
+      "skips": "Perfect skips",
+      "reason": "Ended"
     },
     "voice": [
       "launcher"
@@ -381,9 +380,7 @@ export const CARTRIDGES = [
     "category": "INSTRUMENT / ENVIRONMENT",
     "glyph": 4,
     "factory": "Environment",
-    "voice": [
-      "environment"
-    ],
+    "voice": [],
     "capabilities": [
       "sensor"
     ]
@@ -533,7 +530,7 @@ export const CARTRIDGES = [
     ]
   }
 ];
-export const SECTORS = [{"name": "PLAY", "apps": ["perihelion", "orbit", "runner", "pulsar", "tideline"]}, {"name": "PLAY II", "apps": ["drift", "descent", "ballista", "ricochet", "helix"]}, {"name": "PLAY III", "apps": ["outpost", "reaction", "echo", "glyphs"]}, {"name": "INSTRUMENTS", "apps": ["morse", "cadence", "transcribe", "environment"]}, {"name": "INSTRUMENTS II", "apps": ["lantern", "resonance", "oracle"]}];
+export const SECTORS = [{"name": "VOYAGES", "tagline": "Long games to sink an evening into.", "apps": ["perihelion", "outpost", "drift", "ballista", "tideline"]}, {"name": "ARCADE", "tagline": "Quick runs for sharp hands.", "apps": ["orbit", "ricochet", "runner"]}, {"name": "LAMPS", "tagline": "Played on the three lamps.", "apps": ["reaction"]}, {"name": "MIND", "tagline": "Memory, reading and pattern.", "apps": ["echo", "glyphs"]}, {"name": "TOOLS", "tagline": "Useful things for the desk.", "apps": ["lantern", "cadence", "oracle", "morse"]}, {"name": "LISTEN", "tagline": "What the node hears.", "apps": ["resonance", "transcribe"]}];
 export const SYSTEM_APPS = ["settings", "diagnostics", "telemetry"];
 export const DEFAULT_SETTINGS = {
   "sound": true,
@@ -547,5 +544,7 @@ export const DEFAULT_SETTINGS = {
   "tempUnit": "F",
   "tempOffset": 0,
   "lampLevel": "medium",
-  "lampAmbient": true
+  "lampAmbient": true,
+  "latencyMs": 0,
+  "renderQuality": "auto"
 };

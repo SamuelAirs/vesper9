@@ -49,10 +49,7 @@ test("F1b Glyph Archive: opening the menu with tap, tap, hold must not end the r
 // ---------------------------------------------------------------------------
 // F2: Moonrunner sets all three lamps red on death and never clears them.
 test("F2 Moonrunner: lamps must not stay red through the next run", () => {
-  const c = makeCtx(1), g = new Moonrunner(c);
-  g.down(); g.up(); g.shield = 0;
-  g.obstacles = [{ x: 198, w: 40, h: 70, passed: false }];
-  g.update(DT);
+  const c = makeCtx(1), g = killRunner(c);
   assert.equal(g.phase, "over");
   assert.ok(c.ledsNow.some((x) => x > 0), "death flashes the lamps (setup check)");
   step(g, 0.7);                           // result screen, past the press lockout
@@ -72,7 +69,9 @@ function killOrbit(c) {
   const g = new OrbitLock(c); g.down(); g.lives = 1; g.angle = 0; g.target = 3; g.down(); return g;
 }
 function killRunner(c) {
-  const g = new Moonrunner(c); g.down(); g.up(); g.shield = 0; g.obstacles = [{ x: 198, w: 40, h: 70, passed: false }]; g.update(DT); return g;
+  // Moonrunner is now a hill-flyer: night has fallen and the sled has all but stopped, so the run ends.
+  const g = new Moonrunner(c); g.down(); g.up(); step(g, 0.2);
+  g.T = 0; g.night = true; Object.assign(g.r, { air: false, v: 20, y: g.gy(g.r.x) }); g.update(DT); return g;
 }
 function killUndertow(c) {
   const g = new Undertow(c); g.down(); g.up(); g.hull = 1; g.y = 10; g.update(DT); return g;
@@ -99,7 +98,7 @@ for (const [name, kill] of [["Orbit Lock", killOrbit], ["Moonrunner", killRunner
 // score is only submitted when the run ends by dying.
 for (const [name, build] of [
   ["Orbit Lock", (c) => { const g = new OrbitLock(c); g.down(); g.points = 30; return g; }],
-  ["Moonrunner", (c) => { const g = new Moonrunner(c); g.down(); g.up(); g.distance = 1500; return g; }],
+  ["Moonrunner", (c) => { const g = new Moonrunner(c); g.down(); g.up(); step(g, 0.5); g.R.m = 1500; return g; }],
   ["Undertow", (c) => { const g = new Undertow(c); g.down(); g.up(); g.points = 30; return g; }],
   ["Glyph Archive", (c) => { const g = new GlyphVault(c); g.down(); g.round = 9; g.points = 1500; return g; }],
 ]) {

@@ -4,7 +4,8 @@
 // player has just been shown).
 import { Random, wrapAngle, TAU } from "../../web/engine/math.js";
 import { OrbitLock, orbitSpeed } from "../../web/apps/orbit.js";
-import { Moonrunner, RUNNER_SHAPES as SHAPES } from "../../web/apps/runner.js";
+import { Moonrunner } from "../../web/apps/runner.js";
+import { runnerBot } from "../helpers/runner-bot.mjs";
 import { Undertow } from "../../web/apps/undertow.js";
 import { EchoVault } from "../../web/apps/echo.js";
 import { GlyphVault } from "../../web/apps/glyphs.js";
@@ -71,38 +72,16 @@ export function playOrbit(seed, policy, maxSeconds = 1200) {
 }
 
 // ----------------------------------------------------------------- Moonrunner
-const clearCache = new Map();
-// Launch frames (obstacle starts at x=430, speed from `points`) that clear, found by
-// running the real Moonrunner physics, the same way tests/engine.test.mjs does. mode "tap"
-// presses and releases at once; "hold" keeps the key down for HOLD_FRAMES (0.67 s).
-export const HOLD_FRAMES = 40;
-export function runnerWindow(shape, points, mode = "tap") {
-  const key = `${shape.name}:${shape.h}:${points}:${mode}`;
-  if (clearCache.has(key)) return clearCache.get(key);
-  const ok = [];
-  for (let L = 0; L < 90; L++) {
-    const g = new Moonrunner(makeCtx(1));
-    g.phase = "play"; g.next = 1e9; g.points = points; g.shield = 0;
-    g.obstacles = [{ ...shape, x: 430, passed: false }];
-    for (let f = 0; f < 140 && g.phase === "play"; f++) {
-      if (f === L) { g.down(); if (mode === "tap") g.up(); }
-      if (mode === "hold" && f === L + HOLD_FRAMES) g.up();
-      g.update(DT);
-    }
-    if (g.phase === "play" && g.points === points + 1) ok.push(L);
-  }
-  clearCache.set(key, ok);
-  return ok;
-}
-export const RUNNER_SHAPES = Object.values(SHAPES);
-
-// policy: {kind:"timed", sigmaFrames} | never | hold | rhythm(period) | mash(hz)
+// The hill-flyer (rebuilt 2026-10-01). policy: {kind:"timed", sigmaFrames} (dives timed on a copy of
+// the sled; every change of the button lands sigmaFrames late) | eye (dives by eye, no planning) |
+// never | hold | rhythm(period) | mash(hz).
 export function playRunner(seed, policy, maxSeconds = 1200, gestureAt = null) {
-  const c = makeCtx(seed), g = new Moonrunner(c), br = new Random(seed * 104729 + 7);
+  const c = makeCtx(seed), g = new Moonrunner(c);
   const rig = makeRig(g, c);
   g.down(); g.up();
-  let t = 0, frame = 0, handled = new WeakSet(), noise = new WeakMap(), releaseAt = -1, gestureDone = gestureAt === null, tGesture = null;
-  const at = {}; // time (s) at which each relic count was first reached
+  const bot = policy.kind === "timed" ? runnerBot(g, { lag: policy.sigmaFrames / 60 }) : policy.kind === "eye" ? runnerBot(g, { plan: false }) : null;
+  let t = 0, frame = 0, releaseAt = -1, gestureDone = gestureAt === null, tGesture = null;
+  const at = {}; // time (s) at which each zone was first reached
   while (g.phase === "play" && t < maxSeconds) {
     if (!gestureDone && t >= gestureAt) {
       gestureDone = true;
@@ -110,32 +89,15 @@ export function playRunner(seed, policy, maxSeconds = 1200, gestureAt = null) {
       rig.resume(); tGesture = t;
       if (g.phase !== "play") break;
     }
-    const speed = g.speed;
     if (releaseAt === frame) { g.up(); releaseAt = -1; }
-    if (policy.kind === "timed") {
-      const o = g.obstacles.find((q) => !q.passed && q.x + q.w >= 190);
-      if (o && !handled.has(o)) {
-        const shape = { name: o.name, w: o.w, h: o.h, hold: o.hold }; // the obstacle as it was actually built
-        const win = runnerWindow(shape, Math.min(g.points, 40), shape.hold ? "hold" : "tap");
-        if (win.length) {
-          // The timing error is drawn once per obstacle (the audit's first version redrew it every
-          // frame and fired on the first lucky draw, which made the nominal sd meaningless).
-          if (!noise.has(o)) noise.set(o, gauss(br, policy.sigmaFrames));
-          const lead = (win[0] + win[win.length - 1]) / 2 + noise.get(o);
-          if (o.x <= 430 - lead * speed / 60) { handled.add(o); g.down(); if (shape.hold) releaseAt = frame + HOLD_FRAMES; else g.up(); }
-        } else if (o.x <= 430) { handled.add(o); g.down(); g.up(); }
-      }
-    } else if (policy.kind === "hold") {
-      if (frame === 0) g.down();
-    } else if (policy.kind === "rhythm") {
-      if (frame % Math.round(policy.period * 60) === 0) { g.down(); releaseAt = frame + 3; }
-    } else if (policy.kind === "mash") {
-      if (frame % Math.round(60 / policy.hz) === 0) { g.down(); releaseAt = frame + 2; }
-    }
+    if (bot) bot();
+    else if (policy.kind === "hold") { if (frame === 0) g.down(); }
+    else if (policy.kind === "rhythm") { if (frame % Math.round(policy.period * 60) === 0) { g.down(); releaseAt = frame + 3; } }
+    else if (policy.kind === "mash") { if (frame % Math.round(60 / policy.hz) === 0) { g.down(); releaseAt = frame + 2; } }
     g.update(DT); t += DT; frame++;
-    at[g.points] ??= t;
+    at[g.zone] ??= t;
   }
-  return { at, metres: Math.floor(g.distance), points: g.points, seconds: t, over: g.phase === "over", tGesture };
+  return { at, metres: Math.floor(g.R.m), score: g.scoreNow(), perfects: g.R.perfects, fevers: g.R.fevers, seconds: t, over: g.phase === "over", tGesture };
 }
 
 // ------------------------------------------------------------------- Undertow

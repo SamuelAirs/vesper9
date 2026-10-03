@@ -174,6 +174,11 @@ const SX0 = 150, SX1 = 810, SY = 330;
 export const stripX = (steps, step) => SX0 + clamp(step, 0, steps) * (SX1 - SX0) / steps;
 
 export class Relay {
+  // Up to four saves (the console's SAVE SLOT menu, docs/ENGINE.md): each slot has its own songbook,
+  // stages, unlocks and kits; best scores and the logbook stay shared.
+  static saveSlots = true;
+  // A slot's row: how far it has gone and how many rhythms it has learned.
+  slotSummary(value) { const sv = migrateSave(value); return stageSpec(sv.far).name + " · " + learnedCount(sv) + " LEARNED"; }
   constructor(ctx) {
     this.c = ctx;
     this.lamps = new LampBus(ctx);

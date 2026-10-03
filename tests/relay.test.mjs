@@ -445,3 +445,15 @@ test("every screen draws without throwing", () => {
   assert.ok(g.count.fillText > 50);
   assert.ok(Object.keys(MODES).length === 4 && WIN[0] < WIN[1]);
 });
+
+test("save slots: Relay opts in, and a slot's row says how far it went and how many rhythms it learned", () => {
+  assert.equal(Relay.saveSlots, true);
+  const { app } = mount();
+  assert.equal(app.slotSummary(undefined), "PULSE · 0 LEARNED");
+  const sv = migrateSave({ schema: 2, far: 3, book: { four: 1, half: 2, back: 0, tresillo: 5 } });
+  assert.equal(app.slotSummary(sv), "CLAVE · 3 LEARNED");
+  assert.equal(app.slotSummary({ far: 99 }).split(" · ")[0].startsWith("CYCLE"), true);
+  // A fresh slot starts a fresh songbook; the saved value round-trips through the slot as any save does.
+  const fresh = mount({ progress: {} }).app;
+  assert.equal(fresh.sv.far, 0);
+});

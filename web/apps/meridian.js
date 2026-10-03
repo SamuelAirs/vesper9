@@ -215,6 +215,11 @@ export function arcAt(n, x) {
 export const sockets = (n) => Array.from({ length: n }, (_, i) => arcAt(n, i));
 
 export class Meridian {
+  // Up to four saves (the console's SAVE SLOT menu, docs/ENGINE.md): each slot has its own sky,
+  // stages reached, unlocks and settings; best scores and the logbook stay shared.
+  static saveSlots = true;
+  // A slot's row: how far it has gone and how many stars it has lit.
+  slotSummary(value) { const sv = migrateSave(value); return stageSpec(sv.far).name + " · " + sv.sky + (sv.sky === 1 ? " STAR" : " STARS"); }
   constructor(ctx) {
     this.c = ctx;
     this.lamps = new LampBus(ctx);

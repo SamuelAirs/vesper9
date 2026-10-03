@@ -521,3 +521,12 @@ test("directions: the title's model catches the lamp it calls, practice draws th
   assert.equal(migrateSave({ sel: { guide: 9 } }).sel.guide, 2);
   assert.equal(migrateSave({}).sel.guide, 0);
 });
+
+test("save slots: Meridian opts in, and a slot's row says how far it went and how many stars it lit", () => {
+  assert.equal(Meridian.saveSlots, true);
+  const { app } = mount();
+  assert.equal(app.slotSummary(undefined), "SWING · 0 STARS");
+  assert.equal(app.slotSummary({ schema: 3, far: 4, sky: 12 }), "FEINT · 12 STARS");
+  assert.equal(app.slotSummary({ schema: 3, far: 1, sky: 1 }), "RED PASS · 1 STAR");
+  assert.ok(app.slotSummary({ far: 40, sky: 999 }).startsWith("CYCLE"));
+});

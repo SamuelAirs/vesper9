@@ -519,7 +519,8 @@ class Console:
             await self.broadcast({"type": "scores", "scores": self.store.scores()})
         elif kind == "progress":
             app, value = data.get("app"), data.get("value")
-            if not isinstance(app, str) or app not in APP_IDS or not isinstance(value, dict):
+            # "console" is the console's own logbook (web/engine/logbook.js), not an app.
+            if not isinstance(app, str) or (app not in APP_IDS and app != "console") or not isinstance(value, dict):
                 raise ValueError("Invalid app progress")
             if len(json.dumps(value, allow_nan=False)) > 8192:  # allow_nan=False raises ValueError on NaN/Infinity
                 raise ValueError("Invalid app progress")

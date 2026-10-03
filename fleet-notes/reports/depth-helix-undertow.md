@@ -75,6 +75,10 @@ simulator screenshots at 1024 x 600.
 - Shared test edited: `tests/engine.test.mjs` "a fixed-step pilot can traverse seeded layouts" now runs
   75 s instead of 120 s, because the lag-free bot meets the Deep (and dies) at about 90-150 s now.
 
+- Save slots (#16's shell API, merged in again): `static saveSlots = true`; each slot has its own
+  craft, refits, field guide and zones. `slotSummary` names the slot by deepest zone and guide count,
+  for example "ABYSS · GUIDE 3/12", or "NO DIVES YET". Slot 1 is the existing save.
+
 ## Helix: removed
 Sam's playtest (2026-10-01): "Helix is not good, let's ditch it." The two-way rebuild that was on this
 branch (commit 2da736b and part of b68e604) is dropped, and Helix is taken out of the console:

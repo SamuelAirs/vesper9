@@ -478,3 +478,16 @@ test("four lamps: the gauge stays on lamps 1-3 and lamp 4 is the finder; three-l
   run(h, 1);
   assert.ok(c3.calls.leds.length > 0 && c3.calls.leds.every((v) => v.length === 9));
 });
+
+test("save slots: Undertow opts in, a fresh slot starts clean, and each slot's row names its zone and guide", () => {
+  assert.equal(Undertow.saveSlots, true);
+  const g = new Undertow(appContext({ seed: 51, progress: {} }));
+  assert.equal(g.sv.runs, 0);
+  assert.equal(g.sv.bank, 0);
+  assert.deepEqual(g.sv.sp, []);
+  assert.equal(g.slotSummary({}), "NO DIVES YET");
+  const row = g.slotSummary({ schema: 3, runs: 12, far: 3, sp: ["moon", "shoal", "ray"] });
+  assert.equal(row, "ABYSS · GUIDE 3/12");
+  for (let far = 0; far < ZONES.length; far++) assert.ok(g.slotSummary({ runs: 1, far, sp: SPECIES.map((s) => s.id) }).length <= 24);
+  assert.equal(g.slotSummary({ schema: 1, runs: 37, milestone: 6 }), "TRENCH · GUIDE 0/12", "a first-release save is summarised after migration");
+});

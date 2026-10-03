@@ -204,7 +204,17 @@ class DiveLamps extends LampBus {
   }
 }
 
+const SHORT_ZONE = ["SHALLOWS", "KELP RUN", "TRENCH", "ABYSS", "VENTS", "DEEP"];
+
 export class Undertow {
+  // Save slots (docs/ENGINE.md): up to four saves, each with its own craft, refits, field guide and
+  // zones; slot 1 is the save Undertow always had. The shell owns the SAVE SLOT menu.
+  static saveSlots = true;
+  // A slot's row in that menu, at most 24 characters: the deepest zone and the field guide.
+  slotSummary(value) {
+    const s = migrateSave(value);
+    return s.runs ? SHORT_ZONE[s.far] + " · GUIDE " + s.sp.length + "/" + SPECIES.length : "NO DIVES YET";
+  }
   constructor(ctx) {
     this.c = ctx;
     this.lamps = new DiveLamps(ctx, this);

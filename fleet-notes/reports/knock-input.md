@@ -277,3 +277,8 @@ Test on the device once the KNOCK_CLIP firmware is on the node: Calibration > TA
 light taps where each lamp shows, then tap each side a few times and read LAST TAP. Then recalibrate in a
 second sitting and compare: the check line and how often LAST TAP is right tell whether three sides are
 dependable or only left against the rest.
+
+**Spots changed (Sam, 2026-10-03):** left side, right side and **back**, not top. Back is the most comfortable
+and is the main tap; left and right are there for games. `side` is now `back`, `left` or `right`; calibration
+asks for the back first (middle lamp), then left and right. The first session's top taps stay in the test
+fixture as a stand-in only; the second labelled session decides how well back separates.

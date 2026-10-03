@@ -33,7 +33,7 @@ REPEAT_LOG_EVERY = 30      # a link that stays down is logged on the first failu
 
 # Simulated taps: right-minus-left level (dB), right's delay (samples) and spread, near the medians of
 # the Pi's labelled session on the two-microphone case (2026-10-02).
-SIMULATED_SIDES = {"left": (-0.5, 3, 0.8), "right": (3.0, -3, 0.8), "top": (3.5, -1, 0.8)}
+SIMULATED_SIDES = {"left": (-0.5, 3, 0.8), "right": (3.0, -3, 0.8), "back": (3.5, -1, 0.8)}  # back: the top's values, until measured
 
 
 def simulated_tap(side, rng=random):

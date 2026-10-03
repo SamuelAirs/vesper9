@@ -155,7 +155,37 @@ test("a dive above a downslope bends the sled onto it; any landing keeps most of
   const u = onUpslope(b);
   Object.assign(b.r, { x: u, y: b.gy(u) + 3, air: true, airT: 0.6, vx: 500, vy: 500, tx: u - 200 });
   b.update(DT);
-  assert.ok(!b.r.air && b.r.v >= 0.69 * Math.hypot(500, 500), "a thud on a climb lost too much speed: " + b.r.v);
+  // A thud (here a dive straight into a climb) costs speed: it keeps about half of it.
+  assert.ok(!b.r.air && Math.abs(b.r.v - 0.55 * Math.hypot(500, 500)) < 5, "a thud on a climb kept the wrong speed: " + b.r.v);
+  // Any other landing keeps at least 70 percent.
+  const c = started({ seed: 18 }).g;
+  clearAll(c);
+  const d = onUpslope(c);
+  Object.assign(c.r, { x: d, y: c.gy(d) + 3, air: true, airT: 0.6, vx: 700, vy: 0, tx: d - 200 }); // level onto a climb: no slide, no thud
+  c.update(DT);
+  assert.equal(c.R.perfects, 0);
+  assert.ok(!c.r.air && c.r.v >= 0.69 * 700, "a flat landing lost too much speed: " + c.r.v);
+});
+test("a dive a little too steep still lands as a perfect slide; a held or downhill sled does not skip off the ground", () => {
+  const { g } = started({ seed: 19 });
+  clearAll(g);
+  const x = onDownslope(g);
+  landAt(g, x, -(PERFECT + 0.08)); // 0.08 rad steeper than the window
+  assert.equal(g.R.perfects, 1, "a near miss on the steep side was not perfect");
+  landAt(g, x, PERFECT + 0.08); // as much too flat is not
+  assert.equal(g.R.perfects, 1);
+  // Held at speed over a crest and down the slope: no hops.
+  const h = started({ seed: 19 }).g;
+  clearAll(h);
+  const crest = h.kp.find((p) => !p.valley && p.x > h.r.x + 600);
+  const x0 = crest.x - 200;
+  Object.assign(h.r, { x: x0, y: h.gy(x0), air: false, v: 1100, a: h.slopeAt(x0) });
+  h.down();
+  let launches = 0;
+  const adv = h.advance.bind(h);
+  h.advance = (r, dt, dive, probe) => { const ev = adv(r, dt, dive, probe); if (!probe && ev?.type === "launch") launches++; return ev; };
+  for (let i = 0; i < 40; i++) h.update(DT);
+  assert.equal(launches, 0, "a held sled skipped off the crest");
 });
 test("a skip over a bump is not a landing: it neither scores nor breaks the chain", () => {
   const { g } = started({ seed: 13 });
@@ -226,18 +256,18 @@ test("a sunstone buys daylight; a survey beacon is found once for good, and a fu
   // The next run starts with the usual daylight, and the mare's beacons are already found.
   g.down(); g.up();
   assert.equal(g.phase, "play");
-  assert.equal(g.T, 40);
+  assert.equal(g.T, 35);
   assert.ok(g.beacons.filter((b) => b.zi === 0).every((b) => b.found));
   assert.deepEqual(beaconsOf(0), [80, 200, 320]);
 });
 test("daylight runs down; a new zone buys more; at night the sled coasts to a stop and the run ends", () => {
   const { ctx, g } = started({ seed: 15, progress: { schema: 3, up: { bat: 1 } } });
-  assert.equal(g.T, 40, "workshop gear added daylight");
+  assert.equal(g.T, 35, "workshop gear added daylight");
   step(g, 1);
-  assert.ok(g.T < 39.1);
+  assert.ok(g.T < 34.1);
   const T = g.T;
   g.enterZone(1);
-  assert.ok(g.T > T + 24);
+  assert.ok(g.T > T + ZONE_T[1] - 1);
   g.T = 0.01;
   step(g, 0.1);
   assert.ok(g.night);
@@ -690,4 +720,27 @@ test("workshop gear adds no points: a perfect slide and a shard score the same w
   assert.equal(full.shards, 1);
   assert.equal(full.pts, bare.pts);
   assert.equal(full.T, bare.T);
+});
+test("four lamps: speed, landing, chain and fever, daylight; fever no longer hides the landing lamp", () => {
+  const { ctx, g } = started({ seed: 63 });
+  clearAll(g);
+  assert.equal(g.lampValues().length, 9, "a three-lamp node still gets nine values");
+  ctx.lampCount = () => 4;
+  const lamp = (v, i) => v.slice(i * 3, i * 3 + 3);
+  const x = onDownslope(g);
+  for (let k = 0; k < 2; k++) landAt(g, x, 0.05);
+  g.fx.perfect = 0; g.fx.shard = 0;
+  let v = g.lampValues();
+  assert.equal(v.length, 12);
+  assert.ok(lamp(v, 2)[1] > 0 && lamp(v, 1).every((c) => c === 0), "on the ground the chain is on the third lamp: " + v);
+  assert.ok(lamp(v, 3).some((c) => c > 0), "no daylight on the fourth lamp");
+  landAt(g, x, 0.05); // the third: fever
+  assert.ok(g.fever > 0);
+  g.fx.perfect = 0; g.fx.zone = 0; g.fx.order = 0;
+  // In the air during fever: the landing lamp still says whether a landing now would be perfect.
+  Object.assign(g.r, { x, y: g.gy(x) - 60, air: true, vx: 600 * Math.cos(g.slopeAt(x)), vy: 600 * Math.sin(g.slopeAt(x)) });
+  v = g.lampValues();
+  assert.ok(lamp(v, 1)[1] > lamp(v, 1)[2], "the landing lamp is not green in fever: " + lamp(v, 1));
+  const w = lamp(v, 2);
+  assert.ok(w[0] > 0 && w[0] >= w[1] && w[1] >= w[2] && w[2] > 0, "fever is not the white lamp on the third lamp: " + w);
 });

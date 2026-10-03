@@ -63,6 +63,14 @@ The long integrated run was started while final review continued. The final held
 - Project placed under local git: `v0.2.0-as-delivered`, then bring-up commits. The generated simulator is no longer tracked.
 - Sam's feedback after playing: fun; the lamps are underused; dictation a little inaccurate; wants more games and instruments. Plan for the overnight agent fleet: `../fleet/PLAN.md`.
 
+## 2026-10-03 — Moonrunner: Sam's playtest and four lamps (desktop/cloud session)
+
+- Sam: "maybe a little too easy now, and there are times where it feels like I should hit a perfect [slide] but I kind of bounce down the slope." Measured with bots: a fast sled skipped off the curve of crests and downslopes in 0.02 s hops even while held, and about a third of missed landings were dives only up to 0.15 rad too steep.
+- Fixes: a held sled, or one on a downslope steeper than `GLUE` (0.12 rad), stays on the ground; a dive up to `STEEP_OK` (0.12 rad) steeper than the window is still perfect. A notch harder: a thud keeps only `THUD_KEEP` (55 percent) of the speed, the run starts with 35 s (was 40) and zone II gives 22 s (was 25).
+- Four lamps (helpers from PR #16, merged in): on a four-lamp node the third lamp is the chain and fever and the fourth the daylight, so the landing lamp is never hidden by the fever chase. Three-lamp nodes look as before.
+- Bots, 8 seeds, score (metres): precise about 48 000 (7 700); 150 ms late 34 400 (7 500); 250 ms late 6 300 (2 800, reaches V 2/8, VI 0/8); by eye 13 300 (5 300, VI 3/8); never pressing 370 in 36 s.
+- Not verified on the device.
+
 ## 2026-10-02 — Moonrunner: fixes from the platform review (desktop/cloud session)
 
 - The review (`/mnt/project-files/reviews/platform-review-2026-10-02.md`) found Moonrunner too easy and upgrade-driven: a laggy bot reached The Far Side every run, and the battery's daylight made the best score grow with grinding.

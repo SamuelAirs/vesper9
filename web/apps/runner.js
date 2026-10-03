@@ -35,10 +35,10 @@ const AHEAD = 2400, BEHIND = 900;
 export const TEMPO = { k: 0.65, p: 1, lo: 0.8, hi: 2.2, stick: 1, airDive: 0.9, assistH: 600 };
 const SET = [3, 5];
 const SAFE = 150 * PX_M; // the first 150 m of a run have no rilles or pits
-const START_T = 40, PERFECT_T = 0.5;
+const START_T = 35, PERFECT_T = 0.5;
 // Daylight for reaching each zone: less and less from the crystals on, so the far zones are reached
 // on perfect slides, not on the clock alone.
-export const ZONE_T = [0, 25, 20, 10, 6, 4];
+export const ZONE_T = [0, 22, 20, 10, 6, 4];
 const FEVER_T = 5, FEVER_CHAIN = 3, FEVER_MAX = 4; // fever rises a level (x2 .. x5) for every three more perfect slides
 const BEACON_H = 170; // how high (px) above the ground a beacon hangs
 const SUN_T = 4; // seconds of daylight a sunstone gives
@@ -50,6 +50,9 @@ const VENT_V = 950, BOOST_A = 1300;
 export const ASSIST = { w: 3 }; // how fast (rad/s) a dive above a downslope bends toward it
 const CLOSE_IN = 0.2; // how much steeper than the slope a drawn dive closes in
 const LAND_KEEP = 0.7; // a landing keeps at least this much of the speed in flight
+const GLUE = 0.12; // on a slope steeper than this (rad) downhill the sled does not leave the ground
+const STEEP_OK = 0.12; // a landing may come in this much steeper than the window and still be perfect
+const THUD_KEEP = 0.55; // a thud keeps only this much of the speed (other landings LAND_KEEP)
 const HOP = 0.12; // flights shorter than this (s) neither score nor break a chain
 const LIP = 0.24; // the rim of a rille throws the sled up at about this slope
 export const RILLE_V = 420; // slower than this at the rim and the sled will not clear a rille
@@ -482,7 +485,10 @@ export class Moonrunner {
       // The sled hugs the ground (at least STICK gravity) until the hill falls away from it, so it
       // leaves near the crest rather than half way up the climb.
       const hug = G * Math.max(heavy, TEMPO.stick), ny = r.y + vy * dt + 0.5 * hug * dt * dt, g1 = this.gy(nx);
-      if (ny < g1 - 0.05) {
+      // Held, or well down a slope, it stays on the ground: a fast sled on the curve of a crest or a
+      // downslope would otherwise skip off it in tiny hops (Sam, 2026-10-03: "I kind of bounce down
+      // the slope"). Released near a crest or on a climb, it flies.
+      if (ny < g1 - 0.05 && th < GLUE && !(dive && !dark)) {
         r.air = true; r.vx = vx; r.vy = vy + hug * dt; r.x = nx; r.y = ny; r.airT = 0; r.tx = r.x; r.hi = 0; r.vent = false;
         return { type: "launch" };
       }
@@ -518,12 +524,15 @@ export class Moonrunner {
     if (gap) return r.y > this.gy(r.x) + 160 ? { type: "fell", chasm: gap } : null;
     const gr = this.gy(r.x);
     if (r.y >= gr) {
-      const th = this.slopeAt(r.x), diff = Math.abs(wrapAngle(Math.atan2(r.vy, r.vx) - th));
-      const ev = { type: "land", diff, th, airT: r.airT, hi: r.hi, dist: r.x - r.tx, vent: r.vent };
+      const th = this.slopeAt(r.x), sd = wrapAngle(Math.atan2(r.vy, r.vx) - th), diff = Math.abs(sd);
+      // sd > 0: the sled came in steeper than the slope (a dive into it).
+      const ev = { type: "land", diff, sd, th, airT: r.airT, hi: r.hi, dist: r.x - r.tx, vent: r.vent };
       r.air = false; r.y = gr; r.a = th; r.vent = false;
-      // Speed along the slope, but never less than LAND_KEEP of the speed in flight.
+      // Speed along the slope, but never less than LAND_KEEP of the speed in flight; a thud keeps
+      // only THUD_KEEP of it.
       const sp = Math.hypot(r.vx, r.vy);
-      r.v = Math.max(dark ? 0 : MIN_V, r.vx * Math.cos(th) + r.vy * Math.sin(th), dark ? 0 : LAND_KEEP * sp);
+      const along = r.vx * Math.cos(th) + r.vy * Math.sin(th);
+      r.v = Math.max(dark ? 0 : MIN_V, diff > THUD ? THUD_KEEP * sp : Math.max(along, dark ? 0 : LAND_KEEP * sp));
       return ev;
     }
     return null;
@@ -531,8 +540,12 @@ export class Moonrunner {
   // Would landing now be perfect? (Used by the lamps and a planning bot.)
   perfectNow(r) {
     const th = this.slopeAt(r.x + r.vx * 0.1);
-    return th > 0.08 && Math.abs(wrapAngle(Math.atan2(r.vy, r.vx) - th)) <= this.windowAt(r.x);
+    const sd = wrapAngle(Math.atan2(r.vy, r.vx) - th), win = this.windowAt(r.x);
+    return th > 0.08 && sd >= -win && sd <= win + STEEP_OK;
   }
+  // Is landing event `ev` at x a perfect slide? A dive that comes in a little too steep still is:
+  // that is the move a player makes, and missing it by a hair felt unfair on the console.
+  isPerfect(ev, x) { const win = this.windowAt(x); return ev.th > 0.08 && ev.sd >= -win && ev.sd <= win + STEEP_OK; }
   // The perfect window (radians) at x px.
   windowAt(x) { return GRIP[zoneAt(x / PX_M)].win; }
 
@@ -761,7 +774,7 @@ export class Moonrunner {
     const flight = ev.dist / PX_M;
     this.R.longest = Math.max(this.R.longest, Math.floor(flight));
     if (ev.hi > 240) this.addPoints(Math.floor(ev.hi / 8), "BIG AIR");
-    if (ev.diff <= this.windowAt(r.x) && ev.th > 0.08) {
+    if (this.isPerfect(ev, r.x)) {
       this.chain++;
       this.R.perfects++;
       this.R.chain = Math.max(this.R.chain, this.chain);
@@ -990,40 +1003,47 @@ export class Moonrunner {
   }
 
   // ---- lamps -----------------------------------------------------------------------------
-  // Left: speed, in the zone's colour, filling up as the sled goes faster (cyan while diving).
-  // Middle: in the air, green when a landing now would be a perfect slide (amber otherwise),
-  // brighter as the ground comes up; on the ground the perfect chain toward fever.
-  // Right: daylight, cyan while there is plenty, amber under 15 s, blinking red under 8 s.
-  // Fever is a fast white chase across all three; the next rille shows as a red blink on the
-  // right lamp when the sled is too slow to fly it.
+  // Three lamps (the first node), left to right:
+  //   speed, in the zone's colour, filling up as the sled goes faster (cyan while diving);
+  //   in the air green when a landing now would be a perfect slide (amber otherwise), brighter as
+  //   the ground comes up, and on the ground the perfect chain toward fever;
+  //   daylight: cyan while there is plenty, amber under 15 s, blinking red under 8 s, and a red
+  //   blink when a rille is ahead and the sled is too slow to fly it.
+  //   Fever is a fast white chase across all three.
+  // Four lamps (ctx.lampCount() of 4): the same, but the chain and fever get the third lamp to
+  // themselves, so the landing lamp is only ever the landing and stays readable in fever:
+  //   speed | landing | chain (green, a step brighter per perfect slide) and fever (white,
+  //   pulsing faster at each level, dimming as it runs out) | daylight.
+  lampCount() { return this.c.lampCount?.() >= 4 ? 4 : 3; }
   lampValues() {
-    const zc = ZONES[this.zone].col;
-    if (this.phase === "title") return lightsOff();
-    if (this.phase === "depot") return spot(0.5 + 0.5 * Math.sin(this.t * 0.8), dim(ZONES[this.sv.far].col, 0.14));
-    if (this.phase === "over") return this.fx.end > 0 ? fill(LAMP.blue, 0.3 * (this.fx.end / 0.6)) : lightsOff();
+    const n = this.lampCount(), four = n === 4, zc = ZONES[this.zone].col;
+    if (this.phase === "title") return lightsOff(n);
+    if (this.phase === "depot") return spot(0.5 + 0.5 * Math.sin(this.t * 0.8), dim(ZONES[this.sv.far].col, 0.14), 0.75, n);
+    if (this.phase === "over") return this.fx.end > 0 ? fill(LAMP.blue, 0.3 * (this.fx.end / 0.6), n) : lightsOff(n);
     const r = this.r;
-    if (this.fx.record > 0) { const on = blink(1 - this.fx.record, 5); return fill(on ? LAMP.white : LAMP.amber, on ? 0.7 : 0.1); }
-    if (this.fx.order > 0) return fill(LAMP.amber, 0.5 * pulse(this.fx.order, 3.3));
-    if (this.fx.thud > 0) return fill(LAMP.amber, 0.35 * blink(this.fx.thud, 8));
+    if (this.fx.record > 0) { const on = blink(1 - this.fx.record, 5); return fill(on ? LAMP.white : LAMP.amber, on ? 0.7 : 0.1, n); }
+    if (this.fx.order > 0) return fill(LAMP.amber, 0.5 * pulse(this.fx.order, 3.3), n);
+    if (this.fx.thud > 0) return fill(LAMP.amber, 0.35 * blink(this.fx.thud, 8), n);
     if (this.fx.perfect > 0) { // a sweep left to right: perfect
-      const k = Math.min(2, Math.floor((0.45 - this.fx.perfect) / 0.15));
-      return lamps(...[0, 1, 2].map((i) => (i <= k ? dim(LAMP.green, i === k ? 0.8 : 0.3) : null)));
+      const k = Math.min(n - 1, Math.floor(((0.45 - this.fx.perfect) / 0.45) * n));
+      return lamps(...Array.from({ length: n }, (_, i) => (i <= k ? dim(LAMP.green, i === k ? 0.8 : 0.3) : null)));
     }
-    if (this.fx.zone > 0) return fill(zc, 0.45 * (this.fx.zone / 0.8));
-    if (this.fx.beacon > 0) return fill(LAMP.blue, 0.6 * pulse(this.fx.beacon, 3));
-    if (this.fx.sun > 0) return lamps(null, dim(LAMP.amber, 0.4), dim(LAMP.white, 0.8 * (this.fx.sun / 0.5)));
-    if (this.fever > 0) {
+    if (this.fx.zone > 0) return fill(zc, 0.45 * (this.fx.zone / 0.8), n);
+    if (this.fx.beacon > 0) return fill(LAMP.blue, 0.6 * pulse(this.fx.beacon, 3), n);
+    if (this.fx.sun > 0) return lamps(...(four ? [null, null] : [null]), dim(LAMP.amber, 0.4), dim(LAMP.white, 0.8 * (this.fx.sun / 0.5)));
+    if (this.fever > 0 && !four) {
       const at = Math.floor(this.runT * (8 + 4 * this.feverLv)) % 3; // the chase quickens with each fever level
       return lamps(...[0, 1, 2].map((i) => dim(i === at ? LAMP.white : LAMP.cyan, i === at ? 0.6 : 0.15)));
     }
     const speed = clamp((Math.hypot(r.vx, r.vy) - 200) / 900, 0, 1);
     const left = dim(this.held && !r.air ? LAMP.cyan : zc, 0.05 + 0.4 * speed);
+    const step = this.chain % FEVER_CHAIN, chain = this.chain > 0 ? dim(LAMP.green, 0.1 + 0.15 * step) : null;
     let mid;
     if (r.air) {
       const height = Math.max(0, this.gy(r.x) - r.y);
       const near = this.chasmAt(r.x) ? 0.2 : clamp(1 - height / 260, 0, 1);
       mid = dim(this.perfectNow(r) ? LAMP.green : LAMP.amber, 0.06 + 0.5 * near);
-    } else mid = this.chain > 0 ? dim(LAMP.green, 0.1 + 0.15 * (this.chain % FEVER_CHAIN)) : null;
+    } else mid = four ? null : chain;
     let right;
     const c = this.chasms.find((q) => !q.done && q.x0 > r.x && q.x0 - r.x < 900);
     if (this.zen) right = null;
@@ -1031,7 +1051,12 @@ export class Moonrunner {
     else if (this.T < 8) right = dim(LAMP.red, blink(this.t, 3) ? 0.6 : 0.08);
     else if (this.T < 15) right = dim(LAMP.amber, 0.25);
     else right = dim(LAMP.cyan, 0.06 + 0.12 * clamp(this.T / 60, 0, 1));
-    let out = lamps(left, mid, right);
+    let out;
+    if (four) {
+      const left3 = clamp(this.fever / this.feverLen(), 0, 1);
+      const third = this.fever > 0 ? dim(LAMP.white, (0.2 + 0.12 * this.feverLv) * (0.4 + 0.6 * left3) * (0.55 + 0.45 * pulse(this.runT, 1.5 + this.feverLv))) : chain;
+      out = lamps(left, mid, third, right);
+    } else out = lamps(left, mid, right);
     if (this.fx.shard > 0) out = out.map((v, i) => (i >= 3 && i < 6 ? Math.max(v, Math.round(LAMP.cyan[i - 3] * 0.6)) : v));
     return out;
   }

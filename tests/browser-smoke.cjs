@@ -74,7 +74,8 @@ async function button(page, ms = 80) {
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(origin);
   await page.waitForFunction(() => window.vesper?.loaded);
-  assert.equal(await page.locator(".app-card").count(), 5, "the first sector holds five games");
+  const firstSector = require("../vesper/catalog.json").sectors[0].apps.length;
+  assert.equal(await page.locator(".app-card").count(), firstSector, "the first sector's games are shown");
   await page.screenshot({
     path: path.join(output, "VESPER-9-Dashboard.png"),
     fullPage: true,
@@ -82,7 +83,8 @@ async function button(page, ms = 80) {
   await button(page);
   assert.equal(await page.evaluate(() => vesper.nav.index), 1);
   await button(page, 800);
-  assert.equal(await page.evaluate(() => vesper.meta.id), "orbit");
+  // The second card of the first sector (VOYAGES: Outpost).
+  assert.equal(await page.evaluate(() => vesper.meta.id), "outpost");
   await button(page, 3150);
   assert.equal(await page.locator("#menu-overlay").isVisible(), false, "a plain game hold must not open the menu");
   // A stalled frame can still break one sequence on a busy machine; allow a few attempts.
@@ -259,8 +261,11 @@ async function button(page, ms = 80) {
     stage.y + stage.height <= 720,
     "entire game stage fits a 720p display",
   );
-  const deck = await page.locator(".control-deck").boundingBox();
+  // In play the control deck folds into the bottom row (display: contents), so measure its contents.
+  const deck = await page.locator(".control-copy").boundingBox();
   assert.ok(deck.y + deck.height <= 720, "switch and status fit 720p");
+  const shown = await page.locator("#game").boundingBox();
+  assert.ok(shown.width >= 1100 || shown.height >= 620, "in play the game fills most of a 720p display: " + JSON.stringify(shown));
   assert.ok(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight), "whole console fits 720p");
   await page.screenshot({
     path: path.join(output, "VESPER-9-720p.png"),

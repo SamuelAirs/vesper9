@@ -149,6 +149,11 @@ export class DemoBridge extends EventTarget {
           generation: 1,
         });
       }
+    } else if (command === "knock") {
+      // As on the node, nothing while knock input is off.
+      if ((this.state.settings.knock || "medium") !== "off")
+        this.emit({ type: "knock", at_us: performance.now() * 1000, peak: 20000, source: "simulator", generation: 1,
+          ...(["back", "left", "right"].includes(data.side) ? { side: data.side, sideVotes: 5 } : {}) });
     } else if (command === "leds") {
       const values = data.values;
       if (!Array.isArray(values) || values.length !== 9 || values.some((x) => !Number.isInteger(x) || x < 0 || x > 255))
@@ -210,6 +215,10 @@ export class DemoBridge extends EventTarget {
       this.state.settings = { ...DEFAULT_SETTINGS };
       this.save();
       this.emit({ type: "settings", settings: this.state.settings });
+    } else if (command === "knock") {
+      // A knock on the simulated case (K, or J/I/L for the left, the back and the right).
+      const side = ["left", "right", "back"].includes(data.side) ? data.side : null;
+      this.emit({ type: "knock", at_us: performance.now() * 1000, peak: 20000, simulated: true, generation: 1, ...(side ? { side, sideVotes: 5 } : {}) });
     } else if (command === "keepalive") {
       // Nothing to watch in the standalone edition.
     } else if (command === "mic") {

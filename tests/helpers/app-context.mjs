@@ -15,9 +15,12 @@ export function appContext(options = {}) {
     retire: () => { mounted = false; },
     simulated: () => true,
     settings: () => settings,
+    // Knock input is opt-in for app tests (settings: { knock: "medium" }); the console's default is on.
+    knockInput: () => !!settings.knock && settings.knock !== "off",
     state: () => state,
     progress: () => progress,
     saveProgress: (value) => { progress = value; calls.saved.push(value); return Promise.resolve({ ok: true }); },
+    slot: () => ({ index: options.slot || 1, count: 4, fresh: !Object.keys(options.progress || {}).length }),
     best: () => best,
     score: (value, metric = "default") => { calls.score.push([value, metric]); best = Math.max(best, value); },
     leds: (values) => calls.leds.push(values.slice()),

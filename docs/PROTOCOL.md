@@ -31,12 +31,18 @@ Decoders retain partial frames, reject invalid versions/lengths/CRC, and resynch
 | CUE | 5 | `u32 trial_id, u64 activated_at_us` |
 | STATUS | 6 | UTF-8 JSON status, about once/s and in response to PING |
 | ACK | 7 | `u16 command_sequence, u8 result, u8 command_type` |
+| KNOCK | 8 | `u64 at_us, u16 peak, u8 hf` (firmware 0.1.3 and later; the first 0.1.3 build sent 10 bytes, without `hf`) |
+| KNOCK_CLIP | 10 | `u64 at_us, u8 pre, u8 channels (2)`, then interleaved `s16` left/right frames: the tap from both microphones, `pre` frames before its onset. Two-microphone nodes only; proposed for firmware 0.2.x (see KNOCK) |
 
-Status fields: `fw`, `link` (`uart`, `usb` or `none`), `mic` (actual capture active), `button`, `audio_drops`, `rx_crc`, `sensor` (`addr`, `ok`, `fail`, last `err`), and `leds` (nine current brightness values). The Pi enriches browser diagnostics with its own CRC errors, observed missing audio samples, and audio byte totals.
+Status fields: `fw`, `link` (`uart`, `usb` or `none`), `mic` (actual capture active, meaning audio is being streamed; listening for knocks alone is not capture), `button`, `audio_drops`, `rx_crc`, `sensor` (`addr`, `ok`, `fail`, last `err`), `leds` (nine current brightness values) and, from firmware 0.1.3, `knock`: `thr` (the threshold in use, 0 = not listening), `n` (knocks sent), `btn` (knocks dropped because a button edge was within 60 ms), `long` (sounds that started sharply but lasted, so were not knocks), `bright` (rejected as too bright, see below), and `peak` and `hf` of the latest of these. The Pi enriches browser diagnostics with its own CRC errors, observed missing audio samples, and audio byte totals.
 
 BUTTON uses an 8 ms debounce window and timestamps the initial edge that became stable. A button held at boot is inhibited until released. CUE is timestamped immediately after the light-update call. Both timestamps use the same ESP32 monotonic clock; no USB transit-time subtraction is required for physical button reaction trials. Debounce, GPIO polling, PWM phase, and real LED response still contribute measurement uncertainty.
 
 Audio is **16 kHz, mono, signed 16-bit little-endian**, normally 320 samples per packet (20 ms). Sample indices count transmitted source samples modulo 2³² and expose dropped chunks. The INMP441 supplies 24-bit data in the left slot of a 32-bit stereo I²S frame; firmware clocks both slots, discards the right slot, and shifts the left sample down to 16 bits. No audio packets are sent while acquisition is disabled.
+
+KNOCK is a sharp knock on the case, found by the node in its own microphone signal (`firmware/main/knock.h`, tested by `firmware/host-test/knock_test.c`). While KNOCK_SET holds a non-zero threshold, the node runs the microphone continuously whether or not the host has asked for audio, and only KNOCK events leave it; nothing about the sound is sent. A knock is a 1 ms block whose peak reaches the threshold and at least 8 times the background level, whose sound has died away by 40 to 90 ms later to 20 % of the level of the first 10 ms, or 40 % if the onset clipped (speech, a whistle or a tone from the speaker do not), at least 150 ms after the previous one, and not within 60 ms of any button edge, press, release or bounce (the switch itself clicks). The Pi's service drops more, by `at_us`: any knock while the button was down, from 60 ms before a button edge, or up to 200 ms after one (in play at full volume a hard press still got past the node's guard about once a minute). `at_us` is the onset on the same clock as BUTTON and CUE, estimated from the end of the 20 ms microphone buffer that held it; `peak` is the highest 1 ms peak of the first 10 ms (16-bit sample units, as streamed audio). `hf` (0 … 255) is the brightness of those 10 ms: the mean sample-to-sample change as a percentage of the mean level, about 35 for a 900 Hz ring and about 130 for broadband noise such as a clap. A limit on it (`KNOCK_MAX_HF`) is in place but not yet set. The event is sent about 90 ms after the onset. Measured on the real case (PR #4): light taps peak around 8000 and below, firm ones clip, a quiet room peaks near 2300; `hf` for taps is 48 to 126, so it does not separate claps, which count as taps by choice.
+
+KNOCK_CLIP lets the Pi tell where on the case a tap landed. A two-microphone node sends it immediately **before** the KNOCK it belongs to, with the same `at_us`, and only for a knock it then sends (after its button guard): 16 frames before the onset and 160 after (176 frames, 714 bytes), in the same DC-filtered 16-bit samples as AUDIO2, both microphones on one clock. The service keeps the latest clip and joins it to the next KNOCK with the same `at_us`; a KNOCK without one has no side. The node needs about 100 ms of stereo history for it, since the verdict comes 90 ms after the onset. Older services ignore the type.
 
 ACK result `0` means accepted, `1` invalid payload, `2` unknown command. Acceptance of MIC means the request was accepted; the service also waits for `STATUS.mic` before showing successful capture startup.
 
@@ -50,12 +56,15 @@ ACK result `0` means accepted, `1` invalid payload, `2` unknown command. Accepta
 | ARM | 19 | `u32 trial_id, u32 delay_ms, u8 light_index, u8 r, u8 g, u8 b` |
 | CANCEL | 20 | Empty; cancels scheduled reaction and pattern |
 | PATTERN | 21 | `u8 repeat, u8 step_count`, then steps of `u16 ms` + nine `u8` light values |
+| KNOCK_SET | 22 | `u16 threshold`: `0` stops knock detection, `256` … `32767` sets the peak a knock must reach (firmware 0.1.3 and later) |
 
 ARM delay: 250–10000 ms; light index 0–2. ARM cancels a running pattern. A cue clears all lights and activates the chosen light, then emits CUE. LEDS cancels a pattern but does not cancel an armed reaction; CANCEL explicitly does so.
 
 PATTERN: 1–16 steps, duration 10–10000 ms per step, repeat 1–8. It cancels an armed reaction and starts immediately. Lights turn off after the final repeat. CANCEL cancels scheduling but does not itself change LED values; the host sends lights-off when exiting an app.
 
-The Pi sends PING every second. With no valid host frame for three seconds, the node disables acquisition, clears audio scheduling, cancels cues/patterns, and turns off the lights. The Pi declares a stale node link after four seconds and reconnects. Real-time button/control packets have priority over bounded audio queues.
+KNOCK_SET starts at 0 after boot. The service sends it after connecting, and again whenever a STATUS reports a different `thr` (the node also returns it to 0 after losing the host), so the setting survives resets and link loss. Firmware older than 0.1.3 answers KNOCK_SET with ACK result `2` and its STATUS has no `knock`; the service sends nothing further to it. The thresholds for the `knock` setting are `low` 8000, `medium` 4000 (about −18 dBFS) and `high` 3000; `off` sends 0.
+
+The Pi sends PING every second. With no valid host frame for three seconds, the node disables acquisition and knock detection, clears audio scheduling, cancels cues/patterns, and turns off the lights. The Pi declares a stale node link after four seconds and reconnects. Real-time button/control packets have priority over bounded audio queues.
 
 ## Bandwidth budget
 
@@ -71,11 +80,15 @@ Example:
 {"requestId":27,"command":"timer","op":"toggle","id":"f93bc72a60a1"}
 ```
 
-Supported command names: `leds`, `pattern`, `reaction`, `cancel`, `button` (simulation only), `mic`, `timer`, `score`, `progress`, `settings`, `reset_settings`, `focus`, `keepalive`. There is no shell command or arbitrary file-write operation.
+Supported command names: `leds`, `pattern`, `reaction`, `cancel`, `button` (simulation only), `knock` (simulation only: a knock with peak 20000, unless the `knock` setting is `off`; with `side` `back`, `left` or `right` it carries a simulated two-microphone clip of a tap there), `tap_direction` (`op`: `start` [with an optional first `side`], `label` with `side` or `null`, `save`, `cancel`, `clear`, `status`; see below), `mic`, `timer`, `score`, `progress`, `settings`, `reset_settings`, `focus`, `keepalive`. There is no shell command or arbitrary file-write operation.
 
 Every command is type-checked: a field of the wrong type (a boolean or a numeric string where an integer is required, a non-finite number, a list where text is required) is refused, never coerced. Any failure of a command, including a node write timeout or a database error, is answered with `ok: false` and an `error` text, and the WebSocket session stays open. A command from a tab that is not the controller is answered with `ok: false`.
 
 `/api/state`, `/api/system`, `/api/history`, `/api/sessions`, `/api/transcript/{session}`, and `/api/export/{session}` provide local reads. The first WebSocket tab is the controller; additional tabs monitor events. The controller slot is released as soon as the controlling tab leaves for any reason (close, reload, crash, a connection that stops accepting data, a failed handshake), and the next tab to connect takes it; that tab's first command waits (up to 5 s) for the previous controller's cleanup (microphone off, lamps off) to finish. Cross-origin requests and unexpected Host headers are rejected. Every response carries `Cache-Control: no-cache` so the browser revalidates the user interface after the console is updated in place.
+
+`{"type":"knock","at_us":N,"peak":P,"source":"node"|"simulator","generation":G}` is broadcast for every KNOCK. The `knock` setting (`off`, `low`, `medium`, `high`; default `medium`) chooses the node's threshold.
+
+Tap direction (`vesper/tapdir.py`). A knock that came with a KNOCK_CLIP also carries `tap` (`level_db`: right minus left; `lag` and `onset`: samples, positive when the right microphone heard it later; `corr`) and, once this node is calibrated, `sideVotes` (how many of the 5 nearest calibration taps agree) and `side` (`back`, `left` or `right`; back is the main tap, the sides are for games) when at least 3 agree; otherwise `side` is absent (unsure). The clip itself never reaches the browser. Calibration labels taps: `tap_direction` `start` clears the taps being labelled; `label` with a side marks every following tap with a clip as that side (and gives it no `side`) until `label` `null`, `save` or `cancel`; `save` keeps the sides with at least 6 labelled taps (two sides at least) as this node's calibration, in the service's store, and checks each tap with it left out. Every operation and every labelled tap broadcasts `{"type":"tap_direction","calibrated":bool,"label":side|null,"pending":{back,left,right},"saved":{back,left,right},"check":{side:{right,wrong,unsure,total}}|null,"savedAt":unix|null}`, which is also `state.tapDirection`. Calibration > TAP DIRECTION runs it with the lamps showing where to tap (the middle lamp for the back).
 
 ### Microphone modes
 
@@ -187,4 +200,7 @@ Read-only JSON for instruments such as TELEMETRY. It is cheap enough to poll abo
 | `node.capture`, `generation` | Whether the node reports microphone capture, and the node boot generation. |
 | `node.crcErrors`, `missingSamples`, `audioBytes` | The service's own count of bad frames, missing audio samples and audio bytes received. |
 | `node.nodeRxCrc`, `audioDrops` | The node's own `rx_crc` and `audio_drops` counters. |
+| `node.knock` | The node's knock counters from STATUS (`thr`, `n`, `btn`, `long`, `bright`, `peak`, `hf`), or `null` for firmware without knock detection. |
+| `node.knockGuarded` | Knocks the service dropped as the button's own sound (see KNOCK); `n` counts them too, since the node sent them. |
+| `node.tapDirection` | The tap-direction calibration status, as the `tap_direction` event. |
 | `node.sensor` | The node's sensor diagnostics (`addr`, `ok`, `fail`, last `err`); `{"simulated": true, …}` in the simulator. |

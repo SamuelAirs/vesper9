@@ -19,14 +19,17 @@ class Kind(enum.IntEnum):
     SENSOR = 3
     AUDIO = 4
     CUE = 5
+    KNOCK_CLIP = 10
     STATUS = 6
     ACK = 7
+    KNOCK = 8
     PING = 16
     LEDS = 17
     MIC = 18
     ARM = 19
     CANCEL = 20
     PATTERN = 21
+    KNOCK_SET = 22
 
 
 def crc16(data):

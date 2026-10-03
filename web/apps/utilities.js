@@ -3,6 +3,8 @@ import { LAMP, dim, fill, meter, ramp, lamps, lightsOff } from "../engine/lights
 import { microphoneStatus, recognizerLabel } from "../engine/status.js";
 import { VOICE_HELP } from "../engine/voice.js";
 import { CARTRIDGES } from "./catalog.js";
+import { TapSync, describe, MIN_TAPS } from "./tapsync.js";
+import { latencyMs } from "../engine/latency.js";
 const panel = (title, body) =>
   `<div class="utility-panel"><h2>${esc(title)}</h2>${body}</div>`;
 // The nearest running timer (smallest time left), or null when none is running.
@@ -454,6 +456,10 @@ const LAMP_SCALE = { full: 1, medium: 0.5, low: 0.2, off: 0 };
 // esp_err_t values the sensor driver is likely to report (esp_err.h).
 const ESP_ERRORS = { 0: 'NONE', '-1': 'FAIL', 0x101: 'NO MEMORY', 0x102: 'INVALID ARGUMENT', 0x103: 'INVALID STATE', 0x104: 'INVALID SIZE', 0x105: 'NOT FOUND', 0x106: 'NOT SUPPORTED', 0x107: 'TIMEOUT', 0x108: 'INVALID RESPONSE', 0x109: 'BAD CRC' };
 // The node's sensor diagnostics (firmware 0.1.2 status: addr, ok, fail, err) as two display strings.
+// The node's wiring, as Sam's tables give it: the current node (four lamps, two microphones, board LED)
+// and the first (three lamps). Neither has a temperature/humidity sensor any more.
+const PINS_FOUR = '<p>Button GPIO 12/46 · mic L 4/5/6 · mic R 47/45/21 · board LED 48.<br>LED R/G/B: 1 7/15/16 · 2 17/18/8 · 3 9/10/11 · 4 13/14/3.</p>';
+const PINS_THREE = '<p>Button GPIO 12/46 · mic 4/5/6.<br>LED R/G/B: LEFT 15/7/16 · MIDDLE 18/17/8 · RIGHT 11/9/10.</p>';
 export function sensorBus(sensor) {
   if (!sensor || typeof sensor !== 'object') return { bus: '—', error: '—' };
   const { addr, ok, fail, err } = sensor;
@@ -461,6 +467,21 @@ export function sensorBus(sensor) {
   const bus = !Number.isFinite(addr) || addr === 0 ? `NOT FOUND · ${count(fail)} FAIL` : `0x${addr.toString(16).toUpperCase()} · ${count(ok)} OK · ${count(fail)} FAIL`;
   const error = !Number.isFinite(err) ? '—' : err === 0 ? 'NONE' : (ESP_ERRORS[err] ? ESP_ERRORS[err] + ' ' : '') + '(' + (err < 0 ? '-' : '') + '0x' + Math.abs(err).toString(16) + ')';
   return { bus, error };
+}
+
+// Knock-on-the-case input as Node Scope shows it: the setting, and the node's own counters (firmware
+// 0.1.3 status "knock": thr, n sent, btn dropped at a button edge, long judged sustained, bright too
+// bright, peak and hf of the last candidate). Older firmware has no counters.
+const KNOCK_LEVELS = ['off', 'low', 'medium', 'high'];
+export function knockReadout(setting, knock, lastKnock, now = performance.now()) {
+  const level = KNOCK_LEVELS.includes(setting) ? setting : 'medium';
+  const peakDb = (peak) => (!(peak > 0) ? '—' : peak >= 32767 ? 'FULL SCALE' : (20 * Math.log10(peak / 32768)).toFixed(1) + ' dBFS');
+  const input = !knock || typeof knock !== 'object' ? level.toUpperCase() + ' · NOT IN THIS FIRMWARE'
+    : level.toUpperCase() + (knock.thr ? ' · THRESHOLD ' + peakDb(knock.thr) : ' · NODE NOT LISTENING');
+  const counts = !knock || typeof knock !== 'object' ? '—'
+    : `${knock.n ?? 0} SENT · ${knock.btn ?? 0} AT BUTTON · ${knock.long ?? 0} TOO LONG` + (knock.bright ? ` · ${knock.bright} TOO BRIGHT` : '') + ` · LAST ${peakDb(knock.peak)}` + (Number.isFinite(knock.hf) ? ` HF ${knock.hf}` : '');
+  const last = lastKnock ? `${peakDb(lastKnock.peak)}${lastKnock.side ? ' · ' + lastKnock.side.toUpperCase() : ''} · ${Math.max(0, Math.round((now - lastKnock.at) / 1000))} S AGO` : 'NONE YET';
+  return { input, counts, last };
 }
 
 export class Diagnostics {
@@ -490,10 +511,10 @@ export class Diagnostics {
   render() {
     const s = this.c.state(),
       d = s.device || {},
-      sensor = s.sensor,
       level = this.level(),
       node = this.node,
-      bus = sensorBus(node?.sensor);
+      knock = knockReadout(this.c.settings().knock, node?.knock, this.lastKnock),
+      four = this.c.lampCount?.() === 4;
     const waiting = s.simulated ? 'SIMULATOR' : d.connected ? 'AWAITING STATUS' : '—';
     const rows = [
       ["NODE", d.connected ? "CONNECTED" : "DISCONNECTED"],
@@ -502,9 +523,7 @@ export class Diagnostics {
       ["FIRMWARE", node?.fw ? String(node.fw) : waiting],
       ["BUTTON", d.button ? "DOWN" : "UP"],
       ["NODE IDENTITY", (d.name || "—") + " · CONN " + (d.generation || 0)],
-      ["SENSOR BUS", node ? bus.bus : waiting],
-      ["SENSOR LAST ERROR", node ? bus.error : waiting],
-      ["SENSOR", sensor ? `${formatSensorTemp(sensor.temperature, this.c.settings().tempUnit, 1, this.c.settings())}${tempOffset(this.c.settings()) ? ' (CASE OFFSET ' + formatOffset(tempOffset(this.c.settings()), this.c.settings().tempUnit) + ')' : ''} / ${sensor.humidity.toFixed(1)}%` : "NO READING"],
+      ["LAMPS", four ? "4" + (this.c.hasBoardLed?.() ? " + BOARD LED" : "") : "3"],
       ["LAMP LEVEL", level.toUpperCase()],
       ["FRAME / p95", (this.c.stats?.().p95Ms || 0).toFixed(1) + " ms"],
       ["SPEECH DROPS", s.mic?.droppedChunks || 0],
@@ -514,12 +533,15 @@ export class Diagnostics {
       ["AUDIO BYTES", d.audioBytes || 0],
       ["CRC ERRORS", d.crcErrors || 0],
       ["MISSING SAMPLES", d.missingSamples || 0],
+      ["KNOCK INPUT", s.simulated ? String(this.c.settings().knock || 'medium').toUpperCase() + ' · K, J I L KEYS KNOCK' : node ? knock.input : waiting],
+      ["KNOCK COUNTS", node ? knock.counts : waiting],
+      ["LAST KNOCK", knock.last + (this.lastKnock && performance.now() - this.lastKnock.at < 1500 ? " ◆" : "")],
     ];
     const notice = level === 'off' ? '<p class="recording-tag">LAMP LEVEL IS OFF (CALIBRATION): CHANNEL CHECKS CANNOT LIGHT THE LAMPS.</p>'
       : level === 'low' ? '<p class="recording-tag">LAMP LEVEL IS LOW (CALIBRATION): CHANNEL CHECKS ARE DIM.</p>' : '';
     const html = panel(
       "Node instruments",
-      `<div class="diag-list">${rows.map(([k, v]) => `<div class="diag-item"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("")}</div>${notice}<p>Button GPIO 12/46 · mic 4/5/6 · sensor SDA 13 / SCL 14.<br>LED R/G/B: LEFT 15/7/16 · MIDDLE 18/17/8 · RIGHT 11/9/10.</p>`,
+      `<div class="diag-list">${rows.map(([k, v]) => `<div class="diag-item"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("")}</div>${notice}${four ? PINS_FOUR : PINS_THREE}`,
     );
     if (html !== this.html) { this.html = html; this.c.content(html); }
     this.c.actions([
@@ -575,7 +597,10 @@ export class Diagnostics {
       this.lastButton = e.pressed ? "DOWN" : "UP";
       this.render();
     } else if (e.type === "node_status") {
-      this.node = { link: e.link, fw: e.fw, sensor: e.sensor };
+      this.node = { link: e.link, fw: e.fw, sensor: e.sensor, knock: e.knock };
+      this.render();
+    } else if (e.type === "knock") {
+      this.lastKnock = { at: performance.now(), peak: e.peak, side: e.side };
       this.render();
     } else if (e.type === "node_reset" || (e.type === "device" && e.connected === false)) {
       this.node = null;
@@ -604,12 +629,144 @@ export function voicePages() {
     return { title: page.title, body };
   });
 }
+// Tap direction (vesper/tapdir.py): the service decides which side of the case a tap landed on from
+// this node's own labelled taps. The page labels TAP_TARGET taps on each side in turn, lit on that
+// side's lamp, then saves them and shows how each new tap is placed.
+export const TAP_SIDES = ["back", "left", "right"]; // in calibration order; back is the main tap
+export const TAP_TARGET = 10;
+const TAP_CUE = { left: [70, 70, 70, 0, 0, 0, 0, 0, 0], back: [0, 0, 0, 70, 70, 70, 0, 0, 0], right: [0, 0, 0, 0, 0, 0, 70, 70, 70] };
+const TAP_WHERE = { left: "THE LEFT SIDE", right: "THE RIGHT SIDE", back: "THE BACK" };
+export function tapCheck(check) {
+  if (!check) return "";
+  const rows = TAP_SIDES.filter((s) => check[s]);
+  const right = rows.reduce((n, s) => n + check[s].right, 0), total = rows.reduce((n, s) => n + check[s].total, 0);
+  return `${right} / ${total} PLACED · ` + rows.map((s) => `${s.toUpperCase()} ${check[s].right}/${check[s].total}`).join(" · ");
+}
+export function tapLabel(knock) {
+  if (!knock) return "NO TAP YET";
+  if (!knock.tap) return "NO SIDE · THIS NODE SENDS NO TWO-MICROPHONE CLIP";
+  if (knock.side) return knock.side.toUpperCase() + ` · ${knock.sideVotes} OF 5 AGREE`;
+  if (Number.isFinite(knock.sideVotes)) return "UNSURE · NEIGHBOURS DISAGREE";
+  return "NO SIDE · NOT CALIBRATED";
+}
+const RENDER_NEXT = { auto: 'sharp', sharp: 'fast', fast: 'auto' };
+const RENDER_WORDS = { auto: 'AUTO', sharp: 'SHARP', fast: 'FAST' };
 export class Settings {
   constructor(c) {
     this.c = c;
     this.navigation = true;
     this.voicePage = null;
+    this.tapPage = false;
+    this.tapStatus = c.state?.()?.tapDirection || null;
+    this.lastTap = null;
+    // The tap-along timing calibration runs on the game canvas with raw button input (tapsync.js),
+    // then comes back here with its result to save or discard.
+    this.sync = null;
+    this.syncResult = null;
     this.render();
+  }
+  tapCommand(op, side) {
+    return this.c.command("tap_direction", side === undefined ? { op } : { op, side }).catch(this.c.error);
+  }
+  startTaps() {
+    this.lastTap = null;
+    this.tapCommand("start", TAP_SIDES[0]);
+    this.c.leds(TAP_CUE[TAP_SIDES[0]]);
+  }
+  // The next side once this one has its taps; after the last, save.
+  nextTapSide(skip = false) {
+    const t = this.tapStatus;
+    if (!t?.label) return;
+    if (!skip && (t.pending?.[t.label] || 0) < TAP_TARGET) return;
+    const next = TAP_SIDES[TAP_SIDES.indexOf(t.label) + 1];
+    this.tapStatus = { ...t, label: next || null };
+    if (next) {
+      this.tapCommand("label", next);
+      this.c.leds(TAP_CUE[next]);
+    } else {
+      this.tapCommand("save");
+      this.c.leds(lightsOff());
+    }
+  }
+  stopTaps() {
+    if (this.tapStatus?.label) this.tapCommand("cancel");
+    this.c.leds(lightsOff());
+  }
+  renderTaps() {
+    const t = this.tapStatus || {}, label = t.label;
+    let body;
+    if (label) {
+      body = `<p class="big">TAP ${TAP_WHERE[label]} OF THE CASE</p><p>${t.pending?.[label] || 0} / ${TAP_TARGET} · lightly, the way you would in a game; the lit lamp shows the side.</p>`;
+    } else {
+      const saved = t.calibrated ? TAP_SIDES.filter((s) => t.saved?.[s]).map((s) => `${t.saved[s]} ${s.toUpperCase()}`).join(" · ") : "";
+      body = `<p>${t.calibrated ? "CALIBRATED · " + saved : "NOT CALIBRATED: taps carry no side yet."}</p>` +
+        (t.check ? `<p>Each saved tap, left out in turn: ${tapCheck(t.check)}</p>` : "") +
+        `<p>LAST TAP · ${tapLabel(this.lastTap)}</p>` +
+        "<p>Needs a node with two microphones. Calibrate in the seat and with the tapping you use in games; redo it if the side is often wrong.</p>";
+    }
+    this.c.content(panel("Tap direction", body));
+    this.c.actions(label ? [
+      { id: "tap-skip", label: "SKIP THIS SIDE", run: () => this.nextTapSide(true) },
+      { id: "tap-cancel", label: "CANCEL", run: () => { this.stopTaps(); this.tapStatus = { ...t, label: null }; this.render(); } },
+    ] : [
+      { id: "tap-start", label: t.calibrated ? "CALIBRATE AGAIN" : "CALIBRATE", run: () => this.startTaps() },
+      ...(t.calibrated ? [{ id: "tap-clear", label: this.confirmTapClear ? "CONFIRM / FORGET TAP SIDES" : "FORGET CALIBRATION…", run: () => {
+        if (this.confirmTapClear) { this.confirmTapClear = false; return this.tapCommand("clear"); }
+        this.confirmTapClear = true; this.render();
+      } }] : []),
+      { id: "tap-back", label: "BACK TO CALIBRATION", run: () => { this.tapPage = false; this.render(); } },
+      { id: "home", label: "RETURN TO DASHBOARD", run: this.c.home },
+    ]);
+    this.c.hint(label ? "Tap the case where the lamp is lit. Hold and release the button to skip or cancel." : "Tap to advance. Hold and release to choose.");
+  }
+  startSync() {
+    this.syncResult = null;
+    this.sync = new TapSync(this.c, (result) => this.endSync(result));
+    this.navigation = false;
+    this.c.restage?.();
+    this.c.controls?.('TAP ON EVERY BEAT');
+    this.c.hint('Tap the button on each beat. The first four are for listening.');
+  }
+  endSync(result) {
+    this.sync = null;
+    this.syncResult = result;
+    this.navigation = true;
+    this.c.leds?.([0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    this.c.restage?.();
+    this.render();
+  }
+  // Two knocks on the case: a voice page or a calibration result goes back to the list.
+  // On TAP DIRECTION the taps are the point: while labelling they never go back, and afterwards they
+  // only leave the page.
+  back() {
+    if (this.tapPage) {
+      if (!this.tapStatus?.label) { this.tapPage = false; this.c.leds(lightsOff()); this.render(); }
+      return true;
+    }
+    if (this.voicePage === null && !this.syncResult) return false;
+    this.voicePage = null; this.syncResult = null; this.render();
+    return true;
+  }
+  // Raw input while the tap-along runs. The menu gesture abandons it.
+  down(e) { this.sync?.down(e); }
+  up(e) { this.sync?.up(e); }
+  update(dt) { this.sync?.update(dt); }
+  draw(g) { this.sync?.draw(g); }
+  cancel() { if (this.sync) this.endSync(null); }
+  pause() { if (this.sync) this.endSync(null); }
+  renderSync() {
+    const r = this.syncResult, s = this.c.settings(), now = latencyMs(s);
+    const verdict = !r.n ? '<p>No taps landed near the beat, so nothing was measured.</p>'
+      : r.ok ? `<p>Your taps arrived <strong>${describe(r.ms)}</strong> on average (${r.n} taps, spread ±${r.spread} ms). Timing games judge every tap with this offset taken off.</p>`
+      : `<p>Measured <strong>${describe(r.ms)}</strong>, but ${r.n < MIN_TAPS ? 'only ' + r.n + ' taps landed on the beat' : 'the taps were uneven (spread ±' + r.spread + ' ms)'}. Try again for a steadier reading.</p>`;
+    this.c.content(panel('Timing calibration', verdict + `<p>Current offset: <strong>${describe(now)}</strong>.</p>`));
+    this.c.actions([
+      ...(r.ok ? [{ id: 'sync-save', label: 'SAVE / ' + describe(r.ms), run: () => { this.setting('latencyMs', r.ms); this.syncResult = null; this.render(); } }] : []),
+      { id: 'sync-again', label: 'TRY AGAIN', run: () => this.startSync() },
+      { id: 'sync-zero', label: 'SET TO ON TIME (0 ms)', run: () => { this.setting('latencyMs', 0); this.syncResult = null; this.render(); } },
+      { id: 'sync-back', label: 'BACK TO CALIBRATION', run: () => { this.syncResult = null; this.render(); } },
+    ]);
+    this.c.hint('Tap to advance. Hold and release to choose.');
   }
   renderVoice() {
     const pages = voicePages(), page = pages[this.voicePage];
@@ -626,12 +783,15 @@ export class Settings {
     this.c.command("settings", { key, value }).catch(this.c.error);
   }
   render() {
+    if (this.sync) return;
+    if (this.syncResult) return this.renderSync();
     if (this.voicePage !== null) return this.renderVoice();
+    if (this.tapPage) return this.renderTaps();
     const s = this.c.settings();
     this.c.content(
       panel(
         "Adjust the instrument",
-        "<p>Every setting is reachable with the arcade button. Voice uses the prefix <strong>“computer”</strong>. Sound plays through the Pi or browser audio output.</p><p>One gesture opens the system menu from anywhere, in every game, instrument and on the dashboard: <strong>tap, tap, then press and hold</strong> for about a second. CLICK TIMING sets how quick the taps must be. Inside a menu a tap moves and a hold chooses; hold clearly longer, after two taps, and the menu opens instead. The microphone always starts muted after a service restart.</p>",
+        "<p><strong>Tap, tap, then hold</strong> opens the system menu anywhere: hold about a second in menus, a little longer (1.6 s) inside a game so a long press there stays in the game. MENU GESTURE TIMING sets how quick the taps must be. TIMING OFFSET measures your button's delay so rhythm games judge you fairly. Voice uses the prefix <strong>“computer”</strong>; the microphone starts muted after a restart.</p><p>A sharp <strong>knock on the case</strong> is a second input. KNOCK SENSITIVITY sets how hard it must be; OFF stops the node listening for it. On a node with two microphones, TAP DIRECTION learns whether a tap is on the back, the left or the right of the case.</p>",
       ),
     );
     this.c.actions([
@@ -671,14 +831,19 @@ export class Settings {
         run: () =>
           this.setting("holdMs", s.holdMs >= 1000 ? 450 : s.holdMs + 100),
       },
-      { id: 'temp-unit', label: 'TEMPERATURE / ' + (s.tempUnit === 'F' ? 'FAHRENHEIT' : 'CELSIUS'),
-        run: () => this.setting('tempUnit', s.tempUnit === 'F' ? 'C' : 'F') },
       { id: 'lamp-level', label: 'LAMP LEVEL / ' + String(s.lampLevel || 'medium').toUpperCase(),
         run: () => this.setting('lampLevel', ({ full: 'medium', medium: 'low', low: 'off', off: 'full' })[s.lampLevel] || 'full') },
       { id: 'lamp-ambient', label: 'AMBIENT GLOW / ' + (s.lampAmbient === false ? 'OFF' : 'ON'),
         run: () => this.setting('lampAmbient', s.lampAmbient === false) },
+      { id: 'knock', label: 'KNOCK SENSITIVITY / ' + String(s.knock || 'medium').toUpperCase(),
+        run: () => this.setting('knock', ({ off: 'low', low: 'medium', medium: 'high', high: 'off' })[s.knock] || 'high') },
+      { id: 'tap-direction', label: 'TAP DIRECTION / ' + (this.tapStatus?.calibrated ? 'CALIBRATED' : 'NOT CALIBRATED'),
+        run: () => { this.tapPage = true; this.render(); } },
       { id: 'gesture-pace', label: 'MENU GESTURE TIMING / ' + s.gesturePace.toUpperCase(),
         run: () => this.setting('gesturePace', ({ quick: 'standard', standard: 'relaxed', relaxed: 'quick' })[s.gesturePace]) },
+      { id: 'timing', label: 'TIMING OFFSET / ' + describe(latencyMs(s)) + ' · CALIBRATE', run: () => this.startSync() },
+      { id: 'render', label: 'RENDER QUALITY / ' + (RENDER_WORDS[s.renderQuality] || 'AUTO'),
+        run: () => this.setting('renderQuality', RENDER_NEXT[s.renderQuality] || 'sharp') },
       { id: 'scan-speed', label: 'ANSWER SCAN / ' + s.scanMs + ' ms',
         run: () => this.setting('scanMs', ({ 600: 850, 850: 1200, 1200: 1600, 1600: 600 })[s.scanMs] || 850) },
       { id: 'reset-settings', label: this.confirmReset ? 'CONFIRM / RESET SETTINGS ONLY' : 'RESET SETTINGS…', run: () => {
@@ -691,6 +856,18 @@ export class Settings {
     this.c.hint("Tap to advance. Hold and release to change a setting.");
   }
   event(e) {
-    if (e.type === "settings") this.render();
+    if (e.type === "settings" && !this.sync) this.render();
+    else if (e.type === "tap_direction") {
+      this.tapStatus = e;
+      this.nextTapSide();
+      if (!this.sync) this.render();
+    } else if (e.type === "knock" && this.tapPage) {
+      this.lastTap = e;
+      if (!this.tapStatus?.label && e.side) this.c.leds(TAP_CUE[e.side].map((v) => v * 3));
+      this.render();
+    }
+  }
+  dispose() {
+    if (this.tapPage) this.stopTaps();
   }
 }

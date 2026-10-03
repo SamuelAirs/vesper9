@@ -473,7 +473,7 @@ class SystemEndpoint(ServiceCase):
                  "uptimeS", "throttled"}
     SERVICE_KEYS = {"version", "startedAt", "uptimeS", "rssBytes", "pid", "python", "tasks", "clients", "micMode"}
     NODE_KEYS = {"connected", "simulated", "port", "link", "firmware", "statusAgeS", "capture", "generation", "crcErrors",
-                 "missingSamples", "audioBytes", "nodeRxCrc", "audioDrops", "sensor"}
+                 "missingSamples", "audioBytes", "nodeRxCrc", "audioDrops", "sensor", "knock", "knockGuarded", "tapDirection"}
 
     async def fetch(self):
         async with self.client.get("/api/system") as response:

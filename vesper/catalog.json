@@ -12,53 +12,66 @@
     "tempUnit": "F",
     "tempOffset": 0,
     "lampLevel": "medium",
-    "lampAmbient": true
+    "lampAmbient": true,
+    "latencyMs": 0,
+    "renderQuality": "auto",
+    "knock": "medium"
   },
   "sectors": [
     {
-      "name": "PLAY",
+      "name": "VOYAGES",
+      "tagline": "Long games to sink an evening into.",
       "apps": [
         "perihelion",
-        "orbit",
-        "runner",
-        "pulsar",
+        "outpost",
+        "drift",
+        "ballista",
         "tideline"
       ]
     },
     {
-      "name": "PLAY II",
+      "name": "ARCADE",
+      "tagline": "Quick runs for sharp hands.",
       "apps": [
-        "drift",
-        "descent",
-        "ballista",
+        "orbit",
         "ricochet",
-        "helix"
+        "runner"
       ]
     },
     {
-      "name": "PLAY III",
+      "name": "LAMPS",
+      "tagline": "Played on the three lamps.",
       "apps": [
-        "outpost",
-        "reaction",
+        "meridian",
+        "relay",
+        "reaction"
+      ]
+    },
+    {
+      "name": "MIND",
+      "tagline": "Memory, reading and pattern.",
+      "apps": [
         "echo",
         "glyphs"
       ]
     },
     {
-      "name": "INSTRUMENTS",
+      "name": "TOOLS",
+      "tagline": "Useful things for the desk.",
       "apps": [
-        "morse",
+        "lantern",
         "cadence",
-        "transcribe",
-        "environment"
+        "oracle",
+        "morse",
+        "library"
       ]
     },
     {
-      "name": "INSTRUMENTS II",
+      "name": "LISTEN",
+      "tagline": "What the node hears.",
       "apps": [
-        "lantern",
         "resonance",
-        "oracle"
+        "transcribe"
       ]
     }
   ],
@@ -178,32 +191,6 @@
       ]
     },
     {
-      "id": "pulsar",
-      "name": "PULSAR",
-      "subtitle": "Keep time with a dying star.",
-      "description": "Beats fall down three lanes toward the strike line. Tap on the beat; hold through the long signals. The song lasts about two minutes, if you keep the signal stable.",
-      "controls": "TAP ON THE BEAT · HOLD LONG SIGNALS · LAMPS SWELL FIRST",
-      "category": "PLAY / RHYTHM",
-      "glyph": 3,
-      "factory": "Pulsar",
-      "voice": [
-        "rhythm"
-      ],
-      "capabilities": [
-        "button",
-        "lights",
-        "audio",
-        "progress"
-      ],
-      "icon": "<path d=\"M4 24h9l4-12 6 24 5-18 3 6h13\"/><circle cx=\"24\" cy=\"24\" r=\"21\" stroke-dasharray=\"2 5\"/><circle cx=\"43\" cy=\"24\" r=\"2\" fill=\"currentColor\"/>",
-      "record": {
-        "score": "Score",
-        "combo": "Best combo",
-        "accuracy": "Accuracy %",
-        "phrases": "Phrases reached"
-      }
-    },
-    {
       "id": "perihelion",
       "name": "PERIHELION",
       "subtitle": "Swing between small suns.",
@@ -245,9 +232,7 @@
         "sites": "Sites cleared",
         "fuel": "Best fuel left %"
       },
-      "voice": [
-        "lander"
-      ],
+      "voice": [],
       "capabilities": [
         "button",
         "lights",
@@ -444,9 +429,7 @@
       "category": "INSTRUMENT / ENVIRONMENT",
       "glyph": 4,
       "factory": "Environment",
-      "voice": [
-        "environment"
-      ],
+      "voice": [],
       "capabilities": [
         "sensor"
       ]

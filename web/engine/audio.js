@@ -1,9 +1,22 @@
+const SHAKE_HZ = 140; // tones below this can register as a tap on the case (98 and 110 Hz did; 147 Hz never)
+const SHAKE_TAIL_MS = 250; // the knock arrives about 100 ms after the sound, plus output latency
+
 export class Synth {
   constructor() {
     this.context = null;
     this.enabled = true;
     this.volume = 0.25;
     this.sustained = null;
+    this.shakeUntil = 0;
+  }
+  // A low tone through the deck's speaker shakes the case hard enough for the node to hear a tap
+  // (scripts/tone-sweep.py on the two-microphone case: 98 and 110 Hz registered, 147 Hz and up never).
+  // Until when such a tone, and its echo in the knock pipeline, may still arrive as a knock.
+  noteShake(frequency, until) {
+    if (frequency < SHAKE_HZ) this.shakeUntil = Math.max(this.shakeUntil, until + SHAKE_TAIL_MS);
+  }
+  shaking(now = performance.now()) {
+    return (!!this.sustained && this.sustainedHz < SHAKE_HZ) || now < this.shakeUntil;
   }
   async unlock() {
     try {
@@ -26,6 +39,7 @@ export class Synth {
     o.connect(a).connect(c.destination);
     o.start();
     o.stop(c.currentTime + duration + 0.02);
+    this.noteShake(frequency, performance.now() + duration * 1000);
   }
   startTone(frequency = 550) {
     this.stopTone();
@@ -39,6 +53,7 @@ export class Synth {
     o.connect(a).connect(c.destination);
     o.start();
     this.sustained = o;
+    this.sustainedHz = frequency;
   }
   stopTone() {
     if (this.sustained) {
@@ -46,6 +61,7 @@ export class Synth {
         this.sustained.stop();
       } catch {}
       this.sustained = null;
+      this.noteShake(this.sustainedHz, performance.now());
     }
   }
   chime() {

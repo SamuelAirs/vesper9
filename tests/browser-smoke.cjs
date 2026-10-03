@@ -74,7 +74,7 @@ async function button(page, ms = 80) {
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(origin);
   await page.waitForFunction(() => window.vesper?.loaded);
-  assert.equal(await page.locator(".app-card").count(), 5, "the first sector holds five games");
+  assert.equal(await page.locator(".app-card").count(), 4, "the first sector (VOYAGES) holds four games");
   await page.screenshot({
     path: path.join(output, "VESPER-9-Dashboard.png"),
     fullPage: true,
@@ -82,7 +82,8 @@ async function button(page, ms = 80) {
   await button(page);
   assert.equal(await page.evaluate(() => vesper.nav.index), 1);
   await button(page, 800);
-  assert.equal(await page.evaluate(() => vesper.meta.id), "orbit");
+  // The second card of the first sector (VOYAGES: Outpost).
+  assert.equal(await page.evaluate(() => vesper.meta.id), "outpost");
   await button(page, 3150);
   assert.equal(await page.locator("#menu-overlay").isVisible(), false, "a plain game hold must not open the menu");
   // A stalled frame can still break one sequence on a busy machine; allow a few attempts.

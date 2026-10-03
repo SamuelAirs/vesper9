@@ -26,20 +26,64 @@ class Layout(unittest.TestCase):
         self.assertEqual(len(names), len(set(names)))
         seen = []
         for sector in CATALOG['sectors']:
-            self.assertEqual(set(sector), {'name', 'apps'})
+            self.assertTrue({'name', 'apps'} <= set(sector) <= {'name', 'apps', 'tagline'})
             self.assertTrue(1 <= len(sector['apps']) <= SECTOR_PAGE_SIZE, sector['name'])
             for ident in sector['apps']:
                 self.assertIn(ident, IDS)
             seen += sector['apps']
         self.assertEqual(len(seen), len(set(seen)), 'an app is on two pages')
 
-    def test_games_come_first_in_three_sectors_with_perihelion_on_the_first_page(self):
-        sectors = CATALOG['sectors']
-        self.assertEqual(sorted(sum((s['apps'] for s in sectors[:3]), [])), sorted(GAMES))
-        self.assertEqual(sectors[0]['apps'][0], 'perihelion')
-        for sector in sectors[:3]:
-            self.assertTrue(4 <= len(sector['apps']) <= 5, sector['name'])
-        self.assertTrue(all(i not in GAMES for s in sectors[3:] for i in s['apps']))
+    def test_sectors_are_grouped_by_kind_games_first_with_perihelion_on_the_first_page(self):
+        # Games by how they are played (long voyages, quick arcade runs, the lamps, mind games), then
+        # the tools. Pulsar and Helix are retired (Sam, 2026-10-01): registered until removed, off the dashboard.
+        sectors = {s['name']: s['apps'] for s in CATALOG['sectors']}
+        names = [s['name'] for s in CATALOG['sectors']]
+        by_id = {app['id']: app for app in CATALOG['apps']}
+        game = lambda i: by_id[i]['category'].startswith('PLAY')
+        self.assertEqual(names[0], 'VOYAGES')
+        self.assertEqual(sectors['VOYAGES'][0], 'perihelion')
+        self.assertIn('outpost', sectors['VOYAGES'])
+        listed = [i for s in CATALOG['sectors'] for i in s['apps']]
+        first_tool = next(n for n, i in enumerate(listed) if not game(i))
+        self.assertTrue(all(game(i) for i in listed[:first_tool]) and not any(game(i) for i in listed[first_tool:]),
+                        'games come first and no page mixes games and tools')
+        self.assertTrue(set(GAMES) - {'pulsar', 'helix', 'kiln', 'descent', 'tideline'} <= set(listed))
+        self.assertNotIn('pulsar', listed)
+        self.assertNotIn('helix', listed)
+        # New instruments (The Stacks, "library") join TOOLS; these seven are always there.
+        self.assertLessEqual({'morse', 'cadence', 'lantern', 'oracle', 'resonance', 'transcribe'},
+                             set(sectors['TOOLS'] + sectors['LISTEN']))
+        self.assertTrue(all(s.get('tagline') for s in CATALOG['sectors']), 'every page says what it is for')
+
+    def test_descent_and_tideline_are_off_the_dashboard_but_still_registered(self):
+        # Descent is on hold (2026-10-02), Tideline ditched (2026-10-03): code and saves stay.
+        on_dashboard = {i for s in CATALOG['sectors'] for i in s['apps']}
+        for ident, factory in (('descent', 'Descent'), ('tideline', 'Tideline')):
+            app = next(app for app in CATALOG['apps'] if app['id'] == ident)
+            self.assertNotIn(ident, on_dashboard)
+            self.assertEqual(app['voice'], [], 'its voice name is gone')
+            self.assertEqual(app['factory'], factory, 'still launchable by id')
+
+    def test_atmosphere_is_retired_with_the_sensor_node(self):
+        # The new node has no temperature/humidity sensor (Sam, 2026-10-03). Atmosphere stays
+        # registered, so its stored history is untouched, but it is off the dashboard and voice.
+        on_dashboard = {i for s in CATALOG['sectors'] for i in s['apps']}
+        atmosphere = next(app for app in CATALOG['apps'] if app['id'] == 'environment')
+        self.assertNotIn('environment', on_dashboard)
+        self.assertEqual(atmosphere['voice'], [])
+        sensor_only = [a['id'] for a in CATALOG['apps'] if a['capabilities'] == ['sensor'] and a['id'] in on_dashboard]
+        self.assertEqual(sensor_only, [], 'no dashboard app needs only the sensor')
+
+    def test_slots_held_for_cartridges_on_their_way_in_are_only_the_known_ones(self):
+        # The source catalog may name a cartridge whose own pull request has not landed: Meridian and
+        # Relay on LAMPS, The Stacks and its Encyclopedia on TOOLS. Anything else unknown is a typo.
+        pending = {'meridian', 'relay', 'library', 'encyclopedia'}
+        raw = json.loads((ROOT / 'vesper/catalog.json').read_text())['sectors']
+        raw_ids = [i for s in raw for i in s['apps']]
+        self.assertEqual({i for i in raw_ids if i not in IDS} - pending, set())
+        self.assertEqual(next(s for s in raw if s['name'] == 'LAMPS')['apps'], ['meridian', 'relay', 'reaction'])
+        tools = next(s for s in raw if s['name'] == 'TOOLS')['apps']
+        self.assertEqual(tools[tools.index('library'):], ['library', 'encyclopedia'])
 
     def test_chronometer_is_retired_in_favour_of_the_timer_tool_in_cadence(self):
         on_dashboard = {i for s in CATALOG['sectors'] for i in s['apps']}
@@ -60,7 +104,11 @@ class Layout(unittest.TestCase):
         self.assertEqual(ephemeris['voice'], [], 'its voice name is gone')
         self.assertEqual(ephemeris['factory'], 'Ephemeris', 'but it is still registered and launchable by id')
         # Everything that is not on the dashboard is a system tool or retired (Ephemeris, Chronometer).
-        self.assertEqual({i for i in IDS if i not in on_dashboard}, {'settings', 'diagnostics', 'telemetry', 'ephemeris', 'timers'})
+        # Pulsar and Helix are retired games, removed from the catalog by their own pull requests.
+        # Descent is on hold (Sam, 2026-10-02) and Atmosphere retired with the temperature/humidity
+        # sensor (2026-10-03): off the dashboard, without a voice name.
+        self.assertEqual({i for i in IDS if i not in on_dashboard} - {'pulsar', 'helix'},
+                         {'settings', 'diagnostics', 'telemetry', 'ephemeris', 'timers', 'descent', 'environment', 'tideline'})
 
     def test_the_catalog_no_longer_carries_a_menu_policy(self):
         self.assertTrue(all('escape' not in app for app in CATALOG['apps']))
@@ -75,16 +123,23 @@ class Validation(unittest.TestCase):
         ids = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
         ok = validate_sectors([{'name': 'ONE', 'apps': ['a', 'b']}, {'name': 'TWO', 'apps': ['c']}], ids)
         self.assertEqual(ok[0]['apps'], ['a', 'b'])
+        self.assertEqual(validate_sectors([{'name': 'ONE', 'apps': ['a'], 'tagline': 'For one.'}], ids)[0]['tagline'], 'For one.')
+        # A cartridge not in the catalog yet holds its slot without showing; a sector left empty is dropped.
+        held = validate_sectors([{'name': 'ONE', 'apps': ['zzz', 'a']}, {'name': 'TWO', 'apps': ['yyy']}], ids)
+        self.assertEqual(held, [{'name': 'ONE', 'apps': ['a']}])
         for bad in (
             [],
             None,
             [{'name': 'ONE', 'apps': []}],
             [{'name': 'ONE', 'apps': ids[:7]}],                       # seven do not fit a page of six
-            [{'name': 'ONE', 'apps': ['a', 'zzz']}],
+            [{'name': 'ONE', 'apps': ['a', 'Not An Id']}],
+            [{'name': 'ONE', 'apps': ['zzz']}],                        # nothing left to show
             [{'name': 'ONE', 'apps': ['a']}, {'name': 'TWO', 'apps': ['a']}],
             [{'name': 'ONE', 'apps': ['a']}, {'name': 'ONE', 'apps': ['b']}],
             [{'name': '', 'apps': ['a']}],
             [{'name': 'ONE', 'apps': ['a'], 'extra': 1}],
+            [{'name': 'ONE', 'apps': ['a'], 'tagline': ''}],
+            [{'name': 'ONE', 'apps': ['a'], 'tagline': 3}],
             ['ONE', 2],
         ):
             with self.assertRaises(ValueError, msg=repr(bad)):

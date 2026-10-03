@@ -68,7 +68,7 @@ let browser;
   // F10: leaving an app returns to its card on its sector.
   const target = await page.evaluate(async () => {
     const { SECTORS } = await import("/apps/catalog.js");
-    const page = 2, index = 2; // the third card of the third sector
+    const page = 1, index = 2; // the third card of the second sector
     return { id: SECTORS[page].apps[index], page, index };
   });
   await page.evaluate((id) => { vesper.launch(id); vesper.home(); }, target.id);

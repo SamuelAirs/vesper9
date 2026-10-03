@@ -34,7 +34,7 @@
           ><span class="lamp" id="lamp-2">III</span>
         </div>
         <span class="bar-label">FIELD NODE</span>
-        <div class="environment-mini">
+        <div class="environment-mini" hidden>
           <span id="temp-mini">— °C</span><span id="rh-mini">— % RH</span>
         </div>
         <button
@@ -50,15 +50,11 @@
       </div>
       <main>
         <section id="dashboard" aria-label="Dashboard">
-          <div class="hero">
-            <div class="hero-copy">
-              <span class="eyebrow">A SMALL SIGNAL IN THE DARK</span>
-              <h1>The quiet<br />between <em>stars.</em></h1>
-              <p>One switch. Unfamiliar worlds.</p>
-              <div class="hero-bottom">
-                <span class="tiny-glyph" aria-hidden="true">⌁ ◇ ⊙</span
-                ><span id="sector-label">SECTOR 01 / PLAY</span>
-              </div>
+          <div class="sector-head">
+            <div class="sector-copy">
+              <span class="eyebrow" id="sector-label">SECTOR 01 / VOYAGES</span>
+              <h1 id="sector-title">Voyages</h1>
+              <p id="sector-tagline">A small signal in the dark.</p>
             </div>
             <div class="orrery">
               <canvas
@@ -68,13 +64,16 @@
                 aria-label="Decorative orbital instrument"
               ></canvas
               ><span class="orrery-label"
-                >VESPER SURVEY INSTRUMENT<br />CALIBRATION / 09</span
+                >THE QUIET BETWEEN STARS<br />VESPER SURVEY / 09</span
               >
             </div>
           </div>
           <div class="section-line">
-            <span id="collection-title">PLAY / SIX EXPERIMENTS</span
-            ><span id="focus-counter">01 — 08</span>
+            <div id="sector-strip" class="sector-strip" aria-label="Sectors"></div>
+            <span class="section-meta"
+              ><span id="collection-title">5 CHANNELS</span
+              ><span id="focus-counter">01 — 07</span></span
+            >
           </div>
           <div id="app-grid" class="app-grid"></div>
           <div class="dashboard-actions">

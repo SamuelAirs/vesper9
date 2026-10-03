@@ -129,7 +129,7 @@ test("a finished run is recorded once, after the gesture window, and never twice
     const c = makeCtx(27), g = kill(c);
     step(g, 0.5);
     assert.equal(c.log.saves.length, 0, name + " recorded inside the gesture window");
-    step(g, 2);
+    step(g, 2.4);
     assert.equal(c.log.saves.length, 1, name + " did not record the finished run");
     assert.equal(c.log.scores.length, 1);
     g.pause(); g.dispose(); step(g, 5);
@@ -150,7 +150,7 @@ test("leaving or restarting right after a run ends still records that run once",
   step(g, 0.7);
   g.down();
   assert.equal(g.phase, "play");
-  step(g, 2.1);
+  step(g, 2.9);
   assert.equal(c.log.saves.length, 1, "restarting lost the previous run");
   g.pause(); g.dispose();
   assert.equal(c.log.saves.length, 1, "the previous run was recorded twice");

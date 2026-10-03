@@ -533,7 +533,7 @@ export const CARTRIDGES = [
     ]
   }
 ];
-export const SECTORS = [{"name": "PLAY", "apps": ["perihelion", "orbit", "runner", "pulsar", "tideline"]}, {"name": "PLAY II", "apps": ["drift", "descent", "ballista", "ricochet", "helix"]}, {"name": "PLAY III", "apps": ["outpost", "reaction", "echo", "glyphs"]}, {"name": "INSTRUMENTS", "apps": ["morse", "cadence", "transcribe", "environment"]}, {"name": "INSTRUMENTS II", "apps": ["lantern", "resonance", "oracle"]}];
+export const SECTORS = [{"name": "VOYAGES", "tagline": "Long games to sink an evening into.", "apps": ["perihelion", "outpost", "drift", "ballista", "tideline"]}, {"name": "ARCADE", "tagline": "Quick runs for sharp hands.", "apps": ["orbit", "ricochet", "runner", "reaction", "descent"]}, {"name": "MIND", "tagline": "Memory, reading and pattern.", "apps": ["echo", "glyphs"]}, {"name": "TOOLS", "tagline": "Useful things for the desk.", "apps": ["lantern", "cadence", "oracle", "morse"]}, {"name": "SENSORS", "tagline": "What the node hears and feels.", "apps": ["environment", "resonance", "transcribe"]}];
 export const SYSTEM_APPS = ["settings", "diagnostics", "telemetry"];
 export const DEFAULT_SETTINGS = {
   "sound": true,
@@ -547,5 +547,7 @@ export const DEFAULT_SETTINGS = {
   "tempUnit": "F",
   "tempOffset": 0,
   "lampLevel": "medium",
-  "lampAmbient": true
+  "lampAmbient": true,
+  "latencyMs": 0,
+  "renderQuality": "auto"
 };

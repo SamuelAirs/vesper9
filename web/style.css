@@ -223,12 +223,15 @@ a {
 main {
   padding: 0 30px 25px;
 }
-.hero {
+.sector-head {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr minmax(0, 320px);
   align-items: center;
-  padding: 36px 0 24px;
+  padding: 26px 0 14px;
   gap: 30px;
+}
+.sector-copy {
+  min-width: 0;
 }
 .eyebrow {
   font-size: 10px;
@@ -236,35 +239,23 @@ main {
   color: var(--muted);
   line-height: 1.5;
 }
-.hero h1 {
+.sector-head h1 {
   font-family: Georgia, serif;
   font-weight: 400;
   letter-spacing: -2px;
-  font-size: 62px;
+  font-size: 56px;
   line-height: 1.02;
-  margin: 17px 0 14px;
+  margin: 8px 0 8px;
   color: var(--phosphor);
 }
-.hero h1 em {
-  font-style: italic;
+.sector-head h1::after {
+  content: ".";
+  color: var(--amber);
 }
-.hero p {
+.sector-head p {
   font-size: 12px;
   color: var(--muted);
   margin: 0;
-}
-.hero-bottom {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  margin-top: 24px;
-  font-size: 9px;
-  letter-spacing: 1.5px;
-}
-.tiny-glyph {
-  font-size: 20px;
-  color: var(--amber);
-  letter-spacing: 8px;
 }
 .orrery {
   position: relative;
@@ -288,11 +279,59 @@ main {
 .section-line {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  gap: 16px;
   border-top: 1px solid var(--line);
-  padding: 15px 0;
+  padding: 12px 0;
   font-size: 10px;
   letter-spacing: 1.8px;
   color: var(--muted);
+}
+.sector-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  min-width: 0;
+}
+.sector-tab {
+  position: relative;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  letter-spacing: inherit;
+  padding: 3px 8px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+.sector-tab:hover {
+  color: var(--ink);
+}
+.sector-tab.is-current {
+  color: var(--phosphor);
+  border-color: var(--line);
+  background: #17251e;
+}
+.sector-tab.is-current::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: -1px;
+  height: 2px;
+  background: var(--phosphor);
+}
+/* With NEXT SECTOR highlighted, the tab it leads to lights up in amber. */
+#dashboard:has(#sector-button.is-focused) .sector-tab.is-next {
+  color: var(--amber);
+  border-color: #9b7e51;
+  border-style: dashed;
+}
+.section-meta {
+  display: flex;
+  gap: 14px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 .app-grid {
   display: grid;
@@ -303,10 +342,11 @@ main {
   position: relative;
   display: grid;
   grid-template-columns: 47px 1fr;
+  grid-template-rows: auto 1fr auto;
   gap: 5px 12px;
   text-align: left;
   min-height: 128px;
-  background: #142018;
+  background: linear-gradient(160deg, #18271d, #111b15 70%);
   border: 1px solid var(--line);
   border-radius: 3px;
   padding: 19px 17px;
@@ -318,7 +358,7 @@ main {
   background: #203022;
 }
 .app-card .app-icon {
-  grid-row: 1/3;
+  grid-row: 1/4;
   color: var(--phosphor);
   align-self: center;
 }
@@ -327,7 +367,8 @@ main {
   height: 41px;
 }
 .card-name {
-  align-self: end;
+  align-self: start;
+  margin-top: 4px;
   font-size: 14px;
   letter-spacing: 0.8px;
   color: var(--phosphor);
@@ -343,7 +384,33 @@ main {
   top: 9px;
   right: 10px;
   font-size: 8px;
+  letter-spacing: 1px;
   color: var(--muted);
+}
+/* The empty bays that square off a part-filled sector. */
+.app-slot {
+  border: 1px dashed var(--faint);
+  border-radius: 3px;
+  display: grid;
+  place-items: center;
+  font-size: 8px;
+  letter-spacing: 2px;
+  color: #3d5040;
+}
+.card-stat {
+  grid-column: 2;
+  align-self: end;
+  font-size: 9px;
+  letter-spacing: 1.2px;
+  color: var(--cyan);
+  font-variant-numeric: tabular-nums;
+}
+.card-stat:empty {
+  display: none;
+}
+.app-card.is-uncharted .card-stat {
+  color: var(--amber);
+  opacity: 0.8;
 }
 .app-card.is-focused {
   background: #d6efa4;
@@ -354,8 +421,10 @@ main {
 .app-card.is-focused .card-name,
 .app-card.is-focused .card-desc,
 .app-card.is-focused .app-icon,
-.app-card.is-focused .card-number {
+.app-card.is-focused .card-number,
+.app-card.is-focused .card-stat {
   color: #1d321b;
+  opacity: 1;
 }
 .app-card.is-focused:before {
   content: "";
@@ -759,15 +828,18 @@ main {
   body {
     padding: 32px;
   }
-  .hero h1 {
+  .sector-head h1 {
     font-size: 70px;
   }
-  .hero {
+  .sector-head {
     padding-top: 42px;
     padding-bottom: 33px;
   }
 }
 @media (max-width: 900px) {
+  .app-slot {
+    display: none;
+  }
   .masthead {
     padding: 20px;
     gap: 16px;
@@ -789,10 +861,10 @@ main {
     margin: 0;
     gap: 12px;
   }
-  .hero h1 {
+  .sector-head h1 {
     font-size: 52px;
   }
-  .hero {
+  .sector-head {
     gap: 15px;
   }
   .app-grid {
@@ -815,6 +887,9 @@ main {
   }
 }
 @media (max-width: 560px) {
+  .app-card .card-stat {
+    grid-column: 1;
+  }
   body {
     padding: 10px;
   }
@@ -869,32 +944,22 @@ main {
   main {
     padding: 0 15px 20px;
   }
-  .hero {
+  .sector-head {
     grid-template-columns: 1fr 120px;
     padding: 26px 0 23px;
     gap: 4px;
   }
-  .hero h1 {
+  .sector-head h1 {
     font-size: 39px;
     letter-spacing: -1.5px;
     margin-top: 13px;
   }
-  .hero .eyebrow {
+  .sector-head .eyebrow {
     font-size: 7px;
     letter-spacing: 1px;
   }
-  .hero p {
+  .sector-head p {
     font-size: 10px;
-  }
-  .hero-bottom {
-    margin-top: 18px;
-    gap: 9px;
-    font-size: 7px;
-    letter-spacing: 0.5px;
-  }
-  .tiny-glyph {
-    font-size: 16px;
-    letter-spacing: 3px;
   }
   .orrery-label {
     display: none;
@@ -1066,21 +1131,18 @@ main {
   .instrument-bar {
     padding: 8px 24px;
   }
-  .hero {
+  .sector-head {
     padding: 15px 0;
     height: 164px;
   }
-  .hero h1 {
+  .sector-head h1 {
     font-size: 39px;
     margin: 7px 0;
   }
-  .hero p {
+  .sector-head p {
     font-size: 10px;
   }
-  .hero-bottom {
-    margin-top: 9px;
-  }
-  .hero .eyebrow {
+  .sector-head .eyebrow {
     font-size: 8px;
   }
   .orrery {
@@ -1181,12 +1243,11 @@ main {
   .manufacture { font-size: 8px; }
   .instrument-bar { padding: 4px 22px; }
   main { padding-bottom: 6px; }
-  .hero { height: 146px; padding: 10px 0; }
-  .hero h1 { font-size: 34px; margin: 5px 0; }
-  .hero-bottom { margin-top: 6px; }
-  .orrery, .orrery canvas { height: 126px; }
-  .section-line { padding: 6px 0; }
-  .app-card { min-height: 80px; padding: 10px 14px; }
+  .sector-head { height: 104px; padding: 8px 0 6px; }
+  .sector-head h1 { font-size: 40px; margin: 3px 0 2px; }
+  .orrery, .orrery canvas { height: 96px; }
+  .section-line { padding: 6px 0 8px; }
+  .app-card { min-height: 96px; padding: 12px 14px; }
   .dashboard-actions { margin-top: 7px; }
   .control-deck { padding: 6px 22px; }
   .control-deck .arcade { gap: 5px; }
@@ -1312,3 +1373,82 @@ main {
 .fn-still .fn-caret, .fn-panel.fn-still .fn-caret { animation: none; }
 @media (prefers-reduced-motion: reduce) { .fn-rec i, .fn-caret { animation: none; } }
 .atmo-top .big-readout small.atmo-case { color: var(--amber); font-size: 13px; letter-spacing: 1px; }
+
+/* Play mode: the game gets the screen. While a game runs (any landscape screen from 700 × 400 up),
+   the console's chrome folds into one slim row on top (lamps, title, HUD, microphone, clock) and one
+   at the bottom (the app's hint, the menu gesture, its hold bar, timers). The wrappers become
+   `display: contents` so their children sit directly in the console's grid. On the 1024 × 600
+   display this leaves the stage 1024 × 540, so the 960 × 540 game is shown at its own size. */
+@media (min-width: 700px) and (min-height: 400px) {
+  body.playing { padding: 0; }
+  .console.playing {
+    height: 100dvh; max-width: none; border: 0; border-radius: 0; box-shadow: none;
+    display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+    grid-template-rows: 34px minmax(0, 1fr) 26px; column-gap: 16px;
+  }
+  .console.playing .masthead, .console.playing .case-label, .console.playing .bar-label,
+  .console.playing .environment-mini, .console.playing .app-description,
+  .console.playing .control-deck .arcade, .console.playing .control-copy .eyebrow { display: none; }
+  .console.playing .instrument-bar, .console.playing main, .console.playing #application,
+  .console.playing .control-deck { display: contents; }
+  .console.playing .physical-lights { grid-column: 1; grid-row: 1; align-self: center; padding-left: 14px; gap: 6px; }
+  .console.playing .lamp { width: 22px; height: 22px; font-size: 9px; }
+  .console.playing .app-heading { grid-column: 2; grid-row: 1; margin: 0; gap: 12px; min-width: 0; justify-content: flex-start; }
+  .console.playing .app-heading > div { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+  .console.playing .app-heading .eyebrow { display: none; }
+  .console.playing .app-heading h1 { font-size: 18px; margin: 0; white-space: nowrap; letter-spacing: 1px; }
+  .console.playing #pause-button { min-height: 24px; padding: 3px 8px; font-size: 0; }
+  .console.playing #pause-button::after { content: "MENU"; font-size: 9px; letter-spacing: 1px; }
+  .console.playing .hud {
+    grid-column: 3; grid-row: 1; align-self: center; min-height: 0; padding: 0; border: 0;
+    flex-wrap: nowrap; justify-content: flex-start; gap: 14px; overflow: hidden; min-width: 0;
+  }
+  .console.playing .hud-item span { font-size: 8px; }
+  .console.playing .hud-item { gap: 7px; white-space: nowrap; }
+  .console.playing .hud-item strong { font-size: 16px; }
+  .console.playing .mic-pill { grid-column: 4; grid-row: 1; align-self: center; margin: 0; padding: 3px 8px; }
+  .console.playing .mic-pill:not(.active) .level-track { display: none; }
+  .console.playing #clock { grid-column: 5; grid-row: 1; align-self: center; padding-right: 14px; font-size: 11px; color: var(--muted); }
+  .console.playing .game-stage {
+    grid-column: 1 / -1; grid-row: 2; width: 100%; height: 100%; min-height: 0; margin: 0;
+    border: 0; border-radius: 0; background: #0b1410;
+    border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  }
+  .console.playing .game-stage canvas { width: 100%; height: 100%; object-fit: contain; }
+  .console.playing .stage-corners { display: none; }
+  .console.playing .control-copy {
+    grid-column: 1 / 4; grid-row: 3; justify-self: start; max-width: 58%; overflow: hidden;
+    align-self: center; display: flex; align-items: center; gap: 12px;
+    padding-left: 14px; min-width: 0; white-space: nowrap;
+  }
+  .console.playing #control-hint { margin: 0; font-size: 10px; overflow: hidden; text-overflow: ellipsis; }
+  .console.playing .control-secondary { font-size: 9px; line-height: 1; }
+  .console.playing .control-copy .hold-track { margin: 0; width: 90px; min-width: 90px; }
+  .console.playing .app-readout {
+    grid-column: 1 / 4; grid-row: 3; justify-self: end; max-width: 41%; text-align: right;
+    align-self: center; margin: 0; min-height: 0; font-size: 10px; line-height: 1.2;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .console.playing .footer-right {
+    grid-column: 4 / 6; grid-row: 3; align-self: center; display: flex; gap: 12px; padding-right: 14px;
+    max-width: none; white-space: nowrap; font-size: 9px;
+  }
+  .console.playing #build-tag { display: none; }
+}
+/* A long action list (more than ten rows) in three columns, so it fits the 1024 × 600 panel. */
+@media (min-width: 900px) {
+  .utility-actions.dense { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .utility-actions.dense .utility-button { font-size: 11px; }
+}
+/* Node Scope on the 1024 × 600 panel: tighter rows so its actions start above the fold. */
+@media (min-width: 900px) and (max-height: 640px) {
+  .diag-item { padding: 2px 0; font-size: 11px; }
+}
+/* The console logbook's line on the dashboard: today's three games and the streak. */
+.today-line { margin: 4px 0 0; font-size: 10px; letter-spacing: 1px; color: var(--amber); min-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* In play the toast sits under the top row, clear of the bottom of the game. */
+@media (min-width: 700px) and (min-height: 400px) {
+  body.playing #toast { top: 42px; bottom: auto; }
+}
+/* The node's board LED: a small accent pip beside the lamps, shown only on a node that has one. */
+.lamp.board-led { width: 10px; height: 10px; align-self: center; font-size: 0; }

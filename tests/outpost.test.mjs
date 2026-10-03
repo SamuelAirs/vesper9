@@ -803,7 +803,7 @@ test("a save written by the current (schema 2) build loads, keeps everything, an
   tap(app); assert.equal(s.taps, old.taps + 1);
   app.save(true);
   const saved = lastSave(ctx);
-  assert.equal(saved.v, 3); assert.ok(JSON.stringify(saved).length < 8192);
+  assert.equal(saved.v, E.SCHEMA); assert.ok(JSON.stringify(saved).length < 8192);
   // the new save is a fixed point
   const { app: again } = boot({ progress: structuredClone(saved) });
   assert.equal(again.phase_, "play"); assert.deepEqual(again.s.gl, s.gl); assert.deepEqual(again.s.own, s.own); assert.equal(again.s.fk, 0);
@@ -935,4 +935,149 @@ test("every menu and view draws, with the late-game state, without NaN", () => {
   assert.ok(app.queue.length <= 16);
   const json = JSON.stringify(E.serialize(app.s, 1.9e12));
   assert.ok(json.length < 4000, "late save with every new field is " + json.length + " bytes");
+});
+
+// ======================= schema 4: groove, quieter voices, constellations =======================
+test("a schema 3 save (from the previous build) loads with everything kept and the new features at zero", () => {
+  const old = fixture("outpost-save-v3-late.json");
+  assert.equal(old.v, 3);
+  wall = old.t + 20 * 1000;
+  const { ctx, app } = boot({ progress: structuredClone(old) });
+  const s = app.s;
+  assert.deepEqual(s.own, old.own);
+  assert.deepEqual([...s.up].map((x, i) => (x ? i : -1)).filter((i) => i >= 0), old.up);
+  assert.deepEqual(s.tree, old.tree);
+  for (const k of ["taps", "b", "L", "runs", "maxTier", "relics", "sg", "sp", "gs", "sm", "ev"]) assert.equal(s[k], old[k], k);
+  assert.deepEqual(s.sc, old.sc); assert.deepEqual(s.gl.slice(0, old.gl.length), old.gl); assert.deepEqual(s.rd, old.rd);
+  assert.deepEqual(s.rs.map((e) => [e.k, e.end]), old.rs);
+  for (const k of Object.keys(old.st)) assert.ok(s.st[k] >= old.st[k], "statistic " + k + " kept"); // a few grow with the 20 s away
+  assert.equal(s.fk, old.fk, "statistics are not restarted"); assert.equal(s.f, old.f);
+  assert.ok(s.lt >= old.lt && s.sig >= old.sig && s.dat >= old.dat, "nothing lost");
+  assert.equal(s.cn, 0); assert.equal(s.st.gb, 0); assert.equal(s.st.gt, 0);
+  assert.equal(app.phase_, "news", "the update card says what is new");
+  assert.equal(app.newsFrom, 3);
+  const g = fakeCanvas(); app.draw(g);
+  app.down(); app.up({ durationMs: 50 });
+  assert.equal(app.phase_, "play");
+  app.save(true);
+  const saved = lastSave(ctx);
+  assert.equal(saved.v, 4); assert.equal(saved.cn, 0);
+  const again = boot({ progress: JSON.parse(JSON.stringify(saved)) }).app;
+  assert.equal(again.phase_, "play", "a schema 4 save shows no update card");
+  assert.deepEqual(again.s.own, s.own); assert.equal(again.s.taps, s.taps);
+  assert.equal(E.migrate({ ...saved, cn: 1e9 }).s.cn, E.CHART_MAX);
+  assert.equal(E.migrate({ ...saved, cn: "x" }).s.cn, 0);
+});
+
+test("the extra voices sit quietly under the lead: a fully voiced tap is about twice one note", () => {
+  const { ctx, app } = begin();
+  app.s.lt = 1e6;
+  advance(app, 0.5);
+  const n0 = ctx.calls.tone.length; app.gather();
+  const single = ctx.calls.tone.slice(n0);
+  assert.equal(single.length, 1);
+  assert.ok(single[0][3] === undefined || single[0][3] === 1, "the lead alone is at full level");
+  for (const k of E.VOICE) app.s.up[k] = 1;
+  app.s.sp = 0; app.loadMelody();
+  advance(app, 0.5);
+  const n1 = ctx.calls.tone.length; app.gather();
+  const full = ctx.calls.tone.slice(n1);
+  assert.equal(full.length, 5, "lead, third, octave, bass and bell on the first note of a phrase");
+  const gains = full.map((c) => c[3] ?? 1);
+  assert.ok(gains.slice(1).every((x) => x > 0 && x <= 0.5), "every extra voice is at half the lead or less: " + gains);
+  const sum = gains.reduce((a, b) => a + b, 0);
+  assert.ok(sum <= 2.2, "the whole band sums to " + sum + " of one note (it was 5)");
+});
+
+test("groove: a steady beat builds it to x1.5, a stumble halves it, a pause lets it fade", () => {
+  const { app } = begin();
+  advance(app, 2);
+  const base = app.tapValue();
+  for (let i = 0; i < 40; i++) { app.gather(); advance(app, 0.3); }
+  assert.equal(app.groove, E.GROOVE_MAX);
+  assert.equal(app.grooveMult(), 1.5);
+  assert.ok(app.tapValue() / base >= 1.5, "full groove: x" + app.tapValue() / base);
+  assert.ok(app.s.ev & E.EV.groove);
+  assert.ok(app.s.st.gt >= 5 && app.s.st.gb === E.GROOVE_MAX);
+  // a stumble: one gap far off the beat
+  advance(app, 0.4); app.gather();
+  assert.equal(app.groove, E.GROOVE_MAX / 2);
+  // a pause of a few seconds fades it away
+  advance(app, 5);
+  assert.equal(app.groove, 0);
+  // irregular tapping never builds much
+  const r = { v: 7 };
+  for (let i = 0; i < 60; i++) { app.gather(); r.v = (r.v * 48271) % 2147483647; advance(app, 0.15 + (r.v % 100) / 100 * 0.6); }
+  assert.ok(app.groove < E.GROOVE_MAX / 2, "random gaps: groove " + app.groove);
+  // a slow steady beat counts too, and the header shows it
+  for (let i = 0; i < 30; i++) { app.gather(); advance(app, 0.9); }
+  assert.equal(app.groove, E.GROOVE_MAX);
+  const g = fakeCanvas(); app.draw(g);
+  app.checkGoals(false);
+  assert.ok(app.s.gl.includes(E.GOALS.findIndex((x) => x.n === "IN THE POCKET")));
+});
+
+test("groove lights the note glow brighter, and cyan when full, on the lamp for the note", () => {
+  const { app } = begin();
+  advance(app, 2);
+  app.accent = null; app.flare = null; app.boosts.length = 0;
+  app.noteFx = { pos: 0, t: 0 };
+  app.groove = 0;
+  const plain = app.lampValues();
+  app.groove = E.GROOVE_MAX;
+  const full = app.lampValues();
+  assert.ok(Math.max(...full.slice(0, 3)) > Math.max(...plain.slice(0, 3)), `brighter: ${plain} -> ${full}`);
+  assert.ok(full[2] > full[0], "cyan in full groove: " + full);
+  assert.deepEqual(full.slice(3), plain.slice(3), "the middle and right status lamps are unchanged");
+});
+
+test("constellations: shown from 1000 bearings, each multiplies all output, costs grow, the sky draws them", () => {
+  const { app } = begin();
+  const s = app.s;
+  s.L = 900; s.b = 900;
+  app.openRing("tree");
+  assert.ok(!app.entries.some((e) => e.kind === "chart"), "locked under 1000");
+  assert.ok(app.entries.some((e) => e.key === "chartl"), "but announced");
+  s.L = 1200; s.b = 5000;
+  app.rebuild();
+  const entry = app.entries.find((e) => e.kind === "chart");
+  assert.ok(entry && entry.aff && entry.label === "CHART THE KEY");
+  const g0 = E.globalMult(s);
+  app.ring.idx = app.entries.indexOf(entry); app.downAge = 5;
+  app.choose(entry, 1);
+  assert.equal(s.cn, 1);
+  assert.equal(s.b, 5000 - E.chartCost(0));
+  assert.ok(Math.abs(E.globalMult(s) / g0 - E.CHART_MULT) < 1e-9);
+  for (let k = 1; k < 20; k++) assert.ok(E.chartCost(k) > E.chartCost(k - 1));
+  assert.equal(E.chartName(0), "THE KEY");
+  assert.equal(E.chartName(12), "DEEP KEY 2");
+  while (app.chartNext()) { /* spend */ }
+  assert.ok(s.cn >= 4 && s.b < E.chartCost(s.cn));
+  // a big sky draws within a modest budget
+  s.cn = 40;
+  const g = fakeCanvas();
+  app.closeRing(); app.draw(g);
+  assert.ok((g.count.lineTo || 0) < 400 && (g.count.fillRect || 0) < 200);
+  finiteDeep(s);
+});
+
+test("relocation is called ready at twice the bearings held early, less once holdings are large", () => {
+  assert.equal(E.readyRatio(10), 2);
+  assert.equal(E.readyRatio(800), 1.6);
+  assert.equal(E.readyRatio(8000), 1.35);
+  assert.equal(E.readyRatio(50000), 1.25);
+  const s = E.freshState();
+  s.L = 8000; s.rt = E.PRESTIGE_K * Math.pow(8000 * 1.36, 4);
+  assert.equal(E.readyOf(s), true);
+  s.rt = E.PRESTIGE_K * Math.pow(8000 * 1.3, 4);
+  assert.equal(E.readyOf(s), false);
+});
+
+test("the late game no longer walls: nine relocations, the eighth within two hours, constellations bought", () => {
+  const { res, app } = simulate({ runs: 9, maxMin: 300 });
+  console.log("late game minutes per run:", res.map((r) => r.minutes).join(" "), "constellations", app.s.cn);
+  assert.ok(res.every((r) => r.minutes !== null), "every run finished");
+  assert.ok(res[7].minutes < 120, "the eighth run took " + res[7].minutes + " min (it did not finish in four hours before)");
+  assert.ok(app.s.cn >= 3);
+  finiteDeep(app.s);
 });

@@ -12,16 +12,19 @@ export class Synth {
       if (this.context.state === "suspended") await this.context.resume();
     } catch {}
   }
-  tone(frequency = 440, duration = 0.1, type = "sine") {
+  // gain (0..1, default 1) scales one tone under the master volume, so an app can layer quiet
+  // voices under a lead without the sum getting loud.
+  tone(frequency = 440, duration = 0.1, type = "sine", gain = 1) {
     if (!this.enabled || !this.context || this.context.state !== "running")
       return;
+    const level = Number.isFinite(gain) ? Math.min(1, Math.max(0.01, gain)) : 1;
     const c = this.context,
       o = c.createOscillator(),
       a = c.createGain();
     o.type = type;
     o.frequency.value = frequency;
     a.gain.setValueAtTime(0, c.currentTime);
-    a.gain.linearRampToValueAtTime(this.volume * 0.25, c.currentTime + 0.008);
+    a.gain.linearRampToValueAtTime(this.volume * 0.25 * level, c.currentTime + 0.008);
     a.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + duration);
     o.connect(a).connect(c.destination);
     o.start();

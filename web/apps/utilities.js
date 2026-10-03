@@ -684,6 +684,10 @@ export class Settings {
   }
   // Two knocks on the case: a voice page or a calibration result goes back to the list.
   back() {
+    if (this.tapPage) {
+      if (!this.tapStatus?.label) { this.tapPage = false; this.c.leds(lightsOff()); this.render(); }
+      return true;
+    }
     if (this.voicePage === null && !this.syncResult) return false;
     this.voicePage = null; this.syncResult = null; this.render();
     return true;

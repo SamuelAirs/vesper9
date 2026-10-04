@@ -2,7 +2,7 @@
 
 For another project's USB-only integration, start with
 [the reusable node brief](NODE-HARDWARE-HANDOFF.txt). It gives board 2's corrected
-RGB pin order, protocol, ownership rules and evidence limits in one place.
+RGB pin order, protocol and practical implementation notes in one place.
 
 **Current target: board 2, four RGB lamps, two microphones and board LED; no
 temperature/humidity sensor.** Start with [the second-node section](#the-second-node-board-2-2026-10-02)

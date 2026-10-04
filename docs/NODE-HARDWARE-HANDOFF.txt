@@ -1,303 +1,165 @@
-SAM'S FINISHED NODE — REUSE BRIEF FOR ANOTHER PROJECT
-Prepared 2026-10-04. Target: board 2, the assembled four-lamp node.
+USB INPUT, LIGHT AND AUDIO NODE
 
-START HERE
+HARDWARE
 
-Use the externally accessible native USB connector. Sam does not want to reopen
-the case to expose the separate COM/UART connector. The installed firmware
-already exposes the button, four RGB lamps, board RGB accent, acoustic taps and
-microphone audio over native USB using a small binary serial protocol. Ordinary
-reuse can be implemented on the host without reflashing or rewiring the node.
+- ESP32-S3 N16R8: 16 MiB flash, 8 MiB PSRAM.
+- One momentary arcade button, with separate press and release events.
+- Four RGB lamps arranged left to right. Each of the twelve color channels
+  supports independent brightness from 0 to 255.
+- Two INMP441 digital microphones, positioned left and right.
+- One additional WS2812 RGB LED on the development board, controlled separately
+  from the four lamps. Power and TX/RX indicators are not software-controlled.
+- No temperature/humidity sensor, accelerometer or dedicated tap sensor.
+  Case taps are detected using the microphones.
+- No audio-output interface in the installed firmware; sound playback belongs
+  to the connected computer.
 
-Treat this as a general-purpose physical controller and light/audio peripheral.
-Your new project's engine, user interface, gestures and action mapping are your
-choice. Vesper's one-button menu gestures are application policy, not hardware
-requirements. Keep the existing case and wiring, and make generic taps useful;
-left/right recognition is an optional calibrated feature, not guaranteed input.
+CONNECTION
 
-WHAT IS IN THE CASE
+Use the accessible native USB connector. The separate UART/COM connector is
+inside the case and should not be needed. Normal operation requires no case
+opening, rewiring or firmware replacement.
 
-- ESP32-S3 N16R8 development board: 16 MiB flash and 8 MiB PSRAM, according to
-  the assembled-node records. Firmware uses ESP-IDF, not Arduino or MicroPython.
-- One momentary arcade button. Both press and release edges are available, so
-  the host can distinguish taps, holds, double presses and combinations.
-- Four separate RGB lamps, physically ordered left to right. All twelve color
-  channels are independently controllable at 0..255. These are discrete LED
-  legs driven with PWM, not an addressable strip.
-- Two INMP441 digital I2S microphones, left and right, used for sound and
-  acoustic case-tap detection. There is no dedicated directional tap switch,
-  accelerometer or force sensor in this documented assembly.
-- One separately addressable WS2812 RGB LED on the ESP32 development board,
-  used as an optional accent. It is not a fifth main lamp. Power and UART TX/RX
-  indicator LEDs are not independent application-controlled lights.
-- No temperature/humidity sensor on board 2. Old SHT3x documentation describes
-  board 1. The Pi CPU temperature shown by Vesper is unrelated to node sensing.
-- No speaker-output command in this node firmware. Vesper plays audio through
-  the host/deck. Do not assume the node is a USB sound card or contains a
-  firmware-controlled audio-output device.
+The device presents an ESP32-S3 USB Serial/JTAG serial interface. It normally
+appears as /dev/ttyACM* on Linux or COM* on Windows. A Windows COM number refers
+to this same USB connection, not the inaccessible physical COM connector.
+USB serial identity: DC:DA:0C:14:8F:C0.
 
-USB CONNECTION — THE NORMAL PATH
+The interface carries a binary protocol, not text commands or standard USB
+gamepad, MIDI or audio data. A host application reads inputs and sends light/
+audio-control commands. Native USB ignores the UART baud rate; 921600, 8N1,
+no flow control matches the existing configuration. Keep DTR and RTS false
+before opening. Only one application should own the serial connection.
 
-The accessible connector uses the ESP32-S3 USB Serial/JTAG peripheral and its
-CDC-ACM serial interface. It carries Vesper protocol v1, not plain-text commands,
-HID gamepad events, MIDI, or USB Audio Class streams. No UART bridge is required.
+INSTALLED FIRMWARE
 
-Linux normally names it /dev/ttyACM*; Windows names it COM*. A Windows COM7-style
-device name DOES NOT mean you must use the inaccessible physical COM connector.
-Select the Espressif USB Serial/JTAG device belonging to this node.
+Version 0.2.0, board profile 2; last device confirmation 2026-10-03.
+Implementation: ESP-IDF C, with a 5.4.2 build toolchain.
 
-Last verified Pi device path:
-  /dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_DC:DA:0C:14:8F:C0-if00
-Recorded board identity/MAC: dc:da:0c:14:8f:c0.
-Use identity-based discovery; ttyACM numbers and Windows COM numbers can change.
+The firmware handles button debounce, lamp PWM, board LED output, synchronized
+microphone acquisition, acoustic tap detection and timed light sequences.
+Gesture meanings, application controls, speech recognition and optional tap-side
+classification are host software responsibilities.
 
-The host serial code uses 921600 baud, 8N1, no flow control. Native USB ignores
-the UART baud-rate setting, but retaining 921600 matches the existing adapter.
-Avoid opening with DTR/RTS asserted or gratuitously toggling them: the current
-host sets both false before opening. Use a data-capable USB cable.
+Send PING about once per second. After three seconds without a valid host frame,
+the device stops audio streaming and tap detection, cancels scheduled lights,
+and turns the lamps and board LED off. Reapply desired settings after reconnect.
 
-The inaccessible connector is a separate UART bridge path, UART0 on GPIO43/44.
-It serves the same frames but is not needed for this project. Do not have two
-hosts/controllers competing: node replies follow the last valid host link.
+GPIO MAP
 
-If new firmware ever becomes necessary, native USB has previously been used
-successfully to flash this exact board without touching its buttons (historical
-2026-10-02 handoff). Preserve working USB Serial/JTAG support and GPIO19/20.
-Disabling USB or entering incompatible sleep modes can lose the connection;
-recovery from some bad firmware may require GPIO0/reset access inside the case.
-Therefore keep the installed firmware for host-side reuse whenever possible.
-Espressif confirms serial operation and flashing over this connector [USB].
+These are the actual RGB assignments used by the firmware. Send RGB values
+in ordinary red/green/blue order; no additional host-side color swap is needed.
 
-CORRECTED GPIO MAP — BOARD 2 ONLY
+Component                       GPIO
+Lamp 1, left: R / G / B           7 / 16 / 15
+Lamp 2:       R / G / B          17 /  8 / 18
+Lamp 3:       R / G / B           9 / 11 / 10
+Lamp 4, right: R / G / B         13 /  3 / 14
+Left mic:  BCLK / WS / data       4 /  5 /  6
+Right mic: BCLK / WS / data      47 / 45 / 21
+Button input                    12, active-low with internal pull-up
+Button return                   46, driven low by firmware
+Board WS2812 data                48
+Native USB D- / D+               19 / 20
 
-This is the EFFECTIVE RGB order in the firmware, confirmed by the historical
-one-channel-at-a-time lamp check. Sam's original wiring table labelled green
-and blue the other way around. Do not swap them again in your host software:
-send ordinary R,G,B bytes and let the installed firmware map pins.
+The switch closes between GPIO12 and GPIO46. Microphones use 3.3 V; grounds
+are common. Main lamps have active-high discrete color legs with existing
+current limiting. PWM is 4 kHz with approximately gamma-2.2 brightness mapping:
+eight channels use LEDC and four use MCPWM. The board LED uses RMT, with RGB
+commands converted internally to the WS2812's GRB wire order.
 
-Component                    GPIOs
-Lamp 1, left — R / G / B       7 / 16 / 15
-Lamp 2       — R / G / B      17 /  8 / 18
-Lamp 3       — R / G / B       9 / 11 / 10
-Lamp 4, right— R / G / B      13 /  3 / 14
-Left mic    — BCLK / WS / SD   4 /  5 /  6
-Right mic   — BCLK / WS / SD  47 / 45 / 21
-Button input                 12, active-low with internal pull-up
-Button return                46, configured output-low by the firmware
-Board WS2812 data             48; protocol RGB, physical LED wire order GRB
-Native USB D- / D+            19 / 20
-UART0 TX / RX, not required   43 / 44
+BUTTON, TAPS AND MICROPHONES
 
-Button return is an actual GPIO connection, not a license to change that pin's
-state. The switch closes between GPIO12 and GPIO46. GPIO3, 45 and 46 have boot
-strapping roles: preserve this known-working wiring and initialization. On the
-corrected lamp map GPIO3 is lamp 4 GREEN, despite the older wiring table's label.
+Button events are emitted after 8 ms stable debounce and timestamped at the
+initial edge. A button held at startup is inhibited until released.
 
-The microphones use 3.3 V and common ground. Lamps share common ground and use
-active-high color legs with existing current limiting. The historical 430-ohm
-resistor statement belongs to board 1; board-2 resistor values, exact board
-vendor/schematic, current draw and enclosure dimensions have not been separately
-verified for this brief. None is needed to use the existing USB interface.
+Both microphones are clocked from the same source. Audio is signed 16-bit
+little-endian PCM at 16 kHz. Mono packets normally contain 320 samples (20 ms);
+stereo packets contain 160 left/right pairs (10 ms), usually delivered as two
+packets after a 20 ms read. Use sample indices, not USB arrival times. Firmware
+discards 300 ms on acquisition startup and applies a roughly 25 Hz DC filter.
 
-Firmware assigns eight color legs to LEDC and the remaining four to MCPWM.
-PWM is 4 kHz, with 10-bit LEDC and a 1000-count MCPWM period. Main-lamp values
-use approximately gamma-2.2 brightness mapping. Board RGB is a separate RMT
-WS2812 output. Keep it subtle by choice; the protocol does not force that.
+The left microphone detects taps; short stereo clips allow the host to attempt
+side classification. A tap verdict takes roughly 90 ms plus transport latency,
+and detected onsets must be at least 150 ms apart. Threshold 4000 is a useful
+starting point; higher values are less sensitive. Firmware accepts 256..32767,
+or zero to disable detection. It suppresses taps within 60 ms of button edges.
 
-TAPS AND AUDIO: WHAT THE NODE ACTUALLY DOES
+Comfortable back-of-case taps work as generic input. Left/right classification
+can be useful after calibration, but back taps cannot reliably be distinguished
+from side taps. The firmware sends no left/right label; classification must be
+implemented on the host. Claps and speaker vibration can also trigger taps.
 
-The left I2S controller generates clocks; firmware mirrors them to the right
-microphone's clock pins and receives that port in slave mode. This is intended
-to align both channels. Check STATUS.mic2 diagnostics and actual sample behavior
-if building timing-sensitive audio features; a second-port failure can degrade
-operation even when the compile-time profile says two microphones.
+MIC=0 stops continuous audio streaming, but microphones still acquire samples
+when tap detection is enabled. Accepted taps can send an 11 ms stereo clip even
+with streaming off. Send both MIC=0 and KNOCK_SET=0 to stop those functions;
+this does not physically cut power to the microphone modules.
 
-Audio is 16 kHz signed 16-bit little-endian PCM. Mono AUDIO normally contains
-320 samples (20 ms); stereo AUDIO2 normally contains 160 left/right frames
-(10 ms) per packet, two packets per 20 ms read. Both start with a u32 sample/
-frame index. Use indices to detect gaps and handle wrap; USB arrivals are not
-the sampling clock. The two stereo packets can arrive together after one
-20 ms read; do not assume evenly spaced arrivals. Firmware discards the first
-300 ms when acquisition starts and applies a roughly 25 Hz DC-blocking
-high-pass. It is not studio-calibrated spatial audio.
+USB PROTOCOL
 
-Case taps are detected acoustically on the left microphone; the right channel
-supplies additional clip information for host classification. Existing behavior:
-- Verdict approximately 90 ms after onset, plus buffering/USB/host latency.
-- Minimum 150 ms between detected onsets. Do not assume a faster double tap
-  produces two events. A clap or another sharp sound can also count; the
-  detector's optional brightness rejection is currently disabled.
-- Default Vesper threshold 4000; less-sensitive 8000, more-sensitive 3000.
-  Firmware accepts zero (disabled) or 256..32767.
-- Firmware suppresses taps within 60 ms of button edges. Vesper's host adds
-  suppression while the button is held and through 200 ms after an edge.
-  Consequently button-hold-plus-case-tap controls need explicit design work
-  in a new host; current Vesper filtering can discard those intended taps.
-- The host also suppresses taps during its own low tones below 140 Hz, with
-  a 250 ms tail. This is in web/engine/audio.js and web/main.js, NOT entirely
-  in the node firmware. A new application that plays bass through the case
-  must carry over/test this protection. There is no universally reliable
-  hardware distinction between a game sound, clap and intentional case tap.
-
-IMPORTANT: MIC=0 disables continuous audio STREAMING. If knock detection is
-enabled, microphones still acquire samples. On this two-mic firmware, an
-accepted tap can send a short stereo KNOCK_CLIP immediately before KNOCK even
-with MIC=0. To stop both functions send MIC=0 AND KNOCK_SET=0, and account for
-any already in-flight packets. This does not physically remove microphone power.
-Do not repeat older comments claiming that only an event, never sound, leaves
-the node in tap mode. Vesper extracts features locally and removes raw clips
-before browser delivery; that privacy behavior belongs to its host service.
-
-Generic taps, including comfortable back-of-case taps, are Sam's default.
-Optional left/right classification uses the two-mic clip plus host calibration;
-firmware does not emit a trusted left/right label. Back taps cannot reliably
-be separated from sides. Sam reports useful left/right distinction, but mixed
-posture, case acoustics and speaker volume still need human verification.
-
-WIRE PROTOCOL QUICK REFERENCE
-
-Reuse vesper/protocol.py (small standard-library codec) instead of guessing.
-All numeric fields are little-endian. A frame is:
+All numeric fields are little-endian. Each frame is:
   'V9' | u8 version=1 | u8 type | u16 sequence | u16 payload_length
        | payload | u16 CRC
-Payload maximum 768 bytes; total frame length payload+10. CRC-16/CCITT-FALSE:
-poly 0x1021, init 0xFFFF, no reflection/final XOR; CRC covers version through
-payload, excluding magic. ASCII '123456789' -> 0x29B1. Preserve partial reads
-and resynchronize after corrupt frames; sequence numbers wrap at 65536.
 
-Host -> node (decimal types):
-16 PING       empty; node returns STATUS. Send about once per second.
-17 LEDS       12 u8 values: R1,G1,B1,R2,G2,B2,R3,G3,B3,R4,G4,B4.
-              Legacy 9 values duplicate the middle triplet across lamps 2/3.
-18 MIC        one u8: 0 stop streaming; 1 mono left; 2 stereo.
+Payload limit: 768 bytes; frame size: payload + 10 bytes. Sequence wraps at
+65536. CRC-16/CCITT-FALSE covers version through payload, excluding magic:
+polynomial 0x1021, initial 0xFFFF, no reflection/final XOR. Test vector:
+ASCII '123456789' -> 0x29B1. Buffer partial reads and resynchronize after errors.
+
+Host commands (decimal type numbers):
+16 PING       Empty; returns STATUS.
+17 LEDS       12 bytes: R1,G1,B1,R2,G2,B2,R3,G3,B3,R4,G4,B4.
+18 MIC        One byte: 0 stop streaming, 1 left mono, 2 stereo.
 19 ARM        u32 trial_id, u32 delay_ms, u8 logical_light, u8 R,G,B.
-              Delay 250..10000 ms; logical light 0..2, middle lights both
-              physical middle lamps. Use LEDS for independent four-lamp control.
-20 CANCEL     empty; cancels queued cue/pattern, does not itself turn lights off.
-21 PATTERN    u8 repeats(1..8), u8 count(1..16), then count steps of
-              u16 duration_ms(10..10000) + 12 RGB bytes (or all 9-byte steps).
-22 KNOCK_SET  u16 threshold; zero disables.
-23 BOARD_LED  three u8 values R,G,B, independent of the four main lamps.
+              Delay 250..10000 ms; logical light 0=left, 1=both middle,
+              2=right. Emits CUE when the light activates.
+20 CANCEL     Empty; cancels scheduled cue/pattern without changing lamp values.
+21 PATTERN    u8 repeats(1..8), u8 step_count(1..16), then steps of
+              u16 duration_ms(10..10000) followed by 12 RGB bytes.
+22 KNOCK_SET  u16 threshold; zero disables tap detection.
+23 BOARD_LED  Three bytes: R,G,B for the board LED.
 
-Node -> host:
+LEDS and PATTERN also accept legacy nine-byte RGB groups, duplicating the
+middle triplet across the two middle lamps. Use twelve for independent control.
+
+Device messages:
 1 HELLO       UTF-8 JSON status at startup.
-2 BUTTON      u64 initial_edge_at_us, u8 pressed; emitted after 8 ms stable
-              debounce, timestamped at the original edge, not delivery time.
-3 SENSOR      legacy board-1 temperature/humidity; not a board-2 capability.
-4 AUDIO       u32 first_sample_index, followed by mono s16 samples.
+2 BUTTON      u64 initial_edge_at_us, u8 pressed.
+4 AUDIO       u32 first_sample_index, then mono s16 samples.
 5 CUE         u32 trial_id, u64 activated_at_us.
-6 STATUS      UTF-8 JSON, about once/second and after PING.
-7 ACK         u16 original_sequence, u8 result, u8 original_command_type.
-              result 0 accepted, 1 invalid payload, 2 unknown command.
-8 KNOCK       u64 at_us, u16 peak, u8 hf. Older compatibility form omits hf.
-9 AUDIO2      u32 first_frame_index, followed by interleaved L,R s16 pairs.
-10 KNOCK_CLIP u64 at_us, u8 pre_frames=16, u8 channels=2, 176 stereo s16
-              frames: 714-byte payload. Match its timestamp to the next KNOCK.
+6 STATUS      UTF-8 JSON, approximately once/second and after PING.
+7 ACK         u16 command_sequence, u8 result, u8 command_type.
+              Result: 0 accepted, 1 invalid payload, 2 unknown command.
+8 KNOCK       u64 at_us, u16 peak, u8 hf (acoustic brightness).
+9 AUDIO2      u32 first_frame_index, then interleaved L,R s16 pairs.
+10 KNOCK_CLIP u64 at_us, u8 pre_frames=16, u8 channels=2, then 176 stereo
+              s16 frames. Payload is 714 bytes. Precedes its matching KNOCK.
 
-BUTTON, KNOCK and CUE timestamps share the node's monotonic microsecond clock;
-that clock restarts on reboot. Track connection/boot generations and cancel
-unfinished holds/actions on disconnect. Use device timestamps for event timing,
-not differences between device time and the host wall clock. Button held at
-boot/link-loss is inhibited until released. ACK for MIC is not proof of live
-capture; check STATUS.mic, stereo and mic2 plus incoming audio.
+BUTTON, KNOCK and CUE use the same device microsecond clock, which resets at
+reboot. Match clips to knocks by timestamp. Audio indices wrap at 2^32.
+Useful STATUS fields: fw, board=2, lamps=4, mics=2, link='usb', mic, stereo,
+mic2, slots, button, leds, board_led, knock, audio_drops and rx_crc.
 
-STATUS fields worth checking: fw, board=2, lamps=4, mics=2, link='usb', mic,
-stereo, mic2, slots, button, leds, board_led, knock, audio_drops and rx_crc.
-After three seconds without a valid host frame, firmware disables streaming
-and taps, cancels cues/patterns and turns main/board lights off. Reapply explicit
-settings after reconnect; do not silently restart audio recording.
+IMPLEMENTATION TIPS AND KNOWN ISSUES
 
-Command interaction: LEDS cancels PATTERN but leaves an ARM cue scheduled.
-On an agreed controller takeover or exit, send CANCEL and explicit main-lamps
-and board-LED off; do not assume a new LEDS command cancels every previous job.
-
-HOW TO INTEGRATE WITHOUT DISTURBING VESPER
-
-1. Read-only discovery while Vesper owns the port: use its loopback HTTP
-   GET http://127.0.0.1:8799/api/system and /api/state, or inspect OS port names.
-   From Windows (one command):
-   ssh -o BatchMode=yes -o ConnectTimeout=5 pi5 "curl --max-time 3 -fsS http://127.0.0.1:8799/api/system"
-   The endpoint is on the Pi's loopback interface; Windows localhost is a
-   different machine unless a deliberate SSH tunnel is established.
-2. For a Vesper-integrated app, use its app context/light ownership and /ws
-   service. Commands include leds(values[12]) and board_led(values[3]); only
-   the controller may act. Additional browser tabs are observers. Reuse
-   source-owned edges, cancellation and lifetime cleanup.
-3. For an independent app, write a small host adapter using the serial codec.
-   Coordinate stopping the existing serial owner before opening this USB
-   device. Do not run node-probe.py or another serial monitor concurrently
-   with vesper.service. Preserve its current source, saves and configuration.
-   Changing controller ownership/stopping Vesper is not part of this brief.
-4. Initially keep MIC and KNOCK_SET off. Confirm HELLO/STATUS identity; then
-   enable only the features that project actually needs. Keep reading packets
-   and sending PING. Treat tap interpretation, calibration, sound suppression,
-   input bindings and game rules as host responsibilities.
-5. A later agreed physical check should cover each RGB channel at low
-   brightness, board accent, button edges, comfortable back taps, optional
-   sides, audio only if needed, reconnect cleanup and false taps from sound.
-   Do not interpret simulator success as those checks being complete.
-
-EVIDENCE, PATHS AND LIMITS
-
-Reviewed source on Windows: C:\Users\ayers\vesper9-development, commit a58f30b
-(documentation follows runtime release 0c1bf135408aba9894fb136ffc962b0abfa62f84).
-Useful files relative to that checkout:
-  firmware/main/hardware.h        actual board profiles / corrected pins
-  firmware/main/main.c            USB transport, I2S, lights, button, clips
-  firmware/main/protocol.h        firmware codec and type numbers
-  firmware/main/knock.h           acoustic detector and timing constants
-  firmware/sdkconfig.defaults     flash/PSRAM / ESP-IDF settings
-  vesper/protocol.py              reusable Python framing/CRC decoder
-  vesper/device.py                serial lifecycle, parsing, button-sound guard
-  vesper/tapdir.py                optional host side classifier
-  web/engine/audio.js; web/main.js  host low-tone tap suppression
-  docs/PROTOCOL.md; docs/HARDWARE.md  broader reference, including old-board history
-
-Do not assume C:\Users\ayers\vesper9 or GitHub main contains these combined
-features. That original checkout differs from the development/release tree.
-Repository URL: https://github.com/SamuelAirs/vesper9 (source-location pointer,
-not a claim that current main or a published branch matches the running node).
-
-Last fresh device verification: 2026-10-03, 17:11 CDT (22:11 UTC), after deployment.
-Service reported native USB, board 2, firmware vesper-node-0.2.0, four lamps,
-two microphones, microphone capture off, knock threshold 4000, generic taps
-and zero link CRC errors. This is a firmware-reported identity, not a binary
-flash hash. The Pi could not be reached by SSH on 2026-10-04 when this brief
-was prepared; no new physical validation, restart or firmware operation occurred.
-
-The 2026-10-02 handoff reports physical checks of all twelve lamp outputs,
-the board LED, button, both microphones and 89 paired clips/knocks. It reports
-the node image built from firmware commit ba11dd7 with NODE_BOARD=2. These are
-historical reports, not tests repeated for this document or proof of every
-future application's timing/accuracy.
-
-Last verified Pi app source:
-  /home/sam/VESPER-9-v0.2.0-Claude/releases/0c1bf135408aba9894fb136ffc962b0abfa62f84/VESPER-9-v0.2.0/vesper9
-Its separate saves are in that release directory's trial-data/.
-Windows deployment evidence:
-  C:\Users\ayers\vesper9-investigation\momentum\deployment\deployment-manifest.json
-  C:\Users\ayers\vesper9-investigation\momentum\deployment\after-system.json
-Historical hardware handoff:
-  C:\Users\ayers\vesper9-investigation\handoff\docs\handoff\pi\pi-state.md
-
-FLASHING IS A SEPARATE JOB, USUALLY UNNECESSARY FOR REUSE
-
-Do not flash firmware/prebuilt/*.bin onto this node: those are board-1 version
-0.1.2 artifacts, despite the repository/application being labelled 0.2.0.
-Source build profile must explicitly be NODE_BOARD=2; default is board 1.
-The recorded toolchain is ESP-IDF 5.4.2, with scripts/build-firmware.sh 2.
-Build on Windows/Windows-hosted WSL, not the battery-powered Pi.
-
-Before any authorized replacement, identify this board, preserve a NEW verified
-full 16 MiB (16,777,216-byte) flash backup with SHA-256 and restore command,
-and preserve USB recovery. scripts/flash-node.py enforces board/MAC and backup
-checks; understand its behavior before using it. Historical backup
-/home/sam/VESPER-9-v0.2.0-Claude/vesper9/backups/node2-as-found-20261002-125315.bin
-is the factory MicroPython image, not a backup of the present Vesper firmware.
-Its current existence/hash has not been checked here. Never publish flash
-backups, credentials, calibration/save databases, recordings or speech models.
-
-[USB] Espressif ESP-IDF 5.4.2 USB Serial/JTAG documentation:
-https://docs.espressif.com/projects/esp-idf/en/v5.4.2/esp32s3/api-guides/usb-serial-jtag-console.html
-GPIO/strapping reference (supplements the actual board-specific source):
-https://documentation.espressif.com/esp32_s3_datasheet_en.pdf
+- Low speaker tones can shake the case into false taps. Suppressing tap input
+  during self-generated tones below 140 Hz, plus a 250 ms tail, helped in use.
+  This needs host-side handling; the firmware alone does not prevent it.
+- The button's mechanical click can register acoustically. Extra host filtering
+  may help, but suppressing taps throughout a button hold also prevents intended
+  hold-plus-tap controls. Choose that tradeoff deliberately.
+- Brightness-based rejection of sharp sounds is currently disabled; do not
+  treat the hf field as proof that a sound was an intentional case tap.
+- Check mic2 setup/read errors and actual samples. A reported two-microphone
+  capability does not prove both channels are currently producing good audio.
+  MIC acknowledgement alone is not confirmation of capture; inspect STATUS.
+- LEDS cancels PATTERN but leaves ARM scheduled. For complete cleanup send
+  CANCEL, explicit main-lamps off and explicit board-LED off.
+- Cancel unfinished button holds/actions on disconnect or reboot. Do not mix
+  device timestamps across boots or subtract them from a host wall clock.
+- USB flashing has worked without opening this case. If replacing firmware,
+  preserve a verified full 16 MiB backup first and explicitly select board 2.
+  Preserve USB Serial/JTAG and GPIO19/20; disabling USB or changing sleep
+  behavior can leave recovery dependent on inaccessible boot/reset controls.
+- GPIO3, GPIO45 and GPIO46 are strapping pins. Preserve their existing wiring
+  and startup configuration when changing firmware.

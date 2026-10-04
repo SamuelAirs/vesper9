@@ -884,3 +884,11 @@ is provided in C:/Users/ayers/vesper9/NODE-HARDWARE-HANDOFF.txt. No service,
 firmware, live settings, saves or hardware state were changed, and no builds or
 broad suites were needed for this documentation task. Private backups/data were
 not opened, copied into the brief or published.
+
+Sam requested a leaner, project-independent version of the node brief. Removed
+project names, repository/source paths, deployment and investigation history,
+host application policy and backup inventories. Retained the installed hardware
+and firmware description, corrected GPIO map, native USB connection, wire
+protocol and concrete audio/tap/recovery implementation lessons. The last device
+confirmation date remains a single line. The main-checkout copy is updated too;
+no device access or runtime changes are part of this edit.

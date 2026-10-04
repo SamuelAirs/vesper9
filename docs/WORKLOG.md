@@ -856,3 +856,31 @@ published. There was no firmware flash, model inference, build, benchmark or
 broad suite on the Pi. GitHub was not changed or refreshed. Sam's physical
 input/feel acceptance remains pending. This documentation-only follow-up is
 separate from the deployed 0c1bf13 source identity.
+
+## Native-USB node reuse brief — 2026-10-04
+
+Sam requested a hardware description another agent can reuse without repeating
+the investigation, and clarified that only the native USB connector is readily
+accessible; reopening the case for the separate COM connector is undesirable.
+Root verified native Windows and reviewed board-2 hardware/firmware, protocol,
+host input/audio handling, the earlier hardware handoff and deployment evidence.
+A GPT-6.1 Sol agent independently reviewed protocol facts on Windows only.
+Bounded read-only SSH attempts timed out, so the brief explicitly uses the
+2026-10-03 deployment status as the last verified device state, not today's.
+
+docs/NODE-HARDWARE-HANDOFF.txt documents native USB as the normal connection,
+the Windows COMx naming distinction, corrected physical RGB pins, packet types,
+audio/tap timing, host-level sound suppression and optional side classification.
+It corrects misleading older descriptions: microphone streaming off can still
+allow acoustic acquisition and short KNOCK_CLIP audio; physical RGB green/blue
+order differs from the original wiring labels; and the packaged board-1 image
+must not be used for this finished node. USB flashing is historically reported
+as successful, but new projects should reuse the existing protocol and preserve
+USB recovery. Hardware-independent application controls remain a project choice.
+
+The brief distinguishes firmware source/capability from physical confirmation
+and notes unverified enclosure/electrical details. A discoverable identical copy
+is provided in C:/Users/ayers/vesper9/NODE-HARDWARE-HANDOFF.txt. No service,
+firmware, live settings, saves or hardware state were changed, and no builds or
+broad suites were needed for this documentation task. Private backups/data were
+not opened, copied into the brief or published.

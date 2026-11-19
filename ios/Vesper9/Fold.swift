@@ -65,6 +65,11 @@ struct Fold: Equatable {
     /// The window's own safe areas when it was read: on the Duo its status column or row, and
     /// the home bar.
     var safe = UIEdgeInsets.zero
+    /// A folding phone, open or closed. Its status bar is a column or row of its own beside the
+    /// picture, kept clear whether or not anything is shown in it, so the app shows it there
+    /// (VesperApp.swift). Known by its hinge, its crease, or side safe areas that differ (the
+    /// Duo's column is at one side; every other iPhone's and iPad's sides are equal).
+    var folding = false
 
     static let plain = Fold()
 
@@ -158,8 +163,10 @@ enum Crease {
         let reading = read(in: view)
         let said: Hinge = FoldDemo.fold != nil ? (FoldDemo.half ? .partlyOpen : .flat) : hinge
         let posture = Posture.of(crease: reading?.frame, active: reading?.active ?? false, hinge: said)
+        let safe = FoldDemo.insets ?? window.safeAreaInsets
+        let folding = FoldDemo.fold != nil || hinge != Hinge.none || reading != nil || safe.left != safe.right
         return Fold(posture: posture, crease: posture == .plain ? nil : reading?.frame, window: window.bounds.size,
-                    safe: FoldDemo.insets ?? window.safeAreaInsets)
+                    safe: safe, folding: folding)
     }
 }
 

@@ -1028,3 +1028,35 @@ Python test files import `aiohttp`, which no Python on that PC has (the other
 the console is unchanged; that is checked, not assumed. The Swift, the project
 and the workflow are still uncompiled: the push that follows is their first
 compile.
+
+## iPhone app: the first build on a Mac (2026-11-19, evening)
+
+`ios-app` was pushed at 76d89de (Sam: "Push once the engine changes are done").
+
+- **iOS workflow, run 1:** the page built, the project generated, and the Swift
+  compiled at the first attempt with no warning (Xcode 27). The app ran on the
+  iPhone Duo's simulator (iOS 27.2) in WebKit: the dashboard and Orbit Lock on
+  the closed phone's outer display, with Menlo, the plain-phone layouts, the
+  handheld edition, the case plates and the text floor all as in Chrome. The
+  step then ran out of its 20 minutes: each new simulator took about three
+  minutes to start and four to install the app, and on the iPad the app's
+  launches went unanswered, so no pretend-fold picture was taken.
+- **What the pictures showed:** the closed Duo keeps its status column, 84 of
+  the outer display's 466 points, at the right (FoldForm measured the same on
+  Sam's Duo). With the status bar hidden it is an empty strip. The inner
+  display's picture is black: the simulator starts folded shut and has no
+  command to open it.
+- **Regressions workflow:** passed on Linux. On Windows six installer tests
+  fail on a short and a long spelling of the runner's temp folder
+  (`RUNNER~1`, `runneradmin`); they are not this work's, and are left alone.
+
+Changed after it:
+
+- The picture step is two steps (the phone, then the Duo's postures on an
+  iPad), neither able to fail a build, every `simctl` call with a limit, the
+  time printed at each stage, only the Duo's outer display pictured, two more
+  pictures (Cadence, The Stacks), Cadence in place of the retired Chronometer.
+- The status bar is shown on a folding phone (`Fold.folding`, `VesperApp.swift`,
+  `ConsoleView`'s binding), where its column or row is kept clear anyway;
+  hidden on every other phone as before. Uncompiled until the push that
+  follows.

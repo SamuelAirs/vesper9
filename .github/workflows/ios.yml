@@ -1,7 +1,7 @@
 # VESPER-9 for iPhone, built on a GitHub-hosted Mac (docs/IOS.md). Every push that changes ios/
 # or this file builds the console's page (ios/build-web.py), compiles the app for the simulator
 # and takes pictures of it there (a phone, then iPhone Duo's postures with a pretend fold on an
-# iPad), kept with the build log as the run's artifact. A commit
+# iPad), kept with the build log as the run's artifact. The pictures never fail a build. A commit
 # whose message contains [testflight] also signs the app and uploads it to TestFlight (a manual
 # run has a box for it), once the app's record exists in App Store Connect and the four signing
 # secrets are set on this repository (the same four as Sam's other apps: APPLE_TEAM_ID,
@@ -30,7 +30,7 @@ concurrency:
 jobs:
   ios:
     runs-on: xcode-27
-    timeout-minutes: 45
+    timeout-minutes: 75
     defaults:
       run:
         shell: bash
@@ -103,12 +103,20 @@ jobs:
             exit 1
           }
 
+      # The pictures are for reading, not a gate: neither step can fail the build, every simctl
+      # call has a limit (it now and then hangs), and each step stops taking pictures before its
+      # own time is up. The times in its log say where a slow run went.
       - name: Pictures on the simulator
-        timeout-minutes: 20
+        timeout-minutes: 18
+        continue-on-error: true
         run: |
           set -euo pipefail
           app=build/dd/Build/Products/Debug-iphonesimulator/Vesper9.app
           id=com.samuelairs.vesper9
+          budget=900
+          say() { echo "[$(date +%T) +${SECONDS}s] $*"; }
+          t() { perl -e 'alarm shift @ARGV; exec @ARGV' "$@"; }
+          trap 'echo "::warning title=Pictures::the phone simulator stopped early at +${SECONDS}s (the step log says where)"' ERR
           # The iPhone Duo on the newest runtime that supports it, else the newest iPhone Pro on
           # the newest runtime.
           pick=$(xcrun simctl list runtimes -j | python3 -c '
@@ -131,43 +139,72 @@ jobs:
           rt=${pick##* }
           echo "::notice title=Simulator::$dt on $rt"
           udid=$(xcrun simctl create Vesper9 "$dt" "$rt")
-          xcrun simctl boot "$udid"
-          xcrun simctl bootstatus "$udid" -b
-          xcrun simctl ui "$udid" appearance dark || true
-          xcrun simctl install "$udid" "$app"
-          # simctl now and then hangs; nothing here may take more than 20 s.
-          t() { perl -e 'alarm shift @ARGV; exec @ARGV' "$@"; }
+          say "created"
+          t 300 xcrun simctl boot "$udid"
+          t 300 xcrun simctl bootstatus "$udid" -b
+          say "booted"
+          t 30 xcrun simctl ui "$udid" appearance dark || true
+          say "appearance set"
+          t 420 xcrun simctl install "$udid" "$app"
+          say "installed"
           # A simulator with several displays (the Duo) refuses a picture without --display, and
           # its error lists them.
           displays=$( { t 20 xcrun simctl io "$udid" screenshot --type=png /tmp/x.png 2>&1 || true; } | sed -n 's/.*--display=\([0-9]*\).*/\1/p' | tr '\n' ' ')
           [ -n "$displays" ] || displays=0
-          echo "displays: $displays"
+          say "displays: $displays"
+          # The Duo's simulator starts folded shut and nothing opens it (simctl has no command):
+          # its inner display (3) stays black, so only the outer one (1) is pictured. That is
+          # the closed phone as it really is: a small phone with the status column at its right.
+          case " $displays " in *" 1 "*) displays=1 ;; esac
+          # The app's first launch is slow; warm it up so the first picture isn't missed.
+          for try in 1 2 3; do
+            if t 60 xcrun simctl launch "$udid" "$id"; then break; fi
+            say "launch $try did not answer"
+            sleep 8
+          done
+          sleep 8
           shot() {
             local name=$1
             shift
+            if [ "$SECONDS" -gt "$budget" ]; then say "out of time: no $name"; return 0; fi
             t 20 xcrun simctl terminate "$udid" "$id" >/dev/null 2>&1 || true
-            t 20 xcrun simctl launch "$udid" "$id" "$@" || true
+            t 40 xcrun simctl launch "$udid" "$id" "$@" || true
             sleep 7
             for d in $displays; do
               if [ "$d" = 0 ]; then
-                t 20 xcrun simctl io "$udid" screenshot --type=png "$PWD/out/$name.png" || true
+                t 30 xcrun simctl io "$udid" screenshot --type=png "$PWD/out/$name.png" || true
               else
-                t 20 xcrun simctl io "$udid" screenshot --type=png --display="$d" "$PWD/out/$name-display$d.png" || true
+                t 30 xcrun simctl io "$udid" screenshot --type=png --display="$d" "$PWD/out/$name.png" || true
               fi
             done
+            say "$name"
           }
-          # The app's first launch is slow; warm it up so the first picture isn't missed.
-          t 20 xcrun simctl launch "$udid" "$id" || true
-          sleep 8
           shot 1-dashboard
           shot 2-orbit -VesperLaunch orbit
           shot 3-highbar -VesperLaunch highbar
+          shot 4-cadence -VesperLaunch cadence
+          shot 5-stacks -VesperLaunch library
           t 30 xcrun simctl spawn "$udid" log show --last 3m --style compact --predicate 'process == "Vesper9"' > out/app.log 2>&1 || true
-          # iPhone Duo's postures. The simulator can't fold, so the app is asked for a pretend
-          # fold (-VesperFold across|down, -VesperHinge half: ios/Vesper9/Fold.swift), which also
-          # makes its window the Duo's own size at the screen's top left. That window is larger
-          # than a phone's screen, so these are taken on the largest iPad the image has. (The
-          # newest iOS runtime that has iPads. None of this can fail the step.)
+          ls -l out
+
+      # iPhone Duo's postures. The simulator can't fold, so the app is asked for a pretend fold
+      # (-VesperFold across|down, -VesperHinge half: ios/Vesper9/Fold.swift), which also makes
+      # its window the Duo's own size at the screen's top left. That window is larger than a
+      # phone's screen, so these are taken on the largest iPad the image has (the newest iOS
+      # runtime that has iPads).
+      - name: Pictures of iPhone Duo's postures (a pretend fold on an iPad)
+        timeout-minutes: 22
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          app=build/dd/Build/Products/Debug-iphonesimulator/Vesper9.app
+          id=com.samuelairs.vesper9
+          budget=1140
+          say() { echo "[$(date +%T) +${SECONDS}s] $*"; }
+          t() { perl -e 'alarm shift @ARGV; exec @ARGV' "$@"; }
+          trap 'echo "::warning title=Duo pictures::the iPad simulator stopped early at +${SECONDS}s (the step log says where)"' ERR
+          t 90 xcrun simctl shutdown all || true
+          say "the phone simulator is shut down"
           found=$(xcrun simctl list runtimes -j | python3 -c '
           import json, sys
           best = None
@@ -179,38 +216,54 @@ jobs:
               v = [int(p) for p in r["version"].split(".")]
               if big and (best is None or v > best[0]):
                   best = (v, big[-1]["identifier"], r["identifier"])
-          print(best[1] + " " + best[2] if best else "")' || true)
+          print(best[1] + " " + best[2] if best else "")')
+          if [ -z "$found" ]; then
+            echo "::warning title=Duo pictures::the image has no iPad simulator"
+            exit 0
+          fi
           ipad=${found%% *}
           padrt=${found##* }
-          duoshots() {
-            echo "::notice title=iPad for the Duo's postures::$ipad on $padrt"
-            t 30 xcrun simctl shutdown "$udid" || true
-            pad=$(xcrun simctl create Vesper9Pad "$ipad" "$padrt") || return 1
-            xcrun simctl boot "$pad" || return 1
-            xcrun simctl bootstatus "$pad" -b || return 1
-            xcrun simctl ui "$pad" appearance dark || true
-            xcrun simctl install "$pad" "$app" || return 1
-            t 20 xcrun simctl launch "$pad" "$id" || true
-            sleep 12
-            padshot() {
-              local name=$1
-              shift
-              t 20 xcrun simctl terminate "$pad" "$id" >/dev/null 2>&1 || true
-              t 20 xcrun simctl launch "$pad" "$id" "$@" || true
-              sleep 7
-              t 20 xcrun simctl io "$pad" screenshot --type=png "$PWD/out/$name.png" || true
-            }
-            padshot duo-1-laptop-dashboard -VesperFold across -VesperHinge half
-            padshot duo-2-laptop-orbit -VesperFold across -VesperHinge half -VesperLaunch orbit
-            padshot duo-3-laptop-chronometer -VesperFold across -VesperHinge half -VesperLaunch timers
-            padshot duo-4-open-upright-highbar -VesperFold across -VesperLaunch highbar
-            padshot duo-5-book-dashboard -VesperFold down
-            padshot duo-6-book-orbit -VesperFold down -VesperLaunch orbit
-            padshot ipad-1-dashboard
-            padshot ipad-2-orbit -VesperLaunch orbit
-            t 30 xcrun simctl spawn "$pad" log show --last 3m --style compact --predicate 'process == "Vesper9"' > out/app-pad.log 2>&1 || true
+          echo "::notice title=iPad for the Duo's postures::$ipad on $padrt"
+          pad=$(xcrun simctl create Vesper9Pad "$ipad" "$padrt")
+          say "created"
+          t 300 xcrun simctl boot "$pad"
+          t 300 xcrun simctl bootstatus "$pad" -b
+          say "booted"
+          t 30 xcrun simctl ui "$pad" appearance dark || true
+          say "appearance set"
+          t 420 xcrun simctl install "$pad" "$app"
+          say "installed"
+          # A new simulator answers its first launch slowly, or not at all.
+          up=""
+          for try in 1 2 3 4; do
+            if t 60 xcrun simctl launch "$pad" "$id"; then up=1; break; fi
+            say "launch $try did not answer"
+            sleep 10
+          done
+          if [ -z "$up" ]; then
+            echo "::warning title=Duo pictures::the app did not start on the iPad simulator"
+            exit 0
+          fi
+          sleep 10
+          padshot() {
+            local name=$1
+            shift
+            if [ "$SECONDS" -gt "$budget" ]; then say "out of time: no $name"; return 0; fi
+            t 20 xcrun simctl terminate "$pad" "$id" >/dev/null 2>&1 || true
+            t 40 xcrun simctl launch "$pad" "$id" "$@" || true
+            sleep 7
+            t 30 xcrun simctl io "$pad" screenshot --type=png "$PWD/out/$name.png" || true
+            say "$name"
           }
-          if [ -n "$found" ]; then duoshots || echo "::warning title=Duo pictures::the iPad simulator did not come up"; else echo "::warning title=Duo pictures::the image has no iPad simulator"; fi
+          padshot duo-1-laptop-dashboard -VesperFold across -VesperHinge half
+          padshot duo-2-laptop-orbit -VesperFold across -VesperHinge half -VesperLaunch orbit
+          padshot duo-3-laptop-cadence -VesperFold across -VesperHinge half -VesperLaunch cadence
+          padshot duo-4-open-upright-highbar -VesperFold across -VesperLaunch highbar
+          padshot duo-5-book-dashboard -VesperFold down
+          padshot duo-6-book-orbit -VesperFold down -VesperLaunch orbit
+          padshot ipad-1-dashboard
+          padshot ipad-2-orbit -VesperLaunch orbit
+          t 30 xcrun simctl spawn "$pad" log show --last 3m --style compact --predicate 'process == "Vesper9"' > out/app-pad.log 2>&1 || true
           ls -l out
 
       - name: Keep the pictures and logs

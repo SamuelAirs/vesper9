@@ -11,12 +11,15 @@ built first for iPhone Duo.
   all, eight Python tests, and the engine's own JavaScript tests (1,666). Twelve of the engine's
   Python test files need the service's `aiohttp`, which this PC does not have; GitHub's
   Regressions workflow runs them on a push (see "Checks on the PC").
-- **Written, never compiled:** the Swift shell (`ios/Vesper9/`), the project (`ios/project.yml`)
-  and the build workflow (`.github/workflows/ios.yml`). No Mac has seen them. The first push of
-  this branch to GitHub is their first compile. The fold and hinge calls are the ones Boxset
-  already uses on Sam's Duo.
-- **Not done at all:** nothing has run in WebKit, in a simulator or on a phone. Haptics, sound,
-  the real fold and safe areas, the type, and saved progress across launches are untried.
+- **Compiled, and run on a simulator** (2026-11-19, GitHub's Mac, Xcode 27): the Swift shell
+  (`ios/Vesper9/`) compiled at the first attempt without a warning, and the app ran in WebKit on
+  the iPhone Duo's simulator (iOS 27.2), closed. That run's pictures show the page, its type
+  (Menlo), the plain-phone layouts, the handheld edition, the case plates and the text floor.
+- **Not seen yet:** the fold's layouts in WebKit. The first run's picture step ran out of time
+  before the pretend-fold pictures (two slow simulators), and was rewritten as two steps that
+  cannot fail a build. Nor the status bar on a folding phone, which was added after that run.
+- **Not done at all:** nothing has run on a phone. Haptics, sound, the real fold, and saved
+  progress across launches are untried.
 - **A review of every game and instrument on the phone** (2026-11-19) is in Sam's notes:
   `Vesper 9/Critique 2026-11-19.md`. Its larger findings (small text in the games, apps and words
   that are only true of the console) were answered the same day, in the engine and the layer.
@@ -53,7 +56,12 @@ display is 951 × 669 points, the crease a 40-point band at its middle, the stat
 | **Part folded, the lower half on the table** (laptop) | The upper half is the screen and the lower half is the node. In a game the picture alone fills the upper half, from the status row to the crease (664 × 374 on Sam's Duo); lamps, title, MENU, the game's numbers and text, the button and the case plates are below. The dashboard has its masthead and the sector's title above, the sectors and cards (three across) below. An instrument has its lamps, title and its whole display above and its buttons below. The menu has its name above and its choices (two across, all showing) below. Nothing read or touched is in the crease's band. The screen stays on. |
 | **Opened flat and turned upright** | The same layouts as the laptop. |
 | **Opened like a book** (flat or part folded) | One window, as on an iPad: the page's own full-screen play mode across the crease (867 × 488), clear of the status column. |
-| **Closed** (the outer display) | An ordinary phone (below). |
+| **Closed** (the outer display) | An ordinary phone (below), 382 points wide: the status column is at the right of the outer display too (84 of its 466 points; seen on the simulator, and measured on Sam's Duo by FoldForm). |
+
+The status bar is hidden on every other phone, as in a game. A folding phone keeps its status
+column or row clear whether or not anything is shown in it, so there the clock and the battery
+are shown (`Fold.folding`: a hinge, a crease, or side safe areas that differ). Not yet seen, on
+a simulator or a phone.
 
 A fold that lands on a new posture gives a soft click, as Sam's other Duo apps do. The page is
 loaded only once the fold has been read, so its first picture is already laid out for it.
@@ -181,12 +189,16 @@ say that the app reads only the books built into it.
 ## Building
 
 `.github/workflows/ios.yml` runs on a push that changes `ios/` or the workflow: it builds the
-page, generates the project, compiles for the simulator, and takes pictures there: three on a
-phone (the dashboard, Orbit Lock, High Bar), then the Duo's postures. The simulator cannot fold,
-so those ask the app for a pretend fold (`-VesperFold across|down`, `-VesperHinge half`), which
-also makes its window the Duo's size; they are taken on an iPad, whose screen is large enough to
-hold it. The pictures and the build log are the run's artifact. This repository is public, so
-GitHub's Mac minutes cost nothing.
+page, generates the project, compiles for the simulator, and takes pictures there: five on a
+phone (the dashboard, Orbit Lock, High Bar, Cadence, The Stacks), then the Duo's postures. The
+Duo's simulator starts folded shut and nothing opens it, so the phone's pictures are of its
+outer display, the closed phone as it is. For the postures the app is asked for a pretend fold
+(`-VesperFold across|down`, `-VesperHinge half`), which also makes its window the Duo's size;
+they are taken on an iPad, whose screen is large enough to hold it. The pictures never fail a
+build: every `simctl` call has a limit, each of the two steps stops before its time is up, and
+its log has the time of each stage (a new simulator can take three minutes to start and four to
+install the app). The pictures and the build log are the run's artifact. This repository is
+public, so GitHub's Mac minutes cost nothing.
 
 TestFlight (a commit message with `[testflight]`, or the box on a manual run) needs, once:
 

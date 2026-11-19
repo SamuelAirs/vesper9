@@ -26,6 +26,8 @@ final class Console: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     private var fold = Fold.plain
     private var started = false
     private var loaded = false
+    /// Told whether this is a folding phone, whenever that reading changes (Fold.folding).
+    var onFolding: (@MainActor (Bool) -> Void)?
 
     func makeWebView() -> WKWebView {
         let configuration = WKWebViewConfiguration()
@@ -192,6 +194,7 @@ final class Console: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     private func folded(_ new: Fold) {
         guard new != fold else { return }
+        if new.folding != fold.folding { onFolding?(new.folding) }
         fold = new
         // Standing on the table like a small laptop, the console is looked at more than it is
         // touched: the screen stays on.
@@ -230,12 +233,22 @@ final class Console: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 }
 
 struct ConsoleView: UIViewRepresentable {
+    /// Whether the phone's status bar is shown: only on a folding phone (Fold.folding).
+    @Binding var statusBar: Bool
+
     func makeCoordinator() -> Console {
         Console()
     }
 
     func makeUIView(context: Context) -> WKWebView {
-        context.coordinator.makeWebView()
+        let shown = $statusBar
+        context.coordinator.onFolding = { folding in
+            // A moment later: the first reading can come while SwiftUI is still placing the view.
+            Task { @MainActor in
+                if shown.wrappedValue != folding { shown.wrappedValue = folding }
+            }
+        }
+        return context.coordinator.makeWebView()
     }
 
     func updateUIView(_ view: WKWebView, context: Context) {}

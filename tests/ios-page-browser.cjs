@@ -7,58 +7,12 @@
 // it and what is touched below it with nothing in its band, the button's messages, and the saves
 // handed between app and page, the console's own included.
 // It does not run Swift, WebKit, a phone, its haptics or its real fold: see docs/IOS.md.
-const assert = require("node:assert/strict");
-const fs = require("node:fs"), path = require("node:path"), url = require("node:url");
-const { spawnSync } = require("node:child_process");
-const { chromium } = require(process.env.PLAYWRIGHT_PATH || "playwright");
-const root = path.resolve(__dirname, "..");
-if (!process.env.TEST_OUTPUT) throw new Error("Set TEST_OUTPUT to a disposable evidence directory outside the repository.");
-const output = path.join(process.env.TEST_OUTPUT, "ios-page");
-fs.mkdirSync(output, { recursive: true });
-const html = path.join(output, "index.html");
-const built = spawnSync(process.env.PYTHON || "python3", [path.join(root, "ios/build-web.py"), html], { cwd: root, encoding: "utf8" });
-assert.equal(built.status, 0, "ios/build-web.py failed: " + built.stderr);
+const path = require("node:path"), url = require("node:url");
+const { CASES, STANDIN, sleep, build, launch, open: openPage, play, checker } = require("./helpers/ios-page.cjs");
+const { output, html } = build("ios-page");
+const { check, finish } = checker();
+const open = (browser, one, given) => openPage(browser, html, one, given);
 
-// What the app tells the page in each case. safe: top, right, bottom, left.
-const plain = (w, h, safe) => ({ w, h, told: { posture: "plain", crease: null, safe, window: [w, h] } });
-const across = (posture) => ({ w: 669, h: 951, told: { posture, crease: [0, 455.5, 669, 40], safe: [82, 0, 34, 0], window: [669, 951] } });
-const down = (posture) => ({ w: 951, h: 669, told: { posture, crease: [455.5, 0, 40, 669], safe: [0, 84, 34, 0], window: [951, 669] } });
-const CASES = {
-  "phone": plain(393, 852, [59, 0, 34, 0]),
-  "phone-sideways": plain(852, 393, [0, 59, 21, 59]),
-  "small-phone-sideways": plain(667, 375, [0, 0, 0, 0]),
-  "ipad-upright": plain(820, 1180, [24, 0, 20, 0]),
-  "duo-closed": plain(466, 678, [50, 0, 34, 0]),
-  "duo-closed-sideways": plain(678, 466, [0, 50, 21, 50]),
-  "duo-laptop": across("laptop"),
-  "duo-open-upright": across("openTall"),
-  "duo-book": down("openBook"),
-  "duo-half-book": down("halfBook"),
-};
-const STANDIN = `(() => {
-  window.__posted = [];
-  window.webkit = { messageHandlers: { vesper: { postMessage: (m) => window.__posted.push(JSON.parse(JSON.stringify(m))) } } };
-})();`;
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const results = [];
-const check = (ok, what) => {
-  results.push({ ok: !!ok, what });
-  console.log((ok ? "ok    " : "FAIL  ") + what);
-};
-
-// given: what the app hands over before the page runs. The fold goes with it, as in the app.
-async function open(browser, one, given = {}) {
-  const context = await browser.newContext({ viewport: { width: one.w, height: one.h }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
-  await context.addInitScript(STANDIN + `window.__vesperNative = ${JSON.stringify({ saved: {}, fold: one.told, ...given })};`);
-  const page = await context.newPage();
-  const errors = [];
-  page.on("pageerror", (e) => errors.push(e.message));
-  await page.goto(url.pathToFileURL(html).href);
-  await page.waitForFunction(() => window.vesper?.loaded);
-  await page.evaluate((told) => vesperApp.fold(told), one.told);
-  await sleep(300);
-  return { context, page, errors };
-}
 // Rectangles of what is on the page, and everything read or touched that lies in a band.
 const measure = (page, band) => page.evaluate((band) => {
   const rect = (e) => {
@@ -99,17 +53,9 @@ const measure = (page, band) => page.evaluate((band) => {
   };
 }, band);
 const viewportOf = (page) => page.evaluate(() => document.querySelector('meta[name="viewport"]').content);
-const play = async (page, id = "orbit") => {
-  await page.evaluate((id) => vesper.launch(id), id);
-  await sleep(500);
-  await page.keyboard.down("Space"); await sleep(80); await page.keyboard.up("Space");
-  await sleep(1200);
-};
-
 let browser;
 (async () => {
-  browser = await chromium.launch({ headless: true, executablePath: process.env.TEST_BROWSER_BIN || undefined,
-    args: ["--no-sandbox", "--mute-audio", "--disable-gpu", "--autoplay-policy=no-user-gesture-required"] });
+  browser = await launch();
 
   for (const [name, one] of Object.entries(CASES)) {
     const { context, page, errors } = await open(browser, one);
@@ -279,8 +225,5 @@ let browser;
     await context.close();
   }
 
-  const failed = results.filter((row) => !row.ok);
-  fs.writeFileSync(path.join(output, "result.json"), JSON.stringify({ passed: results.length - failed.length, failed: failed.map((row) => row.what) }, null, 2) + "\n");
-  assert.equal(failed.length, 0, failed.length + " check(s) failed");
-  console.log(`ios-page-browser: ${results.length} checks passed`);
+  finish(output, "ios-page-browser");
 })().catch((error) => { console.error(error); process.exitCode = 1; }).finally(() => browser?.close());

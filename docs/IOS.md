@@ -22,8 +22,10 @@ built first for iPhone Duo.
 | Part | What it does |
 | --- | --- |
 | `ios/build-web.py` | Builds the page: the standalone console (`scripts/build-demo.py`) with the app's layer added to its head. Writes `ios/Web/index.html` (not in git). |
-| `ios/layer/app.css` | The app's layouts, all under `html.vesper-app`. The console on the Pi and the browser simulator never load it. |
-| `ios/layer/app.js` | Keeps the saves, fits the page to the display and its fold, tells the app when the button moves. |
+| `ios/layer/*.css` | The app's layouts, all under `html.vesper-app`, added in the order of their names (`10-base`, `20-play`, `30-fold`). The console on the Pi and the browser simulator never load them. |
+| `ios/layer/*.js` | Added the same way: `10-core` (what the parts share), `20-saves`, `30-fit` (the viewport and the fold), `40-button`, `90-ready`. |
+| `ios/extras/*.py` | Whatever else rides in the app's Web folder: each writes its files beside the page. |
+| `tests/helpers/ios-page.cjs` | Shared by the page's browser checks: builds the page, opens it with a stand-in for the app, and holds the cases (the Duo's postures, phones, an iPad). |
 | `ios/Vesper9/Console.swift` | One full-screen web view. Hands the page its saved items, keeps its copy of them, answers presses with haptics, tells the page the window and the fold. |
 | `ios/Vesper9/Fold.swift` | Reads iPhone Duo's crease and hinge (Boxset's `DuoFold.swift`, cut down). |
 | `ios/Vesper9/SaveStore.swift` | The app's copy of the saves: one JSON file in Application Support. |

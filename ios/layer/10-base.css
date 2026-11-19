@@ -1,0 +1,51 @@
+/* VESPER-9 on iPhone: the page inside the app's web view. Everything here is under
+   html.vesper-app (set by app.js), so the console on the Pi and the browser simulator never see
+   it. ios/build-web.py puts this file after the page's own style.css.
+
+   The web view covers the whole display, under the status area and the home bar, so the page keeps
+   clear of them itself: --sat, --sar, --sab and --sal are the window's safe areas. The app
+   measures them and app.js sets them; until then they are the browser's own.
+
+   On iPhone Duo the app also says where the crease is and how the phone is held (app.js):
+   html[data-fold="across"] with --fold-start and --fold-band while the crease runs left to
+   right (opened and turned upright, or part folded like a laptop), html[data-fold="down"] while
+   it runs top to bottom (opened like a book). */
+html.vesper-app {
+  --sat: env(safe-area-inset-top, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  background: var(--screen);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+html.vesper-app body {
+  padding: 0;
+  background: var(--screen);
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+/* The case's frame is the phone itself. */
+html.vesper-app .console {
+  max-width: none;
+  min-height: 100dvh;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding-left: var(--sal);
+  padding-right: var(--sar);
+}
+html.vesper-app .masthead { padding-top: calc(var(--sat) + 14px); }
+html.vesper-app .case-label { padding-bottom: calc(var(--sab) + 10px); }
+html.vesper-app .system-menu { max-height: calc(100dvh - var(--sat) - var(--sab) - 16px); overflow: auto; }
+
+/* Speech runs on the Pi; the app has no microphone modes yet, so their button is not shown. */
+html.vesper-app #mic-button { display: none; }
+/* "SIMULATOR" is the browser copy's word, and there is no space bar. */
+html.vesper-app #mode-tag { font-size: 0; }
+html.vesper-app #mode-tag::after { content: "HANDHELD"; font-size: 8px; }
+html.vesper-app #control-secondary { font-size: 0; }
+html.vesper-app #escape-hint { font-size: 9px; }
+

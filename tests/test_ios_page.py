@@ -10,6 +10,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def layer(suffix):
+    """The app's layer: every file of one kind in ios/layer, in the order the page gets them."""
+    return '\n'.join(path.read_text(encoding='utf-8') for path in sorted((ROOT / 'ios/layer').glob('*' + suffix)))
+
+
 class IosPage(unittest.TestCase):
     def test_layer_is_in_the_head_and_the_console_after_it(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -31,19 +36,18 @@ class IosPage(unittest.TestCase):
         page = (ROOT / 'web/index.html').read_text(encoding='utf-8')
         style = (ROOT / 'web/style.css').read_text(encoding='utf-8')
         main = (ROOT / 'web/main.js').read_text(encoding='utf-8')
-        layer = (ROOT / 'ios/layer/app.css').read_text(encoding='utf-8') + (ROOT / 'ios/layer/app.js').read_text(encoding='utf-8')
-        layer = re.sub(r'/\*.*?\*/', '', layer, flags=re.S)
+        both = re.sub(r'/\*.*?\*/', '', layer('.css') + layer('.js'), flags=re.S)
         for name in ('arcade', 'menu-arcade', 'game', 'application', 'dashboard', 'mic-button', 'mode-tag',
                      'control-secondary', 'escape-hint', 'control-hint', 'pause-button', 'clock', 'build-tag', 'toast',
                      'save-status', 'utility-stage', 'utility-content', 'menu-actions', 'menu-description'):
-            self.assertIn(f'#{name}', layer, f'the layer no longer uses #{name}')
+            self.assertIn(f'#{name}', both, f'the layer no longer uses #{name}')
             self.assertIn(f'id="{name}"', page, f'the page has no #{name}')
         for name in ('console', 'masthead', 'instrument-bar', 'physical-lights', 'lamp', 'app-heading', 'app-description',
                      'hud', 'hud-item', 'game-stage', 'stage-corners', 'app-readout', 'control-deck', 'arcade', 'arcade-cap',
                      'control-copy', 'hold-track', 'footer-right', 'case-label', 'system-menu', 'overlay', 'menu-switch',
                      'sector-head', 'section-line', 'sector-strip', 'section-meta', 'app-grid', 'app-card',
                      'dashboard-actions', 'scan-action', 'utility-actions', 'utility-button', 'brand-symbol', 'eyebrow'):
-            self.assertIn(f'.{name}', layer, f'the layer no longer styles .{name}')
+            self.assertIn(f'.{name}', both, f'the layer no longer styles .{name}')
             self.assertRegex(page + style, rf'[ ."]{re.escape(name)}[ ".{{,:>]', f'the page has no .{name}')
         # The page's play mode, which the layer builds on, and the handles app.js uses.
         self.assertIn('@media (min-width: 700px) and (min-height: 400px)', style)
@@ -56,8 +60,7 @@ class IosPage(unittest.TestCase):
     def test_the_app_and_the_page_use_the_same_words(self):
         """What Swift says and what app.js listens for: the postures, the messages, the file's name."""
         swift = ''.join(path.read_text(encoding='utf-8') for path in sorted((ROOT / 'ios/Vesper9').glob('*.swift')))
-        script = (ROOT / 'ios/layer/app.js').read_text(encoding='utf-8')
-        style = (ROOT / 'ios/layer/app.css').read_text(encoding='utf-8')
+        script, style = layer('.js'), layer('.css')
         for posture in ('plain', 'openBook', 'halfBook', 'openTall', 'laptop'):
             self.assertRegex(swift, rf'case {posture}\b')
             self.assertIn(posture, script)
@@ -69,7 +72,8 @@ class IosPage(unittest.TestCase):
         for key in ('told.posture', 'told.window', 'told.safe', 'told.crease', 'given.saved', 'given.launch', 'given.import', 'given.fold'):
             self.assertIn(key, script)
         self.assertIn('window.vesperApp.fold(', swift)
-        self.assertIn('window.vesperApp = { fit: fit, fold: fold }', script)
+        self.assertIn('window.vesperApp.fit = fit;', script)
+        self.assertIn('window.vesperApp.fold = fold;', script)
         self.assertIn('console-saves.json', swift)
         self.assertIn('console-saves.json', (ROOT / 'ios/console-saves.py').read_text(encoding='utf-8'))
         for name in ('--fold-start', '--fold-band', '--sat', '--sar', '--sab', '--sal'):

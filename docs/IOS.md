@@ -19,9 +19,8 @@ built first for iPhone Duo.
   opened and turned upright (High Bar), the book (dashboard, Orbit Lock), and a plain iPad. They
   are laid out as in Chrome: the game's picture alone in the upper half, nothing in the crease's
   band, everything touched below it.
-- **Not seen yet:** the clock and battery in the closed Duo's status column. Run 2's pictures
-  of the closed phone were lost (the simulator did not say which displays it has; asked three
-  times from run 3 on).
+  Run 3, the closed Duo again: the clock is in its status column, The Stacks opens its books
+  with no network, and a game no longer has the timers' line on its button.
 - **Not done at all:** nothing has run on a phone. Haptics, sound, the real fold, and saved
   progress across launches are untried.
 - **A review of every game and instrument on the phone** (2026-11-19) is in Sam's notes:
@@ -64,8 +63,8 @@ display is 951 × 669 points, the crease a 40-point band at its middle, the stat
 
 The status bar is hidden on every other phone, as in a game. A folding phone keeps its status
 column or row clear whether or not anything is shown in it, so there the clock and the battery
-are shown (`Fold.folding`: a hinge, a crease, or side safe areas that differ). Not yet seen, on
-a simulator or a phone.
+are shown (`Fold.folding`: a hinge, a crease, or side safe areas that differ). Seen on the Duo's
+simulator, closed (the third build); not on a phone.
 
 A fold that lands on a new posture gives a soft click, as Sam's other Duo apps do. The page is
 loaded only once the fold has been read, so its first picture is already laid out for it.

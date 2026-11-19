@@ -1083,3 +1083,10 @@ and the pretend-fold pictures were taken on an iPad for the first time.
   button. The timers' line now shows in a game only while a timer runs
   (`ios/layer/45-timers.js`, one rule in `20-play.css`, one check). In Chrome on
   the PC: 1,964 checks in the seven browser checks.
+
+Run 3 (`e0efdea`) was green and its pictures show the three changes: the clock
+in the closed Duo's status column, the book without a status row, and no
+timers' line on the button in a game. The Stacks opened its sixteen volumes in
+WebKit with no network. Two of its thirteen pictures were not taken (a `simctl`
+call that hung past its limit each time; both screens are in an earlier run).
+Nothing has run on a phone.

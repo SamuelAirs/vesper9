@@ -924,3 +924,36 @@ compiled, and nothing has run in a simulator or on a phone. Pushing this branch
 and the signing secrets wait for Sam's word. Open after that: case taps (no second
 input on a phone yet), speech, books in The Stacks, timers ending in the
 background, sound under the silent switch.
+
+## iPhone app: iPhone Duo and the Pi's backup (2026-11-18, later)
+
+Sam: "I want this to be super optimized for the duo", and to look at what the Pi's
+agent had copied to the house share. Both are on `ios-app`.
+
+The share's `Backups/VESPER-9` (made 2026-11-18 22:26) holds two bundles and an
+archive of what was never in git. Its branches were fetched here as
+`refs/remotes/pi-share/*` and `pi-share-node2/*`. Everything the console ran is
+already in this branch's base (`f3bfacc` and release `0c1bf13` are ancestors);
+what is only on the Pi is seven commits on four side branches, a test build of
+2026-10-01 and three sets of audit tests that fail by design. One gap: the
+service last ran from `releases/0c1bf13.../trial-data`, and the backup leaves the
+three unpacked releases out, so the console's newest saves are in no copy. Read
+from the Pi (read-only): 25 best scores, 32 games' progress, last best
+2026-10-03 22:18 UTC. `ios/console-saves.py` turns that database into the file
+the app takes in; the service's `scores` and `progress` are the standalone
+edition's own shape, so nothing is translated.
+
+Duo. The first pass split an upright screen at half its height. That was wrong
+for the Duo: its crease is a 40-point band (455.5 to 495.5 of 951), so the game's
+last 20 points lay in it. The app now reads the crease and the hinge the way
+Boxset does on Sam's Duo (`reservedRegions(kind: .division)`,
+`UIHingeInteraction`; `ios/Vesper9/Fold.swift` is that file cut down) and tells
+the page the posture, the band and the safe areas. With the crease across, every
+screen is laid out in two halves with nothing read or touched in the band: in a
+game the picture is 664 x 374, from the status row to the crease. Opened like a
+book it stays one window (Sam's rule for Boxset), 867 x 488. Closed it is an
+ordinary phone, the game the full 466. The half-height rule is gone; an iPad and
+the outer display use the plain upright layout. Measured in Chrome with the
+Duo's numbers given by hand: 134 checks, among them folding and unfolding in the
+middle of a game. The Swift is still unrun, and the real crease and safe areas
+are first seen on the phone.

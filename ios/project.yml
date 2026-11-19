@@ -51,6 +51,10 @@ targets:
         UIStatusBarHidden: true
         UIViewControllerBasedStatusBarAppearance: true
         UIUserInterfaceStyle: Dark
+        # The app's folder shows in Files (On My iPhone > VESPER-9): the console's own saves are
+        # brought over by putting console-saves.json there (docs/IOS.md).
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
         # Nothing here encrypts anything: no network, no accounts.
         ITSAppUsesNonExemptEncryption: false
     settings:

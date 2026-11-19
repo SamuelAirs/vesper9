@@ -1,6 +1,7 @@
 # VESPER-9 for iPhone, built on a GitHub-hosted Mac (docs/IOS.md). Every push that changes ios/
 # or this file builds the console's page (ios/build-web.py), compiles the app for the simulator
-# and takes a few pictures of it there, kept with the build log as the run's artifact. A commit
+# and takes pictures of it there (a phone, then iPhone Duo's postures with a pretend fold on an
+# iPad), kept with the build log as the run's artifact. A commit
 # whose message contains [testflight] also signs the app and uploads it to TestFlight (a manual
 # run has a box for it), once the app's record exists in App Store Connect and the four signing
 # secrets are set on this repository (the same four as Sam's other apps: APPLE_TEAM_ID,
@@ -101,7 +102,7 @@ jobs:
           }
 
       - name: Pictures on the simulator
-        timeout-minutes: 12
+        timeout-minutes: 20
         run: |
           set -euo pipefail
           app=build/dd/Build/Products/Debug-iphonesimulator/Vesper9.app
@@ -160,6 +161,54 @@ jobs:
           shot 2-orbit -VesperLaunch orbit
           shot 3-highbar -VesperLaunch highbar
           t 30 xcrun simctl spawn "$udid" log show --last 3m --style compact --predicate 'process == "Vesper9"' > out/app.log 2>&1 || true
+          # iPhone Duo's postures. The simulator can't fold, so the app is asked for a pretend
+          # fold (-VesperFold across|down, -VesperHinge half: ios/Vesper9/Fold.swift), which also
+          # makes its window the Duo's own size at the screen's top left. That window is larger
+          # than a phone's screen, so these are taken on the largest iPad the image has. (The
+          # newest iOS runtime that has iPads. None of this can fail the step.)
+          found=$(xcrun simctl list runtimes -j | python3 -c '
+          import json, sys
+          best = None
+          for r in json.load(sys.stdin)["runtimes"]:
+              if r.get("platform") != "iOS" or not r.get("isAvailable"):
+                  continue
+              t = [d for d in r.get("supportedDeviceTypes", []) if d["name"].startswith("iPad")]
+              big = [d for d in t if "Pro" in d["name"] and "13" in d["name"]] or [d for d in t if "Pro" in d["name"]] or t
+              v = [int(p) for p in r["version"].split(".")]
+              if big and (best is None or v > best[0]):
+                  best = (v, big[-1]["identifier"], r["identifier"])
+          print(best[1] + " " + best[2] if best else "")' || true)
+          ipad=${found%% *}
+          padrt=${found##* }
+          duoshots() {
+            echo "::notice title=iPad for the Duo's postures::$ipad on $padrt"
+            t 30 xcrun simctl shutdown "$udid" || true
+            pad=$(xcrun simctl create Vesper9Pad "$ipad" "$padrt") || return 1
+            xcrun simctl boot "$pad" || return 1
+            xcrun simctl bootstatus "$pad" -b || return 1
+            xcrun simctl ui "$pad" appearance dark || true
+            xcrun simctl install "$pad" "$app" || return 1
+            t 20 xcrun simctl launch "$pad" "$id" || true
+            sleep 12
+            padshot() {
+              local name=$1
+              shift
+              t 20 xcrun simctl terminate "$pad" "$id" >/dev/null 2>&1 || true
+              t 20 xcrun simctl launch "$pad" "$id" "$@" || true
+              sleep 7
+              t 20 xcrun simctl io "$pad" screenshot --type=png "$PWD/out/$name.png" || true
+            }
+            padshot duo-1-laptop-dashboard -VesperFold across -VesperHinge half
+            padshot duo-2-laptop-orbit -VesperFold across -VesperHinge half -VesperLaunch orbit
+            padshot duo-3-laptop-chronometer -VesperFold across -VesperHinge half -VesperLaunch timers
+            padshot duo-4-open-upright-highbar -VesperFold across -VesperLaunch highbar
+            padshot duo-5-book-dashboard -VesperFold down
+            padshot duo-6-book-orbit -VesperFold down -VesperLaunch orbit
+            padshot ipad-1-dashboard
+            padshot ipad-2-orbit -VesperLaunch orbit
+            t 30 xcrun simctl spawn "$pad" log show --last 3m --style compact --predicate 'process == "Vesper9"' > out/app-pad.log 2>&1 || true
+          }
+          if [ -n "$found" ]; then duoshots || echo "::warning title=Duo pictures::the iPad simulator did not come up"; else echo "::warning title=Duo pictures::the image has no iPad simulator"; fi
           ls -l out
 
       - name: Keep the pictures and logs

@@ -1,0 +1,138 @@
+/* ---------------------------------------------------------------------------------------------
+   The case (50-case.js): the console's second input, a knock on its case, drawn as part of the
+   case. Each pad's whole box is what is touched; the panel inside it is drawn a little smaller
+   (::before, set in by --case-inset), so the touch area reaches the edges while the panel reads as
+   a plate set into the case, with two screw heads at its top (::after). While a game runs: two
+   case plates, left and right. Otherwise: a CASE key beside the button, in the control deck and
+   in the menu's switch row. */
+html.vesper-app .case-pad {
+  position: relative;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+html.vesper-app .case-pad::before,
+html.vesper-app .case-pad::after {
+  content: "";
+  position: absolute;
+  inset: var(--case-inset, 0);
+  border-radius: 7px;
+  pointer-events: none;
+}
+html.vesper-app .case-pad::before {
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, #18221b, #111a15);
+  box-shadow: inset 0 1px 0 #ffffff0d, inset 0 -2px 0 #0000004d;
+}
+html.vesper-app .case-pad::after {
+  background:
+    radial-gradient(circle, #4a5c4b 1.4px, #2a372c 1.9px, transparent 2.3px) 5px 5px / 6px 6px no-repeat,
+    radial-gradient(circle, #4a5c4b 1.4px, #2a372c 1.9px, transparent 2.3px) calc(100% - 5px) 5px / 6px 6px no-repeat;
+}
+html.vesper-app .case-pad > * { position: relative; pointer-events: none; }
+html.vesper-app .case-glyph {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+html.vesper-app .case-glyph circle { fill: currentColor; stroke: none; }
+/* The knock's rings run inwards, towards the button. */
+html.vesper-app .case-right .case-glyph { transform: scaleX(-1); }
+html.vesper-app .case-word { font-size: 8px; letter-spacing: 2px; line-height: 1; padding-left: 2px; }
+html.vesper-app .case-pad.down { color: var(--phosphor); }
+html.vesper-app .case-pad.down::before {
+  background: var(--faint);
+  border-color: var(--phosphor);
+  box-shadow: inset 0 2px 6px #0000006b;
+}
+
+/* Not playing: the CASE key, the size of the button's cap, beside it. */
+html.vesper-app .case-key {
+  display: flex;
+  flex: none;
+  width: 52px;
+  height: 52px;
+  gap: 5px;
+}
+html.vesper-app .case-key::after { display: none; }
+html.vesper-app .case-key .case-glyph { width: 18px; height: 18px; }
+html.vesper-app .case-key .case-word { font-size: 7px; letter-spacing: 1.5px; }
+html.vesper-app .console.playing .case-key { display: none; }
+
+/* ---------------------------------------------------------------------------------------------
+   Upright play (20-play.css, and the crease-across grid of 30-fold.css): the button's row is one
+   wide area that presses the button, its cap in the middle; the plates take its outer fifths.
+   The cap is at most half the row's width, so a plate never covers it. */
+@media (orientation: portrait) {
+  html.vesper-app .console.playing .case-plate {
+    display: flex;
+    grid-column: 1 / -1;
+    grid-row: 5;
+    align-self: stretch;
+    width: 22%;
+    min-width: 64px;
+    min-height: 64px;
+    z-index: 2;
+  }
+  html.vesper-app .console.playing .case-left { justify-self: start; --case-inset: 10px 4px 10px 10px; }
+  html.vesper-app .console.playing .case-right { justify-self: end; --case-inset: 10px 10px 10px 4px; }
+  html.vesper-app[data-fold="across"] .console.playing .case-plate { grid-row: 6; }
+  /* A running timer's line moves to the middle of the row's top, off the right plate. */
+  html.vesper-app .console.playing .footer-right { justify-self: center; z-index: 3; }
+}
+
+/* ---------------------------------------------------------------------------------------------
+   Sideways play: the stage is the button, the picture letterboxed in it. 50-case.js measures the
+   letterbox and says where the plates go (html[data-case]):
+     sides      the margins at the picture's left and right (--case-side wide)
+     below      the two ends of the free band under the picture (--case-below tall)
+     below-top  the same, with the picture moved to the top so the band is all the free height
+     over       no free room: small plates over the picture's lower corners */
+@media (orientation: landscape) and (min-width: 700px) and (min-height: 400px) {
+  html.vesper-app[data-case] .console.playing .case-plate {
+    --case-inset: 8px 6px;
+    display: flex;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    align-self: stretch;
+    width: var(--case-side, 64px);
+    margin-bottom: var(--case-lift, 0px);
+    z-index: 2;
+  }
+  html.vesper-app[data-case] .console.playing .case-left { justify-self: start; }
+  html.vesper-app[data-case] .console.playing .case-right { justify-self: end; }
+  html.vesper-app[data-case^="below"] .console.playing .case-plate {
+    --case-inset: 6px 8px;
+    align-self: end;
+    flex-direction: row;
+    gap: 10px;
+    width: clamp(96px, 22%, 240px);
+    height: var(--case-below, 52px);
+  }
+  html.vesper-app[data-case^="below"] .console.playing .case-right { flex-direction: row-reverse; }
+  html.vesper-app[data-case="below-top"] .console.playing .game-stage canvas { object-position: 50% 0; }
+  html.vesper-app[data-case="over"] .console.playing .case-plate {
+    --case-inset: 4px;
+    align-self: end;
+    width: 88px;
+    height: 52px;
+    opacity: 0.85;
+  }
+  html.vesper-app[data-case="over"] .console.playing .case-pad::after { display: none; }
+}

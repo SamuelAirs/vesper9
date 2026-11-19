@@ -156,9 +156,11 @@ let browser;
     await sleep(200);
     check(JSON.stringify(await presses(from)) === JSON.stringify([{ t: "press", down: true }, { t: "press", down: false }]), "a tap on the button posts one press and one release");
     from = await page.evaluate(() => window.__posted.length);
-    await page.touchscreen.tap(m.arcade.x + 30, m.arcade.y + 30);
+    // The row's outer ends are the case plates (50-case.css): the corner is just past the left one.
+    const plateEnd = await page.evaluate(() => document.querySelector(".case-plate.case-left").getBoundingClientRect().right);
+    await page.touchscreen.tap(plateEnd + 12, m.arcade.y + 30);
     await sleep(200);
-    check((await presses(from)).length === 2, "so does a tap in a corner of the button's area");
+    check((await presses(from)).length === 2, "so does a tap in a corner of the button's area, beside the case plate");
     from = await page.evaluate(() => window.__posted.length);
     await page.touchscreen.tap(m.stage.x + m.stage.w / 2, m.stage.y + m.stage.h / 2);
     await sleep(200);

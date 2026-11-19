@@ -8,7 +8,18 @@
 // find, an arrival at the end, a hangar (probe, start region, trail, daily run, feats, log) reached
 // by holding on the title or result screen, and a versioned save (schema 2) that still carries the
 // original fields.
-import { C, space, text, line, circle, diamond, banner } from "../engine/draw.js";
+import { C, space, text, textSize, textFloor, line, circle, diamond, banner } from "../engine/draw.js";
+// A centred line that a raised size (the iPhone app's text floor) would make wider than the
+// picture goes on two rows, at y1 and y2; otherwise, as on the console, one row at y.
+function centred(g, value, y, y1, y2, size, colour) {
+  const words = String(value).split(" ");
+  if (!textFloor() || value.length * textSize(size) * .61 <= 900 || words.length < 2) return void text(g, value, 480, y, size, colour, "center");
+  const half = Math.ceil(value.length / 2);
+  let first = words.shift();
+  while (words.length && (first + " " + words[0]).length <= half) first += " " + words.shift();
+  text(g, first, 480, y1, size, colour, "center");
+  text(g, words.join(" "), 480, y2, size, colour, "center");
+}
 import { TAU, clamp, lerp, wrapAngle, mixSeed, Random } from "../engine/math.js";
 import { LAMP, lamps, dim, blend, ramp, spot, pulse, blink, fill, meter, lightsOff } from "../engine/lightshow.js";
 import { AppGuard } from "../engine/input.js";
@@ -1688,7 +1699,7 @@ export class Perihelion {
     if (this.noticeT > 0 && this.bannerT <= 0) { // the notice strip at the foot of the screen
       const m = this.notice, col = /^(GOAL|FEAT)/.test(m) ? C.cyan : /^PROBE LOST/.test(m) ? C.red : C.ink;
       g.globalAlpha = clamp(this.noticeT * 3, 0, 1);
-      const sz = m.length > 64 ? 18 : 22, w = Math.min(920, m.length * sz * 0.6 + 48); // monospace
+      const sz = m.length > 64 ? 18 : 22, w = Math.min(920, m.length * (textFloor() ? textSize(sz) * .61 : sz * 0.6) + 48); // monospace
       g.fillStyle = "#0c1511d8";
       g.fillRect(480 - w / 2, 472, w, 40);
       line(g, 480 - w / 2, 472, 480 + w / 2, 472, col, 2);
@@ -1787,7 +1798,7 @@ export class Perihelion {
       else if (id === "LOG") info = "Regions reached and best crossings. Feats are in the console's LOGBOOK.";
       else if (id === "UPGRADES") info = "Spend shards: spare probes and more. Every run earns some.";
       else info = "Controls, tricks, the chain, shards.";
-      text(g, info, 480, 450, 18, C.muted, "center");
+      centred(g, info, 450, 425, 451, 18, C.muted);
       text(g, "TAP = NEXT LINE     HOLD = CHOOSE", 480, 480, 18, C.cyan, "center");
     } else if (this.view === "shop") {
       text(g, "UPGRADES     " + sv.shards + " SHARDS", 480, 120, 20, C.cyan, "center");
@@ -1800,12 +1811,13 @@ export class Perihelion {
       const back = this.page === UPGRADES.length;
       if (back) diamond(g, 150, 160 + UPGRADES.length * 44, 9, C.amber, true);
       text(g, "BACK", 180, 160 + UPGRADES.length * 44, 22, back ? C.amber : C.ink);
-      text(g, back ? "Back to the hangar." : UPGRADES[this.page].text, 480, 440, 18, C.muted, "center");
+      centred(g, back ? "Back to the hangar." : UPGRADES[this.page].text, 440, 424, 450, 18, C.muted);
       text(g, "TAP = NEXT LINE     HOLD = " + (back ? "BACK" : "BUY"), 480, 480, 18, C.cyan, "center");
     } else if (this.view === "guide") {
       const pg = GUIDE[this.page % GUIDE.length];
       text(g, pg[0] + "     PAGE " + (this.page % GUIDE.length + 1) + " / " + GUIDE.length, 480, 124, 20, C.cyan, "center");
-      pg.slice(1).forEach((s, i) => text(g, s, 130, 170 + i * 46, 18, i % 2 ? C.muted : C.ink)); // 66 characters fit the panel
+      const gx = textFloor() ? Math.max(24, Math.min(130, 480 - Math.max(...pg.slice(1).map((s) => s.length)) * textSize(18) * .61 / 2)) : 130;
+      pg.slice(1).forEach((s, i) => text(g, s, gx, 170 + i * 46, 18, i % 2 ? C.muted : C.ink)); // 66 characters fit the panel
       text(g, "TAP = NEXT PAGE     HOLD = BACK", 480, 488, 18, C.cyan, "center");
     } else {
       text(g, "LOG   RUNS " + sv.runs + "   RELICS " + sv.st.relics + "   ARRIVALS " + sv.st.arrivals, 480, 118, 20, C.cyan, "center");

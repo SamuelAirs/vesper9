@@ -9,7 +9,51 @@ export const C = {
   red: "#eb947a",
   dark: "#18271b",
 };
+// The text floor: the smallest size text() draws, in canvas pixels, while one is set. The console
+// never sets one (0: every size passes through as asked). The iPhone app's layer asks the host for
+// one, for the games on its reviewed list, so a picture shown small stays readable; the host sets
+// it from the size the picture is shown at, only while that game draws a frame (web/main.js).
+let floorPx = 0;
+export function setTextFloor(px = 0) {
+  floorPx = px > 0 && Number.isFinite(px) ? px : 0;
+}
+// The floor now (0 when none), and the size text() really draws `size` at: what a game reads to
+// lay out lines that must follow the floor. With no floor both are the game's own numbers.
+export function textFloor() {
+  return floorPx;
+}
+export function textSize(size = 22) {
+  return floorPx > size ? floorPx : size;
+}
+// A line laid out for `width` pixels at `size`: as one row while it fits at the size it is really
+// drawn (always, with no floor), else word-wrapped into rows that do (at most `max`, the last cut
+// with an ellipsis), the rows as even as the words allow (no lone last word). A game draws the rows
+// it is given; with no floor that is its line, unchanged.
+function wrapAt(line, per) {
+  const rows = [];
+  let row = "";
+  for (const word of line.split(" ")) {
+    if (row && (row + " " + word).length > per) { rows.push(row); row = word; }
+    else row = row ? row + " " + word : word;
+  }
+  if (row) rows.push(row);
+  return rows;
+}
+export function textRows(value, width, size = 22, max = 2) {
+  const line = String(value), per = Math.max(4, Math.floor(width / (textSize(size) * 0.61)));
+  if (!floorPx || line.length <= per) return [line];
+  let rows = wrapAt(line, per);
+  for (let narrower = per - 1; rows.length <= max && narrower >= Math.ceil(line.length / rows.length); narrower--) {
+    const tried = wrapAt(line, narrower);
+    if (tried.length !== rows.length) break;
+    rows = tried;
+  }
+  const kept = rows.slice(0, max).map((one) => (one.length > per ? one.slice(0, per - 1) + "…" : one));
+  if (rows.length > max) kept[max - 1] = kept[max - 1].slice(0, per - 1) + "…";
+  return kept;
+}
 export function text(g, value, x, y, size = 22, color = C.ink, align = "left") {
+  if (floorPx > size) size = floorPx;
   g.fillStyle = color;
   g.font = `${size}px "DejaVu Sans Mono",monospace`;
   g.textAlign = align;

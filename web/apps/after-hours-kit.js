@@ -5,7 +5,7 @@
 // The press scheme is the console's own: a TAP moves to the next choice, a press HELD for HOLD
 // seconds and RELEASED does the choice. The choice happens on the release, so the menu gesture
 // (tap, tap, hold) never chooses anything: the host consumes that release and the game rewinds.
-import { C, text, circle } from "../engine/draw.js";
+import { C, text, textRows, textFloor, circle } from "../engine/draw.js";
 import { lamps } from "../engine/lightshow.js";
 
 // A press at least this long, then released, chooses. Shorter presses are taps.
@@ -55,8 +55,9 @@ export function drawLampRow(g, entries, x, y) {
     circle(g, cx, y, 22, css(e.rgb), true);
     circle(g, cx, y, 27, C.line, false, 2);
     text(g, "LAMP " + (i + 1), cx, y + 44, 14, C.muted, "center");
-    text(g, e.label, cx, y + 69, 18, C.ink, "center");
-    if (e.sub) text(g, e.sub, cx, y + 93, 15, C.muted, "center");
+    text(g, textRows(e.label, gap - 14, 18, 1)[0], cx, y + 69, 18, C.ink, "center");
+    // Under a text floor (the iPhone app) a lamp's line wraps to its own column, two rows at most.
+    if (e.sub) textRows(e.sub, gap - 14, 15).forEach((row, r) => text(g, row, cx, y + 93 + r * 22, 15, C.muted, "center"));
   });
 }
 
@@ -66,7 +67,7 @@ export function drawLampKey(g, entries, y) {
   entries.forEach((e, i) => {
     const x = 24 + i * width;
     circle(g, x + 8, y - 1, 6, css(e.rgb), true);
-    text(g, (i + 1) + " " + e.label, x + 22, y, 14, C.muted);
+    text(g, textRows((i + 1) + " " + e.label, width - 28, 14, 1)[0], x + 22, y, 14, C.muted);
   });
 }
 
@@ -76,9 +77,17 @@ export function drawGuide(g, name, pages, page, n) {
   g.fillStyle = C.bg; g.fillRect(0, 0, 960, 540);
   text(g, name + "  /  HOW TO PLAY  " + (page + 1) + " OF " + pages.length, 480, 40, 16, C.muted, "center");
   text(g, p.head, 480, 96, 32, C.amber, "center");
-  p.lines.forEach((value, i) => text(g, value, 480, 148 + i * 32, 20, i ? C.muted : C.ink, "center"));
-  if (p.lamps) drawLampRow(g, p.lamps.slice(0, n), 480, 330);
-  for (let i = 0; i < pages.length; i++) circle(g, 480 + (i - (pages.length - 1) / 2) * 22, 470, 5, i === page ? C.amber : C.line, i === page);
+  if (textFloor()) {
+    // Under a text floor (the iPhone app): each line wraps to the picture, the rows close up, the
+    // lamps follow them, and the page dots (the heading says the page) give their room to the lamps.
+    let y = 140;
+    p.lines.forEach((value, i) => textRows(value, 920, 20, 3).forEach((row) => { text(g, row, 480, y, 20, i ? C.muted : C.ink, "center"); y += 25; }));
+    if (p.lamps) drawLampRow(g, p.lamps.slice(0, n), 480, Math.min(368, Math.max(330, y + 27)));
+  } else {
+    p.lines.forEach((value, i) => text(g, value, 480, 148 + i * 32, 20, i ? C.muted : C.ink, "center"));
+    if (p.lamps) drawLampRow(g, p.lamps.slice(0, n), 480, 330);
+    for (let i = 0; i < pages.length; i++) circle(g, 480 + (i - (pages.length - 1) / 2) * 22, 470, 5, i === page ? C.amber : C.line, i === page);
+  }
   text(g, page < pages.length - 1 ? "TAP: NEXT PAGE      HOLD AND RELEASE: START PLAYING" : "TAP OR HOLD: START PLAYING", 480, 510, 18, C.cyan, "center");
 }
 

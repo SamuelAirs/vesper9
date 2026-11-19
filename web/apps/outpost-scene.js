@@ -9,7 +9,7 @@
 // newsFrom, note, floats, ripples, act, phase, flash, flare, boosts, groove, hum, items, affordN,
 // goalName, goalCost, goalFrac, nextGoal, refused, down_, consume, downAt; and the methods
 // surge(), effRate(), tapValue(), paceNow(), grooveMult() and pending().
-import { C, text, line, circle, diamond, banner, wrapText } from "../engine/draw.js";
+import { C, text, textSize, textFloor, line, circle, diamond, banner, wrapText } from "../engine/draw.js";
 import { TAU, clamp } from "../engine/math.js";
 import { pulse, blink } from "../engine/lightshow.js";
 import {
@@ -118,6 +118,11 @@ function drawFooter(g, app) {
   if (s.ft && s.ft.length) { // this run's fittings, bottom right
     let names = "";
     for (const k of s.ft) if (FIT[k]) names += (names ? " + " : "") + fitName(s, k);
+    // Under a text floor (the iPhone app) the list is cut to the room the site's name leaves.
+    if (textFloor()) {
+      const cw = textSize(14) * .61, room = Math.floor((912 - (site ? site.n.length * cw + 30 : 0)) / cw);
+      if (names.length > room) names = names.slice(0, Math.max(1, room - 1)) + "…";
+    }
     text(g, names, 936, 530, 14, C.amber, "right");
   }
   if (app.nextGoal !== null) {
@@ -519,7 +524,10 @@ function drawScene(g, app) {
       const hum = humOf(app, i);
       // a humming machine trembles and shows the note it is tuned to; the letter blinks as it runs out
       machine(g, app, i, hum > 0 ? x + Math.sin(app.t * 47 + i) * 0.9 : x, n);
-      const tone = hum > 0 && (hum > 2 || blink(app.t, 3)) ? " " + (PC_NAMES[PROD[i].pc] || "") : "";
+      let tone = hum > 0 && (hum > 2 || blink(app.t, 3)) ? " " + (PC_NAMES[PROD[i].pc] || "") : "";
+      // The note's name is left off where a raised size (the iPhone app's floor) would run the
+      // label into the next machine's (they stand 77 apart).
+      if (tone && textFloor() && ("x" + n + tone).length * textSize(16) * .61 > 74) tone = "";
       text(g, "x" + n + tone, x, GY + 26, 16, app.flash[i] > 0 || hum > 0 ? C.cyan : C.muted, "center");
       if (app.flash[i] > 0) {
         circle(g, x, GY - 40, 30 + 40 * (1 - app.flash[i]), C.cyan, false, 2);

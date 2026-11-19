@@ -16,7 +16,7 @@
 // Drawing is smooth on an uneven frame clock: the hills are cosine curves between fixed key points,
 // every background layer is a function of world position, and draw() extrapolates the camera by the
 // time since the last fixed update. The camera pulls back with speed and height.
-import { C, text, line, circle, diamond } from "../engine/draw.js";
+import { C, text, textSize, textFloor, line, circle, diamond } from "../engine/draw.js";
 import { clamp, lerp, wrapAngle, mixSeed, Random } from "../engine/math.js";
 import { LAMP, lamps, dim, spot, pulse, blink, fill, lightsOff } from "../engine/lightshow.js";
 import { AppGuard } from "../engine/input.js";
@@ -1412,7 +1412,7 @@ export class Moonrunner {
       const z = ZONES[this.zone];
       g.globalAlpha = Math.min(1, this.zoneT * 2);
       text(g, z.roman + "   " + z.name, 480, 70, 30, z.ink, "center");
-      text(g, z.text, 480, 104, 20, C.muted, "center");
+      text(g, z.text, textFloor() ? Math.min(480, 722 - z.text.length * textSize(20) * .61 / 2) : 480, 104, 20, C.muted, "center");
       g.globalAlpha = 1;
     } else if (this.noticeT > 0) text(g, this.notice, 480, 52, 22, this.notice.startsWith("FEVER") ? C.cyan : C.amber, "center");
     if (this.trickT > 0) text(g, this.trick, 480, 150, 26, this.trick === "THUD" ? C.red : C.cyan, "center");
@@ -1423,12 +1423,14 @@ export class Moonrunner {
       for (let i = 0; i < FEVER_CHAIN; i++) diamond(g, 346 + i * 22, 500, 7, this.feverLv < FEVER_MAX && i < this.chain % FEVER_CHAIN ? C.cyan : C.line, true);
     } else if (this.chain > 0) {
       text(g, "PERFECT", 40, 500, 18, C.muted);
-      for (let i = 0; i < FEVER_CHAIN; i++) diamond(g, 140 + i * 24, 500, 8, i < this.chain % FEVER_CHAIN || this.chain % FEVER_CHAIN === 0 ? C.amber : C.line, true);
+      const d0 = Math.max(140, 54 + 7 * textSize(18) * .61); // clear of the word at its real size
+      for (let i = 0; i < FEVER_CHAIN; i++) diamond(g, d0 + i * 24, 500, 8, i < this.chain % FEVER_CHAIN || this.chain % FEVER_CHAIN === 0 ? C.amber : C.line, true);
     }
   }
-  card(g, top, bottom) {
+  card(g, top, bottom, widest = "") {
+    const w = textFloor() ? Math.min(940, Math.max(740, Math.ceil(widest.length * textSize(20) * .61) + 40)) : 740;
     g.fillStyle = "#0c1511ee";
-    g.fillRect(110, top, 740, bottom - top);
+    g.fillRect(480 - w / 2, top, w, bottom - top);
     line(g, 160, top + 10, 800, top + 10, C.line);
   }
   drawOrders(g, y, size = 20) {
@@ -1439,9 +1441,10 @@ export class Moonrunner {
     });
   }
   drawTitle(g) {
-    this.card(g, 84, 470);
+    const how = "Hold to dive down the slopes. Let go to fly off the crests.";
+    this.card(g, 84, 470, how);
     text(g, "MOONRUNNER", 480, 132, 42, C.ink, "center");
-    text(g, "Hold to dive down the slopes. Let go to fly off the crests.", 480, 178, 20, C.muted, "center");
+    text(g, how, 480, 178, 20, C.muted, "center");
     text(g, "LEVEL " + this.sv.lv + "     SURVEY ORDERS", 480, 226, 20, C.amber, "center");
     this.drawOrders(g, 266, 20);
     const next = this.nextUnlock();
@@ -1502,7 +1505,13 @@ export class Moonrunner {
       else if (id === "WORKSHOP") info = "Magnet, grapple and fever coil.";
       else if (id === "ORDERS") info = "Meet all three to reach the next level.";
       else info = "Zones, beacons found, and the expedition's totals.";
-      text(g, info, 480, 446, 18, C.muted, "center");
+      if (textFloor() && info.length * textSize(18) * .61 > 900) {
+        const words = info.split(" "), half = Math.ceil(info.length / 2);
+        let first = "";
+        while (words.length && (first + " " + words[0]).trim().length <= half) first = (first + " " + words.shift()).trim();
+        text(g, first, 480, 426, 18, C.muted, "center");
+        text(g, words.join(" "), 480, 452, 18, C.muted, "center");
+      } else text(g, info, 480, 446, 18, C.muted, "center");
       text(g, "TAP = NEXT LINE     HOLD = CHOOSE", 480, 480, 18, C.cyan, "center");
     } else if (this.view === "workshop") {
       WORKSHOP.forEach((it, i) => {

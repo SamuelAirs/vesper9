@@ -12,7 +12,7 @@
 // contracts set standing jobs, pods are earned with feats, and a daily run gives everyone the
 // same field and loadout for the date. Versioned save (schema 3) that takes over the first
 // Ballista's record. The lamps are the pod's instruments.
-import { C, text, line, circle, diamond, banner } from "../engine/draw.js";
+import { C, text, line, circle, diamond, banner, textRows } from "../engine/draw.js";
 import { TAU, clamp, mixSeed, Random } from "../engine/math.js";
 import { LAMP, lamps, dim, blend, ramp, spot, pulse, blink, fill, meter, lightsOff } from "../engine/lightshow.js";
 import { AppGuard } from "../engine/input.js";
@@ -1691,7 +1691,7 @@ export class Ballista {
       text(g, "CHAIN " + this.chain, 880, 48, Math.round(24 * pop), C.cyan, "right");
       text(g, "SALVAGE x" + chainMult(this.chain).toFixed(1), 880, 76, 16, C.cyan, "right");
     } else if (this.R.chain >= 2) text(g, "BEST CHAIN " + this.R.chain, 880, 48, 16, C.muted, "right");
-    if (this.daily) text(g, "DAILY: " + dailyGoal(this.dayKey()).text.toUpperCase(), 480, 118, 18, C.cyan, "center");
+    if (this.daily) text(g, textRows("DAILY: " + dailyGoal(this.dayKey()).text.toUpperCase(), 900, 18, 1)[0], 480, 118, 18, C.cyan, "center");
     else if (this.phase === "fly") { // the contracts, top left, as they progress
       let y = 40;
       for (const c of this.sv.ct) {
@@ -1707,7 +1707,7 @@ export class Ballista {
     }
     if (this.phase === "aim") {
       this.drawAhead(g);
-      if (this.mods.length) text(g, "FITTED: " + this.mods.map((id) => MODULES.find((m) => m.id === id).name).join(" / "), 480, 118, 16, C.muted, "center");
+      if (this.mods.length) text(g, textRows("FITTED: " + this.mods.map((id) => MODULES.find((m) => m.id === id).name).join(" / "), 900, 16, 1)[0], 480, 118, 16, C.muted, "center");
       if (this.sv.runs < 2 && !this.charging) {
         g.fillStyle = "#0c1511e8";
         g.fillRect(250, 190, 460, 100);
@@ -1746,8 +1746,10 @@ export class Ballista {
   drawTitle(g) {
     banner(g, "BALLISTA", "FIRE THE POD AS FAR AS IT WILL GO");
     let y = 392;
-    text(g, "HOLD = CHARGE     RELEASE = FIRE     PRESS IN FLIGHT = THRUST OR SKIP", 480, y, 16, C.muted, "center");
-    y += 30;
+    const how = "HOLD = CHARGE     RELEASE = FIRE     PRESS IN FLIGHT = THRUST OR SKIP";
+    // Two rows, split where the controls part, when a raised size (the iPhone app's floor) would not fit one.
+    for (const row of textRows(how, 900, 16).length > 1 ? [how.slice(0, how.lastIndexOf("     ")), how.slice(how.lastIndexOf("     ") + 5)] : [how]) { text(g, row, 480, y, 16, C.muted, "center"); y += 24; }
+    y += 6;
     if (this.sv.best > 0) { text(g, "BEST " + this.sv.best + " m     SALVAGE " + this.sv.salvage + (this.sv.mark ? "     MARK " + roman(this.sv.mark + 1) : ""), 480, y, 18, C.amber, "center"); y += 30; }
     else if (this.sv.legacy) { text(g, "THE RANGE HAS BEEN REBUILT. " + this.sv.salvage + " SALVAGE TO START.", 480, y, 18, C.amber, "center"); y += 30; }
     text(g, "HOLD = WORKSHOP", 480, y, 18, C.cyan, "center");
@@ -1769,13 +1771,13 @@ export class Ballista {
     if (r.chain >= 2 || r.mult > 1) row("BEST CHAIN", r.chain + "   x" + r.mult.toFixed(2).replace(/0$/, ""), C.cyan);
     row("LIFTS  /  PERFECT SKIPS", r.pads + "  /  " + r.skips);
     if (r.scrap || this.sv.st.scrap) row("SCRAP", r.scrap);
-    if (this.daily) { text(g, this.goalDone ? "DAILY GOAL MET" : "DAILY: " + dailyGoal(this.dayKey()).text.toUpperCase(), 480, y, 18, this.goalDone ? C.cyan : C.muted, "center"); y += 26; }
-    for (const t of (r.contracts || []).slice(0, 2)) { text(g, "CONTRACT DONE  " + t.toUpperCase(), 480, y, 18, C.cyan, "center"); y += 26; }
+    if (this.daily) { text(g, textRows(this.goalDone ? "DAILY GOAL MET" : "DAILY: " + dailyGoal(this.dayKey()).text.toUpperCase(), 900, 18, 1)[0], 480, y, 18, this.goalDone ? C.cyan : C.muted, "center"); y += 26; }
+    for (const t of (r.contracts || []).slice(0, 2)) { text(g, textRows("CONTRACT DONE  " + t.toUpperCase(), 900, 18, 1)[0], 480, y, 18, C.cyan, "center"); y += 26; }
     for (const id of this.newFeats.slice(0, 2)) {
       const f = FEATS.find((x) => x.id === id);
       if (f) { text(g, "FEAT  " + f.name, 480, y, 20, C.cyan, "center"); y += 26; }
     }
-    for (const l of (r.next || []).slice(0, 2)) { if (y > 450) break; text(g, l, 480, y, 16, C.muted, "center"); y += 22; }
+    for (const l of (r.next || []).slice(0, 2)) { if (y > 450) break; text(g, textRows(l, 900, 16, 1)[0], 480, y, 16, C.muted, "center"); y += 22; }
     if (this.deadT > 0.7) text(g, "TAP = AGAIN     HOLD = WORKSHOP", 480, 486, 18, C.amber, "center");
   }
   drawShop(g) {
@@ -1818,7 +1820,7 @@ export class Ballista {
       else if (id === "POD") { const next = this.nextPod(); info = PODS[sv.pod].text + (next ? "  NEXT: " + next.name + ", " + podNeed(next) : ""); }
       else if (id === "DAILY") info = "Same field and kit for everyone today. " + dailyGoal(this.dayKey()).text;
       else info = "Zones reached and lifetime totals.";
-      text(g, info, 480, 456, 16, this.need ? C.cyan : C.muted, "center");
+      textRows(info, 740, 16).forEach((row, i, all) => text(g, row, 480, 456 + (i - (all.length - 1) / 2) * 24, 16, this.need ? C.cyan : C.muted, "center"));
       text(g, "TAP = NEXT LINE     HOLD = CHOOSE", 480, 492, 18, C.cyan, "center");
     } else if (this.view === "mods") {
       MODULES.forEach((m, i) => {
@@ -1832,7 +1834,7 @@ export class Ballista {
       text(g, "BACK", 176, y, 20, back ? C.amber : C.ink);
       const m = MODULES[this.mcur];
       const info = this.need || (m ? m.text + (sv.mods.includes(m.id) ? (sv.eq.includes(m.id) ? "  HOLD TO REMOVE." : "  HOLD TO FIT.") : "  HOLD TO BUILD.") : "Back to the workshop.");
-      text(g, info, 480, 450, 16, this.need ? C.cyan : C.muted, "center");
+      textRows(info, 740, 16).forEach((row, i, all) => text(g, row, 480, 450 + (i - (all.length - 1) / 2) * 24, 16, this.need ? C.cyan : C.muted, "center"));
       text(g, "TAP = NEXT     HOLD = CHOOSE     SLOTS " + sv.eq.length + "/" + this.slots(), 480, 490, 18, C.cyan, "center");
     } else if (this.view === "contracts") {
       sv.ct.forEach((c, i) => {
@@ -1853,7 +1855,7 @@ export class Ballista {
       const y = 136 + ZONES.length * 28 + 6;
       text(g, "PADS " + sv.st.pads + "   PERFECT SKIPS " + sv.st.perfect + "   MINES " + sv.st.mines + "   SCRAP " + sv.st.scrap, 480, y, 16, C.muted, "center");
       text(g, "BEST CHAIN " + sv.chain + "   CONTRACTS " + sv.cdone + "   MODULES " + sv.mods.length + " / " + MODULES.length + "   MARK " + roman(sv.mark + 1), 480, y + 26, 16, C.muted, "center");
-      text(g, PODS.map((p, i) => p.name + " " + sv.pb[i] + " m").join("   "), 480, y + 52, 16, C.muted, "center");
+      text(g, textRows(PODS.map((p, i) => p.name + " " + sv.pb[i] + " m").join("   "), 920, 16, 1)[0], 480, y + 52, 16, C.muted, "center");
       if (sv.legacy) text(g, "FIRST RANGE: " + sv.legacy.runs + " SURVEYS, LAST SCORE " + sv.legacy.score, 480, y + 78, 16, C.line, "center");
       text(g, "PRESS = BACK", 480, 490, 18, C.cyan, "center");
     }

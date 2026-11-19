@@ -3,7 +3,7 @@
 // Controls (after-hours-kit.js): TAP moves to the next card, HOLD and RELEASE picks it.
 // Lamps 1-3 are the three districts (green full power, amber covered by stored water, red short) for
 // the card you are on; lamp 4, when the node has one, is the battery.
-import { C, text, line, circle } from "../engine/draw.js";
+import { C, text, textSize, textFloor, textRows, line, circle } from "../engine/draw.js";
 import { clamp } from "../engine/math.js";
 import { LAMP, lamps, dim } from "../engine/lightshow.js";
 import { AppGuard } from "../engine/input.js";
@@ -203,7 +203,7 @@ function building(g, index, x, y, color, lit = true) {
     box(g, x - 13, y - 24, 55, 39, ink, C.bg);
     line(g, x - 16, y - 25, x + 45, y - 25, ink, 3);
     for (let a = 0; a < 4; a++) { g.fillStyle = lit ? C.amber : C.line; g.fillRect(x - 7 + a * 12, y - 12, 8, 12); }
-    text(g, "OPEN", x + 14, y + 8, 10, lit ? C.cyan : C.line, "center");
+    if (textSize(10) <= 14) text(g, "OPEN", x + 14, y + 8, 10, lit ? C.cyan : C.line, "center");
   } else {
     box(g, x - 6, y - 29, 40, 23, ink, C.bg);
     line(g, x - 9, y - 29, x + 14, y - 37, ink, 2); line(g, x + 14, y - 37, x + 37, y - 29, ink, 2);
@@ -393,7 +393,8 @@ export class NightGrid {
     const forecastNeed = next ? needsFor(board, next) : null;
     box(g, 388, 67, 184, 54, C.cyan);
     text(g, (this.stage === "crew" ? "GRID AFTER " : "GRID ") + event.supply, 480, 84, this.stage === "crew" ? 20 : 23, C.cyan, "center");
-    text(g, "BATTERY " + board.battery + "/" + board.batteryMax + (four ? "  (LAMP 4)" : ""), 480, 107, 14, C.muted, "center");
+    const battery = "BATTERY " + board.battery + "/" + board.batteryMax, lamp4 = four ? "  (LAMP 4)" : "";
+    text(g, textFloor() && (battery + lamp4).length * textSize(14) * .61 > 176 ? battery : battery + lamp4, 480, 107, 14, C.muted, "center");
     text(g, this.stage === "crew" ? "WORK PREVIEW" : "LIVE SUPPLIES", 48, 77, 16, this.stage === "crew" ? C.amber : C.muted);
     text(g, (this.stage === "crew" ? "KITS AFTER " : "KITS ") + board.kits + "/5", 48, 103, 20, C.amber);
     text(g, next ? "NEXT GRID " + next.supply : "DAWN IS NEXT", 868, 84, 18, C.muted, "right");
@@ -403,7 +404,8 @@ export class NightGrid {
     line(g, 168, 134, 792, 134, C.line, 2);
     for (let i = 0; i < 3; i++) {
       line(g, centers[i], 134, centers[i], 185, shown && shown.supplied[i] ? C.cyan : C.line, 2);
-      box(g, centers[i] - 33, 143, 66, 25, C.line, C.bg);
+      const capW = textFloor() ? Math.max(66, Math.ceil(("CAP " + board.cap[i]).length * textSize(16) * .61) + 10) : 66; // the box holds its words
+      box(g, centers[i] - capW / 2, 143, capW, 25, C.line, C.bg);
       text(g, "CAP " + board.cap[i], centers[i], 156, 16, C.ink, "center");
     }
     for (let edge = 0; edge < 2; edge++) {
@@ -422,7 +424,8 @@ export class NightGrid {
       building(g, i, x + 39, 262, status, !shown || shown.harm[i] === 0);
       text(g, shown ? shown.supplied[i] + " / " + need[i] : "NEED " + need[i], x + 172, 251, 27, status, "center");
       const verdict = shown ? shown.harm[i] ? "SHORT " + shown.harm[i] : shown.missing[i] ? "WATER COVERS IT" : "FULL POWER" : "NOT ENOUGH KITS";
-      text(g, shown && this.stage === "crew" ? "AT BEST: " + verdict : verdict, x + 175, 275, 15, shown ? status : C.red, "center");
+      const best = shown && this.stage === "crew" ? "AT BEST: " + verdict : verdict;
+      text(g, textFloor() && best.length * textSize(15) * .61 > 220 ? verdict : best, x + 175, 275, 15, shown ? status : C.red, "center");
       text(g, "NEXT " + (forecastNeed ? forecastNeed[i] : "-") + "  GOODWILL " + (shown ? shown.state.goodwill[i] : board.goodwill[i]) + "/8", x + 144, 300, 17, C.muted, "center");
     }
     text(g, this.stage === "crew" ? "STEP 1 OF 2: PICK TONIGHT'S CREW JOB" : this.stage === "route" ? "STEP 2 OF 2: PICK HOW POWER IS SHARED" : "SHIFT COMPLETE", 24, 338, 15, C.cyan);
@@ -439,9 +442,10 @@ export class NightGrid {
       if (active) { g.fillStyle = color; g.fillRect(x, 358, 5, 108); }
       if (this.stage === "crew") {
         const choice = this.choices[i];
-        text(g, choice.name, x + 144, 380, 17, color, "center");
-        text(g, choice.cost ? (available ? "USE " : "NEED ") + choice.cost + " KIT" + (choice.cost > 1 ? "S" : "") : "NO KIT COST", x + 144, 410, 18, C.ink, "center");
-        text(g, choice.benefit, x + 144, 439, 17, C.muted, "center");
+        const floor = textFloor() > 0;
+        text(g, choice.name, x + 144, floor ? 376 : 380, 17, color, "center");
+        text(g, choice.cost ? (available ? "USE " : "NEED ") + choice.cost + " KIT" + (choice.cost > 1 ? "S" : "") : "NO KIT COST", x + 144, floor ? 400 : 410, 18, C.ink, "center");
+        textRows(choice.benefit, 276, 17).forEach((row, r) => text(g, row, x + 144, floor ? 424 + r * 24 : 439, 17, C.muted, "center"));
       } else {
         const preview = this.previews[i];
         text(g, POLICIES[i].name, x + 144, 380, 17, color, "center");

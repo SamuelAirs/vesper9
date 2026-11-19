@@ -1,4 +1,4 @@
-import { C, text, line, diamond } from "../engine/draw.js";
+import { C, text, textSize, textFloor, line, diamond } from "../engine/draw.js";
 import { clamp } from "../engine/math.js";
 import { AppGuard } from "../engine/input.js";
 import { latencySec } from "../engine/latency.js";
@@ -343,7 +343,8 @@ export class Twinbeat {
       const count = this.output.resumeLeft > 0 ? Math.ceil(this.output.resumeLeft / this.chart.period) : Math.ceil(-this.songTime / this.chart.period);
       text(g, Math.max(1, count), 480, 293, 62, amber, "center");
     } else if (this.feedbackUntil > this.t) text(g, this.feedback, 480, 82, 16, this.feedback === "CENTER" ? cyan : amber, "center");
-    if (this.mode === "assist") text(g, "ASSIST: ANY TAP PLAYS THE SHOWN LANE", 480, 534, 14, amber, "center");
+    // At the picture's foot: a raised size (the iPhone app's floor) moves up to stay on the picture.
+    if (this.mode === "assist") text(g, "ASSIST: ANY TAP PLAYS THE SHOWN LANE", 480, textFloor() ? Math.min(534, 539 - textSize(14) * .5) : 534, 14, amber, "center");
   }
   drawResult(g) {
     const r = this.result;

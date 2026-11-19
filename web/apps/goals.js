@@ -2,7 +2,7 @@
 // the feat list belong to the console's logbook (engine/logbook.js, through ctx.today, ctx.daily,
 // ctx.dailyMet and ctx.feat); each game only decides when one of its feats is met and, on the days the
 // logbook picks it, states an order of its own and says when it is met.
-import { C, text } from "../engine/draw.js";
+import { C, text, textRows } from "../engine/draw.js";
 
 export const num = (v, d = 0) => (Number.isFinite(v) ? v : d);
 export const hashText = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return h >>> 0; };
@@ -35,8 +35,9 @@ export function panel(g, y0, y1) {
   g.fillRect(140, y0, 680, y1 - y0);
 }
 // One line for a title screen: today's order when the game has one, or that it was met.
-export function drawToday(g, ctx, order, y) {
-  if (order) text(g, "TODAY: " + order.text, 480, y, 18, C.amber, "center");
+export function drawToday(g, ctx, order, y, width = 900) {
+  // One row cut to the picture where a raised size (the iPhone app's text floor) would run it off.
+  if (order) text(g, textRows("TODAY: " + order.text, width, 18, 1)[0], 480, y, 18, C.amber, "center");
   else if (ctx.today?.()?.done) text(g, "TODAY'S ORDER MET", 480, y, 18, C.cyan, "center");
   else return false;
   return true;

@@ -198,6 +198,10 @@
       "subtitle": "Measure the space before action.",
       "description": "Press to arm a trial. Wait for the middle physical light to turn green. ESP32 button trials use the node clock; keyboard trials use approximate screen timing.",
       "controls": "BUTTON: SAME-CLOCK TRIAL",
+      "handheld": {
+        "description": "Press to arm a trial. Wait for lamp II to turn green, then press. On a phone the time includes your touch and the display, so it reads slower than the console's node clock and is kept apart from it.",
+        "controls": "BUTTON: TOUCH-TIMED TRIAL"
+      },
       "category": "PLAY / REACTION",
       "glyph": 4,
       "factory": "LightTrial",
@@ -371,6 +375,10 @@
       "subtitle": "Two lanes. Four lamps. Find your rhythm.",
       "description": "Drum the left and right sides of the node as notes reach the strike line. Eight original rhythm levels build from steady beats to syncopation and changing patterns, with saved progress and replay medals. Calibrated two-side play and generic tap/button assist keep separate records; practice is unranked.",
       "controls": "LEFT / RIGHT CASE: DRUM · GENERIC / BUTTON: ASSIST · MENUS: TAP NEXT, HOLD SELECT",
+      "handheld": {
+        "description": "Drum the left and right case plates as notes reach the strike line. Eight original rhythm levels build from steady beats to syncopation and changing patterns, with saved progress and replay medals. Two-side play on the plates and button assist keep separate records; practice is unranked.",
+        "controls": "LEFT / RIGHT CASE PLATE: DRUM · BUTTON: ASSIST · MENUS: TAP NEXT, HOLD SELECT"
+      },
       "category": "PLAY / RHYTHM",
       "glyph": 5,
       "factory": "Twinbeat",
@@ -563,6 +571,9 @@
       "subtitle": "Keep time beyond this screen.",
       "description": "Create up to eight persistent background timers. The nearest one is shown large and drains across the three lamps while this screen is open. A completed timer announces itself without interrupting a game’s physical lights.",
       "controls": "TAP NEXT · HOLD TO CHOOSE",
+      "handheld": {
+        "description": "Create up to eight persistent timers. The nearest one is shown large and drains across the lamps while this screen is open. A timer that ends while VESPER is closed rings when it is opened."
+      },
       "category": "INSTRUMENT / TIME",
       "glyph": 0,
       "factory": "Timers",
@@ -871,6 +882,9 @@
       "subtitle": "A shelf of books, one page at a time.",
       "description": "A library of DRM-free books: EPUB and text files, fifteen classics on the shelf and more to fetch, and your Kindle highlights. Tap turns the page; hold for the reader's menu.",
       "controls": "TAP: NEXT PAGE · HOLD & RELEASE: MENU",
+      "handheld": {
+        "description": "A library of DRM-free books: fifteen classics carried in the app. Tap turns the page; hold for the reader's menu."
+      },
       "category": "INSTRUMENT / READING",
       "glyph": 3,
       "icon": "<path d=\"M8 10h9v30H8zM19 10h8v30h-8z\"/><path d=\"M30 12l7-2 6 28-7 2z\"/><path d=\"M10 16h5M21 16h4M10 34h5M21 34h4\"/><path d=\"M4 42h40\"/>",

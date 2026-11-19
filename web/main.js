@@ -7,6 +7,7 @@ import { Random, escapeHTML as esc, formatTime } from "./engine/math.js";
 import { ambient, glyph, C, text, space } from "./engine/draw.js";
 import { APPS } from "./apps/registry.js";
 import { DEFAULT_SETTINGS as DEFAULT, SECTORS, SYSTEM_APPS } from "./apps/catalog.js";
+import { edition, shown, words, dashboardPages } from "./apps/edition.js";
 import { LightDirector } from "./engine/lights.js";
 import { HostLamps, levelScale } from "./engine/ambient.js";
 import { microphoneStatus } from "./engine/status.js";
@@ -38,8 +39,10 @@ function icon(app) {
 
 // The dashboard's pages, from the catalog's explicit sectors: each is a named list of app ids in order.
 // An app in no sector is not on the dashboard (it stays launchable by id, by voice and from the menu).
-const PAGES = SECTORS.map((sector) => ({ name: sector.name, tagline: sector.tagline || "", apps: sector.apps.map((id) => APPS.find((a) => a.id === id)).filter(Boolean) }))
-  .filter((page) => page.apps.length);
+// The edition (apps/edition.js) may hide apps and add others; with none these are the catalog's sectors.
+const PAGES = dashboardPages(SECTORS, APPS);
+// The system tools the menu lists: the catalog's, less any the edition hides.
+const TOOLS = SYSTEM_APPS.filter(shown);
 function locateCard(id) {
   for (let page = 0; page < PAGES.length; page++) {
     const index = PAGES[page].apps.findIndex((a) => a.id === id);
@@ -233,7 +236,7 @@ export class Vesper {
   // The first of two knocks: say what a second one would do.
   knockVisual(waiting) {
     if (!$("escape-hint")) return;
-    if (waiting) $("escape-hint").textContent = "KNOCK AGAIN: BACK";
+    if (waiting) $("escape-hint").textContent = words("KNOCK AGAIN: BACK", "CASE AGAIN: BACK");
     else if (!this.clickState) $("escape-hint").textContent = this.menuHint();
   }
   rawCancel() {
@@ -798,8 +801,8 @@ export class Vesper {
     const waiting = status.pending && !status.ready;
     element.hidden = !(waiting || status.error || this.saveConflict);
     element.textContent = this.saveConflict ? "SAVE CHOICE NEEDED · OPEN MENU"
-      : status.error ? "SAVE NEEDS ATTENTION · OPEN MENU" : "SAVES WAITING · KEEP THIS TAB OPEN";
-    element.title = status.error?.message || status.error || "Unsaved progress is held in this tab until the service reconnects.";
+      : status.error ? "SAVE NEEDS ATTENTION · OPEN MENU" : words("SAVES WAITING · KEEP THIS TAB OPEN", "SAVES WAITING · KEEP VESPER OPEN");
+    element.title = status.error?.message || status.error || words("Unsaved progress is held in this tab until the service reconnects.", "Unsaved progress is held until it is written to the phone.");
   }
   saveMenu() {
     const status = this.saves.status();
@@ -817,7 +820,8 @@ export class Vesper {
       ]);
     }
     const detail = status.error ? " " + (status.error.message || status.error) + "." : "";
-    this.openMenu("Save status", `${status.pending} save records are waiting. Keep this tab open: waiting saves are held in memory until the service acknowledges them.${detail}`, [
+    this.openMenu("Save status", `${status.pending} save records are waiting. ` + words("Keep this tab open: waiting saves are held in memory until the service acknowledges them.",
+      "Keep VESPER open: waiting saves are held in memory until they are written to the phone.") + detail, [
       ...(status.pending ? [{ label: "RETRY WAITING SAVES", run: () => { this.saves.flush(); this.saveMenu(); } }] : []),
       { label: "BACK", run: () => this.systemMenu() },
     ]);
@@ -860,6 +864,9 @@ export class Vesper {
   logbook() {
     this.book ||= Log.cleanLogbook(this.state.progress?.console);
     const games = PAGES.flatMap((p) => p.apps).filter(isGame).map((a) => a.id);
+    // A day whose picks include an app this edition hides (a console's saves brought over)
+    // is picked again, so a pick is always on the dashboard.
+    if (edition().hide.size && this.book.picks.some((p) => !shown(p.a))) this.book.picks = [];
     if (Log.ensureDay(this.book, Log.dateKey(), games, (id) => this.primaryBest(id))) {
       this.saveBook();
       this.todayLine();
@@ -1080,29 +1087,40 @@ export class Vesper {
         run: () => this.saveMenu(),
       }] : []),
       // The last app played, one choice away from the dashboard.
-      ...(!this.app && this.lastApp && APPS.some((a) => a.id === this.lastApp) ? [{ label: "CONTINUE / " + APPS.find((a) => a.id === this.lastApp).name, run: () => this.launch(this.lastApp) }] : []),
+      ...(!this.app && this.lastApp && shown(this.lastApp) && APPS.some((a) => a.id === this.lastApp) ? [{ label: "CONTINUE / " + APPS.find((a) => a.id === this.lastApp).name, run: () => this.launch(this.lastApp) }] : []),
       ...(this.app ? [{ label: "RESTART / " + this.meta.name, run: () => this.launch(this.meta.id) }, ...(this.app.menuActions?.() || []),
         ...(this.hasSlots() ? [{ label: "SAVE SLOT / " + this.slotOf(this.meta.id) + " OF " + SLOT_COUNT, run: () => this.slotMenu() }] : []),
         ...(this.saved(this.meta.id).runs ? [{ label: 'FIELD RECORD / ' + this.saved(this.meta.id).runs + ' ENTRIES', run: () => this.fieldRecord() }] : [])] : []),
       ...(this.app ? [{ label: "DASHBOARD", run: () => this.home() }] : []),
       { label: "LOGBOOK / TODAY " + Log.doneCount(this.logbook()) + " OF " + Log.PICKS, run: () => this.logbookMenu() },
-      { label: "MICROPHONE / " + mic.toUpperCase(), run: () => this.micMenu() },
+      ...(edition().microphone ? [{ label: "MICROPHONE / " + mic.toUpperCase(), run: () => this.micMenu() }] : []),
       {
         label: this.meta ? "HOW TO PLAY / CONTROLS" : "HOW TO USE VESPER",
         run: () =>
           this.help(
             this.meta
               ? this.meta.description + " To open the menu from anywhere: tap, tap, then press and hold (about a second in menus, 1.6 seconds inside a game). The two taps and the hold reach the app first; when the menu opens, the app puts back anything they changed."
-              : "Tap to move between items. Hold and release to select. To open the system menu from anywhere, in any app: tap, tap, then press and hold for about a second. Space or the on-screen arcade button also works. The dashboard's sectors are " + PAGES.map((p) => p.name.charAt(0) + p.name.slice(1).toLowerCase()).join(", ") + ": the games come first, then the instruments. Calibration, Node Scope and Telemetry are under SYSTEM TOOLS in the system menu.",
+              : this.howToUse(),
           ),
       },
       { label: "CALIBRATION / SETTINGS", run: () => this.launch("settings") },
-      ...(SYSTEM_APPS.length ? [{ label: "SYSTEM TOOLS", run: () => this.systemTools() }] : []),
+      ...(TOOLS.length ? [{ label: "SYSTEM TOOLS", run: () => this.systemTools() }] : []),
     ]);
   }
-  // The apps that are not on the dashboard: calibration and the two diagnostic tools.
+  // HOW TO USE VESPER. The console's text names its three system tools; the handheld's names the
+  // ones it shows, and says what the CASE key and plates are.
+  howToUse() {
+    const sectors = PAGES.map((p) => p.name.charAt(0) + p.name.slice(1).toLowerCase()).join(", ");
+    const tools = TOOLS.map((id) => APPS.find((a) => a.id === id)?.name).filter(Boolean).map((n) => n.charAt(0) + n.slice(1).toLowerCase());
+    const listed = tools.length > 1 ? tools.slice(0, -1).join(", ") + " and " + tools.at(-1) + " are" : tools.length ? tools[0] + " is" : "";
+    return words(
+      "Tap to move between items. Hold and release to select. To open the system menu from anywhere, in any app: tap, tap, then press and hold for about a second. Space or the on-screen arcade button also works. The dashboard's sectors are " + sectors + ": the games come first, then the instruments. Calibration, Node Scope and Telemetry are under SYSTEM TOOLS in the system menu.",
+      "Tap the button to move between items. Hold and release to select; a touch on a card or a menu line chooses it too. To open the system menu from anywhere, in any app: tap, tap, then press and hold for about a second. CASE is a tap on the console's case: once for the previous item, twice to go back. In a game the two case plates beside the button are the case, left and right. The dashboard's sectors are " + sectors + ": the games come first, then the instruments." + (listed ? " " + listed + " under SYSTEM TOOLS in the system menu." : ""),
+    );
+  }
+  // The apps that are not on the dashboard: calibration and the two diagnostic tools (those the edition shows).
   systemTools() {
-    const apps = SYSTEM_APPS.map((id) => APPS.find((a) => a.id === id)).filter(Boolean);
+    const apps = TOOLS.map((id) => APPS.find((a) => a.id === id)).filter(Boolean);
     this.openMenu("System tools", apps.map((a) => a.name + ": " + a.subtitle).join(" "), [
       ...apps.map((app) => ({ label: app.name, run: () => this.launch(app.id) })),
       { label: "BACK", run: () => this.systemMenu() },

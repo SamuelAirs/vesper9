@@ -3,6 +3,7 @@ import { AppGuard } from "../engine/input.js";
 import { LAMP, fill, only, dim } from "../engine/lightshow.js";
 import { LampBus } from "./game-kit.js";
 import { num, dateKey, cleanFeats, newlyMet, todayOrder, drawToday } from "./goals.js";
+import { handheld, words } from "./edition.js";
 
 export function reactionSummary(values) {
   if (!values.length) return { count: 0, median: null, best: null, mean: null };
@@ -42,6 +43,12 @@ export const LOG_SIZE = 20;
 const DISC = { green: "#4fe07a", cyan: "#3ccab4", amber: "#f0a040", red: "#f06a50" };
 const gradeDisc = (ms) => (ms < 200 ? DISC.green : ms < 300 ? DISC.cyan : ms < 450 ? DISC.amber : DISC.red);
 const timed = (a) => a.metric !== "keyboard"; // keyboard timing is approximate: it earns no timing feats
+// What each clock is called. On a handheld the standalone page's clock is the phone's own: a time
+// runs from the drawn cue to the touch, display and touch delay included, and is kept as
+// "simulator", never as the node's ("physical").
+const clockName = (k) => (handheld() ? { physical: "NODE", simulator: "TOUCH", keyboard: "KEYBOARD" }[k] : k.toUpperCase());
+// A line under a result whose clock is not the node's.
+const clockNote = (k) => (k === "keyboard" ? "KEYBOARD TIMING IS APPROXIMATE" : handheld() && k === "simulator" ? "TOUCH TIME / DISPLAY AND TOUCH DELAY INCLUDED" : "");
 export const TRIAL_FEATS = [
   { id: "series", name: "FIRST SERIES", text: "Finish a series of five trials.", n: 1, prog: (a) => (a.sv.st.series || 0) },
   { id: "t250", name: "QUICK", text: "A trial under 250 ms.", n: 1, prog: (a) => a.sv.st.t250 || 0 },
@@ -321,7 +328,7 @@ export class LightTrial {
       ["LAST", this.last === null ? "—" : this.last + " ms"],
       ["SERIES", this.series.length + " / " + SERIES],
       ["MEDIAN", summary.median === null ? "—" : summary.median + " ms"],
-      ["CLOCK", this.metric.toUpperCase()],
+      ["CLOCK", clockName(this.metric)],
     ]);
   }
   draw(g) {
@@ -336,7 +343,7 @@ export class LightTrial {
       early: "TOO EARLY",
       slow: "TOO SLOW",
       result: this.last + " ms",
-      error: "NODE UNAVAILABLE",
+      error: words("NODE UNAVAILABLE", "TRIAL UNAVAILABLE"),
     }[this.phase];
     if (title) {
       text(
@@ -350,8 +357,8 @@ export class LightTrial {
       );
       if (grade) text(g, grade.word + (this.fresh ? " / NEW BEST" : ""), 480, 358, 24, this.fresh ? C.amber : C.muted, "center");
       if (this.phase === "slow") text(g, "PRESS WITHIN 1.5 SECONDS OF THE GREEN LIGHT / NOT COUNTED", 480, 358, 18, C.muted, "center");
-      if (this.phase === "result" && this.metric === "keyboard")
-        text(g, "KEYBOARD TIMING IS APPROXIMATE", 480, 392, 18, C.muted, "center");
+      if (this.phase === "result" && clockNote(this.metric))
+        text(g, clockNote(this.metric), 480, 392, 18, C.muted, "center");
       if (["result", "early", "slow", "error"].includes(this.phase) && !this.done)
         text(g, "PRESS FOR ANOTHER TRIAL", 480, 420, 22, C.amber, "center");
     }
@@ -431,7 +438,7 @@ export class LightTrial {
   // Rank, best series, today's order and the training log (title screen).
   drawGoals(g, y) {
     const sv = this.sv, clock = this.rankClock();
-    const best = clock ? "BEST SERIES " + sv.bs[clock] + " ms" + (clock === "physical" ? "" : " (" + clock.toUpperCase() + ")") : "NO SERIES YET";
+    const best = clock ? "BEST SERIES " + sv.bs[clock] + " ms" + (clock === "physical" && !handheld() ? "" : " (" + clockName(clock) + ")") : "NO SERIES YET";
     text(g, "RANK " + this.rank() + "   " + best, 480, y, 18, C.ink, "center");
     const row = drawToday(g, this.c, this.order, y + 28) ? y + 46 : y + 18;
     this.drawLog(g, row, 54);
@@ -441,7 +448,7 @@ export class LightTrial {
     const d = this.done, lines = [];
     lines.push(["SERIES MEDIAN " + d.median + " ms / SPREAD " + d.spread + " ms" + (d.clean ? "" : " / EARLY STARTS"), C.ink]);
     lines.push([(d.best ? "NEW BEST SERIES / " : "") + "RANK " + d.rank + (d.daily ? " / TODAY'S ORDER MET" : ""), d.best ? C.amber : C.cyan]);
-    const y = this.metric === "keyboard" ? 420 : 396;
+    const y = clockNote(this.metric) ? 420 : 396;
     lines.forEach(([s, col], i) => text(g, s, 480, y + i * 26, 18, col, "center"));
     text(g, "PRESS TO START THE NEXT SERIES", 480, y + lines.length * 26 + 4, 18, C.amber, "center");
   }

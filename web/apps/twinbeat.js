@@ -3,6 +3,7 @@ import { clamp } from "../engine/math.js";
 import { AppGuard } from "../engine/input.js";
 import { latencySec } from "../engine/latency.js";
 import { drawRowList, drawNoticePanel } from "./reader-kit.js";
+import { handheld, words } from "./edition.js";
 
 // Original two-lane synth charts. No chords, no random chart changes, and no
 // spacing below 400 ms: the acoustic detector has a 150 ms onset refractory.
@@ -132,7 +133,7 @@ export class Twinbeat {
     const state = this.c.state?.()?.tapDirection;
     return state?.ready === true && state?.available !== false && state?.enabled !== false;
   }
-  controls() { this.c.controls?.(this.phase === "play" ? this.mode === "sides" ? "LEFT / RIGHT CASE TAP · J / L ON KEYBOARD" : "ANY CASE TAP / SPACE · RHYTHM ASSIST" : "TAP: NEXT · HOLD RELEASE: SELECT · CASE: PREVIOUS"); this.c.hint?.(this.message); }
+  controls() { this.c.controls?.(this.phase === "play" ? this.mode === "sides" ? words("LEFT / RIGHT CASE TAP · J / L ON KEYBOARD", "LEFT / RIGHT CASE PLATE") : words("ANY CASE TAP / SPACE · RHYTHM ASSIST", "EITHER CASE PLATE / BUTTON · RHYTHM ASSIST") : "TAP: NEXT · HOLD RELEASE: SELECT · CASE: PREVIOUS"); this.c.hint?.(this.message); }
   go(phase) { this.phase = phase; this.cursor = 0; this.held = false; this.hold = 0; this.controls(); }
   rows() {
     const far = unlockedLevel(this.save, this.mode);
@@ -140,8 +141,9 @@ export class Twinbeat {
       { label: "START CAMPAIGN · LEVEL " + (far + 1), sub: modeName(this.mode) + " · " + LEVELS[far].name, run: () => this.start(far) },
       { label: "CHART SELECT / MEDALS", sub: "REPLAY CLEARED CHARTS. GOLD: 100% ACCURACY, 80% CENTER.", run: () => { this.practice = false; this.go("songs"); } },
       { label: "PRACTICE STUDIO", sub: "EVERY CHART · NO SCORES, UNLOCKS OR CAREER SAVES", run: () => { this.practice = true; this.go("songs"); } },
-      { label: "INPUT MODE · " + modeName(this.mode), sub: this.sidesAvailable() ? "TWO-SIDE AND ASSIST KEEP SEPARATE CAREERS" : "TWO-SIDE: CALIBRATION > TAP DIRECTION > TAP MODE", run: () => this.cycleMode() },
-      { label: "CASE DELAY ESTIMATE · " + this.save.caseOffsetMs + " MS", sub: "NODE CASE TAPS ONLY · PROVISIONAL, NOT A MEASUREMENT", run: () => { this.save.caseOffsetMs = CASE_DELAYS[(CASE_DELAYS.indexOf(this.save.caseOffsetMs) + 1) % CASE_DELAYS.length]; this.persist(); } },
+      { label: "INPUT MODE · " + modeName(this.mode), sub: this.sidesAvailable() ? "TWO-SIDE AND ASSIST KEEP SEPARATE CAREERS" : words("TWO-SIDE: CALIBRATION > TAP DIRECTION > TAP MODE", "TWO-SIDE: CALIBRATION > CASE PLATES > LEFT / RIGHT"), run: () => this.cycleMode() },
+      // A plate on screen reaches the game when it is touched: no case delay to allow for.
+      ...(handheld() ? [] : [{ label: "CASE DELAY ESTIMATE · " + this.save.caseOffsetMs + " MS", sub: "NODE CASE TAPS ONLY · PROVISIONAL, NOT A MEASUREMENT", run: () => { this.save.caseOffsetMs = CASE_DELAYS[(CASE_DELAYS.indexOf(this.save.caseOffsetMs) + 1) % CASE_DELAYS.length]; this.persist(); } }]),
       { label: "FIELD MANUAL", sub: "LANES, ACCURACY, INPUT AND CALIBRATION", run: () => { this.guidePage = 0; this.go("guide"); } },
       { label: "RETURN TO DASHBOARD", run: () => this.c.home?.() },
     ];
@@ -163,14 +165,14 @@ export class Twinbeat {
   cycleMode() {
     if (this.mode === "sides") this.mode = "assist";
     else if (this.sidesAvailable()) this.mode = "sides";
-    else { this.message = "Enable calibrated left/right in Calibration > Tap direction > Tap mode. Assist works now."; this.controls(); return; }
+    else { this.message = words("Enable calibrated left/right in Calibration > Tap direction > Tap mode. Assist works now.", "Set CASE PLATES to LEFT / RIGHT in Calibration. Assist works now."); this.controls(); return; }
     this.save.mode = this.mode; this.level = unlockedLevel(this.save, this.mode); this.message = modeName(this.mode) + ": an independent campaign and score record."; this.persist(); this.controls();
   }
   persist() { this.save = sanitizeTwinbeat(this.save); this.c.saveProgress?.(structuredClone(this.save), { label: this.slotSummary(this.save) })?.catch?.(this.c.error); }
   start(level = 0, practice = false) {
     const i = int(level, 7);
     if (this.output.dead || !practice && i > unlockedLevel(this.save, this.mode)) return false;
-    if (this.mode === "sides" && !this.sidesAvailable()) { this.message = "Two-side input is unavailable. Choose Rhythm Assist or calibrate case sides."; this.go("home"); return false; }
+    if (this.mode === "sides" && !this.sidesAvailable()) { this.message = words("Two-side input is unavailable. Choose Rhythm Assist or calibrate case sides.", "Two-side input is off. Choose Rhythm Assist or set CASE PLATES to LEFT / RIGHT in Calibration."); this.go("home"); return false; }
     this.level = i; this.practice = practice === true; this.chart = makeChart(i); this.songTime = -4 * this.chart.period;
     this.judgements = this.chart.notes.map(() => null); this.stats = this.emptyStats(); this.result = null;
     this.nextBeat = -4; this.nextTone = 0; this.lastInputTime = -1e9; this.recentInputs = []; this.feedback = ""; this.feedbackUntil = 0;
@@ -205,7 +207,10 @@ export class Twinbeat {
     if (identity && this.recentInputs.includes(identity) || this.t - this.lastInputTime < 0.15 - 1e-9) return { kind: "ignore" };
     if (identity) { this.recentInputs.push(identity); this.recentInputs = this.recentInputs.slice(-8); }
     this.lastInputTime = this.t;
-    const offset = kind === "button" ? latencySec(this.settings()) : event.source === "node" ? this.save.caseOffsetMs / 1000 : 0;
+    // The node hears a knock through the case a little late (the estimate); a key or a simulated
+    // knock arrives when it is made. On a handheld a plate is touched on the same glass as the
+    // button, so it takes the button's measured TIMING OFFSET (0 unless calibrated) and no case delay.
+    const offset = kind === "button" || handheld() ? latencySec(this.settings()) : event.source === "node" ? this.save.caseOffsetMs / 1000 : 0;
     const judged = judgeNote(this.chart.notes, this.judgements, this.songTime - offset, side, this.mode);
     if (judged.kind === "center" || judged.kind === "close") {
       this.judgements[judged.index] = judged.kind; this.stats.hits++; this.stats.center += judged.kind === "center" ? 1 : 0;
@@ -242,7 +247,7 @@ export class Twinbeat {
     if (!this.output.live || this.output.dead) return;
     this.t += dt; this.guard.tick(dt); if (this.held) this.hold += dt;
     if (this.phase !== "play") { this.output.frame(dt); return; }
-    if (this.mode === "sides" && !this.sidesAvailable()) { this.message = "Two-side input changed. Choose Rhythm Assist or restore calibrated sides, then restart."; this.output.clear(); this.go("home"); return; }
+    if (this.mode === "sides" && !this.sidesAvailable()) { this.message = words("Two-side input changed. Choose Rhythm Assist or restore calibrated sides, then restart.", "Two-side input changed. Choose Rhythm Assist or set CASE PLATES to LEFT / RIGHT, then restart."); this.output.clear(); this.go("home"); return; }
     if (this.output.resumeLeft > 0) {
       const beat = Math.ceil(this.output.resumeLeft / this.chart.period);
       if (beat !== this.output.resumeBeat) { this.output.resumeBeat = beat; this.c.tone?.(beat === 2 ? 392 : 523, 0.055, "sine", 0.4); this.output.accent = 0.6; }
@@ -263,7 +268,9 @@ export class Twinbeat {
       const note = this.chart.notes[this.nextTone++];
       if (this.songTime - note.at <= 0.06) { this.c.tone?.(note.side === "left" ? 220 : 330, 0.055, "triangle", 0.4); this.output.cue(note.side, note.accent); }
     }
-    const retirementOffset = Math.max(this.save.caseOffsetMs / 1000, this.mode === "assist" ? latencySec(this.settings()) : 0);
+    // A note stays open as long as the latest strike that could still be judged on it.
+    const retirementOffset = handheld() ? Math.max(0, latencySec(this.settings()))
+      : Math.max(this.save.caseOffsetMs / 1000, this.mode === "assist" ? latencySec(this.settings()) : 0);
     for (let i = 0; i < this.judgements.length; i++) if (this.judgements[i] === null && this.songTime > this.chart.notes[i].at + HIT_WINDOW + retirementOffset + 1e-9) {
       this.judgements[i] = "miss"; this.stats.misses++; this.stats.combo = 0; this.say("SIGNAL MISSED");
     }
@@ -277,12 +284,16 @@ export class Twinbeat {
     else if (this.phase === "guide") {
       drawNoticePanel(g, { title: "FIELD MANUAL / " + (this.guidePage + 1) + " OF 2", lines: this.guidePage ? [
         "Clear: 75% accuracy. Extra taps lower it. Silver: 90% and half CENTER. Gold: 100% and 80% CENTER.",
-        "Case delay is an estimate for node taps. Space uses the console offset; keyboard case taps use no delay.",
+        words("Case delay is an estimate for node taps. Space uses the console offset; keyboard case taps use no delay.",
+          "Plates and button are judged as they are touched, less the TIMING OFFSET set in Calibration."),
         "Pause freezes the chart; resume counts two beats. Practice opens all charts, with no career rewards.",
       ] : [
-        "Cyan LEFT: tap left. Amber RIGHT: tap right. Meet notes at the strike line. No notes arrive together.",
-        "Calibration > Tap direction: calibrate left/right, enable Tap mode. Unsure earns no lane. Keys: J / L.",
-        "Assist: any case tap, K or Space plays the shown lane. It has a separate career from Two-side.",
+        words("Cyan LEFT: tap left. Amber RIGHT: tap right. Meet notes at the strike line. No notes arrive together.",
+          "Cyan LEFT: left plate. Amber RIGHT: right plate. Meet notes at the strike line. No notes arrive together."),
+        words("Calibration > Tap direction: calibrate left/right, enable Tap mode. Unsure earns no lane. Keys: J / L.",
+          "Two-side: Calibration > Case plates > Left / right. Each plate then plays its own lane."),
+        words("Assist: any case tap, K or Space plays the shown lane. It has a separate career from Two-side.",
+          "Assist: either plate or the button plays the shown lane. It has a separate career from Two-side."),
       ] }, this.t, false);
       text(g, this.rows()[this.cursor]?.label, 480, 506, 17, C.amber, "center");
     } else if (this.phase === "result") this.drawResult(g);
@@ -325,7 +336,7 @@ export class Twinbeat {
     text(g, "HITS", 850, 173, 16, C.muted, "center"); text(g, this.stats.hits, 850, 213, 42, C.ink, "center");
     text(g, "MISSED " + this.stats.misses, 850, 257, 14, C.red, "center"); text(g, "EXTRA " + this.stats.faults, 850, 282, 14, C.muted, "center");
     text(g, this.chart.bpm + " BPM", 104, 292, 17, C.muted, "center");
-    text(g, this.mode === "sides" ? "J / L" : "K / SPACE", 104, 321, 15, C.muted, "center");
+    text(g, this.mode === "sides" ? words("J / L", "PLATES") : words("K / SPACE", "ANY TAP"), 104, 321, 15, C.muted, "center");
     if (this.songTime < 0 || this.output.resumeLeft > 0) {
       g.fillStyle = "#080f13ed"; g.fillRect(254, 203, 452, 144);
       text(g, this.output.resumeLeft > 0 ? "REJOIN THE PULSE" : "COUNT IN", 480, 234, 21, C.ink, "center");

@@ -4,6 +4,7 @@ import { LAMP, lamps, dim, meter, spot, lightsOff } from "../engine/lightshow.js
 import { clamp } from "../engine/math.js";
 import { LampBus, lampMax } from "./game-kit.js";
 import { SIZES, PACES, fit, wrap, layoutChapter, pageAt, pageSeconds, drawLines, drawMenuPanel, drawRowList, drawNoticePanel, readerKnock, boundReadingSave, readerLightContext, readerLights } from "./reader-kit.js";
+import { handheld, words } from "./edition.js";
 
 // ---------------------------------------------------------------------------------------------
 // THE STACKS: a book reader for one button. Books are DRM-free EPUB or text files that the service
@@ -60,6 +61,24 @@ const GUIDE_TEXT = [
     ["p", "What can come over: your highlights and notes. A Kindle e-reader keeps them in documents/My Clippings.txt. Plug the Kindle in and choose IMPORT FROM USB DRIVE, and they appear as a book called Kindle Highlights, one chapter for each title."],
     ["p", "Books you sent to your Kindle yourself (Send to Kindle) are your own files: copy the original EPUB in instead. Many Kindle books are also public domain classics that you can fetch for free from the shelf."]],
 ];
+// The same guide on a handheld (edition.js): the app carries its books and cannot add any, so the
+// pages about the library folder, fetching and the USB drive say what is true here.
+const HANDHELD_GUIDE = [
+  [GUIDE_TEXT[0][0],
+    ["p", "This is the console's library, carried in the app: fifteen classics that belong to everyone and carry no copy protection."],
+    ["p", "The shelf lists every book the app carries, with how far you have read. Your place is kept for each book, so you can leave for a game and come back to the same page."],
+    GUIDE_TEXT[0][3]],
+  [GUIDE_TEXT[1][0],
+    ["p", "Tap the button to turn to the next page. Tap CASE to go back a page. At the end of a chapter the next one follows. Every action is also available with the button alone."],
+    ...GUIDE_TEXT[1].slice(2)],
+  [["h", "Adding books"],
+    ["p", "Fifteen classics are on the shelf: Standard Ebooks editions, which are free and in the public domain. They are carried in the app."],
+    ["p", "The app reads only the books built into it. MORE CLASSICS and IMPORT FROM USB DRIVE are the console's: it fetches over its internet connection and reads a USB drive plugged into it. Here they say so and add nothing."]],
+  [["h", "About Kindle books"],
+    GUIDE_TEXT[3][1],
+    ["p", "What can come over, on the console: your highlights and notes. A Kindle e-reader keeps them in documents/My Clippings.txt; plugged into the console, IMPORT FROM USB DRIVE makes them a book called Kindle Highlights."]],
+];
+const guideText = () => (handheld() ? HANDHELD_GUIDE : GUIDE_TEXT);
 
 // Remote data and caches live in class instances, which the gesture guard neither copies nor rewinds.
 class Stacks {
@@ -72,7 +91,7 @@ class Stacks {
     this.chapters = new Map();     // "book:ch" -> { title, blocks, count }
     this.pending = new Set();
     this.failed = new Map();       // "book:ch" -> message
-    GUIDE_TEXT.forEach((blocks, ch) => this.chapters.set("guide:" + ch, { title: GUIDE.chapters[ch], blocks, count: GUIDE_TEXT.length }));
+    guideText().forEach((blocks, ch) => this.chapters.set("guide:" + ch, { title: GUIDE.chapters[ch], blocks, count: GUIDE_TEXT.length }));
   }
   remember(key, chapter) {
     this.chapters.delete(key);
@@ -216,7 +235,7 @@ export class Library {
       rows.push({ label: "MORE CLASSICS", sub: "FREE STANDARD EBOOKS EDITIONS, FETCHED ONLINE", run: () => this.go("store", 1) });
       rows.push({ label: "IMPORT FROM USB DRIVE", sub: "EPUB, TEXT AND KINDLE MY CLIPPINGS", run: () => this.importUsb() });
     }
-    if (d.service === "offline") rows.push({ label: "RETRY THE SHELF", sub: "RECONNECT TO THE CONSOLE'S BOOK SERVICE", run: () => this.refresh() });
+    if (d.service === "offline") rows.push({ label: "RETRY THE SHELF", sub: words("RECONNECT TO THE CONSOLE'S BOOK SERVICE", "OPEN THE APP'S BOOKS AGAIN"), run: () => this.refresh() });
     rows.push({ label: "LEAVE THE LIBRARY", sub: "BACK TO THE DASHBOARD", run: () => this.c.home?.() });
     return rows;
   }
@@ -529,7 +548,7 @@ export class Library {
     const rows = this.rows(), d = this.data, saves = this.save.books;
     const inProgress = d.books.filter((b) => saves[b.id] && saves[b.id].f > 0 && saves[b.id].f < 0.995).length;
     text(g, "THE STACKS", 60, 30, 18, C.amber);
-    text(g, (d.books.length + 1) + " VOLUMES" + (inProgress ? " · " + inProgress + " IN PROGRESS" : ""), 900, 30, 18, C.muted, "right");
+    text(g, (d.books.length + 1) + (d.books.length ? " VOLUMES" : " VOLUME") + (inProgress ? " · " + inProgress + " IN PROGRESS" : ""), 900, 30, 18, C.muted, "right");
     // Positions along the shelf, scrolled so the chosen spine stays in view.
     const widths = rows.map((r) => spineWidth(r)), gap = 6;
     let total = 0;
@@ -575,7 +594,7 @@ export class Library {
         : "HOLD TO OPEN" + (book.bundled ? " · SHIPPED WITH THE CONSOLE" : "");
       text(g, where, 60, 470, 18, C.cyan);
     }
-    const foot = d.service === "offline" ? "BOOK SERVICE OFFLINE · ONLY THE GUIDE IS HERE" : d.service === "loading" ? "OPENING THE STACKS…" : "YOUR BOOKS GO IN " + fit(d.folder, 56);
+    const foot = d.service === "offline" ? words("BOOK SERVICE OFFLINE", "THE BOOKS DID NOT OPEN") + " · ONLY THE GUIDE IS HERE" : d.service === "loading" ? "OPENING THE STACKS…" : "YOUR BOOKS GO IN " + fit(d.folder, 56);
     text(g, foot, 60, 508, 16, C.muted);
   }
   drawList(g) {
@@ -583,7 +602,7 @@ export class Library {
       progress: row.book && !row.book.locked ? this.save.books[row.book.id]?.f || 0 : undefined }));
     const heading = this.phase === "marks" ? "BOOKMARKS" : this.phase === "store" ? "MORE CLASSICS · STANDARD EBOOKS" : this.phase === "chapters" ? fit(this.bookMeta()?.title, 44).toUpperCase() : "THE STACKS";
     const count = this.phase === "chapters" ? this.chapterCount() + " CHAPTERS" : rows.length - 1 + " TITLES";
-    drawRowList(g, rows, this.cursor, heading, count, this.phase === "store" ? "FETCHING NEEDS THE CONSOLE'S INTERNET CONNECTION" : "");
+    drawRowList(g, rows, this.cursor, heading, count, this.phase === "store" ? words("FETCHING NEEDS THE CONSOLE'S INTERNET CONNECTION", "THE APP READS ONLY THE BOOKS BUILT INTO IT") : "");
   }
   drawNotice(g) { drawNoticePanel(g, this.notice, this.t, this.notice?.wait && this.data.busy); }
 }

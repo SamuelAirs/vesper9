@@ -5,6 +5,7 @@ import { VOICE_HELP } from "../engine/voice.js";
 import { CARTRIDGES } from "./catalog.js";
 import { TapSync, describe, MIN_TAPS } from "./tapsync.js";
 import { latencyMs } from "../engine/latency.js";
+import { edition, handheld, words } from "./edition.js";
 const panel = (title, body) =>
   `<div class="utility-panel"><h2>${esc(title)}</h2>${body}</div>`;
 // The nearest running timer (smallest time left), or null when none is running.
@@ -98,7 +99,7 @@ export class Timers {
       { id: 'remove-' + timer.id, label: `REMOVE / ${timer.label} / ${formatTime(timer.duration)}`, run: () => this.c.command('timer', { op: 'remove', id: timer.id }) },
     );
     actions.push({ id: 'home', label: 'RETURN TO DASHBOARD', run: this.c.home });
-    this.c.actions(actions); this.c.hint('Tap to advance. Hold and release to choose. Timers follow the Pi clock across restarts.');
+    this.c.actions(actions); this.c.hint('Tap to advance. Hold and release to choose. ' + words('Timers follow the Pi clock across restarts.', 'Timers keep time while VESPER is closed.'));
   }
   event(e) { if (e.type === 'timers' || e.type === 'state') this.render(); }
   tick() { this.render(); }
@@ -806,7 +807,9 @@ export class Settings {
     this.c.content(
       panel(
         "Adjust the instrument",
-        "<p><strong>Tap, tap, then hold</strong> opens the system menu anywhere: hold about a second in menus, a little longer (1.6 s) inside a game so a long press there stays in the game. MENU GESTURE TIMING sets how quick the taps must be. TIMING OFFSET measures your button's delay so rhythm games judge you fairly. Voice uses the prefix <strong>“computer”</strong>; the microphone starts muted after a restart.</p>",
+        "<p><strong>Tap, tap, then hold</strong> opens the system menu anywhere: hold about a second in menus, a little longer (1.6 s) inside a game so a long press there stays in the game. MENU GESTURE TIMING sets how quick the taps must be. TIMING OFFSET measures your button's delay so rhythm games judge you fairly. " +
+          words("Voice uses the prefix <strong>“computer”</strong>; the microphone starts muted after a restart.</p>",
+            "CASE PLATES at LEFT / RIGHT makes the two plates the two sides of the case; at GENERIC both are one tap.</p>"),
       ),
     );
     this.c.actions([
@@ -850,10 +853,13 @@ export class Settings {
         run: () => this.setting('lampLevel', ({ full: 'medium', medium: 'low', low: 'off', off: 'full' })[s.lampLevel] || 'full') },
       { id: 'lamp-ambient', label: 'AMBIENT GLOW / ' + (s.lampAmbient === false ? 'OFF' : 'ON'),
         run: () => this.setting('lampAmbient', s.lampAmbient === false) },
+      // On a handheld the case is two plates on the glass: no knock to hear, so no sensitivity, and
+      // each plate knows its side, so no calibration. One row says what they are.
+      ...(handheld() ? [this.casePlates(s)] : [
       { id: 'knock', label: 'KNOCK SENSITIVITY / ' + String(s.knock || 'medium').toUpperCase(),
         run: () => this.setting('knock', ({ off: 'low', low: 'medium', medium: 'high', high: 'off' })[s.knock] || 'high') },
       { id: 'tap-direction', label: 'TAP DIRECTION / ' + (this.tapStatus?.calibrated ? 'CALIBRATED' : 'NOT CALIBRATED'),
-        run: () => { this.tapPage = true; this.render(); } },
+        run: () => { this.tapPage = true; this.render(); } }]),
       { id: 'gesture-pace', label: 'MENU GESTURE TIMING / ' + s.gesturePace.toUpperCase(),
         run: () => this.setting('gesturePace', ({ quick: 'standard', standard: 'relaxed', relaxed: 'quick' })[s.gesturePace]) },
       { id: 'timing', label: 'TIMING OFFSET / ' + describe(latencyMs(s)) + ' · CALIBRATE', run: () => this.startSync() },
@@ -865,10 +871,18 @@ export class Settings {
         if (this.confirmReset) { this.confirmReset = false; return this.c.command('reset_settings'); }
         this.confirmReset = true; this.render();
       } },
-      { id: "voice-help", label: "VOICE COMMANDS", run: () => { this.voicePage = 0; this.render(); } },
+      ...(edition().microphone ? [{ id: "voice-help", label: "VOICE COMMANDS", run: () => { this.voicePage = 0; this.render(); } }] : []),
       { id: "home", label: "RETURN TO DASHBOARD", run: this.c.home },
     ]);
     this.c.hint("Tap to advance. Hold and release to change a setting.");
+  }
+  // The handheld's case plates: GENERIC (both one tap, the console's default) or LEFT / RIGHT (the
+  // left plate knocks on the left; Twinbeat's two lanes). A knock setting of OFF, which silences the
+  // plates, shows as OFF and is turned back on from here.
+  casePlates(s) {
+    const off = (s.knock || 'medium') === 'off', sides = s.tapMode === 'sides';
+    return { id: 'case-plates', label: 'CASE PLATES / ' + (off ? 'OFF' : sides ? 'LEFT / RIGHT' : 'GENERIC'),
+      run: () => off ? this.setting('knock', 'medium') : this.setting('tapMode', sides ? 'generic' : 'sides') };
   }
   event(e) {
     if (e.type === "settings" && !this.sync) this.render();

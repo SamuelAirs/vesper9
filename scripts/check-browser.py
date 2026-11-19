@@ -15,7 +15,10 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
-CHECKS = ['browser-smoke', 'extension-smoke', 'host-browser', 'voice-host', 'twinbeat-browser', 'save-browser', 'utility-polish', 'game-polish-browser', 'highbar-controls-browser', 'highbar-mastery-browser', 'cairn-browser', 'ios-page-browser', 'ios-case-browser', 'ios-phone-browser', 'ios-lamps-browser', 'ios-library-browser', 'soak']
+# A check that takes several minutes is run in parts: its name here -> (its file, its arguments).
+PARTS = {f'ios-text-browser-{n}of3': ('ios-text-browser', ['--part', f'{n}/3']) for n in (1, 2, 3)}
+PARTS['ios-text-browser-pixels'] = ('ios-text-browser', ['--pixels'])
+CHECKS = ['browser-smoke', 'extension-smoke', 'host-browser', 'voice-host', 'twinbeat-browser', 'save-browser', 'utility-polish', 'game-polish-browser', 'highbar-controls-browser', 'highbar-mastery-browser', 'cairn-browser', 'ios-page-browser', 'ios-case-browser', 'ios-phone-browser', 'ios-lamps-browser', 'ios-library-browser', 'ios-edition-browser', *PARTS, 'soak']
 
 
 def main():
@@ -34,7 +37,8 @@ def main():
     subprocess.run([sys.executable, 'scripts/build-demo.py'], cwd=ROOT, env=env, check=True, timeout=60)
     results = []
     for name in [args.only] if args.only else CHECKS:
-        command = [node, f'tests/{name}.cjs']
+        file, extra = PARTS.get(name, (name, []))
+        command = [node, f'tests/{file}.cjs', *extra]
         started = time.monotonic()
         with (args.output / f'{name}.log').open('w', encoding='utf-8') as log:
             process = subprocess.Popen(command, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT,

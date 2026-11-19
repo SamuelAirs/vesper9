@@ -214,12 +214,17 @@ let browser;
     judge(name, "menu", a, scaled);
     let choices = await reach(page, "#menu-actions > *", scaled);
     check(a.menu && choices.n >= 5 && choices.missed.length === 0, `${name}: menu: all ${choices.n} choices can be reached ${choices.missed}`);
-    check(await tapOn(page, "#menu-actions > *", "SYSTEM TOOLS") && (await page.evaluate(() => document.getElementById("menu-title").textContent)) === "System tools", `${name}: menu: SYSTEM TOOLS is tapped and opens`);
+    // The handheld edition shows no SYSTEM TOOLS (Calibration has its own line), so that menu is
+    // opened as the console would, to judge a second menu's layout all the same.
+    check(!(await page.evaluate(() => [...document.querySelectorAll("#menu-actions > *")].some((e) => /SYSTEM TOOLS/.test(e.textContent)))), `${name}: menu: no SYSTEM TOOLS line on a handheld`);
+    await page.evaluate(() => vesper.systemTools());
+    await sleep(300);
+    check((await page.evaluate(() => document.getElementById("menu-title").textContent)) === "System tools", `${name}: the system tools' menu opens`);
     a = await audit(page, scaled);
     await shot("tools");
     judge(name, "system tools", a, scaled);
     choices = await reach(page, "#menu-actions > *", scaled);
-    check(choices.n >= 3 && choices.missed.length === 0, `${name}: system tools: all ${choices.n} choices can be reached ${choices.missed}`);
+    check(choices.n >= 2 && choices.missed.length === 0, `${name}: system tools: all ${choices.n} choices can be reached ${choices.missed}`);
     await tapOn(page, "#menu-actions > *", "BACK");
     check(await tapOn(page, "#menu-actions > *", "HOW TO USE VESPER") && (await page.evaluate(() => document.getElementById("menu-title").textContent)) === "Operator notes", `${name}: menu: HOW TO USE VESPER is tapped and opens`);
     a = await audit(page, scaled);

@@ -996,3 +996,35 @@ upright 393-point phone (fine for most on the Duo part folded or as a book);
 the Pi-only apps still show; console words remain. Each needs the engine
 (`web/`), which this branch still has not touched. Sam is asked first.
 The Swift, the project and the workflow remain uncompiled.
+
+## iPhone app: the engine's turn (2026-11-19, later)
+
+Sam: "Yes, go ahead with the changes" (the critic's findings that need the
+engine), "I think those five were just bad or not fun" (Tideline, Descent,
+Chronometer, Ephemeris, Atmosphere stay off the dashboard), and "Push once
+the engine changes are done". Two more Opus agents, each in its own worktree,
+their work reviewed, rerun and merged as before.
+
+- An edition (`web/apps/edition.js`, set by `ios/layer/15-edition.js`): six
+  apps and the MICROPHONE line are not shown on a handheld, console-only words
+  have handheld forms, Calibration gets CASE PLATES in place of the two
+  settings that needed the node (Twinbeat's two-side mode could not be switched
+  on from a phone), Twinbeat judges a plate at the touch, Light Trial's times
+  are called TOUCH and kept apart.
+- A text floor (`web/engine/draw.js`, `vesper.textFloor`, `ios/layer/80-text.js`):
+  9 points for eighteen games, each looked at and its layout made to follow the
+  drawn size. Cairn went from 4.1 to 9 points on a plain phone and from 6.9 to
+  9 on the folded Duo. The plain simulator at 1024 x 600 is pixel for pixel
+  as before.
+
+Integration: SYSTEM TOOLS is not shown where it would hold only Calibration
+(which has its own line); `vesper/catalog.py` checks the new `handheld` words;
+the new checks are in `scripts/check-browser.py` (the text check in parts).
+Both branches merged without a conflict. 1,963 checks in seven browser
+checks, the Python tests of this work and every JavaScript test of the engine
+(1,666) pass on the Windows host. `scripts/check.py` cannot finish there: twelve
+Python test files import `aiohttp`, which no Python on that PC has (the other
+46 tests ran and passed); GitHub's Regressions workflow runs them on the push. With no edition and no floor
+the console is unchanged; that is checked, not assumed. The Swift, the project
+and the workflow are still uncompiled: the push that follows is their first
+compile.

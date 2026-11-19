@@ -10,8 +10,9 @@
 // opened by its id (the build's pictures do that).
 //
 // "add" puts an app on a sector's page: [{ sector: "VOYAGES", apps: ["tideline"] }]. Five apps are
-// in the catalog but on no sector (Tideline, Descent, Chronometer, Ephemeris, Atmosphere); that
-// is Sam's call, so none is added yet.
+// in the catalog but on no sector (Tideline, Descent, Chronometer, Ephemeris, Atmosphere). They
+// were retired from the dashboard and stay retired here (Sam, 2026-11-19: "I think those five were
+// just bad or not fun"), so none is added.
 (function () {
   "use strict";
   window.VESPER_EDITION = {

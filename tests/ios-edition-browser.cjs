@@ -107,9 +107,10 @@ let browser;
     // The system menu and its tools.
     const m = await menus(page);
     check(!m.system.some((l) => /MICROPHONE/.test(l)), `${name}: the system menu has no MICROPHONE line: ${m.system.join(" | ")}`);
-    check(JSON.stringify(m.tools) === JSON.stringify(["CALIBRATION", "BACK"]), `${name}: SYSTEM TOOLS lists only Calibration: ${m.tools.join(" | ")}`);
+    check(!m.system.some((l) => /SYSTEM TOOLS/.test(l)) && m.system.some((l) => /CALIBRATION/.test(l)), `${name}: Calibration has its own line and there is no SYSTEM TOOLS menu of one: ${m.system.join(" | ")}`);
+    check(JSON.stringify(m.tools) === JSON.stringify(["CALIBRATION", "BACK"]), `${name}: the tools the edition shows are Calibration alone: ${m.tools.join(" | ")}`);
     check(!/Node Scope|Telemetry/.test(m.toolsText), `${name}: and does not describe the hidden tools`);
-    check(/In a game the two case plates beside the button are the case, left and right\./.test(m.howTo) && / Calibration is under SYSTEM TOOLS in the system menu\.$/.test(m.howTo) && !/Space|Node Scope|Listen/.test(m.howTo),
+    check(/In a game the two case plates beside the button are the case, left and right\./.test(m.howTo) && / Calibration is in the system menu\.$/.test(m.howTo) && !/Space|Node Scope|Listen/.test(m.howTo),
       `${name}: HOW TO USE VESPER: ${m.howTo}`);
     await page.evaluate(() => vesper.systemMenu());
     await page.screenshot({ path: path.join(output, `${name}-menu.png`) });

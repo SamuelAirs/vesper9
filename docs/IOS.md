@@ -7,8 +7,10 @@ built first for iPhone Duo.
 ## Where it stands (2026-11-19)
 
 - **Written and checked on the PC:** the page the app shows, in Chrome at iPhone, iPhone Duo and
-  iPad sizes, with the Duo's fold given as the app gives it: five browser checks, 1,470 checks in
-  all, and eight Python tests (see "Checks on the PC").
+  iPad sizes, with the Duo's fold given as the app gives it: seven browser checks, 1,963 checks in
+  all, eight Python tests, and the engine's own JavaScript tests (1,666). Twelve of the engine's
+  Python test files need the service's `aiohttp`, which this PC does not have; GitHub's
+  Regressions workflow runs them on a push (see "Checks on the PC").
 - **Written, never compiled:** the Swift shell (`ios/Vesper9/`), the project (`ios/project.yml`)
   and the build workflow (`.github/workflows/ios.yml`). No Mac has seen them. The first push of
   this branch to GitHub is their first compile. The fold and hinge calls are the ones Boxset
@@ -16,8 +18,8 @@ built first for iPhone Duo.
 - **Not done at all:** nothing has run in WebKit, in a simulator or on a phone. Haptics, sound,
   the real fold and safe areas, the type, and saved progress across launches are untried.
 - **A review of every game and instrument on the phone** (2026-11-19) is in Sam's notes:
-  `Vesper 9/Critique 2026-11-19.md`. Its largest finding, small text in the games on an upright
-  phone, needs changes in the engine and is not done.
+  `Vesper 9/Critique 2026-11-19.md`. Its larger findings (small text in the games, apps and words
+  that are only true of the console) were answered the same day, in the engine and the layer.
 
 ## What the app is
 
@@ -25,7 +27,8 @@ built first for iPhone Duo.
 | --- | --- |
 | `ios/build-web.py` | Builds the page: the standalone console (`scripts/build-demo.py`) with the app's layer added to its head, then whatever `ios/extras/*.py` write beside it. Output in `ios/Web/` (not in git). |
 | `ios/layer/*.css` | The app's layouts and look, all under `html.vesper-app`, added in the order of their names: `10-base` (edge to edge, the type), `20-play` (games), `25-phone` (every other screen on a plain phone), `30-fold` (the Duo's crease across), `50-case` (the case plates), `70-lamps` (the lamps' light). The console on the Pi and the browser simulator never load them. |
-| `ios/layer/*.js` | Added the same way: `10-core` (what the parts share), `20-saves`, `30-fit` (the viewport and the fold), `40-button`, `50-case`, `60-library` (The Stacks' books), `70-lamps`, `90-ready`. |
+| `ios/layer/*.js` | Added the same way: `10-core` (what the parts share), `20-saves`, `30-fit` (the viewport and the fold), `40-button`, `50-case`, `15-edition` (the handheld edition), `60-library` (The Stacks' books), `70-lamps`, `80-text` (the games' text floor), `90-ready`. |
+| `web/apps/edition.js`, `web/engine/draw.js` | The engine's two additions, which do nothing unless asked: an edition (what to hide, which words to use) and a floor under the games' text. |
 | `ios/extras/books.py` | Writes The Stacks' fifteen books into `Web/books/` (47 scripts, 7.4 MB). |
 | `ios/Vesper9/Console.swift` | One full-screen web view. Hands the page its saved items, keeps its copy of them, answers the button and the case with haptics, tells the page the window and the fold. |
 | `ios/Vesper9/Fold.swift` | Reads iPhone Duo's crease and hinge (Boxset's `DuoFold.swift`, cut down). |
@@ -34,8 +37,9 @@ built first for iPhone Duo.
 | `ios/project.yml` | The Xcode project, generated with XcodeGen. Bundle `com.samuelairs.vesper9`, name VESPER-9, iOS 17 and later. |
 | `tests/helpers/ios-page.cjs` | Shared by the page's browser checks: builds the page, opens it with a stand-in for the app, and holds the cases (the Duo's postures, phones, an iPad). |
 
-Nothing in `web/`, `vesper/` or `firmware/` is changed. The app needs no network and asks for
-no permission.
+The engine in `web/` has two additions the app turns on (below); with neither asked for, the
+Pi console and the browser simulator read, behave and draw as before. `firmware/` is unchanged.
+The app needs no network and asks for no permission.
 
 ## iPhone Duo
 
@@ -92,6 +96,35 @@ around them in each lamp's own colour (`70-lamps`): in pools on the deck, one un
 quarter of the width, and along the top row's edge sideways. It only follows the lamps: the same
 values the page paints them with, on the same events, with no animation of its own.
 
+## The handheld edition
+
+The console is told its edition before it starts (`window.VESPER_EDITION`, set by
+`15-edition.js`, read only by `web/apps/edition.js`). On a handheld:
+
+- **Not shown:** Field Notes, Resonance, Atmosphere, Node Scope, Telemetry, the Encyclopedia,
+  the menu's MICROPHONE line, and SYSTEM TOOLS (Calibration, all it would hold, has its own
+  line). They are on no sector's page and never a pick of the day; the LISTEN sector, left
+  empty, is gone. Five more are in the catalog and on no sector (Tideline, Descent, Chronometer,
+  Ephemeris, Atmosphere): retired, and they stay so.
+- **Said truly:** where the console's words are untrue of a phone (the space bar, the Pi's
+  clock, the node, the book service), the handheld has its own; an app can carry `"handheld"`
+  words in `vesper/catalog.json`.
+- **Calibration:** CASE PLATES (GENERIC or LEFT / RIGHT) stands in for the two settings that
+  needed the node, so Twinbeat's two-side play can be switched on.
+- **Twinbeat** judges a plate like the button, at the touch. **Light Trial** is called TOUCH,
+  says its time includes the display and the touch, and keeps its best apart from the node's.
+
+## Readable text
+
+Most games draw their smaller text at 10 to 18 pixels of the 960-wide picture, which is 4 to 7
+points on an upright phone. The engine can be given a floor: `draw.js` `text()` never draws
+smaller than it, and the host sets it around each app's draw from the size the picture is shown
+at. The app asks for 9 points (`80-text.js`), for the games that have been looked at with it:
+High Bar, Cairn, Twinbeat, Orbit Lock, Moonrunner, Outpost, Perihelion, Wayfinder, Ballista,
+Glyph Archive, Pocket Links, Night Grid, Undertow, Echo Vault, Relay, Meridian, Ricochet and
+Signal School. Their layouts follow the drawn size where it would have overflowed. Crawlspace,
+Supper Club and Light Trial are not on the list and draw as before.
+
 ## Type
 
 The games ask for DejaVu Sans Mono by name. An iPhone has no such face and would fall back to
@@ -135,14 +168,10 @@ say that the app reads only the books built into it.
 
 ## Not in the app yet
 
-- **Readable text in the games on an upright phone.** Most games draw their smaller text at 14
-  to 18 pixels of a 960-wide picture, which is 6 to 7 points on a 393-point phone. It is fine
-  on the Duo part folded or opened like a book for most games. The fix is in the engine.
-- **What only the Pi can do is still shown:** Field Notes and Resonance, Atmosphere, Node Scope,
-  Telemetry, the Encyclopedia, the menu's MICROPHONE line. Hiding them needs one line in the
-  engine.
-- **Words for a console the player does not have** ("Timers follow the Pi clock", Light Trial's
-  ESP32, Twinbeat's case delay).
+- **Crawlspace and Supper Club at phone size:** their cards overflow with floored text, so they
+  keep their small text until each has its own layout.
+- **Lists drawn in a game** (Wayfinder's routes, High Bar's setup) look tappable; a tap
+  anywhere is the button.
 - **Speech.** Voice commands and dictation run on the Pi (Vosk). The microphone button is hidden.
 - **Timers in the background.** A timer that ends while the app is closed says nothing until the
   app is opened.
@@ -179,6 +208,9 @@ python scripts/check-browser.py --only ios-case-browser
 python scripts/check-browser.py --only ios-phone-browser
 python scripts/check-browser.py --only ios-lamps-browser
 python scripts/check-browser.py --only ios-library-browser
+python scripts/check-browser.py --only ios-edition-browser
+python scripts/check-browser.py --only ios-text-browser-1of3   # then 2of3, 3of3, and -pixels
+python scripts/check.py                                         # the engine's own suite
 ```
 
 | Check | What it covers | Checks |
@@ -187,9 +219,12 @@ python scripts/check-browser.py --only ios-library-browser
 | `test_ios_books` | The books build writes the same bytes twice; every book is on the shelf; chapters equal the service's. | 4 tests |
 | `ios-page-browser` | The play layouts, the Duo's crease in every screen, folding mid-game, the button's messages, the saves. | 134 |
 | `ios-case-browser` | The case plates and keys in every case, held with the button, turning mid-game. | 167 |
-| `ios-phone-browser` | Every screen one screen on a plain phone; nothing else moved. | 588 |
+| `ios-phone-browser` | Every screen one screen on a plain phone; nothing else moved. | 553 |
 | `ios-lamps-browser` | The light follows the lamps, moves nothing and takes no touch. | 527 |
 | `ios-library-browser` | The shelf, a first page, paging, the saved place, no network. | 54 |
+| `ios-edition-browser` | Nothing hidden can be reached; each reworded line; Twinbeat's timing; the standalone page unchanged. | 114 |
+| `ios-text-browser` | In three parts: no text under the floor, none off the picture, no new overlap; with the floor off, every frame's text as before. `--pixels`: the plain simulator pixel for pixel. | 414 + 15 |
+| `edition.test.mjs`, `draw-floor.test.mjs` | The edition and the floor in node. | 8 + 6 tests |
 
 The browser checks need Playwright and Chrome (`docs/TESTING.md`). They stand in for the app
 with a recorder for the page's messages and call `vesperApp.fold()` with the Duo's numbers. None

@@ -31,6 +31,12 @@ def load_catalog(path=None):
             raise ValueError(f'Invalid record labels: {ident}')
         if 'scoreMetric' in app and (not isinstance(app['scoreMetric'], str) or not re.fullmatch(r'[a-z][a-z0-9-]{0,63}', app['scoreMetric'])):
             raise ValueError(f'Invalid score metric: {ident}')
+        # Optional: the words a handheld edition shows in place of the console's (web/apps/edition.js),
+        # where the console's are untrue of a phone. Only these three, each a line of text.
+        handheld = app.get('handheld', {})
+        if not isinstance(handheld, dict) or not all(
+                key in ('subtitle', 'description', 'controls') and isinstance(value, str) and value for key, value in handheld.items()):
+            raise ValueError(f'Invalid handheld words: {ident}')
         for alias in app.get('voice', []):
             if not re.fullmatch(r'[a-z]+(?: [a-z]+)*', alias) or alias in aliases:
                 raise ValueError(f'Invalid or duplicate voice alias: {alias}')

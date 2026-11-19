@@ -1117,7 +1117,8 @@ export class Vesper {
           ),
       },
       { label: "CALIBRATION / SETTINGS", run: () => this.launch("settings") },
-      ...(TOOLS.length ? [{ label: "SYSTEM TOOLS", run: () => this.systemTools() }] : []),
+      // Calibration has its own line above: SYSTEM TOOLS is shown while it holds anything more.
+      ...(TOOLS.some((id) => id !== "settings") ? [{ label: "SYSTEM TOOLS", run: () => this.systemTools() }] : []),
     ]);
   }
   // HOW TO USE VESPER. The console's text names its three system tools; the handheld's names the
@@ -1128,7 +1129,7 @@ export class Vesper {
     const listed = tools.length > 1 ? tools.slice(0, -1).join(", ") + " and " + tools.at(-1) + " are" : tools.length ? tools[0] + " is" : "";
     return words(
       "Tap to move between items. Hold and release to select. To open the system menu from anywhere, in any app: tap, tap, then press and hold for about a second. Space or the on-screen arcade button also works. The dashboard's sectors are " + sectors + ": the games come first, then the instruments. Calibration, Node Scope and Telemetry are under SYSTEM TOOLS in the system menu.",
-      "Tap the button to move between items. Hold and release to select; a touch on a card or a menu line chooses it too. To open the system menu from anywhere, in any app: tap, tap, then press and hold for about a second. CASE is a tap on the console's case: once for the previous item, twice to go back. In a game the two case plates beside the button are the case, left and right. The dashboard's sectors are " + sectors + ": the games come first, then the instruments." + (listed ? " " + listed + " under SYSTEM TOOLS in the system menu." : ""),
+      "Tap the button to move between items. Hold and release to select; a touch on a card or a menu line chooses it too. To open the system menu from anywhere, in any app: tap, tap, then press and hold for about a second. CASE is a tap on the console's case: once for the previous item, twice to go back. In a game the two case plates beside the button are the case, left and right. The dashboard's sectors are " + sectors + ": the games come first, then the instruments." + (TOOLS.some((id) => id !== "settings") ? " " + listed + " under SYSTEM TOOLS in the system menu." : " Calibration is in the system menu."),
     );
   }
   // The apps that are not on the dashboard: calibration and the two diagnostic tools (those the edition shows).

@@ -11,7 +11,7 @@ built first for iPhone Duo.
   all, eight Python tests, and the engine's own JavaScript tests (1,666). Twelve of the engine's
   Python test files need the service's `aiohttp`, which this PC does not have; GitHub's
   Regressions workflow runs them on a push (see "Checks on the PC").
-- **Compiled, and run on simulators** (2026-11-19, GitHub's Mac, Xcode 27, two runs): the
+- **Compiled, and run on simulators** (2026-11-19, GitHub's Mac, Xcode 27, three runs): the
   Swift shell (`ios/Vesper9/`) compiled at the first attempt without a warning, and the app ran
   in WebKit. Run 1, the iPhone Duo's simulator (iOS 27.2), closed: the page, its type (Menlo),
   the plain-phone layouts, the handheld edition, the case plates and the text floor. Run 2, the

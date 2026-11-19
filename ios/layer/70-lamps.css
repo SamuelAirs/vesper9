@@ -1,0 +1,250 @@
+/* The lamps as light. The node's four lamps (and the board's pip) are drawn as lit glass, and
+   each lamp's colour falls on the surface around it: pools of light on the deck, the lower part
+   of the node where the button is (upright and with the Duo's crease across), and a halo along
+   the strip the lamps sit in, its edge catching the light (the slim top row sideways, the bar on
+   the dashboard and the instruments).
+
+   Only light: everything here is a background or a shadow, under the page's own content
+   (z-index -1 in the console's own stacking context), never over the game's picture, never in
+   the crease's band, never catching a touch, and no element moves or changes size when a lamp
+   lights. Nothing here animates; 70-lamps.js sets the variables when the lamps change:
+     --lamp-0 .. --lamp-3, --lamp-b   hue at full strength "r g b"
+     --lamp-N-a                       brightness 0 to 1 (the lamp's own value, so 0 is off)
+   so rgb(hue / strength * brightness) over the dark panel is the lamp's own colour at that
+   strength. The strengths below are the whole design: a lamp at full is unmistakable, a dim one
+   faint, and four whites together still leave every word as readable as before. */
+
+/* Changed on every frame of lamps, so they are kept from flowing down into the whole page: each
+   is set on the few elements that draw with it, and the pseudo-elements take it explicitly. */
+@property --lamp-0 { syntax: "*"; inherits: false; }
+@property --lamp-1 { syntax: "*"; inherits: false; }
+@property --lamp-2 { syntax: "*"; inherits: false; }
+@property --lamp-3 { syntax: "*"; inherits: false; }
+@property --lamp-b { syntax: "*"; inherits: false; }
+@property --lamp-0-a { syntax: "*"; inherits: false; }
+@property --lamp-1-a { syntax: "*"; inherits: false; }
+@property --lamp-2-a { syntax: "*"; inherits: false; }
+@property --lamp-3-a { syntax: "*"; inherits: false; }
+@property --lamp-b-a { syntax: "*"; inherits: false; }
+@property --glow { syntax: "*"; inherits: false; }
+@property --glow-a { syntax: "*"; inherits: false; }
+
+/* The light sits under everything else in the console: the console is its own stacking context,
+   so z-index -1 paints above its background and below its content. */
+html.vesper-app .console { isolation: isolate; }
+html.vesper-app .physical-lights { position: relative; }
+
+/* Where the deck's pools fall across its width: under lamp I at the left, lamp IV (or III) at
+   the right, in the lamps' order. */
+html.vesper-app { --pool-0: 12.5%; --pool-1: 37.5%; --pool-2: 62.5%; --pool-3: 87.5%; }
+html.vesper-app[data-lamps="3"] { --pool-0: 16.7%; --pool-1: 50%; --pool-2: 83.3%; --pool-3: 150%; }
+
+/* ---------------------------------------------------------------------------------------------
+   The lamps themselves: a glass lens in a dark bezel; lit, a hot centre, a rim of its colour
+   and a bloom around it. The lamp's colour is the page's own (main.js paints it); only the
+   shading is added. Shadows and backgrounds only, so lit and unlit measure the same. */
+html.vesper-app .lamp {
+  --c: var(--glow, 0 0 0);
+  --a: var(--glow-a, 0);
+  background-image: radial-gradient(circle at 50% 36%, rgb(255 255 255 / calc(0.05 + var(--a) * 0.5)), rgb(255 255 255 / 0) 52%) !important;
+  box-shadow:
+    0 0 0 2px #09100c,
+    inset 0 1px 3px rgb(0 0 0 / calc(0.5 - var(--a) * 0.5)),
+    0 0 calc(3px + var(--a) * 10px) calc(var(--a) * 1px) rgb(var(--c) / calc(var(--a) * 0.65)),
+    0 0 calc(var(--a) * 26px) calc(var(--a) * 3px) rgb(var(--c) / calc(var(--a) * 0.16)) !important;
+}
+/* With the crease across the lamps sit 7 points under the crease's band, so their bloom falls
+   downwards onto the deck and stops short of the band. */
+html.vesper-app[data-fold="across"] .lamp:not(.board-led) {
+  box-shadow:
+    0 0 0 2px #09100c,
+    inset 0 1px 3px rgb(0 0 0 / calc(0.5 - var(--a) * 0.5)),
+    0 3px calc(4px + var(--a) * 6px) calc(var(--a) * 1px) rgb(var(--c) / calc(var(--a) * 0.65)),
+    0 16px calc(var(--a) * 20px) calc(var(--a) * 2px) rgb(var(--c) / calc(var(--a) * 0.2)) !important;
+}
+/* A lit lamp's rim takes its colour as far as it is lit: a dim lamp keeps most of the page's own
+   rim. */
+html.vesper-app .lamp[data-lit] { border-color: color-mix(in srgb, rgb(var(--c)) calc(var(--a) * 85%), #62735a); }
+html.vesper-app .lamp.board-led {
+  box-shadow:
+    0 0 0 1px #09100c,
+    0 0 calc(var(--a) * 8px) calc(var(--a) * 1px) rgb(var(--c) / calc(var(--a) * 0.6)) !important;
+}
+
+/* Presence where the layout has room (the rows keep their heights): larger lamps in the lower
+   half with the crease across and in the upright play layout. The board's pip stays a small
+   accent beside them, as the page means it, not a fifth lamp. */
+html.vesper-app[data-fold="across"] .console.playing .physical-lights { gap: 9px; }
+html.vesper-app[data-fold="across"] .console.playing .lamp { width: 34px; height: 34px; font-size: 11px; }
+html.vesper-app[data-fold="across"] .console.playing .lamp.board-led { width: 12px; height: 12px; font-size: 0; }
+@media (orientation: portrait) {
+  html.vesper-app:not([data-fold="across"]) .console.playing .physical-lights { gap: 7px; }
+  html.vesper-app:not([data-fold="across"]) .console.playing .lamp { width: 27px; height: 27px; font-size: 10px; }
+  html.vesper-app:not([data-fold="across"]) .console.playing .lamp.board-led { width: 10px; height: 10px; font-size: 0; }
+}
+@media (orientation: landscape) {
+  html.vesper-app .console.playing .lamp.board-led { width: 9px; height: 9px; font-size: 0; }
+}
+
+/* ---------------------------------------------------------------------------------------------
+   The deck's pools: each lamp's light hanging from the top of the deck in its own place across
+   it, falling off towards the button. Drawn by the console's ::before over the deck's rows in
+   play (upright and across: from under the game, or from the crease, to the bottom edge), and
+   by the button's deck itself on the dashboard. */
+html.vesper-app .console.playing::before,
+html.vesper-app .console:not(.playing) .control-deck {
+  --pool-size: 34% 90%;
+  --pool-strength: 0.17;
+  --pool-0-light: radial-gradient(var(--pool-size) at var(--pool-0) 0,
+    rgb(var(--lamp-0, 0 0 0) / calc(var(--lamp-0-a, 0) * var(--pool-strength))),
+    rgb(var(--lamp-0, 0 0 0) / calc(var(--lamp-0-a, 0) * var(--pool-strength) * 0.35)) 45%,
+    rgb(var(--lamp-0, 0 0 0) / 0));
+  --pool-1-light: radial-gradient(var(--pool-size) at var(--pool-1) 0,
+    rgb(var(--lamp-1, 0 0 0) / calc(var(--lamp-1-a, 0) * var(--pool-strength))),
+    rgb(var(--lamp-1, 0 0 0) / calc(var(--lamp-1-a, 0) * var(--pool-strength) * 0.35)) 45%,
+    rgb(var(--lamp-1, 0 0 0) / 0));
+  --pool-2-light: radial-gradient(var(--pool-size) at var(--pool-2) 0,
+    rgb(var(--lamp-2, 0 0 0) / calc(var(--lamp-2-a, 0) * var(--pool-strength))),
+    rgb(var(--lamp-2, 0 0 0) / calc(var(--lamp-2-a, 0) * var(--pool-strength) * 0.35)) 45%,
+    rgb(var(--lamp-2, 0 0 0) / 0));
+  --pool-3-light: radial-gradient(var(--pool-size) at var(--pool-3) 0,
+    rgb(var(--lamp-3, 0 0 0) / calc(var(--lamp-3-a, 0) * var(--pool-strength))),
+    rgb(var(--lamp-3, 0 0 0) / calc(var(--lamp-3-a, 0) * var(--pool-strength) * 0.35)) 45%,
+    rgb(var(--lamp-3, 0 0 0) / 0));
+}
+html.vesper-app .console:not(.playing) .control-deck {
+  --pool-size: 30% 160%;
+  --pool-strength: 0.2;
+  background-image: var(--pool-0-light), var(--pool-1-light), var(--pool-2-light), var(--pool-3-light);
+}
+@media (orientation: portrait) {
+  html.vesper-app .console.playing::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    grid-row: 3 / auto;
+    grid-column: auto / auto;
+    z-index: -1;
+    pointer-events: none;
+    --lamp-0: inherit; --lamp-1: inherit; --lamp-2: inherit; --lamp-3: inherit;
+    --lamp-0-a: inherit; --lamp-1-a: inherit; --lamp-2-a: inherit; --lamp-3-a: inherit;
+    background-image: var(--pool-0-light), var(--pool-1-light), var(--pool-2-light), var(--pool-3-light);
+  }
+}
+
+/* ---------------------------------------------------------------------------------------------
+   The halo: each lamp's light around it on the strip it sits in, and a thin line of it where
+   that strip meets the game's edge (sideways and upright) or the bar's edge (the dashboard).
+   In play it is the lamps' own ::before, sized per layout so it ends exactly at the game (the
+   row's edge) or at the crease; on the dashboard and the instruments it is the bar's own
+   background, so it stays inside the bar. */
+html.vesper-app .console.playing .physical-lights::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+  left: calc(-1 * var(--g-left)); top: calc(-1 * var(--g-top));
+  right: calc(-1 * var(--g-right)); bottom: calc(-1 * var(--g-bottom));
+  --lamp-0: inherit; --lamp-1: inherit; --lamp-2: inherit; --lamp-3: inherit; --lamp-b: inherit;
+  --lamp-0-a: inherit; --lamp-1-a: inherit; --lamp-2-a: inherit; --lamp-3-a: inherit; --lamp-b-a: inherit;
+  --at-0: calc(var(--lamp-0-x, -999px) + var(--g-left)) calc(var(--lamp-0-y, 0px) + var(--g-top));
+  --at-1: calc(var(--lamp-1-x, -999px) + var(--g-left)) calc(var(--lamp-1-y, 0px) + var(--g-top));
+  --at-2: calc(var(--lamp-2-x, -999px) + var(--g-left)) calc(var(--lamp-2-y, 0px) + var(--g-top));
+  --at-3: calc(var(--lamp-3-x, -999px) + var(--g-left)) calc(var(--lamp-3-y, 0px) + var(--g-top));
+  --at-b: calc(var(--lamp-b-x, -999px) + var(--g-left)) calc(var(--lamp-b-y, 0px) + var(--g-top));
+  --line-0: calc(var(--lamp-0-x, -999px) + var(--g-left)) 100%;
+  --line-1: calc(var(--lamp-1-x, -999px) + var(--g-left)) 100%;
+  --line-2: calc(var(--lamp-2-x, -999px) + var(--g-left)) 100%;
+  --line-3: calc(var(--lamp-3-x, -999px) + var(--g-left)) 100%;
+  background-image:
+    var(--line-0-light), var(--line-1-light), var(--line-2-light), var(--line-3-light),
+    var(--halo-0-light), var(--halo-1-light), var(--halo-2-light), var(--halo-3-light), var(--halo-b-light);
+}
+html.vesper-app .console:not(.playing) .instrument-bar {
+  --at-0: var(--lamp-0-bx, -999px) var(--lamp-0-by, 0px);
+  --at-1: var(--lamp-1-bx, -999px) var(--lamp-1-by, 0px);
+  --at-2: var(--lamp-2-bx, -999px) var(--lamp-2-by, 0px);
+  --at-3: var(--lamp-3-bx, -999px) var(--lamp-3-by, 0px);
+  --at-b: var(--lamp-b-bx, -999px) var(--lamp-b-by, 0px);
+  --line-0: var(--lamp-0-bx, -999px) 100%;
+  --line-1: var(--lamp-1-bx, -999px) 100%;
+  --line-2: var(--lamp-2-bx, -999px) 100%;
+  --line-3: var(--lamp-3-bx, -999px) 100%;
+  --halo: 46px;
+  --edge: 1;
+  background-image:
+    var(--line-0-light), var(--line-1-light), var(--line-2-light), var(--line-3-light),
+    var(--halo-0-light), var(--halo-1-light), var(--halo-2-light), var(--halo-3-light), var(--halo-b-light);
+}
+html.vesper-app .console.playing .physical-lights::before,
+html.vesper-app .console:not(.playing) .instrument-bar {
+  --halo-strength: 0.26;
+  --halo-0-light: radial-gradient(circle var(--halo) at var(--at-0),
+    rgb(var(--lamp-0, 0 0 0) / calc(var(--lamp-0-a, 0) * var(--halo-strength))),
+    rgb(var(--lamp-0, 0 0 0) / calc(var(--lamp-0-a, 0) * var(--halo-strength) * 0.3)) 45%,
+    rgb(var(--lamp-0, 0 0 0) / 0));
+  --halo-1-light: radial-gradient(circle var(--halo) at var(--at-1),
+    rgb(var(--lamp-1, 0 0 0) / calc(var(--lamp-1-a, 0) * var(--halo-strength))),
+    rgb(var(--lamp-1, 0 0 0) / calc(var(--lamp-1-a, 0) * var(--halo-strength) * 0.3)) 45%,
+    rgb(var(--lamp-1, 0 0 0) / 0));
+  --halo-2-light: radial-gradient(circle var(--halo) at var(--at-2),
+    rgb(var(--lamp-2, 0 0 0) / calc(var(--lamp-2-a, 0) * var(--halo-strength))),
+    rgb(var(--lamp-2, 0 0 0) / calc(var(--lamp-2-a, 0) * var(--halo-strength) * 0.3)) 45%,
+    rgb(var(--lamp-2, 0 0 0) / 0));
+  --halo-3-light: radial-gradient(circle var(--halo) at var(--at-3),
+    rgb(var(--lamp-3, 0 0 0) / calc(var(--lamp-3-a, 0) * var(--halo-strength))),
+    rgb(var(--lamp-3, 0 0 0) / calc(var(--lamp-3-a, 0) * var(--halo-strength) * 0.3)) 45%,
+    rgb(var(--lamp-3, 0 0 0) / 0));
+  --halo-b-light: radial-gradient(circle calc(var(--halo) * 0.4) at var(--at-b),
+    rgb(var(--lamp-b, 0 0 0) / calc(var(--lamp-b-a, 0) * var(--halo-strength) * 0.7)),
+    rgb(var(--lamp-b, 0 0 0) / 0));
+  /* The edge: a thin sliver of each lamp's light along the strip's lower edge, under the lamp. */
+  --line-0-light: radial-gradient(calc(var(--halo) * 1.5) 3px at var(--line-0),
+    rgb(var(--lamp-0, 0 0 0) / calc(var(--lamp-0-a, 0) * 0.6 * var(--edge))), rgb(var(--lamp-0, 0 0 0) / 0));
+  --line-1-light: radial-gradient(calc(var(--halo) * 1.5) 3px at var(--line-1),
+    rgb(var(--lamp-1, 0 0 0) / calc(var(--lamp-1-a, 0) * 0.6 * var(--edge))), rgb(var(--lamp-1, 0 0 0) / 0));
+  --line-2-light: radial-gradient(calc(var(--halo) * 1.5) 3px at var(--line-2),
+    rgb(var(--lamp-2, 0 0 0) / calc(var(--lamp-2-a, 0) * 0.6 * var(--edge))), rgb(var(--lamp-2, 0 0 0) / 0));
+  --line-3-light: radial-gradient(calc(var(--halo) * 1.5) 3px at var(--line-3),
+    rgb(var(--lamp-3, 0 0 0) / calc(var(--lamp-3-a, 0) * 0.6 * var(--edge))), rgb(var(--lamp-3, 0 0 0) / 0));
+}
+
+/* The halo's box in each play layout, from the lamps' own box. Sideways (the page's play mode):
+   the slim top row, 34 high with the 22-point lamps at its middle, so it ends at the game's
+   edge, where the line of light runs. */
+@media (orientation: landscape) {
+  html.vesper-app .console.playing .physical-lights {
+    --g-left: 80px; --g-right: 320px; --g-top: 6px; --g-bottom: 6px; --halo: 46px; --edge: 1;
+  }
+}
+/* Upright: the top row, the lamps at its foot; it ends at the game's edge. */
+@media (orientation: portrait) {
+  html.vesper-app:not([data-fold="across"]) .console.playing .physical-lights {
+    --g-left: 80px; --g-right: 320px; --g-top: 140px; --g-bottom: 0px; --halo: 50px; --edge: 1;
+  }
+}
+/* The crease across: the lamps' row starts at the crease, so the halo does too and spreads down
+   over the deck (the pools carry on below it). No edge line: the top of this half is the fold. */
+html.vesper-app[data-fold="across"] .console.playing .physical-lights {
+  --g-left: 80px; --g-right: 320px; --g-top: 7px; --g-bottom: 150px; --halo: 74px; --edge: 0;
+}
+
+/* Upright the deck is tall: the pools keep to its upper part, so the button's area below is only
+   washed, and four whites together stay a light, not a fog. */
+@media (orientation: portrait) {
+  html.vesper-app:not([data-fold="across"]) .console.playing::before { --pool-size: 36% 320px; --pool-strength: 0.13; }
+}
+/* With the crease across, the light comes up gently from the fold instead of starting at a line. */
+html.vesper-app[data-fold="across"] .console.playing::before,
+html.vesper-app[data-fold="across"] .console.playing .physical-lights::before {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 16px);
+  mask-image: linear-gradient(to bottom, transparent, #000 16px);
+}
+/* Sideways the row's left end is the display's corner: the light fades out where the game's edge
+   begins, so its line never runs past that edge. */
+@media (orientation: landscape) {
+  html.vesper-app .console.playing .physical-lights::before {
+    -webkit-mask-image: linear-gradient(to right, transparent calc(var(--g-left) - 14px), #000 calc(var(--g-left) + 10px));
+    mask-image: linear-gradient(to right, transparent calc(var(--g-left) - 14px), #000 calc(var(--g-left) + 10px));
+  }
+}

@@ -21,7 +21,7 @@
 // an amber spot at the next opening that brightens as it arrives, so the two meet when the craft
 // is lined up; red at the end lamp near the surface or the floor.
 import { TAU, clamp, mixSeed, Random } from "../engine/math.js";
-import { C, text, line, circle, diamond } from "../engine/draw.js";
+import { C, text, textRows, line, circle, diamond } from "../engine/draw.js";
 import { LAMP, fill, only, spot, blink, pulse, dim, chase } from "../engine/lightshow.js";
 import { AppGuard } from "../engine/input.js";
 import { LampBus, lampMax, LOCKOUT } from "./game-kit.js";
@@ -1240,7 +1240,7 @@ export class Undertow {
       const f = FEATS.find((x) => x.id === id);
       if (f) { text(g, "FEAT  " + f.name + "  +" + FEAT_PEARLS + " PEARLS", 480, y, 18, C.cyan, "center"); y += 26; }
     }
-    if (y < 440) text(g, this.nextBuy(), 480, y, 18, C.muted, "center");
+    if (y < 440) text(g, textRows(this.nextBuy(), 900, 18, 1)[0], 480, y, 18, C.muted, "center");
     if (this.deadT > LOCKOUT) text(g, "TAP = DIVE AGAIN     HOLD = DOCK", 480, 466, 20, C.amber, "center");
   }
   // What the bank buys next, for the result card.
@@ -1291,7 +1291,8 @@ export class Undertow {
       else if (id === "DAILY") info = "Goal: " + dailyGoal(key).text + "  The same dive for everyone today.";
       else if (id === "GUIDE") info = "Fly close to sea life to log it. " + SPECIES_PEARLS + " pearls for each new species.";
       else info = "Zones reached, the deepest dive and best dives by craft.";
-      text(g, info, 480, 428, 18, C.muted, "center");
+      // Two rows (about the same place) where a raised size (the iPhone app's floor) would not fit one.
+      textRows(info, 900, 18).forEach((row, i, all) => text(g, row, 480, 428 + (i - (all.length - 1) / 2) * 24, 18, C.muted, "center"));
       text(g, "TAP = NEXT LINE     HOLD = CHOOSE", 480, 476, 18, C.cyan, "center");
     } else if (this.view === "refit") {
       text(g, "REFIT", 480, 116, 20, C.cyan, "center");

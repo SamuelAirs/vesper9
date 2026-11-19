@@ -20,7 +20,7 @@
 // order of its own on the days the logbook picks Ricochet, in a versioned save (schema 3) that keeps
 // the first release's fields.
 import { clamp } from "../engine/math.js";
-import { C, text, line, circle, diamond, space, banner } from "../engine/draw.js";
+import { C, text, line, circle, diamond, space, banner, textRows } from "../engine/draw.js";
 import { LAMP, lamps, spot, ramp, dim, pulse, chase, lightsOff } from "../engine/lightshow.js";
 import { AppGuard } from "../engine/input.js";
 import { num, hashText, dateKey, cleanFeats, newlyMet, todayOrder, panel, drawToday } from "./goals.js";
@@ -1230,14 +1230,14 @@ export class Ricochet {
     else if (this.order) lines.push(["TODAY: " + this.order.text, C.muted]);
     if (this.sv.st.far > 1) lines.push(["FURTHEST CHAMBER " + this.sv.st.far, C.muted]);
     panel(g, 430, 442 + lines.length * 28);
-    lines.forEach(([s, col], i) => text(g, s, 480, 450 + i * 28, 18, col, "center"));
+    lines.forEach(([s, col], i) => text(g, textRows(s, 700, 18, 1)[0], 480, 450 + i * 28, 18, col, "center"));
   }
   // Best run, furthest chamber and today's order (title screen).
   drawGoals(g, y) {
     const sv = this.sv, today = !!this.order || !!this.ctx.today?.()?.done;
     panel(g, y - 20, y + (today ? 44 : 16));
     text(g, "RECORD " + (this.ctx.best?.() ?? 0) + "   FURTHEST CHAMBER " + Math.max(1, sv.st.far) + (sv.runs ? "   RUNS " + sv.runs : ""), 480, y, 18, C.ink, "center");
-    drawToday(g, this.ctx, this.order, y + 28);
+    drawToday(g, this.ctx, this.order, y + 28, 700); // inside the chamber's frame
   }
 }
 

@@ -1,8 +1,8 @@
-import { C, text, line } from "../engine/draw.js";
+import { C, text, textSize, textFloor, line, wrapText } from "../engine/draw.js";
 import { Random, clamp } from "../engine/math.js";
 import { AppGuard } from "../engine/input.js";
 import { LAMP, dim } from "../engine/lightshow.js";
-import { drawRowList, drawNoticePanel } from "./reader-kit.js";
+import { drawRowList, drawNoticePanel, fit } from "./reader-kit.js";
 
 // WAYFINDER: chart a connected beacon field, collect optional research and reach
 // the rescue station. No reaction timer: decisions spend supplies, never time.
@@ -252,8 +252,12 @@ export class Wayfinder {
     }
     const rows = this.rows();
     text(g, "ROUTE / " + (r.at % f.size + 1) + "," + (Math.floor(r.at / f.size) + 1), 540, 62, 22, C.ink);
-    rows.forEach((row, i) => { const y = 112 + i * 49; if (i === this.cursor) { g.fillStyle = C.dark; g.fillRect(526, y - 21, 380, 42); } text(g, (i === this.cursor ? "▸ " : "  ") + row.label, 540, y - 4, 20, i === this.cursor ? C.ink : C.muted); text(g, row.sub || "", 564, y + 15, 13, C.muted); });
+    // Under a text floor (the iPhone app) the label and its line part a little further and are cut to the row.
+    const floor = textFloor() > 0, cut = (value, room, size) => floor ? fit(value, Math.floor(room / (textSize(size) * .61))) : value;
+    rows.forEach((row, i) => { const y = 112 + i * 49; if (i === this.cursor) { g.fillStyle = C.dark; g.fillRect(526, y - 21, 380, 42); } text(g, cut((i === this.cursor ? "▸ " : "  ") + row.label, 362, 20), 540, floor ? y - 10 : y - 4, 20, i === this.cursor ? C.ink : C.muted); text(g, cut(row.sub || "", 338, 13), 564, floor ? y + 12 : y + 15, 13, C.muted); });
     text(g, "CHARGE " + r.energy + " / " + capacity(r.tier, r.gear) + " · " + r.gear.toUpperCase(), 60, 467, 20, r.energy < 4 ? C.red : C.cyan);
-    text(g, this.message.slice(0, 86), 60, 502, 15, C.muted);
+    const per = Math.floor(880 / (textSize(15) * .61));
+    if (textFloor() && Math.min(86, this.message.length) > per) wrapText(this.message.slice(0, 86), per).slice(0, 2).forEach((part, i) => text(g, part, 60, 494 + i * 24, 15, C.muted));
+    else text(g, this.message.slice(0, 86), 60, 502, 15, C.muted);
   }
 }

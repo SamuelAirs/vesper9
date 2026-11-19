@@ -4,7 +4,7 @@ import { SaveQueue } from "./engine/save-queue.js";
 import { InputRouter, GESTURE_TAPS } from "./engine/input.js";
 import { Synth, BrowserMicrophone } from "./engine/audio.js";
 import { Random, escapeHTML as esc, formatTime } from "./engine/math.js";
-import { ambient, glyph, C, text, space } from "./engine/draw.js";
+import { ambient, glyph, C, text, space, setTextFloor } from "./engine/draw.js";
 import { APPS } from "./apps/registry.js";
 import { DEFAULT_SETTINGS as DEFAULT, SECTORS, SYSTEM_APPS } from "./apps/catalog.js";
 import { LightDirector } from "./engine/lights.js";
@@ -748,6 +748,7 @@ export class Vesper {
   // browser scale up, AUTO starts sharp and steps down while a game keeps missing frames (adaptRender).
   fitCanvas() {
     const canvas = $("game");
+    this.textFloorPx = 0;
     if (!this.app || this.app.navigation) return;
     const box = canvas.getBoundingClientRect();
     if (!(box.width > 0 && box.height > 0)) return;
@@ -759,6 +760,18 @@ export class Vesper {
       canvas.height = h;
     }
     this.renderScale = w / LOGICAL_W;
+    // The text floor in canvas pixels: the rule's page pixels over the page pixels one canvas pixel
+    // is shown at. No rule (the console, the simulator) or a 0 from it: no floor.
+    const floorCss = this.textRule ? Number(this.textRule(this.meta?.id)) || 0 : 0;
+    this.textFloorPx = floorCss > 0 ? floorCss / Math.min(box.width / LOGICAL_W, box.height / LOGICAL_H) : 0;
+  }
+  // For the iPhone app's layer (ios/layer/80-text.js): rule(appId) is the smallest text that app's
+  // canvas may show, in page pixels as shown, or 0 for none; null takes the rule away. Asked again
+  // whenever the picture is sized. The console never calls this, and draws as it always has.
+  textFloor(rule) {
+    this.textRule = typeof rule === "function" ? rule : null;
+    this.textFloorPx = 0;
+    this.fitCanvas();
   }
   // AUTO's current step for this app (remembered for the session, so a heavy game starts where it settled).
   autoRender() {
@@ -1581,10 +1594,13 @@ export class Vesper {
           const scale = this.renderScale || 1;
           this.g.setTransform(scale, 0, 0, scale, 0, 0);
           this.g.globalAlpha = 1;
+          // The floor holds only while this app draws its frame (0 unless the app's layer set one).
+          setTextFloor(this.textFloorPx || 0);
           this.app.draw?.(this.g);
         } catch (error) {
           this.fail(error);
         }
+        setTextFloor(0);
       }
     }
     requestAnimationFrame((t) => this.frame(t));

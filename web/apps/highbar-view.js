@@ -1,4 +1,4 @@
-import { C, text, line, circle } from "../engine/draw.js";
+import { C, text, textSize, textFloor, line, circle } from "../engine/draw.js";
 import { clamp } from "../engine/math.js";
 import { LOCKOUT } from "./game-kit.js";
 import { G, STEP, BAIL_T, ROLL, LAND_TOL, STYLE_TIME, GUIDE, MODES, MEDALS, PARKS, LINES, UNLOCK, barLaunchVelocity, platformContact } from "./highbar-content.js";
@@ -12,7 +12,23 @@ function panel(g, x, y, w, h, accent = C.line) {
   line(g, x + w, y + h - 14, x + w, y + h, accent, 2);
 }
 const short = (value, n) => String(value).length > n ? String(value).slice(0, n - 1) + "…" : String(value);
+// Under a text floor (the iPhone app) a line is cut to what fits `width` at the size really drawn;
+// without one, as the console always drew it.
+const clip = (value, width, size) => textFloor() ? short(value, Math.floor(width / (textSize(size) * .61))) : String(value);
+const fits = (n, width, size) => textFloor() ? Math.min(n, Math.floor(width / (textSize(size) * .61))) : n;
+// How many rows paragraph() takes for `value` (the same wrap).
+function rows(value, width, size, max = 3) {
+  size = textSize(size);
+  const words = String(value).split(/\s+/), limit = Math.max(10, Math.floor(width / (size * .62)));
+  let row = "", count = 0;
+  for (const word of words) {
+    if (row && row.length + word.length + 1 > limit) { row = word; if (++count >= max) return count; }
+    else row = row ? row + " " + word : word;
+  }
+  return count + (row ? 1 : 0);
+}
 function paragraph(g, value, x, y, width, size = 20, colour = C.ink, max = 3) {
+  size = textSize(size); // wrap and space the rows at the size they are drawn
   const words = String(value).split(/\s+/), limit = Math.max(10, Math.floor(width / (size * .62)));
   let row = "", count = 0;
   for (const word of words) {
@@ -199,7 +215,8 @@ export class HighBarView {
         const b = park.bars[index], bx = x + b[0] * sx, by = y + b[1] * sy;
         if (previous) { g.globalAlpha = .6; line(g, previous[0], previous[1], bx, by, theme.secondary); g.globalAlpha = 1; }
         circle(g, bx, by, 4, theme.secondary, false, 1);
-        text(g, "B" + (index + 1), bx + 6, by - 3, 11, C.ink); previous = [bx, by];
+        if (textSize(11) <= 16) text(g, "B" + (index + 1), bx + 6, by - 3, 11, C.ink);
+        previous = [bx, by];
       }
     }
     if (live) { g.strokeStyle = C.muted; g.lineWidth = 1; g.strokeRect(x + this.camX * sx, y + this.camY * sy, 960 * sx, 540 * sy); circle(g, x + this.p.x * sx, y + this.p.y * sy, 3, C.ink, true); }
@@ -239,8 +256,9 @@ export class HighBarView {
     }
     panel(g, 18, 476, 390, 48, col);
     text(g, fmt(c.sum) + " x" + Math.min(this.variety(c), 8), 32, 491, 22, c.roll >= 0 ? C.amber : C.ink);
-    text(g, short(c.tricks.at(-1).name, 20), 392, 513, 17, col, "right");
-    text(g, c.roll >= 0 ? "ROLL TO BANK" : "LINE", 32, 513, 15, C.muted);
+    const label = c.roll >= 0 ? "ROLL TO BANK" : "LINE";
+    text(g, short(c.tricks.at(-1).name, fits(20, 360 - (label.length + 2) * textSize(15) * .61, 17)), 392, 513, 17, col, "right");
+    text(g, label, 32, 513, 15, C.muted);
     if (c.roll >= 0) gauge(g, 258, 488, 134, 1 - c.roll / ROLL, C.amber);
   }
   drawRouteCue(g) {
@@ -263,7 +281,7 @@ export class HighBarView {
       }
       if (!cue && this.mode === 2 && this.practiceSlow) cue = "PRACTICE / HALF SPEED";
     }
-    if (cue) { panel(g, 428, 488, 514, 36, col); text(g, short(cue, 45), 441, 507, 17, col); }
+    if (cue) { panel(g, 428, 488, 514, 36, col); text(g, short(cue, fits(45, 492, 17)), 441, 507, 17, col); }
   }
   menuHeader(g, heading, sub) { text(g, "HIGH BAR / " + (this.park().district || "OFFWORLD FIELD COURSE"), 36, 32, 16, this.theme().accent); text(g, heading, 36, 76, 38, C.ink); if (sub) text(g, sub, 36, 112, 18, C.muted); }
   footer(g, value) { panel(g, 28, 492, 904, 34, this.theme().accent); text(g, value, 480, 510, 20, C.amber, "center"); }
@@ -276,21 +294,26 @@ export class HighBarView {
     const archive = s.legacyRecords?.flowV4 || s.legacyRecords?.flowV3 || s.legacyRecords?.styleV2;
     const prior = archive?.flowBest?.[this.parkId] ?? archive?.styleBest?.[this.parkId];
     if (prior) text(g, "PREVIOUS RULES BEST " + fmt(prior), 574, 424, 14, C.muted);
-    text(g, this.mode === 2 ? "PRACTICE / RECORDS STAY SAFE" : this.mode === 1 && rec ? "LINE PB " + fmt(rec.best) : "FLOW BEST " + fmt((s.flowBest || s.styleBest)[this.parkId]), 574, 447, 18, C.amber);
+    text(g, clip(this.mode === 2 ? "PRACTICE / RECORDS STAY SAFE" : this.mode === 1 && rec ? "LINE PB " + fmt(rec.best) : "FLOW BEST " + fmt((s.flowBest || s.styleBest)[this.parkId]), 352, 18), 574, 447, 18, C.amber);
     this.footer(g, (s.guided ? "TAP: RIDE" : "TAP: LEARN AND RIDE") + "  ·  HOLD: SETUP / MASTERY " + (this.masteryCount?.() || 0) + "/" + this.masteryTotal());
   }
-  drawGoals(g, y0, x = 300, width = 500, step = 26) { const done = this.slot().goals[this.parkId]; for (let i = 0; i < this.park().goals.length; i++) { const ok = done.includes(i), yy = y0 + i * step; circle(g, x + 6, yy, 5, ok ? this.theme().accent : C.muted, ok, 1); paragraph(g, this.park().goals[i].text, x + 23, yy, width - 23, 18, ok ? this.theme().accent : C.ink, 2); } }
+  drawGoals(g, y0, x = 300, width = 500, step = 26) { if (textFloor()) step = Math.max(step, textSize(18) * 2 + 11); const done = this.slot().goals[this.parkId]; for (let i = 0; i < this.park().goals.length; i++) { const ok = done.includes(i), yy = y0 + i * step; circle(g, x + 6, yy, 5, ok ? this.theme().accent : C.muted, ok, 1); paragraph(g, this.park().goals[i].text, x + 23, yy, width - 23, 18, ok ? this.theme().accent : C.ink, 2); } }
   drawSetup(g) {
     const park = this.park(), col = this.theme().accent, ch = this.challenge(); this.menuHeader(g, "PARK + LINE", "CHOOSE A COURSE, A CHALLENGE, OR AN UNTIMED WARMUP");
     panel(g, 28, 137, 546, 339, col); const items = this.setupItems(), first = Math.max(0, Math.min(this.cursor - 6, items.length - 8)), last = Math.min(items.length, first + 8);
-    for (let i = first; i < last; i++) { const yy = 163 + (i - first) * 38, on = i === this.cursor; if (on) { g.fillStyle = col; g.fillRect(40, yy - 15, 522, 31); } text(g, (on ? "> " : "  ") + short(items[i].label, 40), 48, yy, 20, on ? C.bg : C.ink); }
+    for (let i = first; i < last; i++) { const yy = 163 + (i - first) * 38, on = i === this.cursor; if (on) { g.fillStyle = col; g.fillRect(40, yy - 15, 522, 31); } text(g, (on ? "> " : "  ") + short(items[i].label, fits(40, 506, 20)), 48, yy, 20, on ? C.bg : C.ink); }
     if (items.length > 8) text(g, (first > 0 ? "↑ " : "") + (this.cursor + 1) + "/" + items.length + (last < items.length ? " ↓" : ""), 558, 457, 15, col, "right");
     panel(g, 590, 137, 342, 339, col); text(g, park.name, 608, 163, 27, C.ink);
     if (items[this.cursor]?.id === "line" && ch.approach) {
-      text(g, short(ch.name, 24), 608, 203, 20, col);
-      for (let i = 0; i < Math.min(3, ch.approach.length); i++) paragraph(g, (i + 1) + ". " + ch.approach[i], 608, 236 + i * 74, 307, 18, C.ink, 3);
-    } else { this.drawMap(g, 609, 187, 304, 76); text(g, short(ch.name, 24), 608, 282, 20, col); paragraph(g, this.mode === 2 ? this.practiceLabel?.() || park.routeTip || ch.text : ch.text, 608, 337, 306, 18, C.ink, 3); }
-    const record = this.lineRecord?.(); text(g, (this.mode === 2 ? "UNTIMED" : this.lineSeconds() + "s") + " / " + (record ? MEDALS[record.medal] + " / " + fmt(record.best) : ch.skill || "BANK YOUR LINE"), 608, 465, 17, C.amber);
+      text(g, short(ch.name, fits(24, 316, 20)), 608, 203, 20, col);
+      let ay = 0;
+      for (let i = 0; i < Math.min(3, ch.approach.length); i++) {
+        const step = (i + 1) + ". " + ch.approach[i], y = textFloor() ? Math.max(236 + i * 74, ay) : 236 + i * 74;
+        if (textFloor() && y + (rows(step, 307, 18) - 1) * (textSize(18) + 7) > 440) break;
+        ay = paragraph(g, step, 608, y, 307, 18, C.ink, 3) + 6;
+      }
+    } else { this.drawMap(g, 609, 187, 304, 76); text(g, short(ch.name, fits(24, 316, 20)), 608, 282, 20, col); paragraph(g, this.mode === 2 ? this.practiceLabel?.() || park.routeTip || ch.text : ch.text, 608, 337, 306, 18, C.ink, 3); }
+    const record = this.lineRecord?.(); text(g, clip((this.mode === 2 ? "UNTIMED" : this.lineSeconds() + "s") + " / " + (record ? MEDALS[record.medal] + " / " + fmt(record.best) : ch.skill || "BANK YOUR LINE"), 316, 17), 608, 465, 17, C.amber);
     const open = PARKS.filter((_, i) => unlocked(this.slot(), i)).length; this.footer(g, "TAP: NEXT  ·  CASE: PREVIOUS  ·  HOLD: CHOOSE / " + open + "/4 PARKS");
   }
   drawOver(g) {
@@ -312,9 +335,16 @@ export class HighBarView {
       text(g, result?.medalImproved ? "NEW MEDAL / NEXT TIER" : result?.bestImproved || result?.timeImproved ? "PERSONAL BEST / NEXT TIER" : "NEXT MASTERY TIER", 461, 329, 18, col);
       paragraph(g, this.masteryGoal?.() || "BRONZE: BANK THE TARGET", 461, 365, 448, 20, C.ink, 3);
     }
-    else if (this.newGoals.length) for (let i = 0; i < Math.min(3, this.newGoals.length); i++) paragraph(g, "NEW / " + this.newGoals[i], 461, 327 + i * 43, 448, 18, col, 2);
+    else if (this.newGoals.length) {
+      let ny = 0;
+      for (let i = 0; i < Math.min(3, this.newGoals.length); i++) {
+        const goal = "NEW / " + this.newGoals[i], y = textFloor() ? Math.max(327 + i * 43, ny) : 327 + i * 43;
+        if (textFloor() && y + (rows(goal, 448, 18, 2) - 1) * (textSize(18) + 7) > 462) break;
+        ny = paragraph(g, goal, 461, y, 448, 18, col, 2) + 6;
+      }
+    }
     else paragraph(g, this.mode === 1 ? this.masteryGoal?.() || "Bank the target. Land upright and let the roll window finish." : "Different tricks grow the multiplier. Clean landings build your skill medal.", 461, 328, 448, 20, col, 3);
-    if (this.mode === 1 && rec) text(g, "LINE PB " + fmt(rec.best) + (rec.time ? " / " + rec.time + "s" : "") + " / MASTERY " + (this.masteryCount?.() || 0) + "/" + this.masteryTotal(), 461, 450, 17, C.amber);
+    if (this.mode === 1 && rec) text(g, clip("LINE PB " + fmt(rec.best) + (rec.time ? " / " + rec.time + "s" : "") + " / MASTERY " + (this.masteryCount?.() || 0) + "/" + this.masteryTotal(), 452, 17), 461, 450, 17, C.amber);
     this.footer(g, this.overT >= LOCKOUT ? result ? "TAP: RETRY  ·  CASE: NEXT LINE  ·  HOLD: SETUP" : "TAP / CASE: RIDE AGAIN  ·  HOLD: SETUP" : "LINE SETTLING…");
   }
   drawGuide(g) {

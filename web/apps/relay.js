@@ -13,7 +13,7 @@
 // accelerando (opened by reaching the clave), sound kits (by rhythms learned), the rhythm book and a
 // log. Feats and the daily order go to the console's logbook (ctx.feat, ctx.daily, ctx.dailyMet); the
 // game keeps no streak or feat list of its own. Save schema 2.
-import { C, space, text, line, circle, diamond, banner } from "../engine/draw.js";
+import { C, space, text, textRows, textFloor, line, circle, diamond, banner } from "../engine/draw.js";
 import { clamp, lerp, mixSeed, Random } from "../engine/math.js";
 import { LAMP, lamps, dim } from "../engine/lightshow.js";
 import { AppGuard } from "../engine/input.js";
@@ -888,7 +888,8 @@ export class Relay {
       else if (id === "LOG") info = "What you have done so far.";
       else if (id === "DAILY") info = "Goal: " + dailyGoal(this.dayKey()).text;
       else info = MODES[id.toLowerCase()].text;
-      text(g, info, 480, 446, 18, C.muted, "center");
+      // Two rows where a raised size (the iPhone app's floor) would not fit one.
+      textRows(info, 900, 18).forEach((row, i, all) => text(g, row, 480, 446 + (i - (all.length - 1) / 2) * 24, 18, C.muted, "center"));
       text(g, "TAP = NEXT LINE     HOLD = CHOOSE", 480, 480, 18, C.cyan, "center");
     } else if (this.view === "book") this.drawBook(g);
     else {
@@ -907,8 +908,9 @@ export class Relay {
     RHYTHMS.slice(this.page * per, this.page * per + per).forEach((r, i) => {
       const y = 162 + i * 50, heard = r.id in sv.book, c = sv.book[r.id] || 0;
       const mastered = c >= MASTERED, learned = c >= LEARNED;
-      text(g, heard ? r.name : "? ? ?", 150, y - 9, 20, mastered ? C.cyan : learned ? C.ink : heard ? C.muted : C.line);
-      text(g, heard ? r.meter + "  " + ROMAN[r.stage] : "STAGE " + ROMAN[r.stage], 150, y + 13, 16, C.line);
+      const apart = textFloor() ? 3 : 0; // the two rows part a little at a raised size
+      text(g, heard ? r.name : "? ? ?", 150, y - 9 - apart, 20, mastered ? C.cyan : learned ? C.ink : heard ? C.muted : C.line);
+      text(g, heard ? r.meter + "  " + ROMAN[r.stage] : "STAGE " + ROMAN[r.stage], 150, y + 13 + apart, 16, C.line);
       if (heard) {
         const x0 = 470, x1 = 700, w = (x1 - x0) / r.steps;
         line(g, x0, y, x1, y, C.line, 1);

@@ -1,5 +1,6 @@
-import { text, line, circle } from "../engine/draw.js";
+import { text, textSize, line, circle } from "../engine/draw.js";
 import { PLATFORMS, REGIONS, SUMMIT, regionAt } from "./cairn-content.js";
+const TURNS = "Short tap turns. No steering in the air.";
 
 const time = seconds => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 export class CairnView {
@@ -44,9 +45,11 @@ export class CairnView {
     g.globalAlpha = 1;
     this.creature(g, this.p.x, screen(this.p.y), region.ink);
     // Height ruler and a small permanent map; the next ledges remain the dominant information.
+    // Three digits at most (the summit is 365); a raised size keeps them on the picture.
+    const rx = Math.max(37, Math.ceil(textSize(10) * 0.61 * 3) + 4);
     for (let y = Math.ceil((this.camera - 60) / 100) * 100; y < this.camera + 460; y += 100) {
       const sy = screen(y); if (sy < 40 || sy > 500 || y < 0) continue;
-      line(g, 45, sy, 53, sy, region.edge); text(g, Math.round(y / 10), 37, sy, 10, region.edge, "right");
+      line(g, 45, sy, 53, sy, region.edge); text(g, Math.round(y / 10), rx, sy, 10, region.edge, "right");
     }
     line(g, 931, 76, 931, 470, region.rock, 2);
     for (const r of REGIONS) { const y = 470 - r.at / SUMMIT * 394; line(g, 926, y, 936, y, region.edge); }
@@ -58,18 +61,22 @@ export class CairnView {
       text(g, time(this.elapsed), 888, 515, 12, region.edge, "right");
     }
     if (this.phase === "title") {
-      g.fillStyle = region.bg; g.globalAlpha = 0.94; g.fillRect(225, 108, 510, 260); g.globalAlpha = 1;
+      // The card grows to its longest line when a text floor raises it (the iPhone app); 510 wide on the console.
+      const card = Math.max(510, Math.ceil(TURNS.length * textSize(14) * 0.61) + 40);
+      g.fillStyle = region.bg; g.globalAlpha = 0.94; g.fillRect(480 - card / 2, 108, card, 260); g.globalAlpha = 1;
       text(g, "C A I R N", 480, 151, 42, region.ink, "center");
       text(g, "A small thing. A very tall place.", 480, 197, 15, region.edge, "center");
       text(g, "Hold to charge. Release to leap.", 480, 243, 18, region.ink, "center");
-      text(g, "Short tap turns. No steering in the air.", 480, 272, 14, region.edge, "center");
+      text(g, TURNS, 480, 272, 14, region.edge, "center");
       text(g, this.save.active || this.save.checkpoint ? "TAP: CONTINUE     HOLD: NEW ASCENT" : "TAP TO BEGIN", 480, 322, 16, region.ink, "center");
       if (this.save.summits) text(g, `${this.save.summits} SUMMITS${this.save.bestSeconds ? "  /  BEST " + time(this.save.bestSeconds) : ""}`, 480, 352, 12, region.edge, "center");
     }
     if (this.phase === "over") {
-      g.fillStyle = region.bg; g.globalAlpha = 0.93; g.fillRect(130, 160, 430, 155); g.globalAlpha = 1;
+      const tally = `${time(this.elapsed)}  ·  ${this.jumps} LEAPS  ·  ${this.falls} FALLS`;
+      const card = Math.max(430, Math.ceil(tally.length * textSize(16) * 0.61) + 40);
+      g.fillStyle = region.bg; g.globalAlpha = 0.93; g.fillRect(345 - card / 2, 160, card, 155); g.globalAlpha = 1;
       text(g, "A LIGHT ANSWERS.", 345, 195, 29, region.ink, "center");
-      text(g, `${time(this.elapsed)}  ·  ${this.jumps} LEAPS  ·  ${this.falls} FALLS`, 345, 239, 16, region.edge, "center");
+      text(g, tally, 345, 239, 16, region.edge, "center");
       text(g, "Tap for another ascent.", 345, 282, 15, region.ink, "center");
     }
     g.restore();

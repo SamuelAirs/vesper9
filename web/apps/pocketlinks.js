@@ -1,7 +1,7 @@
 // POCKET LINKS — real little courses, one large button. All geometry is in course pixels.
 // Lamps 1-3 follow the aiming arrow, then fill with power; lamp 4, when the node has one, says where
 // the shot will stop: green in the cup, amber warmer the closer it ends to the cup, red in the water.
-import { C, text, line, circle } from "../engine/draw.js";
+import { C, text, textSize, textFloor, textRows, line, circle } from "../engine/draw.js";
 import { clamp } from "../engine/math.js";
 import { LAMP, lamps, fill, dim, meter, spot } from "../engine/lightshow.js";
 import { AppGuard } from "../engine/input.js";
@@ -453,7 +453,8 @@ export class PocketLinks {
     circle(g, X + c.x, Y + c.y, 18, "#456a43"); circle(g, X + c.x, Y + c.y, 10.5, "#09130e", true);
     line(g, X + c.x, Y + c.y - 3, X + c.x, Y + c.y - 39, C.ink, 2);
     g.fillStyle = C.amber; g.beginPath(); g.moveTo(X + c.x + 1, Y + c.y - 39); g.lineTo(X + c.x + 22, Y + c.y - 32); g.lineTo(X + c.x + 1, Y + c.y - 25); g.closePath(); g.fill();
-    text(g, this.hole + 1, X + c.x + 8, Y + c.y - 32, 10, C.bg, "center");
+    // The hole's number on its flag; left off where a raised size would not fit the flag (the sidebar says it).
+    if (textSize(10) <= 14) text(g, this.hole + 1, X + c.x + 8, Y + c.y - 32, 10, C.bg, "center");
     // A faint previous-shot trace helps a player learn a bank or correct an overshoot.
     for (let i = 2; i < this.shotTrace.length; i += 2) { const p = this.shotTrace[i]; circle(g, X + p.x, Y + p.y, 1.2, "#688560", true); }
     if (this.stage === "aim" || this.stage === "charge") {
@@ -484,7 +485,8 @@ export class PocketLinks {
     }
   }
   drawSidebar(g) {
-    const sx = 734;
+    // Under a text floor (the iPhone app) the lines start at the panel's edge, so 15 letters fit it.
+    const sx = 734, lx = textFloor() ? sx + 2 : sx + 10;
     g.fillStyle = "#15251a"; g.fillRect(sx - 5, 97, 207, 342);
     text(g, "HOLE " + (this.hole + 1) + " / 9", sx + 10, 122, 18, C.ink);
     text(g, "PAR " + this.course.par, sx + 10, 152, 28, C.amber);
@@ -492,25 +494,25 @@ export class PocketLinks {
     line(g, sx + 10, 204, sx + 181, 204, C.line, 1);
     const y = 229;
     if (this.stage === "water") {
-      text(g, "WATER RELIEF", sx + 10, y, 18, C.cyan);
-      text(g, "TAP: +1 penalty", sx + 10, y + 34, 14, C.ink);
-      text(g, "HOLD: mulligan", sx + 10, y + 61, 14, this.mulligans ? C.amber : C.muted);
-      text(g, this.mulligans + " remaining", sx + 10, y + 86, 14, C.muted);
+      text(g, "WATER RELIEF", lx, y, 18, C.cyan);
+      text(g, "TAP: +1 penalty", lx, y + 34, 14, C.ink);
+      text(g, "HOLD: mulligan", lx, y + 61, 14, this.mulligans ? C.amber : C.muted);
+      text(g, this.mulligans + " remaining", lx, y + 86, 14, C.muted);
       if (this.held) { g.fillStyle = C.amber; g.fillRect(sx + 10, y + 110, 160 * clamp((this.t - this.downAt) / 0.6, 0, 1), 8); }
     } else {
-      text(g, this.stage === "rolling" ? "BALL IN PLAY" : this.stage === "charge" ? "2  SET POWER" : this.stage === "card" ? "HOLE COMPLETE" : "1  CHOOSE AIM", sx + 10, y, 16, C.ink);
-      text(g, CLUBS[this.club], sx + 10, y + 32, 24, this.club ? C.cyan : C.ink);
-      text(g, this.club ? "Hops then rolls" : "Rolls and banks", sx + 10, y + 57, 14, C.muted);
+      text(g, this.stage === "rolling" ? "BALL IN PLAY" : this.stage === "charge" ? "2  SET POWER" : this.stage === "card" ? "HOLE COMPLETE" : "1  CHOOSE AIM", lx, y, 16, C.ink);
+      text(g, CLUBS[this.club], lx, y + 32, 24, this.club ? C.cyan : C.ink);
+      text(g, this.club ? "Hops then rolls" : "Rolls and banks", lx, y + 57, 14, C.muted);
       if (this.stage === "charge") {
         text(g, Math.round(this.power * 100) + "%", sx + 10, y + 94, 30, this.previewEnd?.status === "water" ? C.red : C.amber);
-        text(g, "RELEASE TO SHOOT", sx + 10, y + 125, 14, C.ink);
+        textRows("RELEASE TO SHOOT", 194, 14).forEach((row, i) => text(g, row, lx, y + 125 + i * 24, 14, C.ink));
       } else {
         const p = surfaceAt(this.course, this.ball.x, this.ball.y);
-        text(g, "LIE: " + (p ? p.type.toUpperCase() : "GREEN"), sx + 10, y + 93, 14, C.muted);
-        text(g, this.mulligans + " MULLIGANS", sx + 10, y + 124, 14, C.amber);
+        text(g, "LIE: " + (p ? p.type.toUpperCase() : "GREEN"), lx, y + 93, 14, C.muted);
+        text(g, this.mulligans + " MULLIGANS", lx, y + 124, 14, C.amber);
       }
     }
-    text(g, "ROUND " + signed(this.total - this.parTotal), sx + 10, 420, 16, C.muted);
+    text(g, "ROUND " + signed(this.total - this.parTotal), lx, 420, 16, C.muted);
   }
   draw(g) {
     if (this.guide >= 0) { drawGuide(g, "POCKET LINKS", GUIDE, this.guide, lampCount(this.c)); return; }
@@ -557,9 +559,10 @@ export class PocketLinks {
     g.strokeStyle = C.cyan; g.lineWidth = 2; g.setLineDash([4, 7]); g.beginPath(); g.moveTo(ox + 43, oy + 214); g.quadraticCurveTo(ox + 159, oy + 84, ox + 252, oy + 80); g.stroke(); g.setLineDash([]);
     circle(g, ox + 43, oy + 214, 6.5, C.ink, true); circle(g, ox + 252, oy + 80, 10, C.cyan);
     text(g, "BANK IT. HOP IT. NURSE IT HOME.", 691, 359, 16, C.muted, "center");
-    text(g, "TAP", 48, 354, 18, C.cyan); text(g, "change putter / wedge", 134, 354, 18, C.ink);
-    text(g, "HOLD", 48, 389, 18, C.cyan); text(g, "freeze the aiming arrow", 134, 389, 18, C.ink);
-    text(g, "RELEASE", 48, 424, 18, C.cyan); text(g, "choose shot power", 134, 424, 18, C.ink);
+    const vx = Math.max(134, 56 + 7 * textSize(18) * .61); // clear of RELEASE at its real size
+    text(g, "TAP", 48, 354, 18, C.cyan); text(g, "change putter / wedge", vx, 354, 18, C.ink);
+    text(g, "HOLD", 48, 389, 18, C.cyan); text(g, "freeze the aiming arrow", vx, 389, 18, C.ink);
+    text(g, "RELEASE", 48, 424, 18, C.cyan); text(g, "choose shot power", vx, 424, 18, C.ink);
     text(g, this.sv.guided ? "PRESS TO TEE OFF" : "PRESS TO LEARN HOW TO PLAY", 480, 490, 25, C.amber, "center");
     if (this.sv.bestStrokes) text(g, "BEST NINE: " + this.sv.bestStrokes + " STROKES", 902, 410, 16, C.muted, "right");
   }

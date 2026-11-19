@@ -1,4 +1,4 @@
-import { C, text, line } from "../engine/draw.js";
+import { C, text, textSize, textFloor, line, wrapText } from "../engine/draw.js";
 import { clamp } from "../engine/math.js";
 
 // A case tap is useful even without a direction classifier: it goes backwards.
@@ -176,7 +176,9 @@ export function drawRowList(g, rows, cursor, heading, count, foot) {
       g.strokeRect(52, y, 856, 72);
     }
     text(g, row.label, 76, y + 24, 24, row.muted ? C.muted : C.ink);
-    if (row.sub) text(g, fit(row.sub, 70), 76, y + 52, 18, row.alert ? C.red : C.muted);
+    // Under a text floor (the iPhone app) the line is cut to the row's width (and the progress bar's left) at its real size.
+    const subChars = textFloor() ? Math.min(70, Math.floor(((row.progress !== undefined ? 810 : 896) - 76) / (textSize(18) * .61))) : 70;
+    if (row.sub) text(g, fit(row.sub, subChars), 76, y + 52, 18, row.alert ? C.red : C.muted);
     if (row.progress !== undefined) {
       g.fillStyle = C.line;
       g.fillRect(820, y + 50, 72, 4);
@@ -189,7 +191,11 @@ export function drawRowList(g, rows, cursor, heading, count, foot) {
     g.fillStyle = C.line;
     g.fillRect(926, y, 4, h);
   }
-  if (foot) text(g, foot, 60, 500, 16, C.muted);
+  // A foot line wider than the picture at a raised size (the iPhone app's floor) goes on two rows.
+  const footChars = Math.floor(840 / (textSize(16) * .61));
+  if (foot && textFloor() && String(foot).length > footChars)
+    wrapText(String(foot).replace(/ \/ /g, " "), footChars).slice(0, 2).forEach((part, i) => text(g, part, 60, 492 + i * 24, 16, C.muted));
+  else if (foot) text(g, foot, 60, 500, 16, C.muted);
 }
 
 // A centred message: a title and wrapped paragraphs, with a slow ellipsis while `waiting`.

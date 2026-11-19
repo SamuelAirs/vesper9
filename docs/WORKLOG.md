@@ -957,3 +957,42 @@ the outer display use the plain upright layout. Measured in Chrome with the
 Duo's numbers given by hand: 134 checks, among them folding and unfolding in the
 middle of a game. The Swift is still unrun, and the real crease and safe areas
 are first seen on the phone.
+
+## iPhone app: a round of agents (2026-11-19)
+
+Sam: a tap on the phone's back must do nothing ("that's an accessibility
+feature"), and "Spawn agents to work on the app as you see fit". The layer was
+first split into numbered parts (`ios/layer/NN-*.css|js`, `ios/extras/*.py`,
+`tests/helpers/ios-page.cjs`) so that each agent owned its own files, and each
+worked in its own git worktree cut from `ios-app`. Five Opus agents ran at once;
+each one's checks were rerun and its pictures looked at before its work was
+committed, and the four that changed files were merged as `ios-next`.
+
+- The case tap on screen (`50-case`): plates at the button's sides in a game,
+  a CASE key elsewhere. 167 checks.
+- The lamps as light (`70-lamps`): larger lamps and pools of their colours on
+  the deck. 527 checks.
+- Every screen one screen on a plain phone (`25-phone.css`). 588 checks.
+- The console's fifteen books in The Stacks (`ios/extras/books.py`,
+  `60-library.js`), made with the service's own parser. 54 checks, 4 tests.
+- A critic's review of all 36 apps at phone and Duo sizes (read only). Its
+  report is in Sam's notes, `Vesper 9/Critique 2026-11-19.md`.
+
+Merging found one thing: the lamps' check tapped and compared where the case
+plates now are, so it presses the button between plate and cap and compares the
+picture rather than the whole stage. Then, from the agents' notes and the
+critic's quick wins that are in the layer: the button is let go only by the
+finger that pressed it; the board's pip is no longer sized as a lamp; MENU can
+be hit over 44 points; the fold's sector tabs are 44 tall; an instrument on the
+folded Duo has lamps, title and MENU on one row and its display takes the rest
+of the upper half (329 points, from 245); the masthead's "SIMULATED NODE" is
+hidden; the games' DejaVu Sans Mono and the page's VesperMono are given to
+Menlo, which iPhones have (untried there). Swift answers a knock with a soft
+tap. All five browser checks (1,470 checks) and eight Python tests pass on the
+Windows host.
+
+Not done, from the critic: the games' smaller text is 4 to 7 points on an
+upright 393-point phone (fine for most on the Duo part folded or as a book);
+the Pi-only apps still show; console words remain. Each needs the engine
+(`web/`), which this branch still has not touched. Sam is asked first.
+The Swift, the project and the workflow remain uncompiled.

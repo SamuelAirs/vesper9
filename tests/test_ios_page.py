@@ -64,7 +64,7 @@ class IosPage(unittest.TestCase):
         for posture in ('plain', 'openBook', 'halfBook', 'openTall', 'laptop'):
             self.assertRegex(swift, rf'case {posture}\b')
             self.assertIn(posture, script)
-        for message in ('saves', 'save', 'remove', 'clear', 'imported', 'press', 'ready'):
+        for message in ('saves', 'save', 'remove', 'clear', 'imported', 'press', 'knock', 'ready'):
             self.assertIn(f'case "{message}"', swift)
             self.assertIn(f't: "{message}"', script)
         for key in ('"posture"', '"window"', '"safe"', '"crease"', '"saved"', '"launch"', '"import"', '"fold"'):

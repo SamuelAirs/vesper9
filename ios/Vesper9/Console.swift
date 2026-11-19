@@ -12,7 +12,8 @@ import WebKit
 ///    the app to open first if the launch arguments name one (`-VesperLaunch orbit`, used for
 ///    the build's pictures);
 ///  - it keeps its copy of the saves current from the page's messages;
-///  - it answers each press of the on-screen button with the phone's haptics;
+///  - it answers each press of the on-screen button, and each tap on the on-screen case, with
+///    the phone's haptics;
 ///  - it tells the page the window's size, its safe areas and, on iPhone Duo, where the crease
 ///    is and how the phone is held (Fold.swift), which the page lays itself out by.
 @MainActor
@@ -20,6 +21,7 @@ final class Console: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     private let saves = SaveStore()
     private let pressDown = UIImpactFeedbackGenerator(style: .rigid)
     private let pressUp = UIImpactFeedbackGenerator(style: .light)
+    private let knock = UIImpactFeedbackGenerator(style: .soft)
     private weak var web: WKWebView?
     private var fold = Fold.plain
     private var started = false
@@ -176,6 +178,9 @@ final class Console: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                 pressUp.impactOccurred(intensity: 0.6)
                 pressDown.prepare()
             }
+        case "knock":
+            // A tap on the case, on screen: softer than the button.
+            knock.impactOccurred(intensity: 0.8)
         case "ready":
             pressDown.prepare()
         default:

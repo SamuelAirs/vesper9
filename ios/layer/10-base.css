@@ -41,9 +41,40 @@ html.vesper-app .masthead { padding-top: calc(var(--sat) + 14px); }
 html.vesper-app .case-label { padding-bottom: calc(var(--sab) + 10px); }
 html.vesper-app .system-menu { max-height: calc(100dvh - var(--sat) - var(--sab) - 16px); overflow: auto; }
 
+/* The console's type. The games ask for DejaVu Sans Mono by name (web/engine/draw.js) and the
+   page for VesperMono, which is DejaVu, Liberation or Courier New where one is installed. An
+   iPhone has only the last, a thinner face of other widths. Menlo is on every iPhone and is cut
+   from the same design as DejaVu Sans Mono (Bitstream Vera Sans Mono, the same widths), so both
+   names are given to it here; where there is no Menlo the page's own choice still stands. */
+@font-face {
+  font-family: "DejaVu Sans Mono"; font-weight: 400;
+  src: local("Menlo-Regular"), local("Menlo Regular"), local("Menlo"), local("DejaVu Sans Mono");
+}
+@font-face {
+  font-family: "DejaVu Sans Mono"; font-weight: 700;
+  src: local("Menlo-Bold"), local("Menlo Bold"), local("DejaVu Sans Mono Bold");
+}
+@font-face {
+  font-family: VesperMono; font-weight: 400;
+  src: local("Menlo-Regular"), local("Menlo Regular"), local("Menlo"), local("DejaVu Sans Mono"), local("Liberation Mono"), local("Courier New");
+}
+@font-face {
+  font-family: VesperMono; font-weight: 700;
+  src: local("Menlo-Bold"), local("Menlo Bold"), local("DejaVu Sans Mono Bold"), local("Liberation Mono Bold"), local("Courier New Bold");
+}
+
+/* MENU is small in most layouts (24 to 32 points tall). Its look stays; what a finger can hit is
+   44 points tall and a little wider than it. */
+html.vesper-app #pause-button { position: relative; }
+html.vesper-app #pause-button::before {
+  content: ""; position: absolute; left: -6px; right: -6px; top: 50%; height: 44px; transform: translateY(-50%);
+}
+
 /* Speech runs on the Pi; the app has no microphone modes yet, so their button is not shown. */
 html.vesper-app #mic-button { display: none; }
-/* "SIMULATOR" is the browser copy's word, and there is no space bar. */
+/* "SIMULATOR" and "SIMULATED NODE" are the browser copy's words (the dot beside them stays), and
+   there is no space bar. */
+html.vesper-app #link-text { display: none; }
 html.vesper-app #mode-tag { font-size: 0; }
 html.vesper-app #mode-tag::after { content: "HANDHELD"; font-size: 8px; }
 html.vesper-app #control-secondary { font-size: 0; }

@@ -159,8 +159,9 @@ let browser;
         // In pictures: with the game's own drawing hidden, the game's area and the crease's band
         // are the same pixels with the lamps off and all white.
         const regions = await page.evaluate((band) => {
-          const s = document.getElementById("game-stage").getBoundingClientRect();
-          const out = [{ x: s.left, y: s.top, width: s.width, height: s.height }];
+          // The picture inside the canvas (letterboxed sideways, where its margins hold the case plates).
+          const c = document.getElementById("game").getBoundingClientRect(), k = Math.min(c.width / 960, c.height / 540);
+          const out = [{ x: c.left + (c.width - 960 * k) / 2 + 1, y: c.top + (c.height - 540 * k) / 2 + 1, width: 960 * k - 2, height: 540 * k - 2 }];
           if (band) out.push({ x: 0, y: band[0], width: innerWidth, height: band[1] - band[0] });
           return out.map((r) => ({ x: Math.floor(r.x), y: Math.floor(r.y), width: Math.floor(r.width), height: Math.floor(r.height) }));
         }, band);
@@ -178,7 +179,7 @@ let browser;
         const at = await page.evaluate((sideways) => {
           const target = sideways ? document.getElementById("game-stage") : document.getElementById("arcade");
           const b = target.getBoundingClientRect();
-          return { x: b.left + 24, y: b.top + 12 };
+          return { x: b.left + b.width * (sideways ? 0.5 : 0.36), y: b.top + 12 };
         }, sideways);
         const from = await page.evaluate(() => window.__posted.length);
         await page.touchscreen.tap(at.x, at.y);

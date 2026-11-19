@@ -15,6 +15,7 @@
 //   { t: "remove", key }  { t: "clear" }
 //   { t: "imported", scores, progress }  the console's saves were taken in
 //   { t: "press", down }       the on-screen button or the game was pressed or let go
+//   { t: "knock", side }       a case plate or CASE key was tapped (side "left", "right" or null)
 //   { t: "ready" }             the console has loaded
 //
 // This first part is what the others share:

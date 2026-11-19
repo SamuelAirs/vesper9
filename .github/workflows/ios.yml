@@ -61,6 +61,8 @@ jobs:
           grep -q 'id="vesper-app-css"' Web/index.html
           grep -q 'id="vesper-app-js"' Web/index.html
           grep -q 'VESPER_STANDALONE' Web/index.html
+          # The Stacks' books ride beside the page.
+          test -s Web/books/shelf.js
           ls -l Web
 
       - name: Install XcodeGen

@@ -27,6 +27,8 @@ Open **`VESPER-9-Simulator.html`** in a desktop browser. It is self-contained an
 
 On a phone, tablet or Steam Deck, open the published copy at **https://samuelairs.github.io/vesper9/** (rebuilt from `main` by `.github/workflows/pages.yml`). Tap the on-screen button or the game itself; on iOS, Share › Add to Home Screen opens it full screen. Saves stay in that browser and are separate from the Pi's.
 
+An iPhone app is being built from the same page: [VESPER-9 on iPhone](docs/IOS.md) says what is written, what has been checked and what has never run.
+
 | Gesture | Dashboard, instruments and menus | Inside a game |
 | --- | --- | --- |
 | Short press | Next item | The game's action |

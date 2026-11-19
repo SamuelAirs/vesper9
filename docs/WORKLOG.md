@@ -892,3 +892,35 @@ and firmware description, corrected GPIO map, native USB connection, wire
 protocol and concrete audio/tap/recovery implementation lessons. The last device
 confirmation date remains a single line. The main-checkout copy is updated too;
 no device access or runtime changes are part of this edit.
+
+## iPhone app, first pass (2026-11-18, branch `ios-app`)
+
+Sam asked for VESPER-9 as an iPhone app. Decision: no rewrite. The app is a small
+Swift shell around the standalone console's own page, so every game and instrument
+comes along and the engine stays one code base. The branch is cut from
+`codex/highbar-momentum` (`f9ec334`), the source the Pi runs. Nothing in `web/`,
+`vesper/` or `firmware/` is changed; the app's layer lives in `ios/` and is added to
+the page when `ios/build-web.py` builds it. `docs/IOS.md` is the guide.
+
+Measured in Chrome on the Windows host (not WebKit, not a phone): the unchanged
+page at 852 x 393 falls back to the long scrolling console because play mode
+starts at 700 x 400; at 669 x 951 (iPhone Duo open and upright) the game straddles
+the middle of the display, where the fold is. The layer therefore lays a sideways
+phone out at the smallest size that has play mode (868 x 400, shown at 98%), and
+adds an upright play layout: the game on top, the button's area below, the game's
+row ending at half the display's height on a squarer screen. With that, the game
+is 601 x 338 on a sideways phone, 393 x 221 upright, and 627 x 353 above the fold
+on the Duo. `tests/ios-page-browser.cjs` (75 checks, in `scripts/check-browser.py`)
+and `tests/test_ios_page.py` hold this; both passed. The broad Python and
+JavaScript suites were not rerun: nothing they cover changed.
+
+Saves: the console's one storage item is mirrored to a file the app owns, and
+restored only when the web view has lost it, so an older copy cannot replace newer
+progress. Checked with a stand-in for the app in Chrome; the Swift side is unrun.
+
+Not claimed: the Swift, the project file and the workflow have never been
+compiled, and nothing has run in a simulator or on a phone. Pushing this branch
+(which also publishes the 221 commits after `main`), the App Store Connect record
+and the signing secrets wait for Sam's word. Open after that: case taps (no second
+input on a phone yet), speech, books in The Stacks, timers ending in the
+background, sound under the silent switch.

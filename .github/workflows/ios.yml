@@ -1,0 +1,217 @@
+# VESPER-9 for iPhone, built on a GitHub-hosted Mac (docs/IOS.md). Every push that changes ios/
+# or this file builds the console's page (ios/build-web.py), compiles the app for the simulator
+# and takes a few pictures of it there, kept with the build log as the run's artifact. A commit
+# whose message contains [testflight] also signs the app and uploads it to TestFlight (a manual
+# run has a box for it), once the app's record exists in App Store Connect and the four signing
+# secrets are set on this repository (the same four as Sam's other apps: APPLE_TEAM_ID,
+# APP_STORE_CONNECT_KEY_ID, APP_STORE_CONNECT_ISSUER_ID, APP_STORE_CONNECT_KEY). Xcode signs in
+# the cloud with that App Store Connect API key. The build number is the run number.
+name: iOS
+
+on:
+  push:
+    paths: ['ios/**', '.github/workflows/ios.yml']
+  workflow_dispatch:
+    inputs:
+      testflight:
+        description: Upload VESPER-9 to TestFlight
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# A newer push cancels the older build of the same branch.
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios:
+    runs-on: xcode-27
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+        working-directory: ios
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      HOMEBREW_NO_INSTALL_CLEANUP: 1
+      HAS_SIGNING: ${{ secrets.APP_STORE_CONNECT_KEY != '' && secrets.APPLE_TEAM_ID != '' }}
+      WANT_TESTFLIGHT: ${{ github.event.inputs.testflight == 'true' || contains(github.event.head_commit.message, '[testflight]') }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Select the newest Xcode 27
+        run: |
+          ls -d /Applications/Xcode*.app
+          # The plain X.Y names (Xcode_27.2.app), not the generic Xcode_27.app link.
+          x=$(ls -d /Applications/Xcode_27.*.app 2>/dev/null | grep -E 'Xcode_27\.[0-9]+\.app$' | sort -V | tail -n 1 || true)
+          if [ -n "$x" ]; then sudo xcode-select -s "$x"; fi
+          xcodebuild -version
+          echo "::notice title=Xcode::$(xcodebuild -version | tr '\n' ' ')"
+          mkdir -p out
+
+      - name: Build the console's page
+        run: |
+          set -euo pipefail
+          python3 build-web.py
+          test -s Web/index.html
+          grep -q 'id="vesper-app-css"' Web/index.html
+          grep -q 'id="vesper-app-js"' Web/index.html
+          grep -q 'VESPER_STANDALONE' Web/index.html
+          ls -l Web
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate the project
+        run: |
+          set -euo pipefail
+          xcodegen generate
+          # The app's Info.plist, checked before anything is built.
+          check() {
+            local key=$1 want=$2
+            local got
+            got=$(/usr/libexec/PlistBuddy -c "Print :$key" Vesper9/Info.plist 2>/dev/null || echo "(missing)")
+            echo "Info.plist $key: $got"
+            [ "$got" = "$want" ] || { echo "::error::Info.plist: $key is '$got', not '$want'"; exit 1; }
+          }
+          check CFBundleDisplayName VESPER-9
+          check UIStatusBarHidden true
+          check UISupportedInterfaceOrientations:3 UIInterfaceOrientationLandscapeRight
+          check ITSAppUsesNonExemptEncryption false
+
+      - name: Build for the simulator
+        run: |
+          set -o pipefail
+          xcodebuild -project Vesper9.xcodeproj -scheme Vesper9 -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/dd \
+            CODE_SIGNING_ALLOWED=NO OTHER_SWIFT_FLAGS='$(inherited) -continue-building-after-errors' \
+            build 2>&1 | tee out/build.log | grep -E '(error|warning): |\*\* BUILD' || true
+          grep -q '\*\* BUILD SUCCEEDED \*\*' out/build.log || {
+            grep -E 'error: ' out/build.log | sort -u | head -n 60 | while read -r line; do echo "::error::$line"; done
+            exit 1
+          }
+          # The console's page must ride in the app.
+          test -s build/dd/Build/Products/Debug-iphonesimulator/Vesper9.app/Web/index.html || {
+            echo "::error::Vesper9.app has no Web/index.html"
+            exit 1
+          }
+
+      - name: Pictures on the simulator
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          app=build/dd/Build/Products/Debug-iphonesimulator/Vesper9.app
+          id=com.samuelairs.vesper9
+          # The iPhone Duo on the newest runtime that supports it, else the newest iPhone Pro on
+          # the newest runtime.
+          pick=$(xcrun simctl list runtimes -j | python3 -c '
+          import json, sys
+          best = None
+          for r in json.load(sys.stdin)["runtimes"]:
+              if r.get("platform") != "iOS" or not r.get("isAvailable"):
+                  continue
+              t = r.get("supportedDeviceTypes", [])
+              duo = [d for d in t if "duo" in d["name"].lower()]
+              phones = [d for d in t if d["name"].startswith("iPhone") and "Pro" in d["name"]]
+              pick = duo or phones[-1:]
+              if not pick:
+                  continue
+              key = (1 if duo else 0, [int(p) for p in r["version"].split(".")])
+              if best is None or key > best[0]:
+                  best = (key, pick[0]["identifier"], r["identifier"])
+          print(best[1] + " " + best[2])')
+          dt=${pick%% *}
+          rt=${pick##* }
+          echo "::notice title=Simulator::$dt on $rt"
+          udid=$(xcrun simctl create Vesper9 "$dt" "$rt")
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid" -b
+          xcrun simctl ui "$udid" appearance dark || true
+          xcrun simctl install "$udid" "$app"
+          # simctl now and then hangs; nothing here may take more than 20 s.
+          t() { perl -e 'alarm shift @ARGV; exec @ARGV' "$@"; }
+          # A simulator with several displays (the Duo) refuses a picture without --display, and
+          # its error lists them.
+          displays=$( { t 20 xcrun simctl io "$udid" screenshot --type=png /tmp/x.png 2>&1 || true; } | sed -n 's/.*--display=\([0-9]*\).*/\1/p' | tr '\n' ' ')
+          [ -n "$displays" ] || displays=0
+          echo "displays: $displays"
+          shot() {
+            local name=$1
+            shift
+            t 20 xcrun simctl terminate "$udid" "$id" >/dev/null 2>&1 || true
+            t 20 xcrun simctl launch "$udid" "$id" "$@" || true
+            sleep 7
+            for d in $displays; do
+              if [ "$d" = 0 ]; then
+                t 20 xcrun simctl io "$udid" screenshot --type=png "$PWD/out/$name.png" || true
+              else
+                t 20 xcrun simctl io "$udid" screenshot --type=png --display="$d" "$PWD/out/$name-display$d.png" || true
+              fi
+            done
+          }
+          # The app's first launch is slow; warm it up so the first picture isn't missed.
+          t 20 xcrun simctl launch "$udid" "$id" || true
+          sleep 8
+          shot 1-dashboard
+          shot 2-orbit -VesperLaunch orbit
+          shot 3-highbar -VesperLaunch highbar
+          t 30 xcrun simctl spawn "$udid" log show --last 3m --style compact --predicate 'process == "Vesper9"' > out/app.log 2>&1 || true
+          ls -l out
+
+      - name: Keep the pictures and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-${{ github.run_number }}
+          path: ios/out
+          retention-days: 14
+
+      - name: Archive and upload to TestFlight
+        if: env.HAS_SIGNING == 'true' && env.WANT_TESTFLIGHT == 'true'
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_KEY: ${{ secrets.APP_STORE_CONNECT_KEY }}
+        run: |
+          set -euo pipefail
+          key="$RUNNER_TEMP/AuthKey.p8"
+          printf '%s\n' "$ASC_KEY" > "$key"
+          trap 'rm -f "$key"' EXIT
+          auth=(-allowProvisioningUpdates -authenticationKeyPath "$key" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key><string>app-store-connect</string>
+              <key>destination</key><string>upload</string>
+              <key>teamID</key><string>$APPLE_TEAM_ID</string>
+              <key>signingStyle</key><string>automatic</string>
+              <key>testFlightInternalTestingOnly</key><false/>
+              <key>manageAppVersionAndBuildNumber</key><false/>
+              <key>uploadSymbols</key><true/>
+          </dict>
+          </plist>
+          EOF
+          # An unsigned archive (as Sam's other apps do): archiving with automatic signing would
+          # want a development profile, which needs a registered device. The export below signs
+          # it for the App Store in the cloud.
+          xcodebuild -project Vesper9.xcodeproj -scheme Vesper9 -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath build/Vesper9.xcarchive \
+            -derivedDataPath build/dd-release \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            archive 2>&1 | tee "$RUNNER_TEMP/archive.log" | tail -n 30
+          grep -q '\*\* ARCHIVE SUCCEEDED \*\*' "$RUNNER_TEMP/archive.log"
+          xcodebuild -exportArchive -archivePath build/Vesper9.xcarchive \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath "$RUNNER_TEMP/export" "${auth[@]}"
+          echo "::notice title=TestFlight::VESPER-9 build ${{ github.run_number }} uploaded; it shows in TestFlight after Apple's processing (usually 5-30 minutes)"
+
+      - name: No TestFlight upload
+        if: env.WANT_TESTFLIGHT == 'true' && env.HAS_SIGNING != 'true'
+        run: echo "::notice title=TestFlight::not uploaded - the signing secrets are not set yet"

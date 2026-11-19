@@ -1,0 +1,60 @@
+# VESPER-9 for iPhone and iPad: the Xcode project, generated on the build Mac with XcodeGen
+# (`xcodegen generate` in this folder). Nothing generated is kept in git.
+#
+# The app is a small Swift shell (Vesper9/) around the console's own page: `python3
+# ios/build-web.py` writes it to Web/index.html before the project is generated, and the Web
+# folder rides in the app as it is. docs/IOS.md has the whole picture.
+name: Vesper9
+options:
+  bundleIdPrefix: com.samuelairs
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    # iPhone and iPad.
+    TARGETED_DEVICE_FAMILY: "1,2"
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    DEAD_CODE_STRIPPING: YES
+targets:
+  Vesper9:
+    type: application
+    platform: iOS
+    scheme: {}
+    sources:
+      - path: Vesper9
+        # The generated Info.plist isn't a resource.
+        excludes:
+          - Info.plist
+      # The console's page, copied into the app as the folder "Web".
+      - path: Web
+        type: folder
+        buildPhase: resources
+    info:
+      path: Vesper9/Info.plist
+      properties:
+        CFBundleDisplayName: VESPER-9
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        UILaunchScreen: {}
+        # All four: App Store Connect refuses fewer (iPhone apps also run on iPad, multitasking).
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIStatusBarHidden: true
+        UIViewControllerBasedStatusBarAppearance: true
+        UIUserInterfaceStyle: Dark
+        # Nothing here encrypts anything: no network, no accounts.
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.samuelairs.vesper9
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: NO

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- VESPER-9's app icon: the console's own mark (the page's favicon) on its screen colour.
+       The PNG in Vesper9/Assets.xcassets/AppIcon.appiconset is this file drawn at 1024 x 1024,
+       saved without transparency (docs/IOS.md, "The icon"). iOS rounds the corners itself. -->
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="38%" r="75%">
+      <stop offset="0" stop-color="#22302a"/>
+      <stop offset="0.6" stop-color="#111914"/>
+      <stop offset="1" stop-color="#0a0f0c"/>
+    </radialGradient>
+    <pattern id="lines" width="8" height="8" patternUnits="userSpaceOnUse">
+      <rect y="6" width="8" height="2" fill="#000" opacity="0.16"/>
+    </pattern>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#glow)"/>
+  <g fill="none" stroke="#d6efa4" stroke-width="40" stroke-linejoin="miter" stroke-linecap="butt">
+    <circle cx="512" cy="512" r="300"/>
+    <path d="M335 390 L512 744 L689 390 M512 212 V390"/>
+  </g>
+  <circle cx="757" cy="300" r="30" fill="#e7b879"/>
+  <rect width="1024" height="1024" fill="url(#lines)"/>
+</svg>

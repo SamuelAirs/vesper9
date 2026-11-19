@@ -164,7 +164,15 @@ enum Crease {
         let said: Hinge = FoldDemo.fold != nil ? (FoldDemo.half ? .partlyOpen : .flat) : hinge
         let posture = Posture.of(crease: reading?.frame, active: reading?.active ?? false, hinge: said)
         let safe = FoldDemo.insets ?? window.safeAreaInsets
-        let folding = FoldDemo.fold != nil || hinge != Hinge.none || reading != nil || safe.left != safe.right
+        let folding: Bool
+        if let faked = FoldDemo.fold {
+            // The pretend fold is on an iPad, whose status bar is a row along the top: the Duo's
+            // too when turned upright, but not opened like a book, where it is the column at
+            // the right. The pretend book goes without, its column left empty.
+            folding = faked == "across"
+        } else {
+            folding = hinge != Hinge.none || reading != nil || safe.left != safe.right
+        }
         return Fold(posture: posture, crease: posture == .plain ? nil : reading?.frame, window: window.bounds.size,
                     safe: safe, folding: folding)
     }

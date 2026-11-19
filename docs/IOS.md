@@ -7,17 +7,21 @@ built first for iPhone Duo.
 ## Where it stands (2026-11-19)
 
 - **Written and checked on the PC:** the page the app shows, in Chrome at iPhone, iPhone Duo and
-  iPad sizes, with the Duo's fold given as the app gives it: seven browser checks, 1,963 checks in
+  iPad sizes, with the Duo's fold given as the app gives it: seven browser checks, 1,964 checks in
   all, eight Python tests, and the engine's own JavaScript tests (1,666). Twelve of the engine's
   Python test files need the service's `aiohttp`, which this PC does not have; GitHub's
   Regressions workflow runs them on a push (see "Checks on the PC").
-- **Compiled, and run on a simulator** (2026-11-19, GitHub's Mac, Xcode 27): the Swift shell
-  (`ios/Vesper9/`) compiled at the first attempt without a warning, and the app ran in WebKit on
-  the iPhone Duo's simulator (iOS 27.2), closed. That run's pictures show the page, its type
-  (Menlo), the plain-phone layouts, the handheld edition, the case plates and the text floor.
-- **Not seen yet:** the fold's layouts in WebKit. The first run's picture step ran out of time
-  before the pretend-fold pictures (two slow simulators), and was rewritten as two steps that
-  cannot fail a build. Nor the status bar on a folding phone, which was added after that run.
+- **Compiled, and run on simulators** (2026-11-19, GitHub's Mac, Xcode 27, two runs): the
+  Swift shell (`ios/Vesper9/`) compiled at the first attempt without a warning, and the app ran
+  in WebKit. Run 1, the iPhone Duo's simulator (iOS 27.2), closed: the page, its type (Menlo),
+  the plain-phone layouts, the handheld edition, the case plates and the text floor. Run 2, the
+  Duo's postures with a pretend fold on an iPad: the laptop (dashboard, Orbit Lock, Cadence),
+  opened and turned upright (High Bar), the book (dashboard, Orbit Lock), and a plain iPad. They
+  are laid out as in Chrome: the game's picture alone in the upper half, nothing in the crease's
+  band, everything touched below it.
+- **Not seen yet:** the clock and battery in the closed Duo's status column. Run 2's pictures
+  of the closed phone were lost (the simulator did not say which displays it has; asked three
+  times from run 3 on).
 - **Not done at all:** nothing has run on a phone. Haptics, sound, the real fold, and saved
   progress across launches are untried.
 - **A review of every game and instrument on the phone** (2026-11-19) is in Sam's notes:
@@ -30,7 +34,7 @@ built first for iPhone Duo.
 | --- | --- |
 | `ios/build-web.py` | Builds the page: the standalone console (`scripts/build-demo.py`) with the app's layer added to its head, then whatever `ios/extras/*.py` write beside it. Output in `ios/Web/` (not in git). |
 | `ios/layer/*.css` | The app's layouts and look, all under `html.vesper-app`, added in the order of their names: `10-base` (edge to edge, the type), `20-play` (games), `25-phone` (every other screen on a plain phone), `30-fold` (the Duo's crease across), `50-case` (the case plates), `70-lamps` (the lamps' light). The console on the Pi and the browser simulator never load them. |
-| `ios/layer/*.js` | Added the same way: `10-core` (what the parts share), `20-saves`, `30-fit` (the viewport and the fold), `40-button`, `50-case`, `15-edition` (the handheld edition), `60-library` (The Stacks' books), `70-lamps`, `80-text` (the games' text floor), `90-ready`. |
+| `ios/layer/*.js` | Added the same way: `10-core` (what the parts share), `20-saves`, `30-fit` (the viewport and the fold), `40-button`, `45-timers` (the timers' line in a game), `50-case`, `15-edition` (the handheld edition), `60-library` (The Stacks' books), `70-lamps`, `80-text` (the games' text floor), `90-ready`. |
 | `web/apps/edition.js`, `web/engine/draw.js` | The engine's two additions, which do nothing unless asked: an edition (what to hide, which words to use) and a floor under the games' text. |
 | `ios/extras/books.py` | Writes The Stacks' fifteen books into `Web/books/` (47 scripts, 7.4 MB). |
 | `ios/Vesper9/Console.swift` | One full-screen web view. Hands the page its saved items, keeps its copy of them, answers the button and the case with haptics, tells the page the window and the fold. |
@@ -196,8 +200,9 @@ outer display, the closed phone as it is. For the postures the app is asked for 
 (`-VesperFold across|down`, `-VesperHinge half`), which also makes its window the Duo's size;
 they are taken on an iPad, whose screen is large enough to hold it. The pictures never fail a
 build: every `simctl` call has a limit, each of the two steps stops before its time is up, and
-its log has the time of each stage (a new simulator can take three minutes to start and four to
-install the app). The pictures and the build log are the run's artifact. This repository is
+its log has the time of each stage (a new simulator can take three minutes to start and up to
+five to install the app). The pretend book goes without the status bar: the iPad's is a row
+along the top, where the Duo's is the column at the right. The pictures and the build log are the run's artifact. This repository is
 public, so GitHub's Mac minutes cost nothing.
 
 TestFlight (a commit message with `[testflight]`, or the box on a manual run) needs, once:
@@ -229,7 +234,7 @@ python scripts/check.py                                         # the engine's o
 | --- | --- | --- |
 | `test_ios_page` | The page is built right; the layer names only what the page has; Swift and the layer use the same words; a console database is read as the service gives it. | 4 tests |
 | `test_ios_books` | The books build writes the same bytes twice; every book is on the shelf; chapters equal the service's. | 4 tests |
-| `ios-page-browser` | The play layouts, the Duo's crease in every screen, folding mid-game, the button's messages, the saves. | 134 |
+| `ios-page-browser` | The play layouts, the Duo's crease in every screen, folding mid-game, the button's messages, the timers' line, the saves. | 135 |
 | `ios-case-browser` | The case plates and keys in every case, held with the button, turning mid-game. | 167 |
 | `ios-phone-browser` | Every screen one screen on a plain phone; nothing else moved. | 553 |
 | `ios-lamps-browser` | The light follows the lamps, moves nothing and takes no touch. | 527 |

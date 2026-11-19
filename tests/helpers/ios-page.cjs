@@ -5,7 +5,10 @@
 // window.__vesperNative is what the app hands over before the page runs, and vesperApp.fold() is
 // called as the app calls it. Sam's iPhone Duo: inner display 951 x 669 points, the crease a
 // 40-point band at 455.5, a status row of 82 at the top when turned upright, a status column of 84
-// at the right when opened like a book, the home bar 34; closed, the outer display is 466 x 678.
+// at the right when opened like a book, the home bar 34; closed, the outer display is 466 x 678
+// with the same status column at its right (seen on the Duo's simulator in the first build on a
+// Mac, and measured on Sam's Duo by FoldForm), so the page there is 382 wide. Closed and held
+// sideways has not been measured: that case's safe areas are a guess.
 // None of this runs Swift, WebKit or a phone: see docs/IOS.md.
 const assert = require("node:assert/strict");
 const fs = require("node:fs"), path = require("node:path"), url = require("node:url");
@@ -22,7 +25,7 @@ const CASES = {
   "phone-sideways": plain(852, 393, [0, 59, 21, 59]),
   "small-phone-sideways": plain(667, 375, [0, 0, 0, 0]),
   "ipad-upright": plain(820, 1180, [24, 0, 20, 0]),
-  "duo-closed": plain(466, 678, [50, 0, 34, 0]),
+  "duo-closed": plain(466, 678, [0, 84, 34, 0]),
   "duo-closed-sideways": plain(678, 466, [0, 50, 21, 50]),
   "duo-laptop": across("laptop"),
   "duo-open-upright": across("openTall"),

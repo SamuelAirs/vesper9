@@ -143,13 +143,20 @@ jobs:
           t 300 xcrun simctl boot "$udid"
           t 300 xcrun simctl bootstatus "$udid" -b
           say "booted"
-          t 30 xcrun simctl ui "$udid" appearance dark || true
-          say "appearance set"
           t 420 xcrun simctl install "$udid" "$app"
           say "installed"
           # A simulator with several displays (the Duo) refuses a picture without --display, and
-          # its error lists them.
-          displays=$( { t 20 xcrun simctl io "$udid" screenshot --type=png /tmp/x.png 2>&1 || true; } | sed -n 's/.*--display=\([0-9]*\).*/\1/p' | tr '\n' ' ')
+          # its error lists them. (Asked up to three times: in the second run the one question
+          # went unanswered for 20 s, and every picture after it was refused.)
+          displays=""
+          for try in 1 2 3; do
+            rm -f /tmp/x.png
+            answer=$( { t 45 xcrun simctl io "$udid" screenshot --type=png /tmp/x.png 2>&1 || true; } )
+            displays=$(printf '%s\n' "$answer" | sed -n 's/.*--display=\([0-9]*\).*/\1/p' | tr '\n' ' ')
+            if [ -n "$displays" ]; then break; fi
+            if [ -s /tmp/x.png ]; then displays=0; break; fi
+            say "the displays did not answer (try $try)"
+          done
           [ -n "$displays" ] || displays=0
           say "displays: $displays"
           # The Duo's simulator starts folded shut and nothing opens it (simctl has no command):
@@ -229,8 +236,6 @@ jobs:
           t 300 xcrun simctl boot "$pad"
           t 300 xcrun simctl bootstatus "$pad" -b
           say "booted"
-          t 30 xcrun simctl ui "$pad" appearance dark || true
-          say "appearance set"
           t 420 xcrun simctl install "$pad" "$app"
           say "installed"
           # A new simulator answers its first launch slowly, or not at all.

@@ -85,7 +85,7 @@ let browser;
       check(m.lights.x >= sal - 1 && m.stage.r <= W - sar + 1, `${name}: lamps and game clear of the corners and the status column`);
     } else if (!m.arcade || !m.cap) check(false, `${name}: the button is shown`);
     else {
-      check(m.arcade.w >= W - 2 && m.arcade.h >= 100, `${name}: the button's area is the full width and ${m.arcade.h} tall`);
+      check(m.arcade.w >= W - sal - sar - 2 && m.arcade.r <= W - sar + 1 && m.arcade.h >= 100, `${name}: the button's area is the full width between the side safe areas and ${m.arcade.h} tall`);
       check(m.cap.y >= m.arcade.y - 1 && m.cap.b <= m.arcade.b + 1, `${name}: the cap (${m.cap.w}) is inside the button's area`);
       check(m.copy.b <= H - sab + 1, `${name}: hints above the home bar`);
       check(m.hud.b <= m.readout.y + 1 && m.readout.b <= m.arcade.y + 1 && m.arcade.b <= m.copy.y + 1, `${name}: rows in order, none overlapping`);
@@ -96,7 +96,7 @@ let browser;
         check(Math.min(m.lights.y, m.heading.y, m.hud.y) >= band[1] - 1, `${name}: play: lamps, title and numbers are below the crease`);
       } else {
         check(m.heading.y >= sat - 1 && m.lights.y >= sat - 1, `${name}: title and lamps below the status area`);
-        check(m.stage.w === W && m.stage.b <= m.hud.y + 1, `${name}: the game is the full width, above its numbers`);
+        check(m.stage.w === W - sal - sar && m.stage.r <= W - sar + 1 && m.stage.b <= m.hud.y + 1, `${name}: the game is the full width between the side safe areas, above its numbers`);
       }
     }
 
@@ -134,12 +134,22 @@ let browser;
     await page.evaluate((told) => vesperApp.fold(told), CASES["duo-closed"].told);
     await sleep(400);
     const closed = await measure(page);
-    check(closed.posture === "plain" && closed.fold === "" && closed.stage.w === 466 && closed.heading.b <= closed.stage.y + 1, "closing the Duo mid-game: the plain upright layout on the outer display");
+    check(closed.posture === "plain" && closed.fold === "" && closed.stage.w === 466 - 84 && closed.heading.b <= closed.stage.y + 1, "closing the Duo mid-game: the plain upright layout on the outer display");
     await page.setViewportSize({ width: 669, height: 951 });
     await page.evaluate((told) => vesperApp.fold(told), CASES["duo-laptop"].told);
     await sleep(400);
     const laptop = await measure(page);
     check(laptop.posture === "laptop" && Math.abs(laptop.picture.b - open1.picture.b) < 1 && laptop.picture.w === open1.picture.w, "opening it again: the game is back above the crease");
+    // (Here, not on a phone: under 560 wide the page never shows the line.)
+    const timersLine = await page.evaluate(async () => {
+      const shown = () => getComputedStyle(document.querySelector(".footer-right")).display !== "none";
+      const idle = shown();
+      // As the console writes it while a timer runs (web/main.js).
+      document.getElementById("timer-badge").textContent = "1 TIMER / 0:30";
+      await Promise.resolve();
+      return { idle, running: shown() };
+    });
+    check(timersLine.idle === false && timersLine.running === true, `in a game the timers' line shows only while a timer runs ${JSON.stringify(timersLine)}`);
     const backing = await page.evaluate(() => document.getElementById("game").width);
     check(backing >= 960, `the canvas is drawn at the size it is shown (${backing} pixels wide)`);
     await context.close();

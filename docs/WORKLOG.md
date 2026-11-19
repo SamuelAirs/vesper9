@@ -1060,3 +1060,26 @@ Changed after it:
   `ConsoleView`'s binding), where its column or row is kept clear anyway;
   hidden on every other phone as before. Uncompiled until the push that
   follows.
+
+## iPhone app: the fold's layouts in WebKit (2026-11-19, night)
+
+Run 2 of the iOS workflow (`e7b010f`) was green: the status-bar change compiled,
+and the pretend-fold pictures were taken on an iPad for the first time.
+
+- **Seen:** the laptop's dashboard, Orbit Lock and Cadence, High Bar opened and
+  turned upright, the book's dashboard and Orbit Lock, and a plain iPad. Each is
+  laid out as the Chrome checks have it: the picture alone in the upper half,
+  under the status row; nothing in the crease's band; lamps, title, MENU, the
+  numbers, the button and the case plates below. The status row shows the clock.
+- **Lost:** the closed phone's pictures. The Duo's simulator did not answer the
+  one question that lists its displays within 20 s, so every picture after it
+  was asked for without a display and refused. Now asked up to three times, 45 s
+  each. `simctl ui appearance dark` hung for 30 s in both steps and is gone (the
+  app is dark by itself).
+- **Wrong in the pictures only:** the pretend book showed the iPad's status row
+  over the masthead. The Duo's status bar there is the column at the right, so
+  the pretend book now goes without (`Fold.swift`).
+- **Wrong in the app:** in a game "NO ACTIVE TIMERS" sat on the top edge of the
+  button. The timers' line now shows in a game only while a timer runs
+  (`ios/layer/45-timers.js`, one rule in `20-play.css`, one check). In Chrome on
+  the PC: 1,964 checks in the seven browser checks.

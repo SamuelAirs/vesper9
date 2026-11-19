@@ -110,3 +110,7 @@
   html.vesper-app body.playing #toast { top: auto; bottom: calc(var(--sab) + 12px); }
 }
 
+
+/* In a game the timers' line shows only while a timer runs (45-timers.js): "NO ACTIVE TIMERS"
+   says nothing there, and it sat on the button's edge. */
+html.vesper-app:not(.timers-running) .console.playing .footer-right { display: none; }
